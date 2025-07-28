@@ -1,0 +1,8 @@
+# Project coding preferences:
+- All Python generated code must use 4 spaces and Black formatting.
+- Always add Google-style docstrings to every new python function.
+- Summarize any code change in a commit according to the Conventional Commits standard. Use present tense, max 80 chars in title.
+- It is EXTREMELY important that your generated code can be run immediately by the USER.
+- Always ensure dependencies are included and code is properly structured.
+- Always add Doc Comment doc strings to every new Swift function. Prefer the /// commenting style.
+- Do not remove comments from the source code if the comments are accurate.

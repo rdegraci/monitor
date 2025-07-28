@@ -1,0 +1,258 @@
+[
+  {
+    "command": "ls",
+    "description": ""
+  },
+  {
+    "command": "cat",
+    "description": ""
+  },
+  {
+    "command": "rm"
+  },
+  {
+    "command": "touch"
+  },
+  {
+    "command": "cd"
+  },
+  {
+    "command": "git"
+  },
+  {
+    "command": "clear"
+  },
+  {
+    "command": "man"
+  },
+  {
+    "command": "pwd"
+  },
+  {
+    "command": "cp"
+  },
+  {
+    "command": "mv"
+  },
+  {
+    "command": "mkdir"
+  },
+  {
+    "command": "rmdir"
+  },
+  {
+    "command": "less"
+  },
+  {
+    "command": "head"
+  },
+  {
+    "command": "tail"
+  },
+  {
+    "command": "grep"
+  },
+  {
+    "command": "find"
+  },
+  {
+    "command": "chmod"
+  },
+  {
+    "command": "chown"
+  },
+  {
+    "command": "ps"
+  },
+  {
+    "command": "top"
+  },
+  {
+    "command": "echo"
+  },
+  {
+    "command": "ssh"
+  },
+  {
+    "command": "psql"
+  },
+  {
+    "command": "subl"
+  },
+  {
+    "command": "ai"
+  },
+  {
+    "command": "wget"
+  },
+  {
+    "command": "curl"
+  },
+  {
+    "command": "vi"
+  },
+  {
+    "command": "vim"
+  },
+  {
+    "command": "python"
+  },
+  {
+    "command": "pip",
+    "expansion": "function _pip() { pip $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _pip",
+    "description": "expansion: shell function - passes through up to 9 positional"
+  },
+  {
+    "command": "conda",
+    "expansion": "function _conda() { conda $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _conda"
+  },
+  {
+    "command": "jobs"
+  },
+  {
+    "command": "emacs"
+  },
+  {
+    "command": "ping",
+    "expansion": "function _ping() { ping -c 5 $1; }; _ping"
+  },
+  {
+    "command": "zsh"
+  },
+  {
+    "command": "gitx"
+  },
+  {
+    "command": "bin/rails"
+  },
+  {
+    "command": "bin/rake"
+  },
+  {
+    "command": "rake"
+  },
+  {
+    "command": "gem"
+  },
+  {
+    "command": "bundle"
+  },
+  {
+    "command": "rails"
+  },
+  {
+    "command": "foreman"
+  },
+  {
+    "command": "reset"
+  },
+  {
+    "command": "git-log-tree",
+    "expansion": "git log --graph --oneline --all"
+  },
+  {
+    "command": "glt",
+    "expansion": "git log --graph --oneline --all"
+  },
+  {
+    "command": "doccomment",
+    "expansion": "fabric --pattern doc_comment -s"
+  },
+  {
+    "command": "doccomment2code",
+    "expansion": "fabric --pattern doc_comment2code -s"
+  },
+  {
+    "command": "doccomment2spec",
+    "expansion": "fabric --pattern doc_comment2spec -s"
+  },
+  {
+    "command": "spec2code",
+    "expansion": "fabric --pattern spec2code -s"
+  },
+  {
+    "command": "diff-code-review",
+    "expansion": "~/bin/code-review-latest.sh"
+  },
+  {
+    "command": "git-log",
+    "expansion": "git log --oneline --decorate"
+  },
+  {
+    "command": "git-diff",
+    "expansion": "git diff --color HEAD"
+  },
+  {
+    "command": "git-stash-diff",
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff"
+  },
+  {
+    "command": "gsd",
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff"
+  },
+  {
+    "command": "heroku"
+  },
+  {
+    "command": "wc"
+  },
+  {
+    "command": "patch"
+  },
+  {
+    "command": "monitor"
+  },
+  {
+    "command": "scp"
+  },
+  {
+    "command": "rsync"
+  },
+  {
+    "command": "rsync-server",
+    "expansion": "function _rsync_server() { [ -z \"$1\" ] && return; rsync -avz ./ rdegraci@192.168.0.250:GIT_REPOS/$1; }; _rsync_server",
+    "description": "expansion: shell function, arguments required for server location"
+  },
+  {
+    "command": "scp-server",
+    "expansion": "function _scp_server() { [ -z \"$1\" ] && return; scp -r ./ rdegraci@192.168.0.250:GIT_REPOS/$1; }; _scp_server"
+  },
+  {
+    "command": "shell",
+    "expansion": "zsh"
+  },
+  {
+    "command": "ollama"
+  },
+  {
+    "command": "crontab"
+  },
+  {
+    "command": "redis-cli"
+  },
+  {
+    "command": "which",
+    "expansion": "function _which() { which $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _which",
+    "description": "expansion: shell function - multiple positional"
+  },
+  {
+    "command": "ifconfig"
+  },
+  {
+    "command": "netstat"
+  },
+  {
+    "command": "screen",
+    "expansion": "function _screen() { screen $1 $2; }; _screen",
+    "description": "expansion: shell function - 2 positional"
+  },
+  {
+    "command": "ruby"
+  },
+  {
+    "command": "uptime"
+  },
+  {
+    "command": "diff"
+  }
+]
