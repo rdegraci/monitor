@@ -1,42 +1,187 @@
-# monitor
+# Monitor
 
-Simple hello world pip project.
+Monitor is a modular Large Language Model (LLM) developer assistant designed for robust command-line interface (CLI) and API-driven workflows. It provides advanced shell, code, and git integration; macro command composition; a registry system for plugin discovery; persistent logging and audit trails; secure extensibility; and systematic configuration for critical and large-scale developer environments.
 
-## Usage
+Monitor is ideal for software professionals who need a safe, auditable, and scriptable LLM tool that can be tailored to sophisticated CI/CD, devops, and research/automation scenarios.
 
-Install (from the parent directory):
-    pip install .
+## Key Features
 
-Run:
-    monitor
+- **Structured LLM Terminal:** Intelligent command-line shell with LLM integration and secure sandboxing of code or shell execution.
+- **Code Assistant:** Code generation, refactoring, and documentation across multiple languages/tools for developers.
+- **Git Support:** Context-aware git toolset for code review, commit assistance, and repository analytics.
+- **Macros:** Compose multi-step automations and chained LLM actions (workflows) using macros, making complex tasks repeatable and safe.
+- **Registry System:** Fully auditable plugin and macro registry—discover, share, and govern tools and automations.
+- **Audit & Logging:** Every action, prompt, and result is logged for transparency, compliance, and reproducibility.
+- **Security:** Code execution controls, sandboxing, environment whitelisting, and robust user-supplied configuration.
+- **Extensible:** Easily add custom macros, tool plugins, or integrate with external systems.
+- **Modern CLI & API:** Use interactively via terminal, run as a local server for API-driven workflows, or embed in scripts and automation.
+- **Cross-platform:** Runs on Linux, macOS, Windows.
 
-## Local Development & Testing
+## Requirements
 
-For developing and testing the CLI app without installing via pip, you can use the following approaches:
+- Python 3.9+
+- pip (latest recommended)
+- Redis 6.2+ (used for registry and logging backend)
+- Supported OS: Linux, macOS, Windows 10/11
 
-1. **Run as a module from the project directory:**
+## Installation
 
-   You must tell Python to look in `src/` for modules:
-   ```bash
+1. **Clone the repository:**
+   ```
+   git clone https://github.com/YOUR_ORG/monitor3.git
    cd monitor3
-   PYTHONPATH=src python -m monitor
-    ```
-   Or on Windows:
-   ```cmd
-   set PYTHONPATH=src
-   python -m monitor
-
-   This runs the CLI entry point as a module, which is the recommended way to test packages locally.
-
-2. **For development, use editable install:**
-
-   From `monitor3` do:
-   ```bash
+   ```
+2. **Install Python dependencies:**
+   ```
+   pip install .
+   ```
+   Or for development:
+   ```
    pip install -e .
    ```
+3. **Install and start Redis:**
+   - _On Linux/macOS (via Homebrew, apt, etc.)_:
+     ```
+     brew install redis
+     redis-server
+     ```
+     OR
+     ```
+     sudo apt install redis
+     redis-server
+     ```
+   - _On Windows:_  
+     Use WSL, Docker, or supported binaries:  
+     [https://redis.io/docs/install/install-redis/](https://redis.io/docs/install/install-redis/)
 
-   This will install the package in "editable" mode. Now you can run the CLI as:
+## Quickstart
 
-   monitor
+### CLI Usage
 
-   Any changes to the source code will be reflected immediately when you rerun the command.
+Start an interactive Monitor shell from project root or any directory:
+```
+monitor
+```
+or
+```
+python -m monitor
+```
+
+For module development:
+```
+PYTHONPATH=src python -m monitor
+```
+
+### Server Mode
+
+Run Monitor as a local HTTP API server:
+```
+monitor server
+```
+or
+```
+python -m monitor.server
+```
+
+### Basic Examples
+
+- **Send a shell command for LLM-assisted explanation:**
+  ```
+  monitor "explain: ls -l"
+  ```
+- **Run a saved macro:**
+  ```
+  monitor macro deploy
+  ```
+
+- **Use API endpoint from another script:**
+  See [src/monitor/README.md](src/monitor/README.md) for examples.
+
+## Configuration and Usage Basics
+
+Monitor loads configuration from `app.yaml` (for persistent settings) and optionally from `.env` (for secrets and environment tokens).
+
+**Example:**
+```yaml
+model:
+  provider: openai
+  api_key: ${OPENAI_API_KEY}
+registry:
+  path: ~/.monitor/registry
+```
+
+Monitor can be used with your favorite LLM (OpenAI, Anthropic, local models).
+
+- Place your `app.yaml` (sample in project root) and `.env` tokens in your home directory or project root.
+- Flags and environment variables can override YAML settings at launch.
+
+**Usage Modes:**
+
+- **Interactive shell**: Type commands, ask for code change suggestions, or interact directly with git context.
+- **LLM direct queries**: "How do I optimize this function?" or "Review last commit" and receive in-place code modifications.
+- **Macros**: Compose batch automations via reusable macro scripts.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) or [src/monitor/README.md](src/monitor/README.md) for full configuration options.
+
+## Extending Monitor
+
+- **Custom Macros:** Write your own macros using YAML or Python and place them under the macros/ directory or user registry.
+- **Plugin System:** Develop and register tool plugins for custom API/data access or new shell commands.
+- **Registry:** Share and install trusted macros or plugins through the registry system. Registry uses Redis and supports full auditability.
+- See devdocs in [src/monitor/README.md](src/monitor/README.md).
+
+
+
+## Logging and Auditing
+
+All Monitor operations are logged to the local registry (Redis-backed) and file-based logs. You can inspect, export, and replay previous session logs for compliance or debugging. Logs include:
+
+- CLI/API invocations
+- LLM prompts, completions, code actions
+- Shell and code executions, results, and errors
+- Macro executions and workflow traces
+
+Logs are by default written to `~/.monitor/logs/` and Redis. Specify alternate log directories or output via `app.yaml`. Audit logs are essential for regulated, multi-user, or production settings.
+
+## Troubleshooting
+
+- **Redis connection issues:**  
+  Ensure `redis-server` is running and accessible.
+- **Invalid app.yaml or missing .env:**  
+  Validate your config and environment variable values.
+- **Unsupported OS / Python version:**  
+  Use Python 3.9 or later on Windows 10+, macOS, or Linux.
+- **LLM API errors:**  
+  Confirm API keys and correct model provider setup.
+- **Permissions or sandboxing errors:**  
+  Check directory/file permissions and security configuration in `app.yaml`.
+
+For more, see [src/monitor/README.md](src/monitor/README.md).
+
+## Testing
+
+Run tests with:
+```
+pytest
+```
+To run all integration and system tests:
+```
+pytest tests/
+```
+For local CLI/dev loop, use "editable" install:
+```
+pip install -e .
+monitor
+```
+See test documentation in [src/monitor/README.md](src/monitor/README.md).
+
+## License
+
+Monitor is open source, distributed under the MIT License. See `LICENSE` for full terms.
+
+## Contact
+
+For issues or feature requests, please file an issue on GitHub:  
+[https://github.com/YOUR_ORG/monitor3](https://github.com/YOUR_ORG/monitor3)
+
+For architectural details and advanced extension, consult [ARCHITECTURE.md](ARCHITECTURE.md) and [src/monitor/README.md](src/monitor/README.md).
