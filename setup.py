@@ -35,6 +35,7 @@ setup(
         "tiktoken==0.9.0",
         "anthropic==0.54.0",
         "flask==3.1.1",
+        "coqui-tts==0.27.0",
     ],
     package_data={"monitor": ["example.cfg"]},
 )
