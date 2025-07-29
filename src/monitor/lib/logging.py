@@ -1,4 +1,3 @@
-
 """
 Centralized logging configuration for the application.
 
@@ -7,7 +6,7 @@ This dictionary should define all logging options, both required and optional.
 
 REQUIRED FIELDS in config.logging_config:
     - 'level': Logging level as string, e.g., 'INFO', 'DEBUG', etc.
-    - 'file_path': String path to the log file.
+    - 'file_path': String path to the log file. This path may now contain '{pid}' which will be replaced with the current process PID. If not present, the PID will be injected by default before the file extension.
 
 OPTIONAL FIELDS (defaults will be used if not provided):
     - 'format': Log formatting string. Default: '%(asctime)s %(levelname)s %(name)s %(message)s'
@@ -102,10 +101,43 @@ def _load_logging_config():
             loaded_config[required] = DEFAULT_LOGGING[required]
     return loaded_config
 
+def _inject_pid_into_logfile_path(log_path, pid=None):
+    """
+    Inject current process PID into filename unless '{pid}' is already present.
+    - If '{pid}' is in the path, replaces with str.format(pid=...).
+    - If not present, inserts '_{pid}' before the extension.
+    """
+    if pid is None:
+        try:
+            pid = os.getpid()
+        except Exception:
+            pid = 0
+    if '{pid}' in log_path:
+        # User-supplied format string: substitute
+        try:
+            log_path = log_path.format(pid=pid)
+        except Exception:
+            # Fallback: just ignore formatting error, use raw string
+            pass
+    else:
+        # Default: insert _{pid} before file extension
+        dirname, filename = os.path.split(log_path)
+        if '.' in filename:
+            base, ext = filename.rsplit('.', 1)
+            filename = f"{base}_{pid}.{ext}"
+        else:
+            filename = f"{filename}_{pid}"
+        log_path = os.path.join(dirname, filename)
+    return log_path
+
 def configure_logging():
     """
     Configures the root logger using unified config.logging_config dictionary.
     Uses documented defaults for missing fields and logs warnings for any missing/legacy fields.
+
+    The log file path will include the process PID: if the file path contains '{pid}', it will be replaced.
+    Otherwise, the PID will be injected between the filename and extension automatically. This avoids file
+    conflicts when running multiple instances.
 
     This function is idempotent and safe to call more than once. It removes all existing root handlers.
 
@@ -119,6 +151,10 @@ def configure_logging():
         If config.logging_config is missing, will use legacy variables LOGGING_LEVEL, LOG_FILE_PATH, etc.
     """
     log_cfg = _load_logging_config()
+
+    # --- Inject the current process PID into the log file path for uniqueness ---
+    # If the configured path has '{pid}', substitute; else inject _{pid} before file extension.
+    log_cfg['file_path'] = _inject_pid_into_logfile_path(log_cfg['file_path'])
 
     formatter = logging.Formatter(log_cfg['format'], log_cfg['date_format'])
 

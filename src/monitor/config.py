@@ -385,7 +385,29 @@ LOG_DIR = logging_config['log_dir']
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 LOG_FILE_PATH = logging_config['file_path']
-CONVERSATION_LOG_FILENAME = os.path.join(LOG_DIR, f"{STARTUP_TIME}_{logging_config['conversation_log_filename']}")
+
+# Helper to generate a filename with the current PID inserted either in place of {pid} or before file extension.
+def insert_pid_into_filename(filename, pid=None):
+    """
+    Inserts the process PID into the filename.
+    - If '{pid}' appears anywhere in filename, it is replaced.
+    - Otherwise, _{pid} is inserted before the extension.
+    - Example: 'foo_{pid}.log' -> 'foo_1234.log'
+    - Example: 'bar.log' -> 'bar_1234.log'
+    """
+    if pid is None:
+        pid = os.getpid()
+    base, ext = os.path.splitext(filename)
+    if '{pid}' in filename:
+        return filename.replace('{pid}', str(pid))
+    else:
+        return f"{base}_{pid}{ext}"
+
+# The conversation log file will always include the process PID in the filename.
+conversation_log_filename = logging_config['conversation_log_filename']
+pid_injected_conversation_filename = insert_pid_into_filename(conversation_log_filename, os.getpid())
+CONVERSATION_LOG_FILENAME = os.path.join(LOG_DIR, f"{STARTUP_TIME}_{pid_injected_conversation_filename}")
+
 CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
 
 
@@ -430,6 +452,7 @@ def load_environment_variables(verbose=False):
     if not status["cwd_env_loaded"] and not status["home_env_loaded"]:
         logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
     return status
+
 
 # --- MISCELLANEOUS CONFIG & SUBSYSTEMS ---
 
