@@ -5,9 +5,9 @@ from monitor.lib import summarizers
 
 @pytest.fixture(autouse=True)
 def set_debug_logging():
-    logging.getLogger('lib.summarizers').setLevel(logging.DEBUG)
+    logging.getLogger('monitor.lib.summarizers').setLevel(logging.DEBUG)
 
-@patch('lib.summarizers.litellm.completion')
+@patch('monitor.lib.summarizers.litellm.completion')
 def test_summarize_conversation_for_platform_twitch(mock_completion):
     # Prepare the fake litellm response
     mock_summary_text = 'Summary: This is a test summary.'
@@ -28,7 +28,7 @@ def test_summarize_conversation_for_platform_twitch(mock_completion):
     assert call_args['model'] == model
     assert 'twitch' in call_args['messages'][1]['content'] or 'Twitch' in call_args['messages'][1]['content']
 
-@patch('lib.summarizers.litellm.completion')
+@patch('monitor.lib.summarizers.litellm.completion')
 def test_history_too_short(mock_completion):
     # Short history (<10)
     fake_history = [{'role': 'user', 'content': 'Hello'}]
@@ -37,7 +37,7 @@ def test_history_too_short(mock_completion):
     assert result is None
     mock_completion.assert_not_called()
 
-@patch('lib.summarizers.litellm.completion')
+@patch('monitor.lib.summarizers.litellm.completion')
 def test_unknown_platform_returns_empty(mock_completion):
     fake_history = [
         {'role': 'user', 'content': 'Something'},

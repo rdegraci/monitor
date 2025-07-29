@@ -4,8 +4,8 @@ import os
 from monitor.lib import ecs
 
 # Test index_directory for normal and recursive cases
-@patch('lib.ecs.open', new_callable=mock_open, read_data='# some code')
-@patch('lib.ecs.os.walk')
+@patch('monitor.lib.ecs.open', new_callable=mock_open, read_data='# some code')
+@patch('monitor.lib.ecs.os.walk')
 def test_index_directory_recursive(mock_walk, mock_file_open):
     mock_walk.return_value = [
         ('/my/dir', [], ['a.py', 'b.txt', 'c.swift']),
@@ -19,9 +19,9 @@ def test_index_directory_recursive(mock_walk, mock_file_open):
     # .txt should not be in results
     assert all(f[0].endswith(('.py', '.swift')) for f in files)
 
-@patch('lib.ecs.open', new_callable=mock_open, read_data='print("hi")')
-@patch('lib.ecs.os.listdir', return_value=['x.py', 'y.m', 'z.txt'])
-@patch('lib.ecs.os.path.isfile', side_effect=lambda path: not path.endswith('dir'))
+@patch('monitor.lib.ecs.open', new_callable=mock_open, read_data='print("hi")')
+@patch('monitor.lib.ecs.os.listdir', return_value=['x.py', 'y.m', 'z.txt'])
+@patch('monitor.lib.ecs.os.path.isfile', side_effect=lambda path: not path.endswith('dir'))
 def test_index_directory_non_recursive(mock_isfile, mock_listdir, mock_file_open):
     files = list(ecs.index_directory('/dir', recursive=False))
     file_paths = [f[0] for f in files]
@@ -29,8 +29,8 @@ def test_index_directory_non_recursive(mock_isfile, mock_listdir, mock_file_open
     assert '/dir/y.m' in file_paths
     assert '/dir/z.txt' not in file_paths
 
-@patch('lib.ecs.requests.post')
-@patch('lib.ecs.config')
+@patch('monitor.lib.ecs.requests.post')
+@patch('monitor.lib.ecs.config')
 def test_send_to_embedding_service_success(mock_config, mock_post):
     mock_config.ECS_HOST = 'localhost'
     mock_config.ECS_PORT = '1234'
@@ -46,10 +46,10 @@ def test_send_to_embedding_service_success(mock_config, mock_post):
     assert kwargs['json']['file_name'] == file_path
     assert kwargs['json']['source_code'] == source
 
-@patch('lib.ecs.send_to_embedding_service')
+@patch('monitor.lib.ecs.send_to_embedding_service')
 def test_embed_directory_orchestration(mock_send):
     # Patch index_directory to yield two files
-    with patch('lib.ecs.index_directory', return_value=[('/f1.py','a'),('/f2.swift','b')]):
+    with patch('monitor.lib.ecs.index_directory', return_value=[('/f1.py','a'),('/f2.swift','b')]):
         ecs.embed_directory('/my/dir')
         mock_send.assert_any_call('/f1.py','a')
         mock_send.assert_any_call('/f2.swift','b')

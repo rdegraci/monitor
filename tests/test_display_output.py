@@ -17,7 +17,7 @@ class TestDisplayOutput(unittest.TestCase):
         self.sample_text = "Sample markdown text"
         self.sample_result = "# Test Result\nThis is a test result"
 
-    @patch('lib.display_output.highlightMarkdown')
+    @patch('monitor.lib.display_output.highlightMarkdown')
     def test_display_query_result_with_update_history(self, mock_highlight):
         """Test display_query_result calls highlight and update_history functions."""
         mock_update_history = MagicMock()
@@ -27,7 +27,7 @@ class TestDisplayOutput(unittest.TestCase):
         mock_highlight.assert_called_once_with(self.sample_result)
         mock_update_history.assert_called_once()
 
-    @patch('lib.display_output.highlightMarkdown')
+    @patch('monitor.lib.display_output.highlightMarkdown')
     def test_display_query_result_without_update_history(self, mock_highlight):
         """Test display_query_result works without update_history callback."""
         display_query_result(self.sample_result)
@@ -35,7 +35,7 @@ class TestDisplayOutput(unittest.TestCase):
         mock_highlight.assert_called_once_with(self.sample_result)
 
     @patch('builtins.print')
-    @patch('lib.display_output.highlight')
+    @patch('monitor.lib.display_output.highlight')
     def test_highlightMarkdown_with_valid_input(self, mock_highlight, mock_print):
         """Test highlightMarkdown with valid query result."""
         mock_highlight.return_value = "highlighted_text"

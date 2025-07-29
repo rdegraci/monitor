@@ -8,7 +8,7 @@ class TestModes(unittest.TestCase):
         # Reset DESIGN_MODE_ACTIVE before each test
         modes.DESIGN_MODE_ACTIVE = False
 
-    @patch('core.modes.DESIGN_CONSULT')
+    @patch('monitor.core.modes.DESIGN_CONSULT')
     @patch('builtins.input', side_effect=['input text', ':exit'])
     @patch('builtins.print')
     def test_design_mode_command_exit(self, mock_print, mock_input, mock_design_consult):
@@ -26,11 +26,11 @@ class TestModes(unittest.TestCase):
         mock_print.assert_any_call("Exiting design mode without entering dev mode.")
         mock_print.assert_any_call("Design mode ended.")
 
-    @patch('core.modes.DESIGN_CONSULT')
+    @patch('monitor.core.modes.DESIGN_CONSULT')
     @patch('builtins.input', side_effect=[":dev_mode"])
-    @patch('core.modes.query')
-    @patch('core.modes.display_query_result')
-    @patch('core.modes.send_artifact')
+    @patch('monitor.core.modes.query')
+    @patch('monitor.core.modes.display_query_result')
+    @patch('monitor.core.modes.send_artifact')
     @patch('builtins.print')
     def test_design_mode_to_dev_mode(self, mock_print, mock_send_artifact, mock_display, mock_query, mock_input, mock_design_consult):
         mock_design_consult_instance = MagicMock()
@@ -55,10 +55,10 @@ class TestModes(unittest.TestCase):
         modes.dev_mode_command()
         mock_print.assert_any_call("Not currently in design mode.")
 
-    @patch('core.modes.DESIGN_CONSULT')
-    @patch('core.modes.query')
-    @patch('core.modes.display_query_result')
-    @patch('core.modes.send_artifact')
+    @patch('monitor.core.modes.DESIGN_CONSULT')
+    @patch('monitor.core.modes.query')
+    @patch('monitor.core.modes.display_query_result')
+    @patch('monitor.core.modes.send_artifact')
     @patch('builtins.print')
     def test_dev_mode_command_active(self, mock_print, mock_send_artifact, mock_display, mock_query, mock_design_consult):
         modes.DESIGN_MODE_ACTIVE = True

@@ -6,12 +6,12 @@ import io
 import copy
 
 import monitor.core.built_ins as built_ins
-import lib.built_in_commands as bic
+import monitor.lib.built_in_commands as bic
 
 class TestConfigureBuiltIns(unittest.TestCase):
-    @patch('lib.built_in_commands.print_colored_error')
-    @patch('lib.built_in_commands.config', autospec=True)
-    @patch('core.built_ins.logger', autospec=True)
+    @patch('monitor.lib.built_in_commands.print_colored_error')
+    @patch('monitor.lib.built_in_commands.config', autospec=True)
+    @patch('monitor.core.built_ins.logger', autospec=True)
     def test_trim_history_valid_number(self, mock_logger, mock_config, mock_error):
         mock_history = [f"item{i}" for i in range(10)]
         mock_config.CONVERSATION_HISTORY = mock_history
@@ -26,9 +26,9 @@ class TestConfigureBuiltIns(unittest.TestCase):
         self.assertEqual(output_msgs[-1], "Removed last 3 item(s) from conversation history.")
         mock_error.assert_not_called()
 
-    @patch('lib.built_in_commands.print_colored_error')
-    @patch('lib.built_in_commands.config', autospec=True)
-    @patch('core.built_ins.logger', autospec=True)
+    @patch('monitor.lib.built_in_commands.print_colored_error')
+    @patch('monitor.lib.built_in_commands.config', autospec=True)
+    @patch('monitor.core.built_ins.logger', autospec=True)
     def test_trim_history_more_than_available(self, mock_logger, mock_config, mock_error):
         mock_history = [f"item{i}" for i in range(2)]
         mock_config.CONVERSATION_HISTORY = mock_history
@@ -43,9 +43,9 @@ class TestConfigureBuiltIns(unittest.TestCase):
         self.assertEqual(output_msgs[-1], "History contained 2 items. All were removed.")
         mock_error.assert_not_called()
 
-    @patch('lib.built_in_commands.print_colored_error')
-    @patch('lib.built_in_commands.config', autospec=True)
-    @patch('core.built_ins.logger', autospec=True)
+    @patch('monitor.lib.built_in_commands.print_colored_error')
+    @patch('monitor.lib.built_in_commands.config', autospec=True)
+    @patch('monitor.core.built_ins.logger', autospec=True)
     def test_trim_history_zero_or_negative(self, mock_logger, mock_config, mock_error):
         mock_config.CONVERSATION_HISTORY = [1,2,3]
         built_ins.trim_history_command("0")
@@ -58,9 +58,9 @@ class TestConfigureBuiltIns(unittest.TestCase):
         self.assertGreaterEqual(mock_error.call_count, 2)
 
 
-    @patch('lib.built_in_commands.print_colored_error')
-    @patch('lib.built_in_commands.config', autospec=True)
-    @patch('core.built_ins.logger', autospec=True)
+    @patch('monitor.lib.built_in_commands.print_colored_error')
+    @patch('monitor.lib.built_in_commands.config', autospec=True)
+    @patch('monitor.core.built_ins.logger', autospec=True)
     def test_trim_history_non_integer(self, mock_logger, mock_config, mock_error):
         mock_config.CONVERSATION_HISTORY = [1,2,3]
         built_ins.trim_history_command("ten")
@@ -74,9 +74,9 @@ class TestConfigureBuiltIns(unittest.TestCase):
         self.assertIn("Cannot parse number of items", args0[0])
 
 
-    @patch('lib.built_in_commands.print_colored_error')
-    @patch('lib.built_in_commands.config', autospec=True)
-    @patch('core.built_ins.logger', autospec=True)
+    @patch('monitor.lib.built_in_commands.print_colored_error')
+    @patch('monitor.lib.built_in_commands.config', autospec=True)
+    @patch('monitor.core.built_ins.logger', autospec=True)
     def test_trim_history_missing_or_blank_arg(self, mock_logger, mock_config, mock_error):
         mock_config.CONVERSATION_HISTORY = [1,2,3]
         built_ins.trim_history_command("")
@@ -87,8 +87,8 @@ class TestConfigureBuiltIns(unittest.TestCase):
             self.assertIn("You must provide a count for how many history items to remove.", call[0][0])
 
 
-    @patch('core.built_ins.append_function_to_built_ins')
-    @patch('core.built_ins.edit_macros_command')
+    @patch('monitor.core.built_ins.append_function_to_built_ins')
+    @patch('monitor.core.built_ins.edit_macros_command')
     def test_edit_macros_command_registration_and_invocation(self, mock_edit_macros_command, mock_append):
         """
         Test that :edit_macros is registered and that invoking it calls the correct function.
@@ -112,8 +112,8 @@ class TestConfigureBuiltIns(unittest.TestCase):
         macro_func("test arg")
         mock_edit_macros_command.assert_called_once_with("test arg")
 
-    @patch('core.built_ins.reload_macros_command')
-    @patch('core.built_ins.append_function_to_built_ins')
+    @patch('monitor.core.built_ins.reload_macros_command')
+    @patch('monitor.core.built_ins.append_function_to_built_ins')
     def test_reload_macros_command_registration_and_invocation(self, mock_append, mock_reload):
         """
         Test that :reload_macros is registered and invoking it calls core.built_ins.reload_macros_command.

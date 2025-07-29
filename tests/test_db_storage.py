@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch, MagicMock
 from monitor.lib import db_storage
 
-@patch('lib.db_storage.subprocess.run')
+@patch('monitor.lib.db_storage.subprocess.run')
 def test_execute_duckdb_success(mock_run):
     mock_process = MagicMock()
     mock_process.stdout = 'result row'
@@ -18,13 +18,13 @@ def test_execute_duckdb_success(mock_run):
     assert data['returncode'] == 0
     mock_run.assert_called_once_with(['duckdb', 'my_duckdb.db', '-c', 'SELECT 1;'], capture_output=True, text=True)
 
-@patch('lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
+@patch('monitor.lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
 def test_execute_duckdb_missing_binary(mock_run):
     result = db_storage.execute_duckdb('SELECT 1;')
     data = result if isinstance(result, dict) else json.loads(result)
     assert 'duckdb executable not found' in data['error']
 
-@patch('lib.db_storage.subprocess.run')
+@patch('monitor.lib.db_storage.subprocess.run')
 def test_execute_psql_success(mock_run):
     mock_process = MagicMock()
     mock_process.stdout = 'id\n1'
@@ -37,13 +37,13 @@ def test_execute_psql_success(mock_run):
     assert data['returncode'] == 0
     mock_run.assert_called_once_with(['psql', '-c', 'SELECT 1;'], capture_output=True, text=True)
 
-@patch('lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
+@patch('monitor.lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
 def test_execute_psql_missing_binary(mock_run):
     result = db_storage.execute_psql('SELECT 1;')
     data = result if isinstance(result, dict) else json.loads(result)
     assert 'psql executable not found' in data['error']
 
-@patch('lib.db_storage.subprocess.run')
+@patch('monitor.lib.db_storage.subprocess.run')
 def test_execute_mc_success(mock_run):
     mock_process = MagicMock()
     mock_process.stdout = 'success!'
@@ -56,7 +56,7 @@ def test_execute_mc_success(mock_run):
     assert data['returncode'] == 0
     mock_run.assert_called_once_with(['mc', 'ls', 'mybucket'], capture_output=True, text=True)
 
-@patch('lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
+@patch('monitor.lib.db_storage.subprocess.run', side_effect=FileNotFoundError)
 def test_execute_mc_missing_binary(mock_run):
     result = db_storage.execute_mc('ls mybucket')
     data = result if isinstance(result, dict) else json.loads(result)

@@ -1,11 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import monitor.core.built_ins as built_ins
-import lib.built_in_commands as bic
+import monitor.lib.built_in_commands as bic
 import copy
 
 class TestConfigureBuiltIns(unittest.TestCase):
-    @patch('core.built_ins.append_function_to_built_ins')
+    @patch('monitor.core.built_ins.append_function_to_built_ins')
     def test_all_registrations_called(self, mock_append):
         """
         Test that append_function_to_built_ins is called for each registration.
@@ -17,8 +17,8 @@ class TestConfigureBuiltIns(unittest.TestCase):
         expected_call_count = 29  # Update this if commands are added/removed in the future.
         self.assertGreaterEqual(mock_append.call_count, expected_call_count)
 
-    @patch('core.built_ins.print_colored_error')
-    @patch('core.built_ins.append_function_to_built_ins', side_effect=Exception('DummyError'))
+    @patch('monitor.core.built_ins.print_colored_error')
+    @patch('monitor.core.built_ins.append_function_to_built_ins', side_effect=Exception('DummyError'))
     def test_error_handling_on_registration_failure(self, mock_append, mock_error):
         """
         Test that print_colored_error is called if registration fails.

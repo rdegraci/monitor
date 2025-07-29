@@ -15,14 +15,16 @@ reset = attr('reset')
 
 logger = logging.getLogger(__name__)
 
-def tavily_search(query):
-    TAVILY = TavilyClient(api_key=os.getenv('TAVILY_API_KEY'))
+def configureTavily():
+    return TavilyClient(api_key=os.getenv('TAVILY_API_KEY'))
 
+def tavily_search(query):
+    tavily = configureTavily()
     logger.debug("Starting tavily search with query: %s", query)
     logger.info("Tavily search for %s", query)
     print(f"{yellow}Searching for: {query}{reset}")
     try:
-        response = TAVILY.qna_search(query=query, search_depth="advanced")
+        response = tavily.qna_search(query=query, search_depth="advanced")
         
         # Log successful completion with metrics
         if isinstance(response, dict):

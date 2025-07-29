@@ -40,20 +40,8 @@ setup_sigint_handler()
 # Load configuration
 logger.info("Loading configuration...")
 
-
-def start_flask_server(host: str, port: int):
-    """
-    Starts a Flask server exposing a /cli endpoint for command processing.
-
-    Parameters
-    ----------
-    host : str
-        The hostname or IP address to bind the server to.
-    port : int
-        The port on which the server listens.
-    """
+def make_flask_app():
     app = Flask(__name__)
-
     @app.route("/cli", methods=["POST"])
     def cli():
         """
@@ -102,12 +90,14 @@ def start_flask_server(host: str, port: int):
         except Exception as exc:
             logger.error(f"Error processing command via API: {exc}", exc_info=True)
             return jsonify({"error": str(exc)}), 500
+    return app
 
+def create_flask_server(host: str, port: int):
+    app = make_flask_app()
     logger.info(f"Starting Flask server on {host}:{port}")
-    # Disable reloader to ensure single process shutdown flow.
     app.run(host=host, port=port, use_reloader=False)
     logger.info("Flask server stopped.")
-
+    return app
 
 def main():
     parser = argparse.ArgumentParser(description="Monitor")
@@ -137,7 +127,7 @@ def main():
             host_address = args.server if args.server else "127.0.0.1"
             # Register the query function so that external modules can access it in server mode.
             register_query_function(conversation_query)
-            start_flask_server(host_address, args.port)
+            create_flask_server(host_address, args.port)
             # After the Flask server stops (e.g., via /exit), exit the program.
             sys.exit(0)
         else:

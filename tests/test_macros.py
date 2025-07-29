@@ -91,7 +91,7 @@ class TestMacros(unittest.TestCase):
                 self.assertTrue('(' in value and ')' in value, 
                                f"Macro '{macro}' should contain nested references")
 
-    @patch('lib.macros.update_macros')
+    @patch('monitor.lib.macros.update_macros')
     def test_configure_macros(self, mock_update_macros):
         """Test the configure_macros function."""
         mock_additional_macros = {'test_macro': 'test_value'}
@@ -171,7 +171,7 @@ class TestMacros(unittest.TestCase):
         """Test add_macro_definition with invalid format (no equals sign)."""
         test_input = "<invalid_macro_without_equals"
         
-        with patch('lib.macros.logger') as mock_logger:
+        with patch('monitor.lib.macros.logger') as mock_logger:
             result = macros.add_macro_definition(test_input)
         
         self.assertFalse(result)
@@ -211,7 +211,7 @@ class TestMacros(unittest.TestCase):
         self.assertIn('test_key', macros.ephemeral_macro_values)
         self.assertEqual(macros.ephemeral_macro_values['test_key'], '')
 
-    @patch('lib.macros.update_macros')
+    @patch('monitor.lib.macros.update_macros')
     def test_add_macro_definition_calls_update_macros(self, mock_update_macros):
         """Test that add_macro_definition calls update_macros."""
         test_input = "<test_key=test_value"
@@ -223,7 +223,7 @@ class TestMacros(unittest.TestCase):
             macros.ephemeral_macro_values
         )
 
-    @patch('lib.macros.logger')
+    @patch('monitor.lib.macros.logger')
     def test_add_macro_definition_logs_success(self, mock_logger):
         """Test that add_macro_definition logs successful additions."""
         test_input = "<test_key=test_value"
@@ -234,7 +234,7 @@ class TestMacros(unittest.TestCase):
             "Macro added: {} = {}".format("test_key", "test_value")
         )
 
-    @patch('lib.macros.logger')
+    @patch('monitor.lib.macros.logger')
     def test_add_macro_definition_logs_error(self, mock_logger):
         """Test that add_macro_definition logs errors for invalid format."""
         test_input = "<invalid_format"
@@ -271,14 +271,14 @@ class TestMacros(unittest.TestCase):
     def test_logger_configured(self):
         """Test that logger is properly configured."""
         self.assertIsNotNone(macros.logger)
-        self.assertEqual(macros.logger.name, 'lib.macros')
+        self.assertEqual(macros.logger.name, 'monitor.lib.macros')
 
     def test_integration_configure_and_add_macro(self):
         """Integration test: configure macros then add a new one."""
         # Clear and configure macros
         macros.MACRO_VALUES.clear()
         
-        with patch('lib.macros.load_additional_macros', return_value={}):
+        with patch('monitor.lib.macros.load_additional_macros', return_value={}):
             macros.configure_macros()
         
         # Add a new macro
@@ -299,7 +299,7 @@ class TestMacros(unittest.TestCase):
                 self.assertIsInstance(value, str, f"Value for key {key} should be string")
 
 
-    @patch("lib.macros.logger")
+    @patch("monitor.lib.macros.logger")
     @patch("builtins.print")
     @patch("os.environ.get")
     @patch("os.path.exists")
@@ -320,7 +320,7 @@ class TestMacros(unittest.TestCase):
         self.assertFalse(mock_logger.error.called)
         self.assertFalse(mock_makedirs.called)
 
-    @patch("lib.macros.logger")
+    @patch("monitor.lib.macros.logger")
     @patch("builtins.print")
     @patch("os.environ.get")
     @patch("os.path.exists")
@@ -351,7 +351,7 @@ class TestMacros(unittest.TestCase):
         self.assertFalse(mock_logger.error.called)
         self.assertFalse(mock_makedirs.called)
 
-    @patch("lib.macros.logger")
+    @patch("monitor.lib.macros.logger")
     @patch("builtins.print")
     @patch("os.environ.get")
     @patch("os.path.exists")
@@ -371,7 +371,7 @@ class TestMacros(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 3)
         mock_logger.error.assert_any_call("Could not find a suitable editor (tried nano, vim, vi). Please set the $EDITOR environment variable.")
 
-    @patch("lib.macros.logger")
+    @patch("monitor.lib.macros.logger")
     @patch("builtins.print")
     @patch("os.environ.get")
     @patch("os.path.exists")

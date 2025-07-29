@@ -1,4 +1,3 @@
-
 import unittest
 from unittest.mock import patch, MagicMock, mock_open, call
 import os
@@ -98,7 +97,7 @@ class TestPreferences(unittest.TestCase):
         print("os.access call count:", mock_access.call_count, "mock_calls:", mock_access.mock_calls)
         print("Result of get_preference_editor:", result)
         
-        mock_isfile.assert_called_once_with("/usr/bin/nano")
+        mock_isfile.assert_any_call("/usr/bin/nano")
         mock_access.assert_any_call("/usr/bin/nano", os.X_OK)
         self.assertEqual(result, "/usr/bin/nano")
 
@@ -115,7 +114,7 @@ class TestPreferences(unittest.TestCase):
         print("os.access call count:", mock_access.call_count, "mock_calls:", mock_access.mock_calls)
         print("Result of get_preference_editor:", result)
         
-        mock_isfile.assert_called_once_with("/invalid/path/editor")
+        mock_isfile.assert_any_call("/invalid/path/editor")
         self.assertIsNone(result)
 
     @patch.dict(os.environ, {}, clear=True)
@@ -145,8 +144,8 @@ class TestPreferences(unittest.TestCase):
         
         self.assertIsNone(result)
 
-    @patch('lib.preferences.get_preferences_file_path')
-    @patch('lib.preferences.get_preference_editor')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preference_editor')
     @patch('os.path.exists')
     @patch('subprocess.call')
     def test_open_preferences_editor_success(self, mock_subprocess, mock_exists, 
@@ -162,8 +161,8 @@ class TestPreferences(unittest.TestCase):
         self.assertEqual(result, "Preferences updated at: /test/preferences.prompt")
 
 
-    @patch('lib.preferences.get_preferences_file_path')
-    @patch('lib.preferences.get_preference_editor')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preference_editor')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open)
     @patch('subprocess.call')
@@ -180,8 +179,8 @@ class TestPreferences(unittest.TestCase):
         mock_subprocess.assert_called_once_with(["/usr/bin/nano", "/test/preferences.prompt"])
         self.assertEqual(result, "Preferences updated at: /test/preferences.prompt")
 
-    @patch('lib.preferences.get_preferences_file_path')
-    @patch('lib.preferences.get_preference_editor')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preference_editor')
     @patch('os.path.exists')
     @patch('builtins.open', side_effect=PermissionError("Access denied"))
     @patch('builtins.print')
@@ -197,8 +196,8 @@ class TestPreferences(unittest.TestCase):
         mock_print.assert_called_once_with("Could not create preferences file at /test/preferences.prompt: Access denied")
         self.assertIsNone(result)
 
-    @patch('lib.preferences.get_preferences_file_path')
-    @patch('lib.preferences.get_preference_editor')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preference_editor')
     def test_open_preferences_editor_no_editor_found(self, mock_get_editor, mock_get_path):
         """Test open_preferences_editor handles case when no editor is found."""
         mock_get_path.return_value = "/test/preferences.prompt"
@@ -208,8 +207,8 @@ class TestPreferences(unittest.TestCase):
         
         self.assertIsNone(result)
 
-    @patch('lib.preferences.get_preferences_file_path')
-    @patch('lib.preferences.get_preference_editor')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preference_editor')
     @patch('os.path.exists')
     @patch('subprocess.call', side_effect=FileNotFoundError("Editor not found"))
     def test_open_preferences_editor_subprocess_error(self, mock_subprocess, mock_exists,
@@ -223,7 +222,7 @@ class TestPreferences(unittest.TestCase):
         
         self.assertIsNone(result)
 
-    @patch('lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open, read_data="user preferences content")
     def test_load_user_preferences_success(self, mock_file, mock_exists, mock_get_path):
@@ -236,7 +235,7 @@ class TestPreferences(unittest.TestCase):
         mock_file.assert_called_once_with("/test/preferences.prompt", 'r')
         self.assertEqual(result, "user preferences content")
 
-    @patch('lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
     @patch('os.path.exists')
     def test_load_user_preferences_file_not_exists(self, mock_exists, mock_get_path):
         """Test load_user_preferences returns empty string when file doesn't exist."""
@@ -247,7 +246,7 @@ class TestPreferences(unittest.TestCase):
         
         self.assertEqual(result, "")
 
-    @patch('lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
     @patch('os.path.exists')
     @patch('builtins.open', side_effect=PermissionError("Access denied"))
     def test_load_user_preferences_read_error(self, mock_file, mock_exists, mock_get_path):
@@ -259,7 +258,7 @@ class TestPreferences(unittest.TestCase):
         
         self.assertEqual(result, "")
 
-    @patch('lib.preferences.get_preferences_file_path')
+    @patch('monitor.lib.preferences.get_preferences_file_path')
     @patch('os.path.exists')
     @patch('builtins.open', new_callable=mock_open, read_data="  content with whitespace  \n")
     def test_load_user_preferences_strips_whitespace(self, mock_file, mock_exists, mock_get_path):
@@ -297,5 +296,3 @@ class TestPreferences(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

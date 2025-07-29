@@ -7,11 +7,11 @@ import pprint
 
 class TestCommitCommand(unittest.TestCase):
     @patch("os.unlink")  # <-- Add this at the top of the decorator list
-    @patch("core.commit.get_suggested_commit_message")
-    @patch("core.commit.get_staged_diff")
-    @patch("core.commit.input")
-    @patch("core.commit.tempfile.NamedTemporaryFile")
-    @patch("core.commit.perform_git_commit")
+    @patch("monitor.core.commit.get_suggested_commit_message")
+    @patch("monitor.core.commit.get_staged_diff")
+    @patch("monitor.core.commit.input")
+    @patch("monitor.core.commit.tempfile.NamedTemporaryFile")
+    @patch("monitor.core.commit.perform_git_commit")
     def test_make_commit_command_happy_path(
         self,
         mock_perform_git_commit,
@@ -32,7 +32,7 @@ class TestCommitCommand(unittest.TestCase):
         mock_tmpfile.return_value.__enter__.return_value = mock_file
 
         # Dynamically import yellow and reset from monitor.lib.colors
-        colors = importlib.import_module("lib.colors")
+        colors = importlib.import_module("monitor.lib.colors")
         yellow = getattr(colors, "yellow")
         reset = getattr(colors, "reset")
 
@@ -46,10 +46,10 @@ class TestCommitCommand(unittest.TestCase):
             assert any("✅ Commit created successfully" in s for s in printed_strs), \
                 "The commit success message was not printed. Calls captured: %s" % printed_strs
 
-    @patch("core.commit.get_staged_diff", return_value="")
+    @patch("monitor.core.commit.get_staged_diff", return_value="")
     def test_make_commit_command_no_staged_changes(self, mock_get_staged_diff):
         """Test make_commit_command with no staged changes."""
-        colors = importlib.import_module("lib.colors")
+        colors = importlib.import_module("monitor.lib.colors")
         yellow = getattr(colors, "yellow")
         reset = getattr(colors, "reset")
 

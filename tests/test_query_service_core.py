@@ -9,7 +9,7 @@ class TestQueryService(unittest.TestCase):
 
     def test_query_raises_before_registration(self):
         """Test that query() raises if no function is registered."""
-        with self.assertRaises(RuntimeError) as cm, patch("core.query_service.logger") as mock_logger:
+        with self.assertRaises(RuntimeError) as cm, patch("monitor.core.query_service.logger") as mock_logger:
             qs.query("test")
         self.assertIn("Query function not initialized", str(cm.exception))
         mock_logger.error.assert_called_once()

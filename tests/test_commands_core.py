@@ -33,7 +33,7 @@ def test_print_interactive_commands(capsys):
     assert "***" in out
 
 
-@patch("core.commands.run_subprocess")
+@patch("monitor.core.commands.run_subprocess")
 def test_execute_interactive_command_runs_expected(mock_run):
     """Test that execute_interactive_command tries to run the right command."""
     mock_proc = type("FakeProc", (), {"wait": lambda self: None, "communicate": lambda self: ("output", None)})()
@@ -43,7 +43,7 @@ def test_execute_interactive_command_runs_expected(mock_run):
     assert mock_run.called
 
 
-@patch("core.commands.run_subprocess")
+@patch("monitor.core.commands.run_subprocess")
 def test_execute_internal_command_handles_output(mock_run):
     """Test execute_internal_command display_query_result path."""
     mock_run.return_value = (0, "somestring", "", None)

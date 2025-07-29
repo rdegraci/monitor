@@ -28,7 +28,7 @@ class TestMacroUtils(unittest.TestCase):
 
     def test_load_additional_macros_file_not_found(self):
         """Test loading macros from non-existent file returns empty dict."""
-        with self.assertLogs('lib.macro_utils', level='ERROR') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
             result = macro_utils.load_additional_macros('nonexistent_file.json')
         
         self.assertEqual(result, {})
@@ -41,7 +41,7 @@ class TestMacroUtils(unittest.TestCase):
             temp_path = f.name
         
         try:
-            with self.assertLogs('lib.macro_utils', level='ERROR') as cm:
+            with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
                 result = macro_utils.load_additional_macros(temp_path)
             
             self.assertEqual(result, {})
@@ -55,7 +55,7 @@ class TestMacroUtils(unittest.TestCase):
         store = {"existing": "value"}
         new_macros = {"new1": "value1", "new2": "value2"}
         
-        with self.assertLogs('lib.macro_utils', level='DEBUG') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             macro_utils.update_macros(store, new_macros)
         
         expected = {"existing": "value", "new1": "value1", "new2": "value2"}
@@ -154,7 +154,7 @@ class TestMacroUtils(unittest.TestCase):
         """Test that macro expansion logs appropriately."""
         values = {"name": "John", "greeting": "Hello"}
         
-        with self.assertLogs('lib.macro_utils', level='DEBUG') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             result = macro_utils.recursive_macro_expand("{{greeting}} {{name}}", values, "{{", "}}", "\\")
         
         self.assertEqual(result, "Hello John")
@@ -165,7 +165,7 @@ class TestMacroUtils(unittest.TestCase):
         """Test that macro expansion logs info when expansions occur.""" 
         values = {"name": "John"}
         
-        with self.assertLogs('lib.macro_utils', level='INFO') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='INFO') as cm:
             result = macro_utils.recursive_macro_expand("{{name}}", values, "{{", "}}", "\\")
         
         self.assertEqual(result, "John")
@@ -196,7 +196,7 @@ class TestMacroUtils(unittest.TestCase):
         """Test load_additional_macros returns {} and logs error for non-existent '~' (home) file path."""
         fake_home_dir = os.path.expanduser("~")
         bogus_tilde_path = os.path.join('~', 'this', 'file_does_not_exist_xyz.json')
-        with self.assertLogs('lib.macro_utils', level='ERROR') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
             result = macro_utils.load_additional_macros(bogus_tilde_path)
         self.assertEqual(result, {})
         self.assertTrue(any("Error loading macros" in log for log in cm.output))
@@ -215,7 +215,7 @@ class TestMacroUtils(unittest.TestCase):
     def test_load_additional_macros_path_expansion_mock_error(self):
         """Test load_additional_macros returns {} and logs error if file missing at expanded '~' path (mocked expanduser)."""
         with patch('os.path.expanduser', side_effect=lambda p: '/mock/home/nonexistent.json'):
-            with self.assertLogs('lib.macro_utils', level='ERROR') as cm:
+            with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
                 result = macro_utils.load_additional_macros('~/nonexistent.json')
             self.assertEqual(result, {})
             self.assertTrue(any("Error loading macros" in log for log in cm.output))

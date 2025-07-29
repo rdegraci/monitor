@@ -27,7 +27,7 @@ class TestSemanticStore(unittest.TestCase):
             system_prompt="Test memory agent system prompt"
         )
 
-    @patch("lib.semantic_store.litellm.completion")
+    @patch("monitor.lib.semantic_store.litellm.completion")
     def test_store_remembers_when_expected(self, mock_completion):
         # Arrange: Mock LLM returns a 'remember' object
         print(f"ID of self.store.process: {id(self.store.process)}")
@@ -47,7 +47,7 @@ class TestSemanticStore(unittest.TestCase):
         self.assertIn("bar", self.saved)
         self.assertEqual(self.saved["bar"], "foo")
 
-    @patch("lib.semantic_store.litellm.completion")
+    @patch("monitor.lib.semantic_store.litellm.completion")
     def test_store_handles_nothing_to_remember(self, mock_completion):
         # Arrange: Mock LLM returns a JSON null
         mock_completion.return_value = {
@@ -61,7 +61,7 @@ class TestSemanticStore(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(self.saved, {})
 
-    @patch("lib.semantic_store.litellm.completion")
+    @patch("monitor.lib.semantic_store.litellm.completion")
     def test_store_handles_llm_and_parsing_errors(self, mock_completion):
         # LLM raises error
         mock_completion.side_effect = Exception("LLM down")

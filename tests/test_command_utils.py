@@ -52,7 +52,7 @@ class TestCommandUtils(unittest.TestCase):
         ]
         for log_level, log_tag in levels_methods:
             with self.subTest(level=log_level):
-                with patch('builtins.print') as mock_print, self.assertLogs('lib.command_utils', level=log_tag) as cm:
+                with patch('builtins.print') as mock_print, self.assertLogs('monitor.lib.command_utils', level=log_tag) as cm:
                     command_utils.handle_error(msg, exception=exc, log_level=log_level, display=False)
                 # Should log to correct level, include message and exception
                 found_msg = any(msg in o for o in cm.output)
@@ -66,7 +66,7 @@ class TestCommandUtils(unittest.TestCase):
     def test_handle_error_different_log_levels(self):
         """Test handle_error with different logging levels."""
         # Test warning level
-        with self.assertLogs('lib.command_utils', level='WARNING') as cm:
+        with self.assertLogs('monitor.lib.command_utils', level='WARNING') as cm:
             command_utils.handle_error(
                 "Warning message", 
                 log_level="warning",
@@ -75,7 +75,7 @@ class TestCommandUtils(unittest.TestCase):
         self.assertIn("WARNING", cm.output[0])
         
         # Test info level
-        with self.assertLogs('lib.command_utils', level='INFO') as cm:
+        with self.assertLogs('monitor.lib.command_utils', level='INFO') as cm:
             command_utils.handle_error(
                 "Info message", 
                 log_level="info",
@@ -148,7 +148,7 @@ class TestCommandUtils(unittest.TestCase):
         mock_popen.side_effect = OSError("Command not found")
         
         with patch('builtins.print'):
-            with self.assertLogs('lib.command_utils', level='ERROR'):
+            with self.assertLogs('monitor.lib.command_utils', level='ERROR'):
                 result = command_utils.run_subprocess("nonexistent_command")
         
         # Should return None values on start failure
@@ -166,7 +166,7 @@ class TestCommandUtils(unittest.TestCase):
         mock_popen.return_value = mock_process
         
         with patch('builtins.print'):
-            with self.assertLogs('lib.command_utils', level='ERROR'):
+            with self.assertLogs('monitor.lib.command_utils', level='ERROR'):
                 result = command_utils.run_subprocess("problematic_command")
         
         # Should return None for stdout/stderr, but process object

@@ -24,9 +24,9 @@ class TestTooling(unittest.TestCase):
         error_msg = tooling.create_tool_result_message(None, "error!", "idX")
         self.assertEqual(error_msg, {'role': 'tool', 'content': 'error!', 'tool_call_id': 'idX'})
 
-    @patch("core.tooling.AVAILABLE_TOOLS", new_callable=lambda: {"foo": lambda x: x + 1})
-    @patch("core.tooling.count_message_tokens", return_value=1)
-    @patch("core.tooling.RATE_LIMITER")
+    @patch("monitor.core.tooling.AVAILABLE_TOOLS", new_callable=lambda: {"foo": lambda x: x + 1})
+    @patch("monitor.core.tooling.count_message_tokens", return_value=1)
+    @patch("monitor.core.tooling.RATE_LIMITER")
     def test_execute_tool_call_success(self, mock_limiter, mock_token_count, mock_available):
         tool_call = {
             "function": {
@@ -39,7 +39,7 @@ class TestTooling(unittest.TestCase):
             self.assertEqual(result, 3)
             self.assertIsNone(err)
 
-    @patch("core.tooling.AVAILABLE_TOOLS", new_callable=dict)
+    @patch("monitor.core.tooling.AVAILABLE_TOOLS", new_callable=dict)
     def test_execute_tool_call_missing(self, mock_available):
         tool_call = {
             "function": {"arguments": '{}', "name": "notfound"}

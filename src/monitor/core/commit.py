@@ -12,7 +12,7 @@ from monitor.lib.commit_analyzer import build_commit_message_query_input
 from monitor.core.conversation import query
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged  # Import centralized git wrappers
 
-logger = logging.getLogger('core.commit')
+logger = logging.getLogger('monitor.core.commit')
 
 def get_staged_diff():
     """Return the staged git diff as a string. Uses centralized git wrapper perform_git_diff_staged."""

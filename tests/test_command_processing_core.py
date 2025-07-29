@@ -4,8 +4,8 @@ from unittest.mock import patch, MagicMock
 import monitor.core.command_processing as command_processing
 
 class TestCommandProcessing(unittest.TestCase):
-    @patch("core.command_processing.handle_cd_command", return_value="/mock/dir")
-    @patch("core.command_processing.query")
+    @patch("monitor.core.command_processing.handle_cd_command", return_value="/mock/dir")
+    @patch("monitor.core.command_processing.query")
     def test_process_cd_command(self, mock_query, mock_handle_cd):
         # Should process and invoke CD handling for 'cd' command
         result = command_processing.process_cd_command("cd mydir", "cd")
@@ -24,16 +24,16 @@ class TestCommandProcessing(unittest.TestCase):
             self.assertFalse(command_processing.handle_exit_command("foo"))
             mock_signal.assert_called()
 
-    @patch("core.command_processing.readline.write_history_file")
-    @patch("core.command_processing.process_macro_command", return_value=False)
-    @patch("core.command_processing.handle_exit_command", return_value=False)
-    @patch("core.command_processing.process_cd_command", return_value=False)
-    @patch("core.command_processing.is_interactive_command", return_value=False)
-    @patch("core.command_processing.is_internal_command", return_value=False)
-    @patch("core.command_processing.is_built_in_function", return_value=False)
-    @patch("core.command_processing.query", return_value="query_result")
-    @patch("core.command_processing.send_artifact")
-    @patch("core.command_processing.display_query_result")
+    @patch("monitor.core.command_processing.readline.write_history_file")
+    @patch("monitor.core.command_processing.process_macro_command", return_value=False)
+    @patch("monitor.core.command_processing.handle_exit_command", return_value=False)
+    @patch("monitor.core.command_processing.process_cd_command", return_value=False)
+    @patch("monitor.core.command_processing.is_interactive_command", return_value=False)
+    @patch("monitor.core.command_processing.is_internal_command", return_value=False)
+    @patch("monitor.core.command_processing.is_built_in_function", return_value=False)
+    @patch("monitor.core.command_processing.query", return_value="query_result")
+    @patch("monitor.core.command_processing.send_artifact")
+    @patch("monitor.core.command_processing.display_query_result")
     def test_process_command_query(
         self,
         mock_display,
@@ -53,13 +53,13 @@ class TestCommandProcessing(unittest.TestCase):
         mock_history.assert_called_once()
         mock_display.assert_called()
 
-    @patch("core.command_processing.process_macro_command", return_value=True)
+    @patch("monitor.core.command_processing.process_macro_command", return_value=True)
     def test_process_command_macro(self, mock_proc_macro):
         # Macro detected, so returns early
         res = command_processing.process_command("<(macro);", "/tmp/f")
         self.assertFalse(res)
 
-    @patch("core.command_processing.handle_exit_command", return_value=True)
+    @patch("monitor.core.command_processing.handle_exit_command", return_value=True)
     def test_process_command_exit(self, mock_handle_exit):
         # Exit command triggers exit
         res = command_processing.process_command("exit", "/tmp/f")

@@ -38,7 +38,7 @@ from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib.rate_limiter import RateLimiter
 
-logger = logging.getLogger('core.commit')
+logger = logging.getLogger('monitor.core.commit')
 
 rate_limiter = RateLimiter(
     logger, 

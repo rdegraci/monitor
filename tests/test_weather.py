@@ -10,7 +10,7 @@ class TestWeather(unittest.TestCase):
     def test_logging(self):
         """Test if fetching weather logs an info message (rudimentary check)"""
         import logging
-        with self.assertLogs('lib.weather', level='INFO') as cm:
+        with self.assertLogs('monitor.lib.weather', level='INFO') as cm:
             _ = weather.get_current_weather("Toronto, ON")
         self.assertTrue(any("Fetching weather for Toronto, ON" in msg for msg in cm.output))
 

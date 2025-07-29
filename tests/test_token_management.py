@@ -95,11 +95,11 @@ class TestTokenManagement(unittest.TestCase):
         self.assertEqual(result, 90)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 90)
 
-    # @patch('lib.token_management.logger')
+    # @patch('monitor.lib.token_management.logger')
     # def test_update_token_usage_exception_handling(self, mock_logger):
     #     """Test that exceptions during token usage update are handled gracefully."""
     #     # Create a scenario where config access fails completely by patching the config module
-    #     with patch('lib.token_management.config') as mock_config:
+    #     with patch('monitor.lib.token_management.config') as mock_config:
     #         # Make accessing TOTAL_TOKEN_COUNT raise an exception
     #         type(mock_config).TOTAL_TOKEN_COUNT = MagicMock(side_effect=Exception("Config error"))
     #         

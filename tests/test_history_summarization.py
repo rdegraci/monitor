@@ -1,6 +1,6 @@
 import pytest
 import logging
-import lib.history as history
+import monitor.lib.history as history
 from unittest import mock
 from unittest.mock import patch  # Added for mocking core.llm.get_llm_completion
 from types import SimpleNamespace
@@ -174,7 +174,7 @@ def test_summarization_triggers_and_reset(
         pre_reset_tokens = config.TOTAL_TOKEN_COUNT
         system_prompt = next((m["content"] for m in conversation if m["role"] == "system"), "System prompt.")
         # Use unittest.mock.patch to mock the LLM call at the specific import path.
-        with patch("core.llm.get_llm_completion") as mock_llm:
+        with patch("monitor.core.llm.get_llm_completion") as mock_llm:
             mock_llm.return_value = fake_litellm_completion_func()
             summary_resp = mock_llm()
 
@@ -415,7 +415,7 @@ def test_prompt_count_stale_after_summarization(logger, config, monkeypatch):
     old_count = len(conversation)
 
     # Patch LLM to simulate summary.
-    with patch("core.llm.get_llm_completion") as mock_llm:
+    with patch("monitor.core.llm.get_llm_completion") as mock_llm:
         mock_llm.return_value = fake_litellm_completion_func()
         summary_resp = mock_llm()
 
