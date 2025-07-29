@@ -13,6 +13,7 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.completion import PathCompleter
 
 from monitor import config
+from monitor.config import CONVERSATION_LOG_FILE
 
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 
@@ -296,6 +297,22 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT):
         logger.error(f"Unexpected error in input processing: {str(e)}", exc_info=True)
         return ""
 
+def flush_logs_and_conversation():
+    if CONVERSATION_LOG_FILE:
+        CONVERSATION_LOG_FILE.flush()
+    for handler in logging.getLogger().handlers:
+       if hasattr(handler, 'flush'):
+           try:
+               handler.flush()
+           except Exception:
+               pass
+       # Force OS-level flush for file handlers
+       if hasattr(handler, 'stream') and hasattr(handler.stream, 'fileno'):
+           try:
+               import os
+               os.fsync(handler.stream.fileno())
+           except Exception:
+               pass
 
 def chat():
     """
@@ -383,6 +400,10 @@ def chat():
 
             # Process input and check for exit
             exit_flag = process_input(user_input, history_file)
+
+            # Write to logs/conversation
+            flush_logs_and_conversation()
+
             if not exit_flag:
                 continue
             else:
