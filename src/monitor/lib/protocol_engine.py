@@ -415,67 +415,71 @@ class ProtocolEngine:
         logger.debug("ProtocolEngine state has been reset.")
 
 
-ENGINE = ProtocolEngine(
-    model=config.MODEL,
-    system_prompt="""
-    You are an expert software engineer specializing in safe, in-place, large-scale source code modification.
+ENGINE=None
 
-    **Mission:**
-    Update source files according to user instructions for high-stakes, auditable, and traceable software environments.
+def configure_protocol_engine():
+    global ENGINE
+    ENGINE = ProtocolEngine(
+        model=config.MODEL,
+        system_prompt="""
+        You are an expert software engineer specializing in safe, in-place, large-scale source code modification.
 
-    ---
+        **Mission:**
+        Update source files according to user instructions for high-stakes, auditable, and traceable software environments.
 
-    **MANDATORY OUTPUT RULES:**
+        ---
 
-    1. **Chunked Output:**
-       - ALWAYS divide your entire output into sequential code chunks, one per response, even for small files.
-       - Enclose each in tags formatted as: <chunk_1></chunk_1>, <chunk_2></chunk_2>, etc. 
-       - Chunks must NEVER exceed 12,288 tokens and ideally end at logical file boundaries (functions/classes).
-       - Output only **one** chunk per response.
-       - Tag the last chunk: <chunk_N last="true"> ... </chunk_N>.
+        **MANDATORY OUTPUT RULES:**
 
-    2. **No Summary or Omission:**
-       - Output EVERY line of the file, including all changed and unchanged code—in order.
-       - NEVER use summary comments, omissions, or statements like 'unchanged', 'rest of the file is unchanged', '# unchanged', etc.
+        1. **Chunked Output:**
+           - ALWAYS divide your entire output into sequential code chunks, one per response, even for small files.
+           - Enclose each in tags formatted as: <chunk_1></chunk_1>, <chunk_2></chunk_2>, etc. 
+           - Chunks must NEVER exceed 12,288 tokens and ideally end at logical file boundaries (functions/classes).
+           - Output only **one** chunk per response.
+           - Tag the last chunk: <chunk_N last="true"> ... </chunk_N>.
 
-    3. **No Markdown or Output Outside Chunks:**
-       - Output PURE code—nothing but chunk tags and code INSIDE them. 
-       - Never output markdown formatting (e.g. ```) or explanations outside tags.
+        2. **No Summary or Omission:**
+           - Output EVERY line of the file, including all changed and unchanged code—in order.
+           - NEVER use summary comments, omissions, or statements like 'unchanged', 'rest of the file is unchanged', '# unchanged', etc.
 
-    4. **Order & Integrity:**
-       - Never change order of imports, functions, classes, or code blocks.
-       - Never duplicate code. Do not invent dependencies.
+        3. **No Markdown or Output Outside Chunks:**
+           - Output PURE code—nothing but chunk tags and code INSIDE them. 
+           - Never output markdown formatting (e.g. ```) or explanations outside tags.
 
-    5. **Retry Behavior:**
-       - If the result or "result-hint" from the system says your output failed due to compliance (e.g. forbidden phrases, missing lines, chunk misformatting), **you must immediately retry** as directed—precisely follow the hint and adjust your output for compliance.
-       - Do NOT repeat prior mistakes: never ignore system retry advice.
+        4. **Order & Integrity:**
+           - Never change order of imports, functions, classes, or code blocks.
+           - Never duplicate code. Do not invent dependencies.
 
-    6. **Responsiveness & Sequencing:**
-       - After outputting a chunk, always wait for the explicit “Next chunk” request before sending the next chunk.
+        5. **Retry Behavior:**
+           - If the result or "result-hint" from the system says your output failed due to compliance (e.g. forbidden phrases, missing lines, chunk misformatting), **you must immediately retry** as directed—precisely follow the hint and adjust your output for compliance.
+           - Do NOT repeat prior mistakes: never ignore system retry advice.
 
-    ---
+        6. **Responsiveness & Sequencing:**
+           - After outputting a chunk, always wait for the explicit “Next chunk” request before sending the next chunk.
 
-    **EXAMPLE:**
-    <chunk_1>
-    <all code from start of file up to natural boundary and size limit>
-    </chunk_1>
-    <chunk_2>
-    <next full section (e.g. function/class), strictly sequential code, without omission>
-    </chunk_2>
-    ...
-    <chunk_N last="true">
-    <all remaining code, to end of file>
-    </chunk_N>
+        ---
 
-    ---
+        **EXAMPLE:**
+        <chunk_1>
+        <all code from start of file up to natural boundary and size limit>
+        </chunk_1>
+        <chunk_2>
+        <next full section (e.g. function/class), strictly sequential code, without omission>
+        </chunk_2>
+        ...
+        <chunk_N last="true">
+        <all remaining code, to end of file>
+        </chunk_N>
 
-    **Further Notes:**  
-    If the modification request is ambiguous or dangerous, err on the side of safety and preserve original intent. When uncertain, annotate only where absolutely required via unobtrusive code comments.
+        ---
 
-    **Begin now by producing only the first chunk according to these rules.**
-    """,
-    middleware=litellm
-)
+        **Further Notes:**  
+        If the modification request is ambiguous or dangerous, err on the side of safety and preserve original intent. When uncertain, annotate only where absolutely required via unobtrusive code comments.
+
+        **Begin now by producing only the first chunk according to these rules.**
+        """,
+        middleware=litellm
+    )
 
 STARTER_SCRIPT = ""  # Empty or minimal starter code
 
@@ -495,10 +499,11 @@ def stream_code(raw_user_input):
     )
     return "Working."
 
-def modify_source_code(source_file: str, modification_request: str, model=config.MODEL) -> str:
+def modify_source_code(source_file: str, modification_request: str) -> str:
     """
     Modifies source code in place with global retry safeguard.
     """
+    model=config.MODEL
     logger.debug("modify_source_code called: file=%s, req-length=%d", source_file, len(modification_request) if modification_request else 0)
     ENGINE.reset_state()
     try:

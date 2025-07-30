@@ -15,8 +15,11 @@ from dotenv import find_dotenv, load_dotenv
 
 from monitor.lib.rate_limiter import configure_rate_limiter
 from monitor.core.commands import load_public_interactive_commands
+from monitor.core.tools import configure_tools
 from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences
+from monitor.lib.external_services import configure_external_services
+from monitor.lib.protocol_engine import configure_protocol_engine
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +163,10 @@ REASONING_MODEL_PREFIX=None
 REASONING_EFFORT=None
 REASONING_MAX_COMPLETION_TOKENS=None
 LAST_INPUT_WAS_VOICE = False
+ARTIFACT_SERVER=None
+CODE_LENS_HOST=None
+CODE_LENS_PORT=None
+JOKES_FILE=None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM
@@ -170,6 +177,8 @@ def configure_globals():
     global EXTERNAL_SERVICES, MEMORY_SERVICES, OLLAMA_CONFIG
     global PUBLIC_COMMANDS_PATH, REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
+    global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE
+
     yaml_config = load_yaml_config()
 
     MODEL = yaml_config.get("MODEL")
@@ -181,7 +190,6 @@ def configure_globals():
      'safety_factor': 0.6,
      'window_seconds': 60,
     })
-    MEMORY_SERVICES = yaml_config.get('MEMORY_SERVICES', False)
     STARTUP_TIME = time.strftime("%Y_%m_%d_%H_%M")
     
 
@@ -225,6 +233,14 @@ def configure_globals():
     REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX', 'openai/o3')
     REASONING_EFFORT = yaml_config.get('REASONING_EFFORT', "medium")
     REASONING_MAX_COMPLETION_TOKENS = yaml_config.get('REASONING_MAX_COMPLETION_TOKENS', 25000)
+
+    ARTIFACT_SERVER = yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/')
+    CODE_LENS_HOST = yaml_config.get('CODE_LENS_HOST', 'localhost')
+    CODE_LENS_PORT = yaml_config.get('CODE_LENS_PORT', '5000')
+
+
+    # Global list to store jokes told previously
+    JOKES_FILE = yaml_config.get('JOKES_FILE', '/Users/rdegraci/.monitor-jokes')
 
 LOGGING_CONFIG=None 
 LOGGING_LEVEL=None 
@@ -299,7 +315,9 @@ def load_configuration():
     load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
     load_user_preferences(PREFERENCE_PROMPT_FILE)
-
+    configure_tools()
+    configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
+    configure_protocol_engine()
 # ####
 # ####
 
