@@ -424,6 +424,55 @@ google_model_tpm_tier = {
     4: 80000
 }
 
+def set_model(model_key: str):
+    """
+    Changes the active model configuration at runtime.
+    
+    set_model(model_key: str) updates and sets
+    - MODEL
+    - MODEL_CONTEXT_WINDOW
+    - MODEL_OUTPUT_WINDOW
+    - MODEL_MAX_TPM
+    - CONVERSATION_MAX_SIZE
+
+    according to the mappings defined at the top of config.py. model_key may be a shorthand mapping key,
+    or a full model string (e.g. "openai/gpt-4o-2024-08-06"). If model_key is not in the mapping,
+    it is presumed to be a full model string and sensible defaults are applied.
+    
+    This function updates the above globals in-place for use throughout the application. It logs all changes for audit.
+    Call this function to dynamically select a model and propagate its config.
+    """
+    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE
+
+    # Determine mapping values
+    mapped_key = None
+    if model_key in model_mapping:
+        mapped_key = model_key
+        model_full = model_mapping[model_key]
+    else:
+        if model_key in model_mapping.values():
+            model_full = model_key
+            mapped_key = next((k for k, v in model_mapping.items() if v == model_key), None)
+        else:
+            model_full = model_key
+            mapped_key = None
+
+    if mapped_key:
+        MODEL = model_full
+        MODEL_CONTEXT_WINDOW = context_window_mapping.get(mapped_key, 128000)
+        MODEL_OUTPUT_WINDOW = output_window_mapping.get(mapped_key, 8192)
+        MODEL_MAX_TPM = model_max_tpm.get(mapped_key, 30000)
+        CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key, 50)
+
+    logger.info(
+        f"set_model: Activated model '{MODEL}' "
+        f"(CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW}, OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW}, "
+        f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE})"
+    )
+
+# initial_model_key = yaml_config.get('MODEL', 'openai/gpt-4o')
+# set_model(initial_model_key)
+
 def update_model():
     yaml_config = load_yaml_config()
     xai_tpm_tier = xai_model_tpm_tier[yaml_config.get("MODEL_INPUT_TIER", 1)]
