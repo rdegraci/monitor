@@ -1,12 +1,10 @@
-
-
 import os
-import appdirs
 import shutil
+import appdirs
 import importlib.resources
 import importlib.util
 
-from .app import main
+from .app import main as app_main
 
 def ensure_user_config_file(src_filename, dest_filename):
     config_dir = appdirs.user_config_dir("monitor")
@@ -17,13 +15,15 @@ def ensure_user_config_file(src_filename, dest_filename):
             shutil.copy(str(src), dest)
         print(f"Copied default {src_filename} to {dest}")
 
-if __name__ == "__main__":
-    ensure_user_config_file("dot_env_example", ".env")
-    ensure_user_config_file("app.yaml", "app.yaml")
-    ensure_user_config_file("macros.json", "macros.json")
-    ensure_user_config_file("public_commands.json", "public_commands.json")
-    main()
+def main():
+    ensure_user_config_file("app.yaml","app.yaml")
+    ensure_user_config_file("macros.json","macros.json")
+    ensure_user_config_file("preferences.prompt","preferences.prompt")
 
+    app_main()
+
+if __name__ == "__main__":
+    main()
 
 
 # def main():

@@ -14,17 +14,24 @@ from monitor.lib.colors import red, yellow, blue, reset
 logger = logging.getLogger(__name__)
 
 from monitor import config
-from monitor.config import yaml_config
-
-ARTIFACT_SERVER = yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/')
-CODE_LENS_HOST = yaml_config.get('CODE_LENS_HOST', 'localhost')
-CODE_LENS_PORT = yaml_config.get('CODE_LENS_PORT', '5000')
+from monitor.config import load_yaml_config
 
 
-# Global list to store jokes told previously
-JOKES_FILE = "/Users/rdegraci/.monitor-jokes"
-JOKES_FILE = yaml_config.get('JOKES_FILE', '/Users/rdegraci/.monitor-jokes')
+ARTIFACT_SERVER=None
+CODE_LENS_HOST=None
+CODE_LENS_PORT=None 
+JOKES_FILE=None 
 JOKES = []
+
+def configure_external_services():
+    ARTIFACT_SERVER = load_yaml_config().get('ARTIFACT_SERVER', 'http://localhost:2323/')
+    CODE_LENS_HOST = load_yaml_config().get('CODE_LENS_HOST', 'localhost')
+    CODE_LENS_PORT = load_yaml_config().get('CODE_LENS_PORT', '5000')
+
+
+    # Global list to store jokes told previously
+    JOKES_FILE = "/Users/rdegraci/.monitor-jokes"
+    JOKES_FILE = load_yaml_config().get('JOKES_FILE', '/Users/rdegraci/.monitor-jokes')
 
 def send_artifact(message: str):
     """Send a message to Artifact server."""

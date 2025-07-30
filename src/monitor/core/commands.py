@@ -28,17 +28,11 @@ from monitor import config
 
 logger = logging.getLogger(__name__)
 
+PUBLIC_INTERACTIVE_COMMANDS=None
+INTERACTIVE_COMMANDS=None
 
-# The list of public interactive commands is now loaded from external JSON:
-#   - The file is specified by config.PUBLIC_COMMANDS_PATH.
-#   - If the file is missing, unreadable, or malformed, falls back to an empty list.
-#   - Any error is logged; a fallback warning is logged and/or printed.
-def _load_public_interactive_commands():
-    commands_path = getattr(config, "PUBLIC_COMMANDS_PATH", None)
-    if not commands_path:
-        logger.error("PUBLIC_COMMANDS_PATH not set in config; no public interactive commands loaded.")
-        print("[WARN] PUBLIC_COMMANDS_PATH not set in config; no public interactive commands loaded.")
-        return []
+def load_public_interactive_commands(commands_path):
+    global PUBLIC_INTERACTIVE_COMMANDS, INTERACTIVE_COMMANDS
     try:
         with open(commands_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -46,13 +40,12 @@ def _load_public_interactive_commands():
             logger.error(f"Public commands file {commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
             print(f"[WARN] Invalid public commands file format at {commands_path}; falling back to empty list.")
             return []
-        return data
+        PUBLIC_INTERACTIVE_COMMANDS=data
+        INTERACTIVE_COMMANDS = private_interactive_commands + PUBLIC_INTERACTIVE_COMMANDS
     except Exception as e:
         logger.error(f"Could not load public interactive commands from {commands_path}: {e}")
         print(f"[WARN] Could not load public interactive commands from {commands_path}: {e} - falling back to empty list.")
         return []
-
-public_interactive_commands = _load_public_interactive_commands()
 
 # List of interactive commands each represented as a dictionary with properties "command" and "expansion"
 # The "expansion" field may be:
@@ -78,7 +71,7 @@ private_interactive_commands = [
     },
 ]
 
-interactive_commands = private_interactive_commands + public_interactive_commands
+
 
 internal_commands = [
     {
@@ -96,15 +89,15 @@ internal_commands = [
 
 def is_interactive_command(command: str):
     first_word = get_first_word(command)
-    return next((cmd for cmd in interactive_commands if cmd["command"] == first_word), None)
+    return next((cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
 
 
 def execute_interactive_command(command: str):
     """
-    Execute an interactive command as defined in interactive_commands.
+    Execute an interactive command as defined in INTERACTIVE_COMMANDS.
 
-    - If an 'expansion' is matched for the first word in the command in interactive_commands, 
+    - If an 'expansion' is matched for the first word in the command in INTERACTIVE_COMMANDS, 
       the expansion string is executed directly (with additional arguments appended) 
       in an interactive subshell.
     - If no expansion is found for the matched command, the command itself is executed
@@ -115,7 +108,7 @@ def execute_interactive_command(command: str):
     """
     first_word = get_first_word(command)
     matching_command = next(
-        (cmd for cmd in interactive_commands if cmd["command"] == first_word), None
+        (cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
     )
     command_to_run = None
 
@@ -189,7 +182,7 @@ def print_interactive_commands(arg):
     """
     Print all public interactive command names as a comma-separated list.
     """
-    commands = [item["command"] for item in public_interactive_commands if "command" in item]
+    commands = [item["command"] for item in PUBLIC_INTERACTIVE_COMMANDS if "command" in item]
     command_string = ", ".join(commands)
     print(command_string)
     print("***")

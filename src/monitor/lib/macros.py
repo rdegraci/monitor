@@ -3,7 +3,6 @@
 
 import json
 import logging
-from monitor import config 
 import os
 import subprocess
 
@@ -153,8 +152,6 @@ public_macro_values = {
     """,
 }
 
-ADDITIONAL_MACROS = load_additional_macros(config.MACRO_FILE_PATH)
-
 def configure_macros():
     """Load, update, and configure all macro dictionaries into global MACRO_VALUES.
 
@@ -165,9 +162,10 @@ def configure_macros():
     Returns:
         None
     """
+    additional_macros = load_additional_macros(config.MACRO_FILE_PATH)
     update_macros(MACRO_VALUES, ephemeral_macro_values)
     update_macros(MACRO_VALUES, public_macro_values)
-    update_macros(MACRO_VALUES, ADDITIONAL_MACROS)
+    update_macros(MACRO_VALUES, additional_macros)
     update_macros(MACRO_VALUES, private_macro_values)
 
 
@@ -184,9 +182,10 @@ def print_macros(arg=None):
     Returns:
         None
     """
+    additional_macros = load_additional_macros(config.MACRO_FILE_PATH)
     output_parts = [
         json.dumps(public_macro_values, indent=4, sort_keys=True),
-        json.dumps(ADDITIONAL_MACROS, indent=4, sort_keys=True),
+        json.dumps(additional_macros, indent=4, sort_keys=True),
         json.dumps(ephemeral_macro_values, indent=4, sort_keys=True),
     ]
     combined_output = "\n\n".join(output_parts)

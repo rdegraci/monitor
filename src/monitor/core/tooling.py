@@ -6,7 +6,7 @@ from monitor import config
 logger = logging.getLogger(__name__)
 from monitor.lib.tool_definitions import AVAILABLE_TOOLS
 from monitor.lib.colors import red, blue, yellow, reset
-from monitor.core.rate_limiting import RATE_LIMITER
+from monitor.lib.rate_limiter import RATE_LIMITER
 
 from monitor.lib.protocol_engine import configure_protocol_engine_message_history
 from monitor.lib.token_management import (

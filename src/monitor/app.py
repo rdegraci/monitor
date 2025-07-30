@@ -18,8 +18,7 @@ import os  # Added for forced process exit fallback.
 import time  # Added for small delay before forced exit.
 
 from monitor import config
-from monitor.config import load_environment_variables
-from monitor.lib.logging import configure_logging
+from monitor.config import load_configuration, configure_logging
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 
 from monitor.core.built_ins import configure_built_ins
@@ -30,8 +29,6 @@ from monitor.core.command_processing import internalize_command  # Command proce
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 
-# Initialize logging as early as possible to capture startup diagnostics.
-configure_logging()
 logger = logging.getLogger(__name__)
 
 # Register clean SIGINT handler early to ensure graceful shutdown on interrupt signals.
@@ -116,7 +113,8 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    load_environment_variables()
+    load_configuration()
+    configure_logging()
 
     # Prepare built-ins and macros that the rest of the application relies on.
     configure_built_ins()

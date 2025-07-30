@@ -8,10 +8,10 @@ logger = logging.getLogger(__name__)
 
 from monitor.core.tooling import handle_tool_call, handle
 from monitor.core.tools import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
-from monitor.core.rate_limiting import RATE_LIMITER
+from monitor.lib import rate_limiter
 
 from monitor.lib.message_utils import prepare_messages_with_cache_control
-from monitor.lib.preferences import load_user_preferences
+from monitor.lib.preferences import PREFERENCE_PROMPT_FILE
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.text_to_speech import TextToSpeech
 from monitor.lib.history import append_to_history_with_count
@@ -64,7 +64,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         estimated_tokens = 0
         for msg in messages:
             estimated_tokens += count_message_tokens(msg)
-        preferences = load_user_preferences(config.get_yaml_config())
+        preferences = PREFERENCE_PROMPT_FILE
         if preferences:
             # Prepend user preferences as a system message (always check latest state)
             messages = [{"role": "system", "content": preferences}] + messages
@@ -75,7 +75,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
            if config.REASONING_MODEL_PREFIX.lower() in config.MODEL.lower()
            else 0
         )
-        RATE_LIMITER.wait_if_needed(estimated_request)
+        rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
 
         if estimated_request > config.MODEL_MAX_TPM:
             return None, (
@@ -97,7 +97,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
            if hasattr(response, "usage") and hasattr(response.usage, "total_tokens")
            else estimated_tokens
         )
-        RATE_LIMITER.add_request(actual_used)
+        rate_limiter.RATE_LIMITER.add_request(actual_used)
 
         logger.debug(f"{log_prefix} Received response from the language model.")
         return response, None

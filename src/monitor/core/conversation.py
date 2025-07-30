@@ -13,7 +13,6 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.completion import PathCompleter
 
 from monitor import config
-from monitor.config import CONVERSATION_LOG_FILE
 
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 
@@ -160,8 +159,8 @@ def post_social_media_summaries():
 
 def update_conversation_logs(user_input, conversation_log_file=config.CONVERSATION_LOG_FILE):
     """Update conversation logs with user input"""
-    if (config.CONVERSATION_LOG_FILE and not config.CONVERSATION_LOG_FILE.closed):
-        conversation_log_file.write(USER_LOG_FORMAT.format(input=user_input))
+    if (config.CONVERSATION_LOG_FILE is not None and not config.CONVERSATION_LOG_FILE.closed):
+        config.CONVERSATION_LOG_FILE.write(USER_LOG_FORMAT.format(input=user_input))
 
 def query(user_prompt):
     """
@@ -298,8 +297,8 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT):
         return ""
 
 def flush_logs_and_conversation():
-    if CONVERSATION_LOG_FILE:
-        CONVERSATION_LOG_FILE.flush()
+    if config.CONVERSATION_LOG_FILE:
+        config.CONVERSATION_LOG_FILE.flush()
     for handler in logging.getLogger().handlers:
        if hasattr(handler, 'flush'):
            try:

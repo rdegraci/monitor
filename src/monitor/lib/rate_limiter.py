@@ -271,3 +271,13 @@ class RateLimiter:
         return False
 
 
+RATE_LIMITER=None
+
+def configure_rate_limiter(logger, max_tmp, window_seconds, safety_factor):
+    global RATE_LIMITER
+    RATE_LIMITER = RateLimiter(
+        logger, 
+        max_tmp, 
+        window_seconds,
+        safety_factor,
+        )

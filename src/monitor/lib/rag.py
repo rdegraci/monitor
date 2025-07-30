@@ -9,7 +9,7 @@ from monitor import config
 logger = logging.getLogger(__name__)
 
 from monitor.lib.external_services import send_query_to_indexing_service
-from monitor.lib.rate_limiter import RateLimiter
+from monitor.lib.rate_limiter import RATE_LIMITER
 from monitor.lib.ecs import embed_directory
 from monitor.lib.display_output import highlightMarkdown
 from monitor.lib.colors import red, yellow, blue, reset 
@@ -25,13 +25,6 @@ except ImportError as e:
     raise ImportError(
         "Required pygments components (SwiftLexer and TerminalFormatter) are not available. "
         "Please install pygments and ensure necessary lexers/formatters are accessible."
-    )
-
-rate_limiter = RateLimiter(
-    logger, 
-    config.MODEL_MAX_TPM, 
-    config.RATE_LIMITING_CONFIG['window_seconds'],
-    config.RATE_LIMITING_CONFIG['safety_factor'],
     )
 
 OLLAMA_CONVERSATION_HISTORY = []
@@ -281,14 +274,14 @@ def query_using_rag(raw_user_input):
 
     try:
         # Get available tokens from rate limiter - use 80% to leave room for the response
-        current_usage = rate_limiter.get_current_usage()
-        available_tokens = max(1000, int((rate_limiter.limit - current_usage) * 0.8))
+        current_usage = RATE_LIMITER.get_current_usage()
+        available_tokens = max(1000, int((RATE_LIMITER.limit - current_usage) * 0.8))
         
         # Cap at model context window
         available_tokens = min(available_tokens, config.MODEL_CONTEXT_WINDOW)
         
         logger.debug("Available tokens for RAG query: %d (rate limit: %d, current usage: %d)",
-                    available_tokens, rate_limiter.limit, current_usage)
+                    available_tokens, RATE_LIMITER.limit, current_usage)
 
         # Build RAG prompt with token awareness
         logger.debug("Building RAG prompt with token budget: %d", available_tokens)
@@ -301,7 +294,7 @@ def query_using_rag(raw_user_input):
         logger.debug("Estimated tokens for RAG query: %d", estimated_tokens)
         
         # Check if we need to wait due to rate limiting
-        rate_limiter.wait_if_needed(estimated_tokens)
+        RATE_LIMITER.wait_if_needed(estimated_tokens)
         
         # Add to conversation history
         logger.debug("Appending user input to conversation history (length before: %d)", 

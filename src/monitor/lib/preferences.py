@@ -8,19 +8,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_preferences_file_path(config):
-    """Return the file path for preferences from monitor.config or default location.
-
-    Args:
-        config (dict): Configuration dictionary.
-
-    Returns:
-        str: Path to the preferences file.
-    """
-    # Default location if config missing
-    return config.get("PREFERENCE_PROMPT_FILE", os.path.expanduser("~/.config/monitor/preferences.prompt"))
-
-
 def get_preference_editor(config):
     """Determine the preferred editor from environment, config, or fallback.
 
@@ -98,8 +85,8 @@ def open_preferences_editor(config, *args, **kwargs):
     except Exception as e:
         logger.error(f"Unexpected error in open_preferences_editor: {e}", exc_info=True)
 
-
-def load_user_preferences(config):
+PREFERENCE_PROMPT_FILE=None
+def load_user_preferences(path):
     """Read and return the user preferences file content, or empty string if not set.
 
     Handles IO errors gracefully and does not crash.
@@ -110,11 +97,11 @@ def load_user_preferences(config):
     Returns:
         str: Contents of the preferences file, or empty string if not present or error.
     """
-    path = get_preferences_file_path(config)
+    global PREFERENCE_PROMPT_FILE
     try:
         if os.path.exists(path):
             with open(path, 'r') as f:
-                return f.read().strip()
+                PREFERENCE_PROMPT_FILE = f.read().strip()
     except Exception as e:
         logger.error(f"Could not read preferences file at {path}: {e}", exc_info=True)
     return ""

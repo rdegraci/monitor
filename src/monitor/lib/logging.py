@@ -203,7 +203,3 @@ def get_logger(name):
         Logger: Configured logger instance
     """
     return logging.getLogger(name)
-
-# Configure logging upon import, using strictly config.logging_config as the primary source,
-# falling back to legacy variables only if needed.
-configure_logging()

@@ -9,23 +9,29 @@ from typing import Dict, Optional, Union, Tuple, List
 
 from redis.exceptions import ConnectionError, TimeoutError, RedisError
 
-from monitor import config
-from monitor.config import yaml_config
+from monitor import config 
 
 from monitor.lib.colors import red, blue, yellow, reset 
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 
 logger = logging.getLogger(__name__)
 
-# Extract Redis configuration from YAML or set default values
-REDIS_HOST = yaml_config.get('REDIS_HOST', '192.168.0.250')
-REDIS_PORT = yaml_config.get('REDIS_PORT', 6379)
-REDIS_DB = yaml_config.get('REDIS_DB', 0)
-REDIS_MAX_RETRIES = yaml_config.get('REDIS_MAX_RETRIES', 3)
-REDIS_RETRY_INTERVAL = yaml_config.get('REDIS_RETRY_INTERVAL', 1)  # seconds
-
 # Thread-local storage for Redis client
 _redis_client = threading.local()
+
+REDIS_HOST=None 
+REDIS_PORT=6379 
+REDIS_DB=0 
+REDIS_MAX_RETRIES=3 
+REDIS_RETRY_INTERVAL=1
+
+def configure_redis_utils(host, port, db, max_retries, retry_interval):
+    global REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL
+    REDIS_HOST = host
+    REDIS_PORT = port
+    REDIS_DB = db
+    REDIS_MAX_RETRIES = max_retries
+    REDIS_RETRY_INTERVAL = retry_interval
 
 def get_redis_client() -> redis.Redis:
     """
