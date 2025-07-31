@@ -3,35 +3,17 @@ import subprocess
 import shutil
 import logging
 
-
-def get_preferences_file_path(config):
-    """Get the preferences file path from config or default location.
-
-    Args:
-        config (dict): Configuration dictionary.
-
-    Returns:
-        str: Path to the user preferences file.
-    """
-    return config.get('PREFERENCE_PROMPT_FILE', os.path.expanduser('~/.config/monitor/preferences.prompt'))
-
-
 logger = logging.getLogger(__name__)
 
 
-def get_preference_editor(config):
-    """Determine the preferred editor from environment, config, or fallback.
-
-    Args:
-        config (dict): Configuration dictionary.
+def get_preference_editor():
+    """Determine the preferred editor from environment, or fallback.
 
     Returns:
         str or None: Path to the editor executable, or None if not found.
     """
     editor = (
         os.environ.get("EDITOR") or
-        config.get("Editor") or
-        config.get("PREFERENCE_EDITOR") or
         '/usr/bin/vi'
     )
     if os.path.isabs(editor):
@@ -65,17 +47,12 @@ def get_preference_editor(config):
         return found
 
 
-def open_preferences_editor(config, *args, **kwargs):
+def open_preferences_editor(path):
     """Open the preferences file in the configured text editor for editing.
 
-    Attempts to use the $EDITOR environment variable, a config value
-    ('Editor' or 'PREFERENCE_EDITOR'), or falls back to '/usr/bin/vi'.
+    Attempts to use the $EDITOR environment variable or falls back to '/usr/bin/vi'.
     Handles errors gracefully and informs the user.
-
-    Args:
-        config (dict): Configuration dictionary.
     """
-    path = get_preferences_file_path(config)
     try:
         if not os.path.exists(path):
             try:
@@ -83,7 +60,7 @@ def open_preferences_editor(config, *args, **kwargs):
             except Exception as e:
                 print(f"Could not create preferences file at {path}: {e}")
                 return
-        editor = get_preference_editor(config)
+        editor = get_preference_editor()
         if editor is None:
             logger.warning("No available text editor found. Set $EDITOR or configure a valid editor.")
             return
@@ -96,23 +73,23 @@ def open_preferences_editor(config, *args, **kwargs):
     except Exception as e:
         logger.error(f"Unexpected error in open_preferences_editor: {e}", exc_info=True)
 
-PREFERENCE_PROMPT_FILE=None
-def load_user_preferences(path):
+PREFERENCE_PROMPT=None
+def load_user_preferences_prompt(path):
     """Read and return the user preferences file content, or empty string if not set.
 
     Handles IO errors gracefully and does not crash.
 
     Args:
-        config (dict): Configuration dictionary.
+        path (string): path to user preferences file
 
     Returns:
         str: Contents of the preferences file, or empty string if not present or error.
     """
-    global PREFERENCE_PROMPT_FILE
+    global PREFERENCE_PROMPT
     try:
         if os.path.exists(path):
             with open(path, 'r') as f:
-                PREFERENCE_PROMPT_FILE = f.read().strip()
+                PREFERENCE_PROMPT = f.read().strip()
     except Exception as e:
         logger.error(f"Could not read preferences file at {path}: {e}", exc_info=True)
     return ""

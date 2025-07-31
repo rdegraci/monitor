@@ -11,7 +11,7 @@ from monitor.core.tools import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
 from monitor.lib import rate_limiter
 
 from monitor.lib.message_utils import prepare_messages_with_cache_control
-from monitor.lib.preferences import PREFERENCE_PROMPT_FILE
+from monitor.lib.preferences import PREFERENCE_PROMPT
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.text_to_speech import TextToSpeech
 from monitor.lib.history import append_to_history_with_count
@@ -64,7 +64,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         estimated_tokens = 0
         for msg in messages:
             estimated_tokens += count_message_tokens(msg)
-        preferences = PREFERENCE_PROMPT_FILE
+        preferences = PREFERENCE_PROMPT
         if preferences:
             # Prepend user preferences as a system message (always check latest state)
             messages = [{"role": "system", "content": preferences}] + messages

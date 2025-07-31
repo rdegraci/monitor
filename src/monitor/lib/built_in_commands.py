@@ -172,7 +172,7 @@ def linkedin_summary_command(arg=None):
 
 
 def open_preferences_command():
-    result = open_preferences_editor(config.get_yaml_config())
+    result = open_preferences_editor(config.PREFERENCE_PROMPT_FILE)
     print(result)
 
 

@@ -16,7 +16,7 @@ from dotenv import find_dotenv, load_dotenv
 from monitor.lib.rate_limiter import configure_rate_limiter
 from monitor.core.tools import configure_tools
 from monitor.lib.redis_utils import configure_redis_utils
-from monitor.lib.preferences import load_user_preferences
+from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
 from monitor.lib.logging import configure_logging
@@ -477,7 +477,7 @@ def configure_subsystems():
     configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])
     load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
-    load_user_preferences(PREFERENCE_PROMPT_FILE)
+    load_user_preferences_prompt(PREFERENCE_PROMPT_FILE)
     configure_tools()
     configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
     configure_protocol_engine()
