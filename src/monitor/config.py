@@ -165,6 +165,7 @@ def get_model_reverse_mapping():
             logger.warning(f"Duplicate model alias detected: model string '{v}' is mapped to multiple shorthand keys {keys}")
     return reverse
 
+
 conversation_history_mapping = {
     "sonnet4": 25,
     "sonnet35": 25,
@@ -501,6 +502,7 @@ def set_model(model_key: str):
     Call this function to dynamically select a model and propagate its config.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
+    global CONVERSATION_HISTORY
 
     # Determine mapping values
     mapped_key = None
@@ -527,6 +529,9 @@ def set_model(model_key: str):
         # These must be set, so that the counts are correct
         MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
         TOTAL_TOKEN_COUNT=0
+
+    # Reset the conversation history when the model is set
+    CONVERSATION_HISTORY = []
 
     logger.info(
         f"set_model: Activated model '{MODEL}' "
