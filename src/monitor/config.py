@@ -166,7 +166,9 @@ ARTIFACT_SERVER=None
 CODE_LENS_HOST=None
 CODE_LENS_PORT=None
 JOKES_FILE=None
-DIRECTIVES_DIR=None 
+DIRECTIVES_DIR=None
+ECS_HOST=None
+ECS_PORT=None 
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM
@@ -178,6 +180,7 @@ def configure_globals():
     global PUBLIC_COMMANDS_PATH, REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
+    global ECS_HOST, ECS_PORT
 
     yaml_config = load_yaml_config()
 
@@ -244,6 +247,9 @@ def configure_globals():
     DIRECTIVES_DIR = yaml_config.get('DIRECTIVES_DIR')
     if DIRECTIVES_DIR:
         os.environ['DIRECTIVES_DIR'] = DIRECTIVES_DIR
+
+    ECS_HOST = yaml_config.get('ECS_HOST')
+    ECS_PORT = yaml_config.get('ECS_PORT')
 
 LOGGING_CONFIG=None 
 LOGGING_LEVEL=None 
