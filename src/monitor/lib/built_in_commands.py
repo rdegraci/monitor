@@ -41,7 +41,7 @@ def handle_cd_command(args: str) -> str:
         FileNotFoundError, NotADirectoryError, PermissionError
     """
     try:
-        os.chdir(args)
+        os.chdir(os.path.expanduser(args))
         cwd = os.getcwd()
         return cwd
     except FileNotFoundError:
