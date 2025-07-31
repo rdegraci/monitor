@@ -19,6 +19,7 @@ import time  # Added for small delay before forced exit.
 
 from monitor import config
 from monitor.config import load_configuration, configure_logging
+from monitor.config import set_model  # Import set_model for CLI model override.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 
 from monitor.core.built_ins import configure_built_ins
@@ -28,6 +29,11 @@ from flask import Flask, request, jsonify  # Flask imports for server mode.
 from monitor.core.command_processing import internalize_command  # Command processing for server requests.
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
+
+try:
+    from monitor.config import model_mapping
+except ImportError:
+    model_mapping = {}
 
 logger = logging.getLogger(__name__)
 
@@ -110,10 +116,44 @@ def main():
         default=5000,
         help="Port for server mode (default 5000)",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="Select model key to use (e.g., grok4, o3)",
+    )
 
     args, unknown = parser.parse_known_args()
 
     load_configuration()
+
+
+    # Apply --model CLI override as early as possible before dependency components are initialized.
+    if hasattr(args, "model") and args.model is not None:
+        # Enhanced validation logic for --model
+        valid_model = False
+        model_key_list = list(getattr(model_mapping, "keys", lambda: [])())
+        if model_key_list and args.model in model_key_list:
+            valid_model = True
+        else:
+            # Accept if the value is also a full model string in the model mapping values
+            if model_key_list and args.model in model_mapping.values():
+                valid_model = True
+
+        if valid_model:
+            set_model(args.model)
+            logger.info(f"Model override applied via CLI: {args.model}")
+            logger.info(f"Effective model is now: {args.model}")
+            print(f"Effective model: {args.model}")
+        else:
+            # Invalid model: print and log warning, show available models
+            available_models = ', '.join(model_key_list) if model_key_list else '(none found)'
+            warning_msg = (
+                f"Warning: Unknown model '{args.model}'. No override applied.\n"
+                f"Available models: {available_models}"
+            )
+            logger.warning(warning_msg)
+            print(warning_msg)
+
     configure_logging()
 
     # Prepare built-ins and macros that the rest of the application relies on.
