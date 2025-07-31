@@ -151,7 +151,6 @@ def main():
                 f"Warning: Unknown model '{args.model}'. No override applied.\n"
                 f"Available models: {available_models}"
             )
-            logger.warning(warning_msg)
             print(warning_msg)
 
     configure_logging()
