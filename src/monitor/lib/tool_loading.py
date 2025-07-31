@@ -761,8 +761,55 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
         }
     )
 
+def remove_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    if "anthropic/claude-sonnet-4-20250514" in config.MODEL:
+        remove_tool(tool_descriptions, tool_state, 'str_replace_based_edit_tool')
+    if "anthropic/claude-3-7-sonnet-20250219" in config.MODEL:
+        remove_tool(tool_descriptions, tool_state, 'str_replace_editor')
+    remove_tool(tool_descriptions, tool_state, 'text_file_or_directory_view')
+    remove_tool(tool_descriptions, tool_state, 'text_file_create')
+    remove_tool(tool_descriptions, tool_state, 'text_file_str_replace_in_file')
+    remove_tool(tool_descriptions, tool_state, 'text_file_insert_text_at_line')
+
 def remove_openai_editor_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
     remove_tool(tool_descriptions, tool_state, 'modify_source_code')
+
+def add_openai_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    add_tool(
+        tool_descriptions,
+        gemini_tool_descriptions,
+        tool_state,
+        {
+          "type": "function",
+          "function": {
+            "name": "modify_source_code",
+            "description": (
+                "Modifies the source code in place at the specified file path. "
+                "The operation will overwrite or replace the file as needed to accomplish the requested modification. "
+                "If the file does not exist, it will be created. "
+                "This is the tool to use for all updates, replacements, refactoring, or complete rewrites of existing files."
+            ),
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source_file": {
+                  "type": "string",
+                  "description": "The path to the file to modify or rewrite."
+                },
+                "modification_request": {
+                  "type": "string",
+                  "description": "A natural language description of how to modify the source code (e.g., 'add logging to track each step')."
+                }
+              },
+              "notes": (
+                  "Attempting to create a file at an existing path will result in a NO-OP: "
+                  "the existing file will not be modified."
+                  ),
+              "required": ["source_file", "modification_request"]
+            }
+          }
+        }
+    )
 
 
 def function_descriptions(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], model):
