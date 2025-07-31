@@ -24,6 +24,8 @@ from monitor.lib.git import (
     perform_git_stash,
 )
 
+from monitor.lib.macro_utils import recursive_macro_expand
+
 from monitor import config
 
 logger = logging.getLogger(__name__)

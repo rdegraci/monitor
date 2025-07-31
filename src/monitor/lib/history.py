@@ -36,7 +36,7 @@ from monitor import config
 from monitor.lib.colors import red, blue, yellow, reset
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.token_management import count_message_tokens, update_token_usage
-from monitor.lib.rate_limiter import RATE_LIMITER
+from monitor.lib import rate_limiter
 
 logger = logging.getLogger('monitor.core.commit')
 
@@ -215,7 +215,7 @@ def append_conversation_history(
                 config.MODEL,
                 litellm.completion,
                 count_message_tokens,  # canonical token counting from monitor.lib/token_management.py
-                RATE_LIMITER,
+                rate_limiter.RATE_LIMITER,
                 logger,
                 config,  # pass config now for live token count usage
             )

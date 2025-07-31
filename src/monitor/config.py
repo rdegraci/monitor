@@ -14,7 +14,6 @@ import importlib.util
 from dotenv import find_dotenv, load_dotenv
 
 from monitor.lib.rate_limiter import configure_rate_limiter
-from monitor.core.commands import load_public_interactive_commands
 from monitor.core.tools import configure_tools
 from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences
@@ -313,6 +312,7 @@ def configure_logging():
     CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
 
 def load_configuration():
+    from monitor.core.commands import load_public_interactive_commands
     load_environment_variables()
     configure_globals()
     configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])

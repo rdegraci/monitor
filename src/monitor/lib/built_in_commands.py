@@ -23,8 +23,6 @@ from monitor.lib.external_services import (
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.tool_loading import list_tools
-from monitor.lib.macros import open_macros_editor
-from monitor.lib.macros import configure_macros, MACRO_VALUES
 from monitor.lib.display_output import print_colored_error
 from monitor.lib.colors import print_yellow
 
@@ -185,6 +183,7 @@ def edit_macros_command(arg=None):
     This allows the function to match the expected function signature of the built-in command dispatcher,
     which may pass an argument even if unused.
     """
+    from monitor.lib.macros import open_macros_editor
     result = open_macros_editor()
     if result:
         print(result)
@@ -200,6 +199,8 @@ def reload_macros_command(arg: Any = None) -> None:
     Returns:
         None
     """
+    from monitor.lib.macros import configure_macros, MACRO_VALUES
+
     try:
         # Snapshot macros before reload
         try:

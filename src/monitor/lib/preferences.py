@@ -1,8 +1,19 @@
-
 import os
 import subprocess
 import shutil
 import logging
+
+
+def get_preferences_file_path(config):
+    """Get the preferences file path from config or default location.
+
+    Args:
+        config (dict): Configuration dictionary.
+
+    Returns:
+        str: Path to the user preferences file.
+    """
+    return config.get('PREFERENCE_PROMPT_FILE', os.path.expanduser('~/.config/monitor/preferences.prompt'))
 
 
 logger = logging.getLogger(__name__)
@@ -105,8 +116,3 @@ def load_user_preferences(path):
     except Exception as e:
         logger.error(f"Could not read preferences file at {path}: {e}", exc_info=True)
     return ""
-
-
-
-
-
