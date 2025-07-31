@@ -136,8 +136,6 @@ model_mapping = {
     "sonnet4": "anthropic/claude-sonnet-4-20250514",
     "sonnet35": "anthropic/claude-3-5-sonnet-20241022",
     "sonnet37": "anthropic/claude-3-7-sonnet-20250219",
-    "claude35": "anthropic/claude-3-5-sonnet-20241022",
-    "claude37": "anthropic/claude-3-7-sonnet-20250219",
     "4o-mini": "openai/gpt-4o-mini",
     "gpt4o": "openai/gpt-4o-2024-08-06",
     "o3-mini": "openai/o3-mini-2025-01-31",
@@ -148,21 +146,24 @@ model_mapping = {
     "grok3": "xai/grok-3",
 }
 
-model_reverse_mapping = {
-    "anthropic/claude-sonnet-4-20250514": "sonnet4",
-    "anthropic/claude-3-5-sonnet-20241022": "sonnet35",
-    "anthropic/claude-3-7-sonnet-20250219": "sonnet37",
-    "anthropic/claude-3-5-sonnet-20241022": "claude35",
-    "anthropic/claude-3-7-sonnet-20250219": "claude37",
-    "openai/gpt-4o-mini": "4o-mini",
-    "openai/gpt-4o-2024-08-06": "gpt4o",
-    "openai/o3-mini-2025-01-31": "o3-mini",
-    "gemini/gemini-2.0-flash": "gemini20",
-    "openai/gpt-4.1-2025-04-14": "gpt41",
-    "openai/o3-2025-04-16": "o3",
-    "xai/grok-4-0709": "grok4",
-    "xai/grok-3": "grok3",
-}
+def get_model_reverse_mapping():
+    """
+    Returns a reverse mapping of model_mapping: from full model string -> shorthand key (as string).
+    Caveat: If multiple shorthand keys alias to the same model string, only the last alias key is kept in the mapping.
+    Logs a warning for each duplicate (same model string for multiple keys), listing the duplicate model and conflicting shorthand keys.
+    """
+    reverse = {}
+    value_to_keys = {}
+    for k, v in model_mapping.items():
+        if v in value_to_keys:
+            value_to_keys[v].append(k)
+        else:
+            value_to_keys[v] = [k]
+        reverse[v] = k
+    for v, keys in value_to_keys.items():
+        if len(keys) > 1:
+            logger.warning(f"Duplicate model alias detected: model string '{v}' is mapped to multiple shorthand keys {keys}")
+    return reverse
 
 conversation_history_mapping = {
     "sonnet4": 25,
@@ -191,6 +192,7 @@ context_window_mapping = {
     "grok4": 256000,
     "grok3": 131072,
 }
+
 
 output_window_mapping = {
     "sonnet4": 64000,
@@ -305,6 +307,7 @@ DIRECTIVES_DIR=None
 ECS_HOST=None
 ECS_PORT=None 
 
+
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
     global CONVERSATION_MAX_SIZE, RATE_LIMITING_CONFIG, MEMORY_SERVICES, STARTUP_TIME
@@ -323,16 +326,15 @@ def configure_globals():
     MODEL_CONTEXT_WINDOW = yaml_config.get("MODEL_CONTEXT_WINDOW")
     MODEL_OUTPUT_WINDOW = yaml_config.get("MODEL_OUTPUT_WINDOW")
 
+    # MODEL_MAX_TPM, if it exists, will override the MODEL_INPUT_TIER
+    # otherwise, MODEL_MAX_TPM will be set via MODEL_INPUT_TIER
     MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
     MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
     if MODEL_MAX_TPM is None:
-        reversed_model = model_reverse_mapping.get(MODEL) # gpt41
-        model_tpm = model_tpm_mapping.get(reversed_model)    # openai_model_tpm_tier
-        assert(MODEL_INPUT_TIER is not None)
-        MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER) # 4 = 2000000
-
-    assert(MODEL_MAX_TPM is not None)
-
+        reversed_model = get_model_reverse_mapping().get(MODEL) 
+        model_tpm = model_tpm_mapping.get(reversed_model)
+        MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER) 
+    
     CONVERSATION_MAX_SIZE = yaml_config.get("CONVERSATION_MAX_SIZE")
     RATE_LIMITING_CONFIG = yaml_config.get('rate_limiting', {
      'safety_factor': 0.6,
@@ -498,7 +500,7 @@ def set_model(model_key: str):
     This function updates the above globals in-place for use throughout the application. It logs all changes for audit.
     Call this function to dynamically select a model and propagate its config.
     """
-    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE
+    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
 
     # Determine mapping values
     mapped_key = None
@@ -517,15 +519,20 @@ def set_model(model_key: str):
         MODEL = model_full
         MODEL_CONTEXT_WINDOW = context_window_mapping.get(mapped_key, 128000)
         MODEL_OUTPUT_WINDOW = output_window_mapping.get(mapped_key, 8192)
-        max_tpm_tier = model_max_tpm.get(mapped_key, 30000)     # 1
-        tpm_mapping = model_tpm_mapping.get(mapped_key, None)   # xai_model_tpm_tier
+        max_tpm_tier = model_max_tpm.get(mapped_key, 30000)     
+        tpm_mapping = model_tpm_mapping.get(mapped_key, None)   
         MODEL_MAX_TPM = tpm_mapping.get(max_tpm_tier)
         CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key, 50)
 
-    logger.warning(
+        # These must be set, so that the counts are correct
+        MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
+        TOTAL_TOKEN_COUNT=0
+
+    logger.info(
         f"set_model: Activated model '{MODEL}' "
         f"(CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW}, OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW}, "
-        f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE})"
+        f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE}),"
+        f"MAX_TOKEN_COUNT={MAX_TOKEN_COUNT}, TOTAL_TOKEN_COUNT={TOTAL_TOKEN_COUNT})"
     )
 
 def update_model():
