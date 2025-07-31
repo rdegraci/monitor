@@ -352,7 +352,7 @@ def configure_globals():
     MACRO_DELIMITER_OPEN = macro_delims.get('open', '(')
     MACRO_DELIMITER_CLOSE = macro_delims.get('close', ')')
     MACRO_DELIMITER_ESCAPE = macro_delims.get('escape', '\\')
-    MACRO_FILE_PATH = yaml_config.get("MACRO_FILE")
+    MACRO_FILE_PATH = os.path.expanduser(yaml_config.get("MACRO_FILE"))
 
     SUMMARIZATION_CONFIG = yaml_config.get('summarization', {
         'triggers': {
@@ -378,7 +378,7 @@ def configure_globals():
     PUBLIC_COMMANDS_PATH = os.path.expanduser(public_commands_path_cfg)
     REDIS_HOST = yaml_config.get("REDIS_HOST")
 
-    PREFERENCE_PROMPT_FILE = yaml_config.get("PREFERENCE_PROMPT_FILE")
+    PREFERENCE_PROMPT_FILE = os.path.expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
     REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX', 'openai/o3')
     REASONING_EFFORT = yaml_config.get('REASONING_EFFORT', "medium")
@@ -389,9 +389,9 @@ def configure_globals():
     CODE_LENS_PORT = yaml_config.get('CODE_LENS_PORT', '5000')
 
     # Global list to store jokes told previously
-    JOKES_FILE = yaml_config.get('JOKES_FILE', '/Users/rdegraci/.monitor-jokes')
+    JOKES_FILE = os.path.expanduser(yaml_config.get('JOKES_FILE'))
 
-    DIRECTIVES_DIR = yaml_config.get('DIRECTIVES_DIR')
+    DIRECTIVES_DIR = os.path.expanduser(yaml_config.get('DIRECTIVES_DIR'))
     if DIRECTIVES_DIR:
         os.environ['DIRECTIVES_DIR'] = DIRECTIVES_DIR
 
