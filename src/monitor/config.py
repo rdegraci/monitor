@@ -534,24 +534,3 @@ def set_model(model_key: str):
         f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE}),"
         f"MAX_TOKEN_COUNT={MAX_TOKEN_COUNT}, TOTAL_TOKEN_COUNT={TOTAL_TOKEN_COUNT})"
     )
-
-def update_model():
-    yaml_config = load_yaml_config()
-    xai_tpm_tier = xai_model_tpm_tier[yaml_config.get("MODEL_INPUT_TIER", 1)]
-    openai_tpm_tier = openai_model_tpm_tier[yaml_config.get("MODEL_INPUT_TIER", 1)]
-    anthropic_tpm_tier = anthropic_model_tpm_tier[yaml_config.get("MODEL_INPUT_TIER", 1)]
-    google_tpm_tier = google_model_tpm_tier[yaml_config.get("MODEL_INPUT_TIER", 1)]
-
-    model_max_tpm.update({
-        "sonnet4": anthropic_tpm_tier,
-        "sonnet35": anthropic_tpm_tier,
-        "sonnet37": anthropic_tpm_tier,
-        "4o-mini": openai_tpm_tier,
-        "gpt4o": openai_tpm_tier,
-        "o3-mini": openai_tpm_tier,
-        "gpt41": openai_tpm_tier,
-        "o3": openai_tpm_tier,
-        "gemini20": google_tpm_tier,
-        "grok4": xai_tpm_tier,
-        "grok3": xai_tpm_tier, 
-    })
