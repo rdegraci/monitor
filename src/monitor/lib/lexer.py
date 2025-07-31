@@ -86,13 +86,12 @@ def _(event):
         buffer.start_completion(select_first=False)
     elif completer_instance and completer_instance.last_completions:
         completion = completer_instance.last_completions[0]
-        completion_text = to_plain_text(completion.display)
-        replace_start = buffer.cursor_position - len(last_word)
-        logger.debug("Applying completion '%s' at cursor position %d", completion_text, buffer.cursor_position)
+        completion_text = completion.text
+        replace_start = buffer.cursor_position + completion.start_position
+        logger.debug("Applying completion '%s' at cursor position %d; replace_start=%d start_position=%d", completion_text, buffer.cursor_position, replace_start, completion.start_position)
         buffer.text = buffer.text[:replace_start] + completion_text + buffer.text[buffer.cursor_position:]
         buffer.cursor_position = replace_start + len(completion_text)
         buffer.cancel_completion()
-
 
 def create_prompt_session(additional_bindings=None):
     """Create and return a configured PromptSession."""
