@@ -311,6 +311,7 @@ def llm_command(arg: str = None) -> None:
 
         model_arg = str(arg).strip()
         config.set_model(model_arg)
+        config.configure_subsystems()
         print_yellow(
             f"Active model set to: {config.MODEL}\n"
             f"MODEL_CONTEXT_WINDOW = {config.MODEL_CONTEXT_WINDOW}\n"

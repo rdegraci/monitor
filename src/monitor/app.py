@@ -18,7 +18,7 @@ import os  # Added for forced process exit fallback.
 import time  # Added for small delay before forced exit.
 
 from monitor import config
-from monitor.config import load_configuration, configure_logging
+from monitor.config import configure_subsystems, load_environment_globals, start_logging
 from monitor.config import set_model  # Import set_model for CLI model override.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 
@@ -29,6 +29,7 @@ from flask import Flask, request, jsonify  # Flask imports for server mode.
 from monitor.core.command_processing import internalize_command  # Command processing for server requests.
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
+
 
 try:
     from monitor.config import model_mapping
@@ -124,8 +125,8 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    load_configuration()
-
+    load_environment_globals()
+    start_logging()
 
     # Apply --model CLI override as early as possible before dependency components are initialized.
     if hasattr(args, "model") and args.model is not None:
@@ -153,10 +154,12 @@ def main():
             )
             print(warning_msg)
 
-    configure_logging()
+    configure_subsystems()
 
-    # Prepare built-ins and macros that the rest of the application relies on.
+    # Built-ins 
     configure_built_ins()
+
+    # Prompt Macros - For great justice, all your base are belong to us
     configure_macros()
 
     try:

@@ -32,50 +32,27 @@ from logging.handlers import RotatingFileHandler
 
 from monitor import config
 
-# DEFAULT_LOGGING uses '~/.config/monitor/logs/app.log' for file_path instead of a CWD 'logs/' folder.
-# This ensures log output is not mixed into the application's current directory, is more appropriate for
-# multi-user systems, and matches the new recommended home directory log location.
 DEFAULT_LOGGING = {
     'level': 'INFO',
-    'file_path': os.path.expanduser('~/.config/monitor/logs/app.log'),
-    'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+    'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     'date_format': '%Y-%m-%d %H:%M:%S',
+    'log_dir': os.path.expanduser('~/Library/Application Support/monitor/logs'),
+    'app_log_filename': 'app.log',
+    'conversation_log_filename': 'conversation.log',
+    'console_logging_enabled': True,
     'max_bytes': 5 * 1024 * 1024,  # 5 MB
     'backup_count': 3,
-    'console_logging_enabled': True,
     'encoding': 'utf-8',
 }
 
 def _load_logging_config():
     """
-    Load the logging configuration dictionary from monitor.config.py.
-    Uses config.logging_config if available, else falls back to legacy individual variables (DEPRECATED).
+    Load the logging configuration dictionary
 
     Returns:
         dict: A merged logging configuration dictionary.
     """
     loaded_config = {}
-
-    # Try unified logging_config dict from monitor.config.py
-    if hasattr(config, 'logging_config'):
-        for key, default in DEFAULT_LOGGING.items():
-            if key in config.logging_config:
-                loaded_config[key] = config.logging_config[key]
-            else:
-                loaded_config[key] = default
-                logging.warning(f"Logging config: missing '{key}', using default '{default}'")
-        # Ensure required fields present
-        for required in ('level', 'file_path'):
-            if loaded_config[required] is None or loaded_config[required] == '':
-                logging.warning(f"Logging: required config '{required}' is missing. Using default '{DEFAULT_LOGGING[required]}'")
-                loaded_config[required] = DEFAULT_LOGGING[required]
-        return loaded_config
-
-    # Fallback: legacy config variables (DEPRECATED)
-    logging.warning(
-        "config.logging_config dict not found. "
-        "Falling back to standalone variables (LOGGING_LEVEL, LOG_FILE_PATH, etc.) -- DEPRECATED!"
-    )
 
     legacy_map = {
         'level': 'LOGGING_LEVEL',
@@ -85,15 +62,14 @@ def _load_logging_config():
         'max_bytes': 'LOG_MAX_BYTES',
         'backup_count': 'LOG_BACKUP_COUNT',
         'console_logging_enabled': 'CONSOLE_LOGGING_ENABLED',
-        'encoding': 'LOG_ENCODING'
+        'encoding': 'LOG_ENCODING',
     }
     for key, var in legacy_map.items():
         if hasattr(config, var):
             loaded_config[key] = getattr(config, var)
         else:
-            # Ensure default uses ~/.config/monitor/logs/app.log for file_path fallback (not logs/app.log)
             loaded_config[key] = DEFAULT_LOGGING[key]
-            logging.warning(f"Legacy logging config: missing '{var}', using default '{DEFAULT_LOGGING[key]}'")
+            logging.warning(f"Logging config: missing '{var}', using default '{DEFAULT_LOGGING[key]}'")
     # Required fallback
     for required in ('level', 'file_path'):
         if loaded_config[required] is None or loaded_config[required] == '':

@@ -19,6 +19,7 @@ from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences
 from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
+from monitor.lib.logging import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +131,143 @@ def get_logging_config():
     }
     return log_config
 
+# Dictionary to map shorthand keys to full model names
+model_mapping = {
+    "sonnet4": "anthropic/claude-sonnet-4-20250514",
+    "sonnet35": "anthropic/claude-3-5-sonnet-20241022",
+    "sonnet37": "anthropic/claude-3-7-sonnet-20250219",
+    "claude35": "anthropic/claude-3-5-sonnet-20241022",
+    "claude37": "anthropic/claude-3-7-sonnet-20250219",
+    "4o-mini": "openai/gpt-4o-mini",
+    "gpt4o": "openai/gpt-4o-2024-08-06",
+    "o3-mini": "openai/o3-mini-2025-01-31",
+    "gemini20": "gemini/gemini-2.0-flash",
+    "gpt41": "openai/gpt-4.1-2025-04-14",
+    "o3": "openai/o3-2025-04-16",
+    "grok4": "xai/grok-4-0709",
+    "grok3": "xai/grok-3",
+}
+
+model_reverse_mapping = {
+    "anthropic/claude-sonnet-4-20250514": "sonnet4",
+    "anthropic/claude-3-5-sonnet-20241022": "sonnet35",
+    "anthropic/claude-3-7-sonnet-20250219": "sonnet37",
+    "anthropic/claude-3-5-sonnet-20241022": "claude35",
+    "anthropic/claude-3-7-sonnet-20250219": "claude37",
+    "openai/gpt-4o-mini": "4o-mini",
+    "openai/gpt-4o-2024-08-06": "gpt4o",
+    "openai/o3-mini-2025-01-31": "o3-mini",
+    "gemini/gemini-2.0-flash": "gemini20",
+    "openai/gpt-4.1-2025-04-14": "gpt41",
+    "openai/o3-2025-04-16": "o3",
+    "xai/grok-4-0709": "grok4",
+    "xai/grok-3": "grok3",
+}
+
+conversation_history_mapping = {
+    "sonnet4": 25,
+    "sonnet35": 25,
+    "sonnet37": 25,
+    "4o-mini": 25,
+    "gpt4o": 20,
+    "o3-mini": 25,
+    "gemini20": 150,
+    "gpt41": 150,
+    "o3": 25,
+    "grok4": 35,    # 32000 TPM
+    "grok3": 20,    # Unknown TPM
+}
+
+context_window_mapping = {
+    "sonnet4": 200000,
+    "sonnet35": 200000,
+    "sonnet37": 200000,
+    "4o-mini": 200000,
+    "gpt4o": 128000,
+    "o3-mini": 200000,
+    "gemini20": 1048576, #out 8192
+    "gpt41": 1048576,
+    "o3": 200000,
+    "grok4": 256000,
+    "grok3": 131072,
+}
+
+output_window_mapping = {
+    "sonnet4": 64000,
+    "sonnet35": 8192,
+    "sonnet37": 64000,
+    "4o-mini": 16384,
+    "gpt4o": 16384,
+    "o3-mini": 100000,
+    "gemini20": 8192,
+    "gpt41": 32768,
+    "o3": 100000,
+    "grok4": 128000,
+    "grok3": 64000,
+}
+
+model_max_tpm = {
+    "sonnet4": 1,
+    "sonnet35": 1,
+    "sonnet37": 1,
+    "4o-mini": 1,
+    "gpt4o": 1,
+    "o3-mini": 1,
+    "gpt41": 1,
+    "o3": 1,
+    "grok4": 1,
+    "grok3": 1,
+    "gemini20": 1,
+}
+
+openai_model_tpm_tier = {
+    1: 30000,
+    2: 450000,
+    3: 800000,
+    4: 2000000,
+    5: 30000000
+}
+
+anthropic_model_tpm_tier = {
+    1: 20000,
+    2: 40000,
+    3: 80000,
+    4: 200000
+}
+
+# xAI has no tiers, default to 2000000
+xai_model_tpm_tier = {
+    1: 2000000,
+    2: 2000000,
+    3: 2000000,
+    4: 2000000
+}
+
+google_model_tpm_tier = {
+    1: 80000,
+    2: 80000,
+    3: 80000,
+    4: 80000
+}
+
+model_tpm_mapping = {
+    "sonnet4": anthropic_model_tpm_tier,
+    "sonnet35": anthropic_model_tpm_tier,
+    "sonnet37": anthropic_model_tpm_tier,
+    "4o-mini": openai_model_tpm_tier,
+    "gpt4o": openai_model_tpm_tier,
+    "o3-mini": openai_model_tpm_tier,
+    "gpt41": openai_model_tpm_tier,
+    "o3": openai_model_tpm_tier,
+    "grok3": xai_model_tpm_tier,
+    "grok4": xai_model_tpm_tier,
+    "gemini20": google_model_tpm_tier
+}
+
 MODEL=None
 MODEL_CONTEXT_WINDOW=None 
 MODEL_OUTPUT_WINDOW=None
+MODEL_INPUT_TIER=None
 MODEL_MAX_TPM=None 
 CONVERSATION_MAX_SIZE=None
 RATE_LIMITING_CONFIG=None 
@@ -171,7 +306,7 @@ ECS_HOST=None
 ECS_PORT=None 
 
 def configure_globals():
-    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM
+    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
     global CONVERSATION_MAX_SIZE, RATE_LIMITING_CONFIG, MEMORY_SERVICES, STARTUP_TIME
     global HISTORY_FILE, MAX_TOKEN_COUNT, OLD_MAX_TOKEN_COUNT
     global MACRO_DELIMITER_OPEN, MACRO_DELIMITER_CLOSE, MACRO_DELIMITER_ESCAPE, MACRO_FILE_PATH
@@ -187,7 +322,17 @@ def configure_globals():
     MODEL = yaml_config.get("MODEL")
     MODEL_CONTEXT_WINDOW = yaml_config.get("MODEL_CONTEXT_WINDOW")
     MODEL_OUTPUT_WINDOW = yaml_config.get("MODEL_OUTPUT_WINDOW")
+
+    MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
     MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
+    if MODEL_MAX_TPM is None:
+        reversed_model = model_reverse_mapping.get(MODEL) # gpt41
+        model_tpm = model_tpm_mapping.get(reversed_model)    # openai_model_tpm_tier
+        assert(MODEL_INPUT_TIER is not None)
+        MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER) # 4 = 2000000
+
+    assert(MODEL_MAX_TPM is not None)
+
     CONVERSATION_MAX_SIZE = yaml_config.get("CONVERSATION_MAX_SIZE")
     RATE_LIMITING_CONFIG = yaml_config.get('rate_limiting', {
      'safety_factor': 0.6,
@@ -263,7 +408,7 @@ LOG_FILE_PATH=None
 CONVERSATION_LOG_FILENAME=None 
 CONVERSATION_LOG_FILE=None 
 
-def configure_logging():
+def configure_logging_globals():
     global LOGGING_CONFIG, LOGGING_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT
     global CONSOLE_LOGGING_ENABLED, LOG_DIR, LOG_FILE_PATH, CONVERSATION_LOG_FILENAME, CONVERSATION_LOG_FILE
 
@@ -317,10 +462,16 @@ def configure_logging():
 
     CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
 
-def load_configuration():
-    from monitor.core.commands import load_public_interactive_commands
+def load_environment_globals():
     load_environment_variables()
     configure_globals()
+    configure_logging_globals()
+
+def start_logging():
+    configure_logging()
+
+def configure_subsystems():
+    from monitor.core.commands import load_public_interactive_commands
     configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])
     load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
@@ -328,107 +479,6 @@ def load_configuration():
     configure_tools()
     configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
     configure_protocol_engine()
-
-
-# Dictionary to map shorthand keys to full model names
-model_mapping = {
-    "sonnet4": "anthropic/claude-sonnet-4-20250514",
-    "sonnet35": "anthropic/claude-3-5-sonnet-20241022",
-    "sonnet37": "anthropic/claude-3-7-sonnet-20250219",
-    "claude35": "anthropic/claude-3-5-sonnet-20241022",
-    "claude37": "anthropic/claude-3-7-sonnet-20250219",
-    "4o-mini": "openai/gpt-4o-mini",
-    "gpt4o": "openai/gpt-4o-2024-08-06",
-    "o3-mini": "openai/o3-mini-2025-01-31",
-    "gemini20": "gemini/gemini-2.0-flash",
-    "gpt41": "openai/gpt-4.1-2025-04-14",
-    "o3": "openai/o3-2025-04-16",
-    "grok4": "xai/grok-4-0709",
-    "grok3": "xai/grok-3",
-}
-
-conversation_history_mapping = {
-    "sonnet4": 25,
-    "sonnet35": 25,
-    "sonnet37": 25,
-    "4o-mini": 25,
-    "gpt4o": 20,
-    "o3-mini": 25,
-    "gemini20": 150,
-    "gpt41": 150,
-    "o3": 25,
-    "grok4": 35,    # 32000 TPM
-    "grok3": 20,    # Unknown TPM
-}
-
-context_window_mapping = {
-    "sonnet4": 200000,
-    "sonnet35": 200000,
-    "sonnet37": 200000,
-    "4o-mini": 200000,
-    "gpt4o": 128000,
-    "o3-mini": 200000,
-    "gemini20": 1048576, #out 8192
-    "gpt41": 1048576,
-    "o3": 200000,
-    "grok4": 256000,
-    "grok3": 131072,
-}
-
-output_window_mapping = {
-    "sonnet4": 64000,
-    "sonnet35": 8192,
-    "sonnet37": 64000,
-    "4o-mini": 16384,
-    "gpt4o": 16384,
-    "o3-mini": 100000,
-    "gemini20": 8192,
-    "gpt41": 32768,
-    "o3": 100000,
-    "grok4": 128000,
-    "grok3": 64000,
-}
-
-model_max_tpm = {
-    "sonnet4": 1,
-    "sonnet35": 1,
-    "sonnet37": 1,
-    "4o-mini": 1,
-    "gpt4o": 1,
-    "o3-mini": 1,
-    "gpt41": 1,
-    "o3": 1,
-}
-
-openai_model_tpm_tier = {
-    1: 30000,
-    2: 450000,
-    3: 800000,
-    4: 2000000,
-    5: 30000000
-}
-
-anthropic_model_tpm_tier = {
-    1: 20000,
-    2: 40000,
-    3: 80000,
-    4: 200000
-}
-
-# xAI has no tiers, default to 2000000
-xai_model_tpm_tier = {
-    1: 2000000,
-    2: 2000000,
-    3: 2000000,
-    4: 2000000
-}
-
-google_model_tpm_tier = {
-    1: 80000,
-    2: 80000,
-    3: 80000,
-    4: 80000
-}
 
 def set_model(model_key: str):
     """
@@ -467,17 +517,16 @@ def set_model(model_key: str):
         MODEL = model_full
         MODEL_CONTEXT_WINDOW = context_window_mapping.get(mapped_key, 128000)
         MODEL_OUTPUT_WINDOW = output_window_mapping.get(mapped_key, 8192)
-        MODEL_MAX_TPM = model_max_tpm.get(mapped_key, 30000)
+        max_tpm_tier = model_max_tpm.get(mapped_key, 30000)     # 1
+        tpm_mapping = model_tpm_mapping.get(mapped_key, None)   # xai_model_tpm_tier
+        MODEL_MAX_TPM = tpm_mapping.get(max_tpm_tier)
         CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key, 50)
 
-    logger.info(
+    logger.warning(
         f"set_model: Activated model '{MODEL}' "
         f"(CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW}, OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW}, "
         f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE})"
     )
-
-# initial_model_key = yaml_config.get('MODEL', 'openai/gpt-4o')
-# set_model(initial_model_key)
 
 def update_model():
     yaml_config = load_yaml_config()
