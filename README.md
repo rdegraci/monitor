@@ -21,8 +21,45 @@ Monitor is ideal for software professionals who need a safe, auditable, and scri
 
 - Python 3.9+
 - pip (latest recommended)
-- Redis 6.2+ (used for registry and logging backend)
 - Supported OS: Linux, macOS, Windows 10/11
+
+## Optional Tools
+
+The following external tools are optional for running Monitor, but are highly recommended for advanced features, improved performance, production, or development scenarios. Monitor can run basic commands without these tools, but more advanced setups and workflows will benefit from having them available.
+
+### ripgrep
+
+_Installing ripgrep enables the `:ripgrep <search>` command in Monitor. This command allows you to search for a string in your codebase, and Monitor will analyze how that string is used throughout your project._
+
+_ripgrep_ enables fast source code and text searching for advanced code analysis and fuzzy context search in Monitor. It is not strictly required, but using ripgrep improves search speed and capability within codebases.
+
+- **macOS (using Homebrew):**
+  ```
+  brew install ripgrep
+  ```
+- **Linux (using apt):**
+  ```
+  sudo apt install ripgrep
+  ```
+- **Windows:**
+  Download from [https://github.com/BurntSushi/ripgrep/releases](https://github.com/BurntSushi/ripgrep/releases) and add to your PATH.
+
+### Redis on localhost
+
+_Redis_ enables Monitor's memory persistence layer, which is used to store conversation memories across sessions. Monitor stores both short-term (15 minutes) and long-term (60 minutes) conversation memories in Redis, allowing for robust session context. This ensures that LLM context and ongoing workflows can be reliably restored or continued after restarts. 
+
+- **macOS (using Homebrew):**
+  ```
+  brew install redis
+  redis-server
+  ```
+- **Linux (using apt):**
+  ```
+  sudo apt install redis
+  redis-server
+  ```
+- **Windows:**
+  Use WSL, Docker, or official binaries: [https://redis.io/docs/install/install-redis/](https://redis.io/docs/install/install-redis/)
 
 ## Installation
 
@@ -39,7 +76,7 @@ Monitor is ideal for software professionals who need a safe, auditable, and scri
    ```
    pip install -e .
    ```
-3. **Install and start Redis:**
+3. **(Optional) Install and start Redis for advanced features:**
    - _On Linux/macOS (via Homebrew, apt, etc.)_:
      ```
      brew install redis
@@ -110,9 +147,16 @@ registry:
   path: ~/.monitor/registry
 ```
 
-Monitor can be used with your favorite LLM (OpenAI, Anthropic, local models).
 
-- Place your `app.yaml` (sample in project root) and `.env` tokens in your home directory or project root.
+Monitor can be used with your favorite LLM (OpenAI, Anthropic, xAI(Grok)).
+
+- Place your `.env` file, which should contain your LLM access tokens, into your `~/.config/monitor` directory
+```txt
+# ~/.config/monitor/.env
+OPENAI_API_KEY=<key>
+ANTHROPIC_API_KEY=<key>
+XAI_API_KEY=<key>
+```
 - Flags and environment variables can override YAML settings at launch.
 
 **Usage Modes:**
@@ -141,7 +185,7 @@ All Monitor operations are logged to the local registry (Redis-backed) and file-
 - Shell and code executions, results, and errors
 - Macro executions and workflow traces
 
-Logs are by default written to `~/.monitor/logs/` and Redis. Specify alternate log directories or output via `app.yaml`. Audit logs are essential for regulated, multi-user, or production settings.
+Logs are by default written to `~/.monitor/logs/`. Specify alternate log directories or output via `app.yaml`. Audit logs are essential for regulated, multi-user, or production settings.
 
 ## Troubleshooting
 
