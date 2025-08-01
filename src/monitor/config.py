@@ -20,6 +20,7 @@ from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
 from monitor.lib.logging import configure_logging
+from monitor.core.modes import configure_consultant
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +483,7 @@ def configure_subsystems():
     configure_tools()
     configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
     configure_protocol_engine()
+    configure_consultant()
 
 def set_model(model_key: str):
     """

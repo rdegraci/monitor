@@ -1,10 +1,8 @@
 
 import logging
 
-from monitor import config 
-import monitor.core.conversation
 
-from monitor.core.conversation import query
+
 
 from monitor.lib.display_output import display_query_result
 from monitor.lib.consult import Consult
@@ -13,13 +11,23 @@ from monitor.lib.colors import red, yellow, blue, reset
 
 logger = logging.getLogger(__name__)
 
-DESIGN_CONSULT = Consult(
-    logger=logger, 
-    model=config.MODEL
-)
+DESIGN_CONSULT=None
+
+def configure_consultant():
+    from monitor import config 
+
+    global DESIGN_CONSULT
+    DESIGN_CONSULT = Consult(
+        logger=logger, 
+        model=config.MODEL
+    )
+
 DESIGN_MODE_ACTIVE = False
 
 def design_mode_command(seed_question=None):
+    import monitor.core.conversation
+    from monitor.core.conversation import query
+
     global DESIGN_MODE_ACTIVE
     if DESIGN_MODE_ACTIVE:
         print("Design mode already active.")
