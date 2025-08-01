@@ -182,7 +182,7 @@ def joke_for_twitch(arg=""):
     
     JOKES.append(summary)
 
-def send_file_to_indexing_service(file_path, server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/embed_source'):
+def send_file_to_indexing_service(file_path):
     """
     Reads the contents of the file at file_path and sends a POST request
     to the Code Lens server's /embed_source endpoint with the file name and contents.
@@ -196,6 +196,8 @@ def send_file_to_indexing_service(file_path, server_url=f'http://{CODE_LENS_HOST
     """
     logger.debug("Entering send_file_to_indexing_service function with file: %s", file_path)
     
+    server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/embed_source'
+
     try:
         with open(file_path, 'r') as f:
             file_contents = f.read()
@@ -226,7 +228,7 @@ def send_file_to_indexing_service(file_path, server_url=f'http://{CODE_LENS_HOST
         logger.error("Error during file indexing request: %s", str(e), exc_info=True)
         return None
 
-def send_analyze_request_to_indexing_service(query, server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/analyze'):
+def send_analyze_request_to_indexing_service(query):
     """
     Sends a query string to the Code Lens server's /query endpoint.
 
@@ -239,6 +241,8 @@ def send_analyze_request_to_indexing_service(query, server_url=f'http://{CODE_LE
     """
     logger.debug("Entering send_analyze_request_to_indexing_service function with query: %s", query)
     
+    server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/analyze'
+
     payload = { "query": query }
     
     try:
@@ -260,7 +264,7 @@ def send_analyze_request_to_indexing_service(query, server_url=f'http://{CODE_LE
         return None
 
 
-def send_query_to_indexing_service(query, server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/query'):
+def send_query_to_indexing_service(query):
     """
     Sends a query string to the Code Lens server's /query endpoint.
 
@@ -273,6 +277,8 @@ def send_query_to_indexing_service(query, server_url=f'http://{CODE_LENS_HOST}:{
     """
     logger.debug("Entering send_query_to_indexing_service function with query: %s", query)
     
+    server_url=f'http://{CODE_LENS_HOST}:{CODE_LENS_PORT}/query'
+
     payload = { "query": query }
     
     try:
