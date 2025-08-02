@@ -1,4 +1,3 @@
-
 import logging
 
 
@@ -24,6 +23,15 @@ def configure_consultant():
 
 DESIGN_MODE_ACTIVE = False
 
+def print_design_mode_help():
+    print(f"""{blue}Design Mode Commands:{reset}
+  {yellow}:help{reset}      - Show this help message
+  {yellow}:exit{reset}      - Exit design mode without entering dev mode
+  {yellow}:end{reset}       - Also exits design mode without entering dev mode
+  {yellow}:dev_mode{reset}  - Finalize and execute the design, switching to dev mode
+  {yellow}<anything else>{reset} - Send as a question or design input
+""")
+
 def design_mode_command(seed_question=None):
     import monitor.core.conversation
     from monitor.core.conversation import query
@@ -36,6 +44,7 @@ def design_mode_command(seed_question=None):
     DESIGN_MODE_ACTIVE = True
     logger.info("Design mode activated.")
     print("Design mode activated. Begin describing your software or respond to questions.")
+    print_design_mode_help()
     while DESIGN_MODE_ACTIVE:
         try:
             user_entry = input("[design]> ")
@@ -52,6 +61,9 @@ def design_mode_command(seed_question=None):
             dev_mode_command()
             # dev_mode will already finalize and display and execute
             break
+        if uentry == ":help":
+            print_design_mode_help()
+            continue
         question, prompt = DESIGN_CONSULT.ask(user_entry)
         print(f"\n{yellow}Clarify: {question}{reset}\n")
     logger.info("Design mode ended.")
@@ -82,5 +94,3 @@ def dev_mode_command():
         )
     )
     send_artifact(query_result)
-
-
