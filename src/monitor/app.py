@@ -17,6 +17,9 @@ import threading  # Added for enhanced shutdown reliability.
 import os  # Added for forced process exit fallback.
 import time  # Added for small delay before forced exit.
 import traceback  # Added for enhanced error trace reporting in debug/development mode.
+import shutil  # For config file backup/copy
+from datetime import datetime  # For backup filename timestamps
+import importlib.resources  # For accessing package resource defaults
 
 from monitor import config
 from monitor.config import configure_subsystems, load_environment_globals, start_logging
@@ -136,6 +139,73 @@ def create_flask_server(host: str, port: int):
     logger.info("Flask server stopped.")
     return app
 
+def _reset_config():
+    """
+    Implements --reset-config as follows:
+    - For each config file (app.yaml, macros.json, preferences.prompt):
+      - If the file exists in the user config dir, prompt user for confirmation.
+      - If confirmed, move to .bak_<timestamp>; else, skip.
+      - Copy default resource to user dir.
+      - Print success for each file or skip message.
+    - At end: print summary & exit immediately.
+    """
+    user_config_dir = os.path.expanduser("~/.monitor")
+    files_to_reset = [
+        ("app.yaml", "config", "app.yaml"),
+        ("macros.json", "lib", "macros.json"),
+        ("preferences.prompt", "config", "preferences.prompt"),
+    ]
+    reset_results = []
+    os.makedirs(user_config_dir, exist_ok=True)
+
+    for filename, pkg, resource_name in files_to_reset:
+        user_path = os.path.join(user_config_dir, filename)
+        exists = os.path.isfile(user_path)
+        user_input = "y"
+        if exists:
+            # Prompt user for confirmation
+            prompt_msg = (
+                f"The config file '{filename}' exists in your config directory ({user_config_dir}).\n"
+                f"Do you want to back up and overwrite it with the default? [y/N]: "
+            )
+            try:
+                user_input = input(prompt_msg).strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                print("\nOperation aborted by user.")
+                sys.exit(1)
+        if not exists or user_input in ("y", "yes"):
+            # Backup existing file if present
+            backup_path = None
+            if exists:
+                dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = user_path + f".bak_{dt}"
+                try:
+                    shutil.move(user_path, backup_path)
+                    print(f"Backed up '{filename}' to '{os.path.basename(backup_path)}'")
+                    reset_results.append(f"{filename}: backed up to {os.path.basename(backup_path)}")
+                except Exception as e:
+                    print(f"ERROR: Failed to back up '{filename}': {e}")
+                    reset_results.append(f"{filename}: ERROR during backup - {e}")
+                    continue  # Do not clobber unintentionally
+            # Copy default resource from package
+            try:
+                with importlib.resources.path(f"monitor.{pkg}", resource_name) as default_path:
+                    shutil.copy(default_path, user_path)
+                print(f"Reset '{filename}' with default configuration.")
+                reset_results.append(f"{filename}: reset to default")
+            except Exception as e:
+                print(f"ERROR: Failed to copy default '{filename}': {e}")
+                reset_results.append(f"{filename}: ERROR during copy - {e}")
+        else:
+            print(f"Skipped '{filename}'.")
+            reset_results.append(f"{filename}: skipped (user declined)")
+    # Print summary and exit
+    print("\n-- Config Reset Summary --")
+    for msg in reset_results:
+        print(f"- {msg}")
+    print("\nReset operation complete. Exiting.")
+    sys.exit(0)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Monitor")
@@ -156,8 +226,16 @@ def main():
         type=str,
         help="Select model key to use (e.g., grok4, o3)",
     )
+    parser.add_argument(
+        "--reset-config",
+        action="store_true",
+        help="Reset per-user config files to package defaults (with optional backup). Exits after completion.",
+    )
 
     args, unknown = parser.parse_known_args()
+
+    if getattr(args, "reset_config", False):
+        _reset_config()
 
     load_environment_globals()
     start_logging()
