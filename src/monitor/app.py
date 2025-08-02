@@ -136,6 +136,7 @@ def create_flask_server(host: str, port: int):
     logger.info("Flask server stopped.")
     return app
 
+
 def main():
     parser = argparse.ArgumentParser(description="Monitor")
     parser.add_argument(
@@ -163,29 +164,41 @@ def main():
 
     # Apply --model CLI override as early as possible before dependency components are initialized.
     if hasattr(args, "model") and args.model is not None:
-        # Enhanced validation logic for --model
-        valid_model = False
-        model_key_list = list(getattr(model_mapping, "keys", lambda: [])())
-        if model_key_list and args.model in model_key_list:
-            valid_model = True
-        else:
-            # Accept if the value is also a full model string in the model mapping values
-            if model_key_list and args.model in model_mapping.values():
-                valid_model = True
-
-        if valid_model:
-            set_model(args.model)
-            logger.info(f"Model override applied via CLI: {args.model}")
-            logger.info(f"Effective model is now: {args.model}")
-            print(f"Effective model: {args.model}")
-        else:
-            # Invalid model: print and log warning, show available models
-            available_models = ', '.join(model_key_list) if model_key_list else '(none found)'
+        # First ensure model_mapping is a dict
+        if not isinstance(model_mapping, dict):
             warning_msg = (
-                f"Warning: Unknown model '{args.model}'. No override applied.\n"
-                f"Available models: {available_models}"
+                "Warning: model_mapping is not a dictionary as expected; "
+                "cannot validate or override model. Model override via --model ignored."
             )
             print(warning_msg)
+            logger.warning(warning_msg)
+        else:
+            # Validate the argument by checking if it is a key or value in the dict
+            model_key_list = list(model_mapping.keys())
+            model_value_list = list(model_mapping.values())
+            valid_model = False
+
+            if args.model in model_key_list:
+                valid_model = True
+            elif args.model in model_value_list:
+                valid_model = True
+
+            if valid_model:
+                set_model(args.model)
+                logger.info(f"Model override applied via CLI: {args.model}")
+                logger.info(f"Effective model is now: {args.model}")
+                print(f"Effective model: {args.model}")
+            else:
+                available_keys = ', '.join(map(str, model_key_list)) if model_key_list else '(none found)'
+                available_values = ', '.join(map(str, model_value_list)) if model_value_list else '(none found)'
+                warning_msg = (
+                    f"Warning: The supplied model '{args.model}' is not valid.\n"
+                    f"No model override was applied.\n"
+                    f"Available models (keys): {available_keys}\n"
+                    f"Available models (values): {available_values}"
+                )
+                print(warning_msg)
+                logger.warning(warning_msg)
 
     configure_subsystems()
 
