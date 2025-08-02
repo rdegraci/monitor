@@ -109,6 +109,15 @@ class ResponseType(Enum):
     TOOL_CALL = 'tool_call'
     FUNCTION_CALL = 'function_call'
 
+class ConversationResult(Enum):
+    """
+    Enum representing conversation command results and statuses.
+    Use this for outcome/status values such as SUCCESS, ERROR, RESET.
+    """
+    SUCCESS = 'success'
+    ERROR = 'error'
+    RESET = 'reset'
+
 TOTAL_CONVERSATION_HISTORY_COUNT = 0
 
 logger.info(f"Configured with config.MODEL: {config.MODEL}, CONTEXT_WINDOW: {config.MODEL_CONTEXT_WINDOW}")
@@ -210,6 +219,8 @@ def query(user_prompt):
     Process a user query and return the response after executing necessary commands.
     Uses config.last_summary_time for summary time management.
     All token counting/usage must use canonical helpers from monitor.lib.token_management.
+    Returns:
+        ConversationResult: Use ConversationResult Enum for result statuses.
     """
     logger.debug("Processing user query...")
 
@@ -219,7 +230,7 @@ def query(user_prompt):
     # Get initial response from LLM
     response, error = get_llm_initial_completion()
     if error:
-        return error
+        return ConversationResult.ERROR
 
     # Update token count (policy: must route via update_token_usage)
     update_token_usage(response)
@@ -235,6 +246,8 @@ def process_pipeline_directives(directives):
     """
     Run pipeline steps in sequence, enforcing all token counting/limit logic via lib.token_management.
     Deprecated: Any use of token estimation outside lib.token_management is forbidden.
+    Returns:
+        result (str): Final pipeline output or ConversationResult Enum value upon error.
     """
     current_input = None
     for idx, directive in enumerate(directives):
@@ -253,7 +266,7 @@ def process_pipeline_directives(directives):
         response, error = get_llm_completion(history)
         if error:
             print(PIPELINE_FAILURE_FORMAT.format(step=idx + 1, error=error))
-            return error
+            return ConversationResult.ERROR
         # 4. Track token usage via update_token_usage
         update_token_usage(response)
         current_input = response.choices[0].message.content
@@ -362,6 +375,8 @@ def chat():
 
     Uses config.last_summary_time for managing conversation summaries.
     All token counting/usage must use canonical helpers from monitor.lib.token_management.
+    Returns:
+        ConversationResult: Use ConversationResult Enum for result statuses.
     """
     logger.info("Starting chat loop...")
 
@@ -422,7 +437,7 @@ def chat():
                         config,
                         logger
                     )
-                    if summary_result == "reset":
+                    if summary_result is ConversationResult.RESET:
                         logger.info(f"Conversation history reset (auto-summarized) to comply with context window after model switch.")
                         print(yellow + MODEL_SWITCH_SUMMARY_MESSAGE + reset)
                     else:
