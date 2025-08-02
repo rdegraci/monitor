@@ -97,6 +97,30 @@ def make_flask_app():
     return app
 
 def create_flask_server(host: str, port: int):
+    # ---- Begin Security Warning Check for Host ----
+    # Provide security warnings if host is not explicitly local, or is 0.0.0.0
+    local_hosts = {"127.0.0.1", "localhost"}
+    if host not in local_hosts:
+        warning_header = "!!! SECURITY WARNING !!!"
+        if host == "0.0.0.0":
+            warning_detail = (
+                f"Flask server is listening on '0.0.0.0', which exposes the /cli API "
+                f"on ALL network interfaces. This can be very insecure if not protected!"
+            )
+        else:
+            warning_detail = (
+                f"Flask server is listening on '{host}', which may be accessible from outside localhost. "
+                f"The /cli endpoint receives arbitrary CLI commands and could be exploited if publicly reachable."
+            )
+        warning_footer = "Restrict the host address to 127.0.0.1 or use proper network security controls!"
+        full_warning = (
+            f"\n{warning_header}\n{warning_detail}\n{warning_footer}\n"
+            "-------------------------------------------------------"
+        )
+        print(full_warning)
+        logger.warning(full_warning)
+    # ---- End Security Warning Check ----
+
     app = make_flask_app()
     logger.info(f"Starting Flask server on {host}:{port}")
     app.run(host=host, port=port, use_reloader=False)
@@ -155,6 +179,7 @@ def main():
             print(warning_msg)
 
     configure_subsystems()
+
 
     # Built-ins 
     configure_built_ins()
