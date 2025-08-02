@@ -13,6 +13,8 @@ import logging
 import json
 from typing import Optional
 
+from monitor.lib.colors import print_yellow, print_blue, print_red, yellow, blue, red, reset
+
 logger = logging.getLogger(__name__)
 
 def file_exists(path: str) -> bool:
@@ -37,7 +39,8 @@ def read_file(path: str) -> Optional[str]:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
-        logger.error(f"Error reading file {path}: {e}", exc_info=True)
+        print(f"{red}{e}{reset}")
+        logger.error(f"Error reading file {path}: {e}")
         return None
 
 def write_file(path: str, contents: str, overwrite: bool = True) -> bool:
@@ -58,7 +61,8 @@ def write_file(path: str, contents: str, overwrite: bool = True) -> bool:
             f.write(contents)
         return True
     except Exception as e:
-        logger.error(f"Error writing file {path}: {e}", exc_info=True)
+        print(f"{red}{e}{reset}")
+        logger.error(f"Error writing file {path}: {e}")
         return False
 
 def create_file(path: str, contents: str) -> bool:
@@ -84,7 +88,8 @@ def delete_file(path: str) -> bool:
         os.remove(path)
         return True
     except Exception as e:
-        logger.error(f"Error deleting file {path}: {e}", exc_info=True)
+        print(f"{red}{e}{reset}")
+        logger.error(f"Error deleting file {path}: {e}")
         return False
 
 def list_directory(path: str) -> Optional[list]:
@@ -98,7 +103,8 @@ def list_directory(path: str) -> Optional[list]:
     try:
         return sorted(os.listdir(path))
     except Exception as e:
-        logger.error(f"Error listing directory {path}: {e}", exc_info=True)
+        print(f"{red}{e}{reset}")
+        logger.error(f"Error listing directory {path}: {e}")
         return None
 
 def is_file(path: str) -> bool:

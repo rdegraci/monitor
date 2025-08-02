@@ -55,7 +55,8 @@ def list_directory_contents(path: str = None):
         logger.debug("Listed contents of directory %s", directory)
         return json.dumps({"contents": contents})
     except Exception as e:
-        logger.error("An unexpected error occurred: %s", str(e), exc_info=True)
+        print(f"{red}{str(e)}{reset}")
+        logger.error("An unexpected error occurred: %s", str(e))
         return json.dumps({"error": f"An unexpected error occurred: {str(e)}"})
 
 def cat_file(path: str):
@@ -75,7 +76,8 @@ def cat_file(path: str):
             return json.dumps({"error": f"File '{path}' does not exist or could not be read."})
         return json.dumps({"content": content})
     except Exception as e:
-        logger.error("Error reading file %s: %s", path, str(e), exc_info=True)
+        print(f"{red}{str(e)}{reset}")
+        logger.error("Error reading file %s: %s", path, str(e))
         return json.dumps({"error": f"Error reading file {path}: {str(e)}"})
 
 def run_diff(file1: str, file2: str):
@@ -123,7 +125,8 @@ def run_diff(file1: str, file2: str):
                 "returncode": diff.returncode
             })
     except Exception as e:
-        logger.error("Exception running diff: %s", str(e), exc_info=True)
+        print(f"{red}{str(e)}{reset}")
+        logger.error("Exception running diff: %s", str(e))
         return json.dumps({"error": f"Exception running diff: {str(e)}"})
 
 def run_file_type(path: str):
@@ -168,6 +171,7 @@ def run_file_type(path: str):
         logger.error("Error determining file type: %s", str(e))
         return json.dumps({"error": f"Error determining file type: {str(e)}"})
     except Exception as e:
+        print(f"{red}{str(e)}{reset}")
         logger.error("Exception running file command: %s", str(e), exc_info=True)
         return json.dumps({"error": f"Exception running file command: {str(e)}"})
 
@@ -212,6 +216,7 @@ def run_patch(patch_file_path: str):
             "returncode": e.returncode if hasattr(e, "returncode") else -1
         })
     except Exception as e:
+        print(f"{red}{str(e)}{reset}")
         logger.error("Exception running patch: %s", str(e), exc_info=True)
         return json.dumps({"error": f"Exception running patch command: {str(e)}"})
 
@@ -249,6 +254,7 @@ def create_patch_for_file(path: str, contents: str):
                 logger.error("Error creating patch: %s", str(e), exc_info=True)
                 return json.dumps({"error": f"Error creating patch: {str(e)}"})
     except Exception as e:
+        print(f"{red}{str(e)}{reset}")
         logger.error("Error in patch creation process: %s", str(e), exc_info=True)
         return json.dumps({"error": f"Error in patch creation process: {str(e)}"})
 
