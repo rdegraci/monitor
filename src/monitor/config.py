@@ -1,3 +1,11 @@
+# CONFIG FILE IO POLICY:
+# All file and directory operations that perform IO (e.g. open, os.makedirs, os.path.exists) must be wrapped in try/except blocks.
+# Any IO failure must be logged via logger.error with exc_info=True for full stacktrace, and an exception must be raised to abort execution.
+# Failures in reading/loading config do NOT return defaults or fall back: they are fatal errors.
+# Path manipulations not touching disk (e.g. os.path.expanduser, os.path.join) may be left unwrapped unless they interact with the filesystem.
+# Environment variable assignments (os.environ, etc.) are not IO and do not need exception wrapping.
+# The intent: All config file IO errors are logged and detected immediately, never silently handled or ignored.
+
 import yaml
 import os
 import argparse
@@ -30,43 +38,79 @@ def find_config_file(filename):
     If found in both, return the user config dir version.
     If found only in site config dir, return that.
     If not found in either, raise FileNotFoundError.
+    All file/directory existence checks are IO and errors are always logged and raised.
     """
-    site_config_dir = appdirs.site_config_dir("monitor")
-    user_config_dir = appdirs.user_config_dir("monitor")
-    site_path = os.path.join(site_config_dir, filename)
-    user_path = os.path.join(user_config_dir, filename)
+    try:
+        site_config_dir = appdirs.site_config_dir("monitor")
+        user_config_dir = appdirs.user_config_dir("monitor")
+        site_path = os.path.join(site_config_dir, filename)
+        user_path = os.path.join(user_config_dir, filename)
 
-    user_exists = os.path.exists(user_path)
-    site_exists = os.path.exists(site_path)
+        try:
+            user_exists = os.path.exists(user_path)
+        except Exception as e:
+            logger.error(f"File existence check failed for {user_path}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to check if user config exists: {user_path}") from e
 
-    if user_exists:
-        return user_path
-    elif site_exists:
-        return site_path
-    else:
-        raise FileNotFoundError(
-            f"{filename} not found in either {user_path} or {site_path}"
-        )
+        try:
+            site_exists = os.path.exists(site_path)
+        except Exception as e:
+            logger.error(f"File existence check failed for {site_path}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to check if site config exists: {site_path}") from e
+
+        if user_exists:
+            return user_path
+        elif site_exists:
+            return site_path
+        else:
+            raise FileNotFoundError(
+                f"{filename} not found in either {user_path} or {site_path}"
+            )
+    except Exception as e:
+        logger.error(f"Error locating config file {filename}: {e}", exc_info=True)
+        raise
 
 def _load_one_dotenv(dotenv_path, description=None, verbose=False):
     """
     Attempt to load a single .env file, logging success/failure. Used in load_environment_variables.
     Returns True if loaded, False otherwise.
+    All file existence and load attempts are logged and exceptions are fatal.
     """
-    if dotenv_path and os.path.exists(dotenv_path):
-        load_dotenv(dotenv_path, override=True)
-        if description:
-            logger.info(f"{description} loaded successfully from {dotenv_path}.")
-        else:
-            logger.info(f".env file loaded successfully from {dotenv_path}.")
-        return True
-    else:
-        if verbose:
-            if description:
-                logger.info(f"{description} not found at {dotenv_path}.")
+    try:
+        if dotenv_path:
+            try:
+                dotenv_exists = os.path.exists(dotenv_path)
+            except Exception as e:
+                logger.error(f"Error checking .env existence at {dotenv_path}: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to check existence of dotenv file: {dotenv_path}") from e
+            if dotenv_exists:
+                try:
+                    load_dotenv(dotenv_path, override=True)
+                except Exception as e:
+                    logger.error(f"Failed loading dotenv file at {dotenv_path}: {e}", exc_info=True)
+                    raise RuntimeError(f"Failed loading dotenv: {dotenv_path}") from e
+                if description:
+                    logger.info(f"{description} loaded successfully from {dotenv_path}.")
+                else:
+                    logger.info(f".env file loaded successfully from {dotenv_path}.")
+                return True
             else:
-                logger.info(f".env file not found at {dotenv_path}.")
-        return False
+                if verbose:
+                    if description:
+                        logger.info(f"{description} not found at {dotenv_path}.")
+                    else:
+                        logger.info(f".env file not found at {dotenv_path}.")
+                return False
+        else:
+            if verbose:
+                if description:
+                    logger.info(f"{description} path is None.")
+                else:
+                    logger.info(".env file path is None.")
+            return False
+    except Exception as e:
+        logger.error(f"Exception during loading dotenv file at {dotenv_path}: {e}", exc_info=True)
+        raise
 
 def load_environment_variables(verbose=False):
     """
@@ -78,12 +122,26 @@ def load_environment_variables(verbose=False):
     Logs .env loading for audit/debug; does not exit if missing (defaults/secrets may be used).
     Returns:
         dict: {"cwd_env_loaded": bool, "home_env_loaded": bool}
+    All .env file IO errors are logged and abort with exception.
     """
     status = {"cwd_env_loaded": False, "home_env_loaded": False}
-    cwd_dotenv_path = find_dotenv()
-    status["cwd_env_loaded"] = _load_one_dotenv(cwd_dotenv_path, description="Project .env", verbose=verbose)
+    try:
+        cwd_dotenv_path = find_dotenv()
+    except Exception as e:
+        logger.error(f"Error finding project .env via find_dotenv: {e}", exc_info=True)
+        raise RuntimeError("Failed during find_dotenv for project .env") from e
+    try:
+        status["cwd_env_loaded"] = _load_one_dotenv(cwd_dotenv_path, description="Project .env", verbose=verbose)
+    except Exception as e:
+        logger.error(f"Exception loading cwd .env file: {e}", exc_info=True)
+        raise
     home_dotenv_path = os.path.expanduser(os.path.join("~", ".config/monitor", ".env"))
-    status["home_env_loaded"] = _load_one_dotenv(home_dotenv_path, description="Home secrets .env", verbose=verbose)
+    try:
+        status["home_env_loaded"] = _load_one_dotenv(home_dotenv_path, description="Home secrets .env", verbose=verbose)
+    except Exception as e:
+        logger.error(f"Exception loading home .env file: {e}", exc_info=True)
+        raise
+
     if not status["cwd_env_loaded"] and not status["home_env_loaded"]:
         logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
     return status
@@ -91,32 +149,54 @@ def load_environment_variables(verbose=False):
 def load_yaml_config(file_path=find_config_file("app.yaml")):
     yaml_path = file_path
     try:
-        with open(yaml_path) as f:
-            config = yaml.safe_load(f)
+        try:
+            with open(yaml_path) as f:
+                try:
+                    config = yaml.safe_load(f)
+                except yaml.YAMLError as exc:
+                    logger.error(f"Error parsing YAML file: {exc}", exc_info=True)
+                    raise RuntimeError(f"YAML parsing error in {yaml_path}: {exc}") from exc
+        except FileNotFoundError as e:
+            logger.error(f"Configuration file {yaml_path} not found.", exc_info=True)
+            raise RuntimeError(f"Configuration file {yaml_path} not found.") from e
+        except Exception as e:
+            logger.error(f"Failed opening configuration file {yaml_path}: {e}", exc_info=True)
+            raise RuntimeError(f"Open error for {yaml_path}: {e}") from e
         return config
-    except FileNotFoundError:
-        print(f"Configuration file {yaml_path} not found.")
-        return {}
-    except yaml.YAMLError as exc:
-        print(f"Error parsing YAML file: {exc}")
-        return {}
+    except Exception as e:
+        logger.error(f"Failed to load YAML config ({yaml_path}): {e}", exc_info=True)
+        raise
 
 def get_logging_config():
     """
     Retrieves logging configuration from the YAML config with sensible defaults.
+    Directory creation is wrapped with exception handling.
+    Any directory or file error is logged and aborts config loading.
     """
-    config = load_yaml_config().get('logging', {})
+    try:
+        config = load_yaml_config().get('logging', {})
+    except Exception as e:
+        logger.error(f"Error retrieving 'logging' config from YAML: {e}", exc_info=True)
+        raise
     default_log_dir = os.path.join(os.path.expanduser("~"), ".config/monitor", "logs")
-    log_dir = os.path.expanduser(config.get('log_dir', default_log_dir))
+    try:
+        log_dir = os.path.expanduser(config.get('log_dir', default_log_dir))
+    except Exception as e:
+        logger.error(f"Path expansion failed for log_dir: {e}", exc_info=True)
+        raise RuntimeError("Error expanding log_dir path in logging config") from e
     try:
         os.makedirs(log_dir, exist_ok=True)
     except Exception as e:
         logger.error(f"Failed to create log directory {log_dir}: {e}", exc_info=True)
-        raise
+        raise RuntimeError(f"Failed to create log directory {log_dir}: {e}") from e
 
     app_log_filename = config.get('app_log_filename', 'app.log')
     conversation_log_filename = config.get('conversation_log_filename', 'conversation.log')
-    file_path = os.path.join(log_dir, f"{STARTUP_TIME}_{app_log_filename}")
+    try:
+        file_path = os.path.join(log_dir, f"{STARTUP_TIME}_{app_log_filename}")
+    except Exception as e:
+        logger.error(f"Path join failed for log file: {e}", exc_info=True)
+        raise RuntimeError("Failed joining file path for log file") from e
     log_config = {
         'level': config.get('level', 'INFO'),
         'format': config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
@@ -416,7 +496,11 @@ def configure_logging_globals():
     global LOGGING_CONFIG, LOGGING_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT
     global CONSOLE_LOGGING_ENABLED, LOG_DIR, LOG_FILE_PATH, CONVERSATION_LOG_FILENAME, CONVERSATION_LOG_FILE
 
-    LOGGING_CONFIG = get_logging_config()
+    try:
+        LOGGING_CONFIG = get_logging_config()
+    except Exception as e:
+        logger.error(f"Failed to get logging config: {e}", exc_info=True)
+        raise
 
     if not LOGGING_CONFIG['log_dir']:
         raise RuntimeError("LOG_DIR (log_dir) is missing in app.yaml and no default could be set.")
@@ -438,8 +522,16 @@ def configure_logging_globals():
         else True
     )
     LOG_DIR = LOGGING_CONFIG['log_dir']
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
+    try:
+        if not os.path.exists(LOG_DIR):
+            try:
+                os.makedirs(LOG_DIR)
+            except Exception as e:
+                logger.error(f"Failed to create log directory {LOG_DIR}: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to create log directory: {LOG_DIR}") from e
+    except Exception as e:
+        logger.error(f"Error checking existence of log dir {LOG_DIR}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to check log dir existence: {LOG_DIR}") from e
     LOG_FILE_PATH = LOGGING_CONFIG['file_path']
 
     # Helper to generate a filename with the current PID inserted either in place of {pid} or before file extension.
@@ -462,9 +554,16 @@ def configure_logging_globals():
     # The conversation log file will always include the process PID in the filename.
     conversation_log_filename = LOGGING_CONFIG['conversation_log_filename']
     pid_injected_conversation_filename = insert_pid_into_filename(conversation_log_filename, os.getpid())
-    CONVERSATION_LOG_FILENAME = os.path.join(LOG_DIR, f"{STARTUP_TIME}_{pid_injected_conversation_filename}")
-
-    CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
+    try:
+        CONVERSATION_LOG_FILENAME = os.path.join(LOG_DIR, f"{STARTUP_TIME}_{pid_injected_conversation_filename}")
+    except Exception as e:
+        logger.error(f"Failed joining conversation log filename: {e}", exc_info=True)
+        raise RuntimeError("Failed to create conversation log file name") from e
+    try:
+        CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
+    except Exception as e:
+        logger.error(f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}") from e
 
 def load_environment_globals():
     load_environment_variables()
