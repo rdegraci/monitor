@@ -147,15 +147,58 @@ MODEL_SWITCH_SUMMARY_MESSAGE = "Conversation reset/autosummarized to fit new mod
 TOKEN_EXCEED_WARNING = "Warning: Token usage exceeds the new model context window. Please summarize or reset."
 
 def post_social_media_summaries():
-    """Generate and post summaries to social media"""
+    """Generate and post summaries to social media (robust error handling per platform)"""
     # Fetch live model from monitor.config to ensure summary logic is always up to date
-    summary_twitch = summarize_conversation_for_twitch(config.CONVERSATION_HISTORY, config.MODEL)  # live config.MODEL
-    send_twitch_message_command(summary_twitch)
-    summary_linkedin = summarize_conversation_for_linkedin(config.CONVERSATION_HISTORY, config.MODEL)  # live config.MODEL
-    send_linkedin_message(summary_linkedin)
-    summary_twitter = summarize_conversation_for_twitter(config.CONVERSATION_HISTORY, config.MODEL)  # live config.MODEL
-    send_twitter_message(summary_twitter)
+    summary_twitch = summarize_conversation_for_twitch(config.CONVERSATION_HISTORY, config.MODEL)
+    try:
+        send_twitch_message_command(summary_twitch)
+    except Exception as e:
+        logger.error("Failed to post summary to Twitch.", exc_info=True)
+        print(
+            red + 
+            "Twitch posting failed: Unable to post summary to Twitch. Please check your network connection and Twitch credentials/configuration." +
+            reset
+        )
+    else:
+        print(
+            yellow + 
+            "Successfully posted summary to Twitch." +
+            reset
+        )
 
+    summary_linkedin = summarize_conversation_for_linkedin(config.CONVERSATION_HISTORY, config.MODEL)
+    try:
+        send_linkedin_message(summary_linkedin)
+    except Exception as e:
+        logger.error("Failed to post summary to LinkedIn.", exc_info=True)
+        print(
+            red +
+            "LinkedIn posting failed: Unable to post summary to LinkedIn. Please check your network connection and LinkedIn credentials/configuration." +
+            reset
+        )
+    else:
+        print(
+            yellow +
+            "Successfully posted summary to LinkedIn." +
+            reset
+        )
+
+    summary_twitter = summarize_conversation_for_twitter(config.CONVERSATION_HISTORY, config.MODEL)
+    try:
+        send_twitter_message(summary_twitter)
+    except Exception as e:
+        logger.error("Failed to post summary to Twitter.", exc_info=True)
+        print(
+            red +
+            "Twitter posting failed: Unable to post summary to Twitter. Please check your network connection and Twitter credentials/configuration." +
+            reset
+        )
+    else:
+        print(
+            yellow +
+            "Successfully posted summary to Twitter." +
+            reset
+        )
 
 def update_conversation_logs(user_input, conversation_log_file=config.CONVERSATION_LOG_FILE):
     """Update conversation logs with user input"""
