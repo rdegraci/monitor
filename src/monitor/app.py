@@ -16,6 +16,7 @@ import argparse  # Added for command-line argument parsing.
 import threading  # Added for enhanced shutdown reliability.
 import os  # Added for forced process exit fallback.
 import time  # Added for small delay before forced exit.
+import traceback  # Added for enhanced error trace reporting in debug/development mode.
 
 from monitor import config
 from monitor.config import configure_subsystems, load_environment_globals, start_logging
@@ -93,7 +94,15 @@ def make_flask_app():
             return jsonify({"result": result}), 200
         except Exception as exc:
             logger.error(f"Error processing command via API: {exc}", exc_info=True)
-            return jsonify({"error": str(exc)}), 500
+            # Enhanced error reporting in debug or development mode
+            if app.debug or app.env == 'development':
+                tb = traceback.format_exc()
+                return jsonify({
+                    "error": str(exc),
+                    "traceback": tb,
+                }), 500
+            else:
+                return jsonify({"error": str(exc)}), 500
     return app
 
 def create_flask_server(host: str, port: int):
