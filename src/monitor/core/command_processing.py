@@ -29,6 +29,28 @@ from monitor.lib.colors import yellow, reset
 
 from dataclasses import dataclass
 from typing import Optional
+from enum import Enum, auto
+
+
+class CommandType(Enum):
+    LLM = "llm"
+    MACRO = "macro"
+    CD = "cd"
+    BUILT_IN = "built_in"
+    INTERNAL = "internal"
+    INTERACTIVE = "interactive"
+    ERROR = "error"
+    EXIT = "exit"
+    UNSUPPORTED = "unsupported"
+    EMPTY = "empty"
+    FILE_IO = "file_io"
+    NETWORK = "network"
+    DB_QUERY = "db_query"
+    SCRIPT = "script"
+    PLUGIN = "plugin"
+    PERMISSION = "permission"
+    UI_COMMAND = "ui_command"
+    # For extensibility - add more as needed
 
 
 @dataclass
@@ -37,7 +59,7 @@ class CommandResult:
     output: Optional[str] = None  # textual result or None
     exit_requested: bool = False  # True if the command was an exit request
     error: Optional[str] = None  # error message, if any
-    command_type: str = "generic"  # llm | macro | cd | built_in | internal | interactive | error | exit | unsupported
+    command_type: CommandType = CommandType.LLM  # Use CommandType Enum
 
 
 def evaluate_command(command: str) -> CommandResult:
@@ -51,7 +73,7 @@ def evaluate_command(command: str) -> CommandResult:
     """
     try:
         if not command.strip():
-            return CommandResult(command_type="empty")
+            return CommandResult(command_type=CommandType.EMPTY)
 
         # Expand macros in the command unless explicitly suppressed with '!<'
         if not command.lstrip().startswith("!<"):
@@ -67,7 +89,7 @@ def evaluate_command(command: str) -> CommandResult:
 
         # Detect exit commands early
         if command.lower() in ["/exit", "exit"]:
-            return CommandResult(exit_requested=True, command_type="exit")
+            return CommandResult(exit_requested=True, command_type=CommandType.EXIT)
 
         # Parse first lexical word
         first_word = command.split()[0] if command.split() else ""
@@ -78,7 +100,11 @@ def evaluate_command(command: str) -> CommandResult:
             logger.debug("Changed directory to: {}".format(cwd))
             # Informing the LLM of directory changes is a side effect and is
             # intentionally omitted here.
-            return CommandResult(output=cwd, command_type="cd")
+            return CommandResult(output=cwd, command_type=CommandType.CD)
+
+        # For non-interactive evaluation, do not process special command types here.
+        # All commands that are not handled as macros, cd, internal, built-in, or exit
+        # fall through as CommandType.LLM.
 
         # Unsupported command classes in non-interactive evaluation
         if (
@@ -91,18 +117,18 @@ def evaluate_command(command: str) -> CommandResult:
             )
             return CommandResult(
                 error="Interactive / built-in / internal commands are not supported via non-interactive evaluation.",
-                command_type="unsupported",
+                command_type=CommandType.UNSUPPORTED,
             )
 
-        # Default: treat as LLM query
+        # Default: treat as LLM query.
         logger.debug("Executing LLM query evaluation for command: {}".format(command))
         command_string = command.replace("!<", "")
         query_result = query(command_string)
-        return CommandResult(output=query_result, command_type="llm")
+        return CommandResult(output=query_result, command_type=CommandType.LLM)
 
     except Exception as exc:
         logger.error("Error while evaluating command.", exc_info=True)
-        return CommandResult(error=str(exc), command_type="error")
+        return CommandResult(error=str(exc), command_type=CommandType.ERROR)
 
 
 def process_cd_command(command, first_word):
@@ -174,9 +200,9 @@ def process_command(command, history_file):
     result = evaluate_command(command)
 
     # Handle output and side effects appropriate for the REPL environment
-    if result.command_type in ("macro", "cd") and result.output is not None:
+    if result.command_type in (CommandType.MACRO, CommandType.CD) and result.output is not None:
         print(result.output)
-    elif result.command_type == "llm":
+    elif result.command_type == CommandType.LLM:
         send_artifact(result.output)
         display_query_result(
             result.output,
