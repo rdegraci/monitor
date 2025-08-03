@@ -26,7 +26,7 @@ class TestTooling(unittest.TestCase):
 
     @patch("monitor.core.tooling.AVAILABLE_TOOLS", new_callable=lambda: {"foo": lambda x: x + 1})
     @patch("monitor.core.tooling.count_message_tokens", return_value=1)
-    @patch("monitor.core.tooling.RATE_LIMITER")
+    @patch("monitor.lib.rate_limiter.RATE_LIMITER")
     def test_execute_tool_call_success(self, mock_limiter, mock_token_count, mock_available):
         tool_call = {
             "function": {
