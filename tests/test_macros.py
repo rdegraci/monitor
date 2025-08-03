@@ -95,7 +95,7 @@ class TestMacros(unittest.TestCase):
     def test_configure_macros(self, mock_update_macros):
         """Test the configure_macros function."""
         mock_additional_macros = {'test_macro': 'test_value'}
-        with patch.object(macros, 'ADDITIONAL_MACROS', mock_additional_macros):
+        with patch('monitor.lib.macros.load_additional_macros', return_value=mock_additional_macros):
             macros.MACRO_VALUES.clear()
             macros.configure_macros()
 
@@ -108,6 +108,7 @@ class TestMacros(unittest.TestCase):
             self.assertEqual(mock_update_macros.call_count, 4)
             mock_update_macros.assert_has_calls(expected_calls)
 
+
     @patch('sys.stdout', new_callable=StringIO)
     def test_print_macros(self, mock_stdout):
         """Test the print_macros function outputs JSON correctly."""
@@ -118,7 +119,8 @@ class TestMacros(unittest.TestCase):
         macros.ephemeral_macro_values["system?"] = "ephemeral_dummy"
         # Optionally add more ephemeral or public values as needed
 
-        macros.print_macros("test_arg")
+        with patch("monitor.config.MACRO_FILE_PATH", "/dummy/path/for/test"):
+            macros.print_macros("test_arg")
         
         output = mock_stdout.getvalue()
         
@@ -245,6 +247,7 @@ class TestMacros(unittest.TestCase):
             "Error in macro formatting. Expected format: '<key=expansion'"
         )
 
+
     def test_macro_values_global_dict_exists(self):
         """Test that MACRO_VALUES global dictionary exists and is modifiable."""
         self.assertIsInstance(macros.MACRO_VALUES, dict)
@@ -258,8 +261,10 @@ class TestMacros(unittest.TestCase):
 
     def test_macro_file_path_exists(self):
         """Test that MACRO_FILE_PATH is defined."""
-        self.assertIsNotNone(config.MACRO_FILE_PATH)
-        self.assertIsInstance(config.MACRO_FILE_PATH, (str, type(None)))
+        with patch("monitor.config.MACRO_FILE_PATH", "/dummy/path/for/test"):
+            import monitor.config
+            self.assertIsNotNone(monitor.config.MACRO_FILE_PATH)
+            self.assertIsInstance(monitor.config.MACRO_FILE_PATH, (str, type(None)))
 
     def test_macro_constants_imported(self):
         """Test that macro delimiter constants are imported."""
