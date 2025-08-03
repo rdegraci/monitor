@@ -23,6 +23,7 @@ from monitor.lib.built_in_commands import (
     reload_macros_command,
     llm_command,
     trim_history_command,
+    compact_history_command,
 )
 from monitor.lib.tool_loading import (
     add_db_tools,
@@ -43,6 +44,8 @@ from monitor.lib.external_services import (
     send_twitch_message_command,
     send_twitter_message,
 )
+
+from monitor.lib.colors import COLOR_WARNING_FUNCS
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,19 @@ def configure_built_ins() -> None:
                     "command": ":trim_history",
                     "function": trim_history_command,
                     "description": "Trim last N items from conversation history.",
+                },
+                {
+                    "command": ":compact_history",
+                    "function": lambda arg=None: (
+                        compact_history_command(
+                            arg,
+                            config,
+                            print,
+                            COLOR_WARNING_FUNCS,
+                            logger
+                        )
+                    ),
+                    "description": "Trim history and set the max to N messages (usage: :compact N)."
                 },
                 {
                     "command": ":llm",

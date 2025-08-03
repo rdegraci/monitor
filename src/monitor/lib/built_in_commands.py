@@ -25,6 +25,7 @@ from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.tool_loading import list_tools
 from monitor.lib.display_output import print_colored_error
 from monitor.lib.colors import print_yellow
+from monitor.lib.history import adjust_history_size
 
 logger = logging.getLogger(__name__)
 
@@ -364,3 +365,25 @@ def trim_history_command(arg: str) -> None:
             config.CONVERSATION_HISTORY.pop()
         print(f"Removed last {removed} item(s) from conversation history.")
         logger.info("Removed last %s item(s) from conversation history.", removed)
+
+
+def compact_history_command(
+    arg,  # The integer argument N, as string
+    config,
+    print_func,
+    color_warning_funcs,
+    logger
+):
+    try:
+        n = int(arg)
+        result = adjust_history_size(
+            n,
+            config.CONVERSATION_HISTORY,
+            config.CONVERSATION_MAX_SIZE,
+            print_func,
+            color_warning_funcs,
+            logger,
+        )
+        config.CONVERSATION_MAX_SIZE = result  # Update for consistency
+    except Exception as e:
+        print_func(f"Error: {e}")

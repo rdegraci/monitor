@@ -8,6 +8,8 @@ yellow = fg('yellow')
 green = fg('green')
 reset = attr('reset')
 
+COLOR_WARNING_FUNCS = {'red': red, 'yellow': yellow, 'reset': reset}
+
 def print_colored(message, color):
     """Prints a message to the terminal using the specified color.
 
