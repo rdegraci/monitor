@@ -1,8 +1,5 @@
 import logging
 
-
-
-
 from monitor.lib.display_output import display_query_result
 from monitor.lib.consult import Consult
 from monitor.lib.external_services import send_artifact
@@ -33,7 +30,6 @@ def print_design_mode_help():
 """)
 
 def design_mode_command(seed_question=None):
-    import monitor.core.conversation
     from monitor.core.conversation import query
 
     global DESIGN_MODE_ACTIVE
@@ -71,6 +67,8 @@ def design_mode_command(seed_question=None):
 
 def dev_mode_command():
     """Stop the design interaction and hand over requirements for execution."""
+    from monitor.core.conversation import query
+
     global DESIGN_MODE_ACTIVE
     if not DESIGN_MODE_ACTIVE:
         print("Not currently in design mode.")

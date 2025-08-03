@@ -23,7 +23,6 @@ from monitor.lib.external_services import (
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.tool_loading import list_tools
-from monitor.lib.display_output import print_colored_error
 from monitor.lib.colors import print_yellow
 from monitor.lib.history import adjust_history_size
 
@@ -201,6 +200,7 @@ def reload_macros_command(arg: Any = None) -> None:
         None
     """
     from monitor.lib.macros import configure_macros, MACRO_VALUES
+    from monitor.lib.display_output import print_colored_error
 
     try:
         # Snapshot macros before reload
@@ -295,6 +295,8 @@ def llm_command(arg: str = None) -> None:
 
     Shows current model and settings after changing, or prints an error.
     """
+    from monitor.lib.display_output import print_colored_error
+
     try:
         arg_provided = arg is not None and str(arg).strip() != ""
         if not arg_provided or str(arg).strip().lower() in {"help", "?", "-h", "--help"}:
@@ -342,6 +344,8 @@ def trim_history_command(arg: str) -> None:
         - Otherwise, pops last N elements from monitor.config.CONVERSATION_HISTORY.
         - Prints or logs how many items were removed.
     """
+    from monitor.lib.display_output import print_colored_error
+
     if arg is None or not str(arg).strip():
         print_colored_error("You must provide a count for how many history items to remove.")
         return

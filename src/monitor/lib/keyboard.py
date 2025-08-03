@@ -1,7 +1,11 @@
 
 from monitor.lib.voice_to_text import VoiceToText
 
-VOICE_TO_TEXT = VoiceToText()  # Configure with device/model as needed
+VOICE_TO_TEXT=None
+
+def configure_voice_to_text():
+    global VOICE_TO_TEXT
+    VOICE_TO_TEXT = VoiceToText()  # Configure with device/model as needed
 
 
 # Define the handler for Ctrl + Left Arrow

@@ -28,7 +28,7 @@ from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
 from monitor.lib.logging import configure_logging
-from monitor.core.modes import configure_consultant
+from monitor.lib.keyboard import configure_voice_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -575,6 +575,8 @@ def start_logging():
 
 def configure_subsystems():
     from monitor.core.commands import load_public_interactive_commands
+    from monitor.core.modes import configure_consultant
+
     configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])
     load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
@@ -583,6 +585,7 @@ def configure_subsystems():
     configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
     configure_protocol_engine()
     configure_consultant()
+    configure_voice_to_text()
 
 def set_model(model_key: str):
     """
