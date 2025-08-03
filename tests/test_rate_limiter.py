@@ -73,7 +73,7 @@ def test_exceed_maximum_allowed():
     rl = rate_limiter.RateLimiter(logger, limit=100, window_seconds=10, safety_factor=0.5, now_fn=now_fn)
     # Estimated tokens exceeds safety threshold of 50
     can_proceed, cooldown = rl.check_limit(75)
-    assert can_proceed is False
+    assert can_proceed is None
     assert cooldown == 10
 
 
@@ -87,7 +87,7 @@ def test_rate_limit_no_records():
     rl.token_usage = []
     # Simulate usage right at safety threshold
     can_proceed, cooldown = rl.check_limit(81)
-    assert can_proceed is False
+    assert can_proceed is None
     assert cooldown == 10
 
 """

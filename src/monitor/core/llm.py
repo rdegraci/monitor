@@ -75,14 +75,21 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
            if config.REASONING_MODEL_PREFIX.lower() in config.MODEL.lower()
            else 0
         )
-        rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
 
         if estimated_request > config.MODEL_MAX_TPM:
             return None, (
                 f"Input too large: {estimated_request} tokens "
                 f"vs model limit {config.MODEL_MAX_TPM}. Cannot send request."
-                "Please reduce the size of your input (file, diff, or message)."
-            )
+                "Please reduce the size of your input (file, diff, or message) or send smaller requests."
+            ), 
+
+        wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
+        if wait_result is None:
+            return None, (
+                f"Input too large: {estimated_request} tokens. Model limit {config.MODEL_MAX_TPM} tokens."
+                "Reduce the size of your request."
+            ), 
+
 
         response = call_litellm_completion(config.MODEL, messages)
 

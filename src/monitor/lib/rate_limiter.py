@@ -207,7 +207,7 @@ class RateLimiter:
                 estimated_tokens, self.safety_threshold, self.limit,
                 self.safety_threshold / self.limit if self.limit else 0.0,
             )
-            return False, self.window_seconds
+            return None, self.window_seconds
 
         now = self.now_fn()
         self._clean_expired(now)
@@ -261,6 +261,9 @@ class RateLimiter:
 
         can_proceed, wait_time = self.check_limit(estimated_tokens)
 
+        # Request too large
+        if can_proceed is None:
+            return None
         if not can_proceed:
             self.logger.info("Initiating cooldown period of %s seconds", round(wait_time, 1))
             self.sleep_fn(wait_time)
