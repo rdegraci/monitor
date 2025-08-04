@@ -156,13 +156,6 @@ def process_command(command, history_file):
             f"Failed to write command history to {history_file}: {e}", exc_info=True
         )
 
-    # Legacy behavior: early macro processing
-    if process_macro_command(command):
-        return False
-
-    # Re-apply macro expansion so that early-handled commands (cd, built-ins, etc.)
-    # receive already-expanded arguments.  This mirrors the behaviour that existed
-    # before the evaluator refactor.
     if not command.lstrip().startswith("!<"):
         command = recursive_macro_expand(
             command,
@@ -219,23 +212,6 @@ def process_command(command, history_file):
         print(f"{yellow}{result.error}{reset}")
 
     return result.exit_requested
-
-
-def process_macro_command(command):
-    """Process a macro command"""
-    if command.lstrip().startswith("<(") and command.endswith(";"):
-        logger.debug(f"Found a macro command: {command}")
-        macro = recursive_macro_expand(
-            command,
-            MACRO_VALUES,
-            config.MACRO_DELIMITER_OPEN,
-            config.MACRO_DELIMITER_CLOSE,
-            config.MACRO_DELIMITER_ESCAPE,
-        )
-        display_query_result(macro)
-        return True
-    return False
-
 
 def handle_exit_command(command):
     """Handle exit commands and return exit flag"""

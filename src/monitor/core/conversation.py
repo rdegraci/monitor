@@ -301,7 +301,6 @@ def process_input(user_input, history_file):
     # Process multiple commands
     from monitor.core.command_processing import (
         process_command,
-        process_macro_command,
         process_cd_command,
         handle_exit_command
     )
