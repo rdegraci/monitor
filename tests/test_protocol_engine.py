@@ -130,8 +130,9 @@ def test_fetch_modified_script(monkeypatch, tmp_path):
     assert "Task completed successfully" in res
 
 def test_modify_source_code_file_not_found(tmp_path):
+    protocol_engine.configure_protocol_engine()
     bad_file = tmp_path / "no_such_file.py"
-    result = protocol_engine.modify_source_code(str(bad_file), "change anything", model="test")
+    result = protocol_engine.modify_source_code(str(bad_file), "change anything")
     assert result.startswith("Error reading file")
 
 def test_modify_source_code_success(tmp_path, monkeypatch):

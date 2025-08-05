@@ -90,7 +90,6 @@ class ProtocolEngine:
                     logger.error("Checkpoint unavailable or broken. Cannot auto-retry further.")
                     error_result = result
                     break
-                # Resume with updated script_content? Checkpoint only tracks chunks, so source file shouldn't change mid-run.
                 continue
             else:
                 attempt_successful = True
@@ -127,12 +126,25 @@ class ProtocolEngine:
         if self.task_completed:
             logger.warning("Task already completed for file: %s", source_file)
             return "Task already completed"
+        # Determine language from file extension
+        ext = os.path.splitext(source_file)[1][1:].lower()
+        languages = {
+            'py': 'Python',
+            'swift': 'Swift',
+            'js': 'JavaScript',
+            'ts': 'TypeScript',
+            'java': 'Java',
+            'cpp': 'C++',
+            'c': 'C',
+            # Add more as needed
+        }
+        language = languages.get(ext, 'source')
         # Resume from checkpoint if possible:
         checkpoint = self._load_checkpoint(modification_request)
         if checkpoint:
             self.chunks = checkpoint["completed_chunks"]
             start_chunk_index = checkpoint["next_chunk_index"]
-            logger.info(f"Resuming modification at chunk {start_chunk_index+1} for {source_file}")
+            logger.info(f"Resuming modification at chunk {start_chunk_index} for {source_file}")
         else:
             self.chunks = []
             start_chunk_index = 1
@@ -144,8 +156,8 @@ class ProtocolEngine:
             f"IMPORTANT: Mark the last chunk with <chunk_n last=\"true\">. Each chunk can contain up to 12288 tokens "
             f"of code (measured by word count, where 1 word ≈ 1 token), unless the remaining code is less. "
             f"Do not generate small chunks like 400 tokens—this is critical for efficiency. The output window "
-            f"is 16384 tokens, so up to 12288-token chunks fit perfectly. Return only raw Swift source code as text "
-            f"within the chunks—do not include markdown (e.g., ```swift or ``` or ```python), comments, or any formatting "
+            f"is 16384 tokens, so up to 12288-token chunks fit perfectly. Return only raw {language} source code as text "
+            f"within the chunks—do not include markdown (e.g., ```{language.lower()} or ``` or ```python), comments, or any formatting "
             f"outside the code itself. Do not reorder the functions—keep them in their original sequence for "
             f"git diff readability. Ensure every function, helper method, property, and dependency is included "
             f"across the chunks—do not omit any part of the modified code."
@@ -219,7 +231,6 @@ class ProtocolEngine:
                 original_source=self._modification_script_content,
                 chunk_index=chunk_index,
             )
-            print(corrected_chunk)
             prohibited = self._find_prohibited_phrases_in_text(corrected_chunk)
             if corrected_chunk and not prohibited:
                 return corrected_chunk
@@ -238,66 +249,59 @@ class ProtocolEngine:
     def _collect_chunks(self, initial_response=None, modification_request=None, start_chunk_index=1):
         print("\nProcessing", end="", flush=True)
         found_last_chunk = False
-        current_response = initial_response
         iteration = 0
-        max_iterations = 10
-        chunk_index = start_chunk_index
+        max_iterations = 50  # Increased for larger files
+        if initial_response is None:
+            # For resume: Request the next chunk with specific index
+            next_chunk_prompt = (
+                f"Continue from chunk {start_chunk_index}. IMPORTANT: Mark the last chunk with <chunk_n last=\"true\">. "
+                "UNDER NO CIRCUMSTANCES may you output summary comments (such as 'unchanged', 'remains the same', 'no change', etc.), "
+                "nor omit *any* lines from the file. Output every line, with no summary phrases."
+            )
+            current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index, is_next_chunk=True)
+        else:
+            current_response = initial_response
         while not found_last_chunk and iteration < max_iterations:
             iteration += 1
             print(".", end="", flush=True)
-            if current_response and ('no more code' in current_response or 'last="true"' in current_response):
-                found_last_chunk = True
-            
-            # Only parse chunks if we have a response
             if current_response:
                 new_chunks, is_last_chunk = self._parse_chunks(current_response)
                 if new_chunks:
-                    start_index = len(self.chunks)
                     self.chunks.extend(new_chunks)
                     if modification_request:
-                        self._save_checkpoint(self.chunks, chunk_index, modification_request)
-                
+                        self._save_checkpoint(self.chunks, len(self.chunks) + 1, modification_request)
                 if is_last_chunk:
                     found_last_chunk = True
                     self._assemble_and_save()
                     self._remove_checkpoint()
                     print(f"\nModification complete. Updated {self.source_file}.")
                     return
-            
-            # If not the last chunk, request the next one
             if not found_last_chunk:
                 try:
+                    next_index = len(self.chunks) + 1
                     next_chunk_prompt = (
-                        "Next chunk. IMPORTANT: Mark the last chunk with <chunk_n last=\"true\">. "
+                        f"Next chunk (chunk {next_index}). IMPORTANT: Mark the last chunk with <chunk_n last=\"true\">. "
                         "UNDER NO CIRCUMSTANCES may you output summary comments (such as 'unchanged', 'remains the same', 'no change', etc.), "
                         "nor omit *any* lines from the file. Output every line, with no summary phrases."
                     )
-                    current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=chunk_index+1, is_next_chunk=True)
-                    chunk_index += 1
+                    current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=next_index, is_next_chunk=True)
                 except ValueError as e:
-                    # Specifically catch the non-compliance error
                     if "Non-compliant output at chunk" in str(e):
                         logger.error(f"Non-compliance error: {str(e)}")
-                        # Save partial results
                         self._assemble_and_save_partial()
-                        # Return a special failure message that the global retry can recognize
-                        return f"Non-compliant output at chunk {chunk_index}. Partial results saved."
+                        return f"Non-compliant output at chunk {len(self.chunks)+1}. Partial results saved."
                     else:
-                        # Handle other ValueError exceptions
                         logger.error(f"Error in chunk processing: {str(e)}")
                         if self.chunks:
                             self._assemble_and_save_partial()
-                            print(f"Code modification completed with partial results.")
+                        print(f"Code modification completed with partial results.")
                         break
                 except Exception as e:
-                    # Handle general exceptions
                     logger.error(f"Error requesting next chunk: {str(e)}", exc_info=True)
                     if self.chunks:
                         self._assemble_and_save_partial()
-                        print(f"Code modification completed with partial results.")
+                    print(f"Code modification completed with partial results.")
                     break
-        
-        # Handle reaching max iterations
         if iteration >= max_iterations and self.chunks:
             print(f"\nReached max iterations ({max_iterations}). Using collected chunks.")
             self._assemble_and_save()
@@ -322,7 +326,7 @@ class ProtocolEngine:
         if not self.chunks:
             logger.error(f"No content collected to save for file: {self.source_file}")
             raise ValueError("No content collected to save")
-        full_script = "\n".join(self.chunks)
+        full_script = "".join(self.chunks)  # Fixed: No extra \n between chunks
         full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
         full_script = full_script + '\n'
         # Strip any number of blank / whitespace-only lines at the TOP
@@ -340,7 +344,7 @@ class ProtocolEngine:
         if not self.chunks:
             logger.error(f"No content collected to save (partial) for file: {self.source_file}")
             raise ValueError("No content collected to save")
-        full_script = "\n".join(self.chunks)
+        full_script = "".join(self.chunks)  # Fixed: No extra \n between chunks
         full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
         full_script = full_script + '\n'
         # Strip any number of blank / whitespace-only lines at the TOP
@@ -368,11 +372,11 @@ class ProtocolEngine:
                 h.update(chunk)
         return h.hexdigest()
 
-    def _save_checkpoint(self, chunk_outputs, chunk_index, mod_request):
+    def _save_checkpoint(self, chunk_outputs, next_chunk_index, mod_request):
         try:
             checkpoint_data = {
                 "completed_chunks": chunk_outputs,
-                "next_chunk_index": chunk_index,
+                "next_chunk_index": next_chunk_index,
                 "source_file": self.source_file,
                 "mod_request": mod_request,
                 "file_hash": self._hash_file(self.source_file)
