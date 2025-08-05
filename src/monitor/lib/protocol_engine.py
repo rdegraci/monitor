@@ -13,7 +13,6 @@ from pygments.formatters import TerminalFormatter
 
 from monitor import config 
 
-from monitor.lib.colors import red, yellow, blue, reset
 from monitor.lib.git import perform_git_diff_file
 
 logger = logging.getLogger(__name__)
@@ -326,7 +325,14 @@ class ProtocolEngine:
         if not self.chunks:
             logger.error(f"No content collected to save for file: {self.source_file}")
             raise ValueError("No content collected to save")
-        full_script = "".join(self.chunks)  # Fixed: No extra \n between chunks
+        full_lines = []
+        for i, chunk in enumerate(self.chunks):
+            lines = chunk.splitlines()
+            if i < len(self.chunks) - 1:
+                while lines and not lines[-1].strip():  # Remove trailing blank lines from non-final chunks
+                    lines.pop()
+            full_lines.extend(lines)
+        full_script = '\n'.join(full_lines)
         full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
         full_script = full_script + '\n'
         # Strip any number of blank / whitespace-only lines at the TOP
@@ -344,7 +350,14 @@ class ProtocolEngine:
         if not self.chunks:
             logger.error(f"No content collected to save (partial) for file: {self.source_file}")
             raise ValueError("No content collected to save")
-        full_script = "".join(self.chunks)  # Fixed: No extra \n between chunks
+        full_lines = []
+        for i, chunk in enumerate(self.chunks):
+            lines = chunk.splitlines()
+            if i < len(self.chunks) - 1:
+                while lines and not lines[-1].strip():  # Remove trailing blank lines from non-final chunks
+                    lines.pop()
+            full_lines.extend(lines)
+        full_script = '\n'.join(full_lines)
         full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
         full_script = full_script + '\n'
         # Strip any number of blank / whitespace-only lines at the TOP
