@@ -156,13 +156,13 @@ anthropic_model_tpm_tier=None
 xai_model_tpm_tier=None
 google_model_tpm_tier=None
 model_tpm_mapping=None
-model_mapping=None 
+MODEL_MAPPING=None 
 
 def load_model_config():
     global _MODEL_CONFIG_CACHE
     global conversation_history_mapping, context_window_mapping, output_window_mapping
     global model_max_tpm, openai_model_tpm_tier, anthropic_model_tpm_tier, xai_model_tpm_tier
-    global google_model_tpm_tier, model_tpm_mapping, model_mapping
+    global google_model_tpm_tier, model_tpm_mapping, MODEL_MAPPING
     try:
         _MODEL_CONFIG_CACHE = _load_and_validate_model_config()
         conversation_history_mapping = _MODEL_CONFIG_CACHE["conversation_history_mapping"]
@@ -173,7 +173,7 @@ def load_model_config():
         anthropic_model_tpm_tier = _MODEL_CONFIG_CACHE["anthropic_model_tpm_tier"]
         xai_model_tpm_tier = _MODEL_CONFIG_CACHE["xai_model_tpm_tier"]
         google_model_tpm_tier = _MODEL_CONFIG_CACHE["google_model_tpm_tier"]
-        model_mapping = _MODEL_CONFIG_CACHE["model_mapping"]
+        MODEL_MAPPING = _MODEL_CONFIG_CACHE["model_mapping"]
 
         # The rest of the mappings remain hardcoded
         model_tpm_mapping = {
@@ -195,13 +195,13 @@ def load_model_config():
 
 def get_model_reverse_mapping():
     """
-    Returns a reverse mapping of model_mapping: from full model string -> shorthand key (as string).
+    Returns a reverse mapping of MODEL_MAPPING: from full model string -> shorthand key (as string).
     Caveat: If multiple shorthand keys alias to the same model string, only the last alias key is kept in the mapping.
     Logs a warning for each duplicate (same model string for multiple keys), listing the duplicate model and conflicting shorthand keys.
     """
     reverse = {}
     value_to_keys = {}
-    for k, v in model_mapping.items():
+    for k, v in MODEL_MAPPING.items():
         if v in value_to_keys:
             value_to_keys[v].append(k)
         else:
@@ -479,13 +479,13 @@ def set_model(model_key: str):
 
     # Determine mapping values
     mapped_key = None
-    if model_key in model_mapping:
+    if model_key in MODEL_MAPPING:
         mapped_key = model_key
-        model_full = model_mapping[model_key]
+        model_full = MODEL_MAPPING[model_key]
     else:
-        if model_key in model_mapping.values():
+        if model_key in MODEL_MAPPING.values():
             model_full = model_key
-            mapped_key = next((k for k, v in model_mapping.items() if v == model_key), None)
+            mapped_key = next((k for k, v in MODEL_MAPPING.items() if v == model_key), None)
         else:
             model_full = model_key
             mapped_key = None

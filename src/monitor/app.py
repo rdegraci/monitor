@@ -35,11 +35,6 @@ from monitor.core.query_service import register_query_function  # Ensure query i
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
 
-try:
-    from monitor.config import model_mapping
-except ImportError:
-    model_mapping = {}
-
 logger = logging.getLogger(__name__)
 
 # Register clean SIGINT handler early to ensure graceful shutdown on interrupt signals.
@@ -151,18 +146,18 @@ def main():
 
     # Apply --model CLI override as early as possible before dependency components are initialized.
     if hasattr(args, "model") and args.model is not None:
-        # First ensure model_mapping is a dict
-        if not isinstance(model_mapping, dict):
+        # First ensure MODEL_MAPPING is a dict
+        if not isinstance(config.MODEL_MAPPING, dict):
             warning_msg = (
-                "Warning: model_mapping is not a dictionary as expected; "
+                "Warning: config.MODEL_MAPPING is not a dictionary as expected; "
                 "cannot validate or override model. Model override via --model ignored."
             )
             print(warning_msg)
             logger.warning(warning_msg)
         else:
             # Validate the argument by checking if it is a key or value in the dict
-            model_key_list = list(model_mapping.keys())
-            model_value_list = list(model_mapping.values())
+            model_key_list = list(config.MODEL_MAPPING.keys())
+            model_value_list = list(config.MODEL_MAPPING.values())
             valid_model = False
 
             if args.model in model_key_list:
