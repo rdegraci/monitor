@@ -139,7 +139,7 @@ def remove_tool(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, b
                 tool_descriptions.pop(i)
                 tool_state.pop(tool_name, None)
                 return True
-        logger.warning("Attempted to remove unknown tool: %s", tool_name)
+        logger.info("Attempted to remove unknown tool: %s (this may be normal behavior)", tool_name)
         return False
     except Exception as exc:
         logger.error("Exception occurred in remove_tool(%s): %s", tool_name, exc, exc_info=True)
