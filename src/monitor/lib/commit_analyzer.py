@@ -277,7 +277,7 @@ def build_commit_message_query_input(macro_values, macro_delim_open, macro_delim
     """
     diff = perform_git_diff_staged()
     git_entry_macro_expanded = recursive_macro_expand(
-        "(git_entry)",
+        "(git_entry) and then only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'",
         macro_values,
         macro_delim_open,
         macro_delim_close,
