@@ -353,7 +353,8 @@ LOG_MAX_BYTES=None
 LOG_BACKUP_COUNT=None 
 CONSOLE_LOGGING_ENABLED=None 
 LOG_DIR=None
-LOG_FILE_PATH=None 
+LOG_FILE_PATH=None
+LOG_ENCODING=None
 CONVERSATION_LOG_FILENAME=None 
 CONVERSATION_LOG_FILE=None 
 
@@ -375,7 +376,10 @@ def configure_logging_globals():
         raise RuntimeError("LOG_FORMAT (format) is missing in app.yaml and no default could be set.")
     if not LOGGING_CONFIG['level']:
         raise RuntimeError("LOGGING_LEVEL (level) is missing in app.yaml and no default could be set.")
+    if not LOGGING_CONFIG['encoding']:
+        raise RuntimeError("LOG_ENCODING (encoding) is missing in app.yaml and no default could be set.")
 
+    LOG_ENCODING = LOGGING_CONFIG.get("encoding")
     LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", LOGGING_CONFIG['level']).upper()
     LOG_FORMAT = LOGGING_CONFIG['format']
     LOG_DATE_FORMAT = LOGGING_CONFIG['date_format']

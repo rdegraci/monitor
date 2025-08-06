@@ -42,7 +42,7 @@ DEFAULT_LOGGING = {
     'console_logging_enabled': True,
     'max_bytes': 5 * 1024 * 1024,  # 5 MB
     'backup_count': 3,
-    'encoding': 'utf-8',
+    'log_encoding': 'utf-8',
 }
 
 def _load_logging_config():
@@ -50,11 +50,12 @@ def _load_logging_config():
     Load the logging configuration dictionary
 
     Returns:
-        dict: A merged logging configuration dictionary.
+        dict: A merged logging configuration dictionary combining config.py globals and defaults.
     """
     loaded_config = {}
 
-    legacy_map = {
+    # Mapping of config keys to corresponding config.py global variable names.
+    override_map = {
         'level': 'LOGGING_LEVEL',
         'file_path': 'LOG_FILE_PATH',
         'format': 'LOG_FORMAT',
@@ -62,19 +63,27 @@ def _load_logging_config():
         'max_bytes': 'LOG_MAX_BYTES',
         'backup_count': 'LOG_BACKUP_COUNT',
         'console_logging_enabled': 'CONSOLE_LOGGING_ENABLED',
-        'encoding': 'LOG_ENCODING',
+        'log_encoding': 'LOG_ENCODING',
     }
-    for key, var in legacy_map.items():
+
+    # Populate loaded_config with values from config.py globals if available, otherwise use defaults.
+    for key, var in override_map.items():
         if hasattr(config, var):
             loaded_config[key] = getattr(config, var)
         else:
             loaded_config[key] = DEFAULT_LOGGING[key]
-            logging.warning(f"Logging config: missing '{var}', using default '{DEFAULT_LOGGING[key]}'")
-    # Required fallback
-    for required in ('level', 'file_path'):
+            logging.warning(
+                f"Logging config: missing '{var}', using default '{DEFAULT_LOGGING[key]}'"
+            )
+
+    # Ensure required settings are present; fallback to defaults if missing or empty.
+    for required in ['level', 'file_path']:
         if loaded_config[required] is None or loaded_config[required] == '':
-            logging.warning(f"Logging (legacy config): required variable '{required}' is missing. Using default '{DEFAULT_LOGGING[required]}'")
+            logging.warning(
+                f"Logging config: required variable '{required}' is missing or empty. Using default '{DEFAULT_LOGGING[required]}'"
+            )
             loaded_config[required] = DEFAULT_LOGGING[required]
+
     return loaded_config
 
 def _inject_pid_into_logfile_path(log_path, pid=None):
