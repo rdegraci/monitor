@@ -20,6 +20,7 @@ import traceback  # Added for enhanced error trace reporting in debug/developmen
 import shutil  # For config file backup/copy
 from datetime import datetime  # For backup filename timestamps
 import importlib.resources  # For accessing package resource defaults
+import appdirs  # Import appdirs for user config directory
 
 from monitor import config
 from monitor.config import configure_subsystems, load_environment_globals, start_logging, load_model_config
@@ -149,7 +150,7 @@ def _reset_config():
       - Print success for each file or skip message.
     - At end: print summary & exit immediately.
     """
-    user_config_dir = os.path.expanduser("~/.monitor")
+    user_config_dir = appdirs.user_config_dir('monitor')
     files_to_reset = [
         ("app.yaml", "config", "app.yaml"),
         ("macros.json", "lib", "macros.json"),
@@ -205,7 +206,6 @@ def _reset_config():
         print(f"- {msg}")
     print("\nReset operation complete. Exiting.")
     sys.exit(0)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Monitor")
