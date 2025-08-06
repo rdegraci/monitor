@@ -70,162 +70,128 @@ def find_config_file(filename):
         logger.error(f"Error locating config file {filename}: {e}", exc_info=True)
         raise
 
-def _load_one_dotenv(dotenv_path, description=None, verbose=False):
+# ===== New helper for model_config.json loading and validation =====
+
+def _load_and_validate_model_config():
     """
-    Attempt to load a single .env file, logging success/failure. Used in load_environment_variables.
-    Returns True if loaded, False otherwise.
-    All file existence and load attempts are logged and exceptions are fatal.
+    Loads and validates the monitor/model_config.json file. Returns a dict with the expected keys.
+    All IO errors are logged (fatal) and abort module import.
     """
+    # Build the path to the model_config.json (look in user config, then site config)
+    config_filename = "model_config.json"
     try:
-        if dotenv_path:
+        config_path = find_config_file(config_filename)
+    except Exception as e:
+        logger.error(f"Unable to locate {config_filename}: {e}", exc_info=True)
+        raise RuntimeError(f"Cannot find model config: {config_filename}") from e
+
+    # Attempt reading and parsing JSON
+    try:
+        with open(config_path, "r") as f:
             try:
-                dotenv_exists = os.path.exists(dotenv_path)
-            except Exception as e:
-                logger.error(f"Error checking .env existence at {dotenv_path}: {e}", exc_info=True)
-                raise RuntimeError(f"Failed to check existence of dotenv file: {dotenv_path}") from e
-            if dotenv_exists:
-                try:
-                    load_dotenv(dotenv_path, override=True)
-                except Exception as e:
-                    logger.error(f"Failed loading dotenv file at {dotenv_path}: {e}", exc_info=True)
-                    raise RuntimeError(f"Failed loading dotenv: {dotenv_path}") from e
-                if description:
-                    logger.info(f"{description} loaded successfully from {dotenv_path}.")
-                else:
-                    logger.info(f".env file loaded successfully from {dotenv_path}.")
-                return True
-            else:
-                if verbose:
-                    if description:
-                        logger.info(f"{description} not found at {dotenv_path}.")
-                    else:
-                        logger.info(f".env file not found at {dotenv_path}.")
-                return False
-        else:
-            if verbose:
-                if description:
-                    logger.info(f"{description} path is None.")
-                else:
-                    logger.info(".env file path is None.")
-            return False
+                model_config = json.load(f)
+            except json.JSONDecodeError as je:
+                logger.error(f"model_config.json is not valid JSON: {je}", exc_info=True)
+                raise RuntimeError(f"Malformed JSON in {config_filename}") from je
     except Exception as e:
-        logger.error(f"Exception during loading dotenv file at {dotenv_path}: {e}", exc_info=True)
+        logger.error(f"Failed to load {config_filename} from {config_path}: {e}", exc_info=True)
+        raise RuntimeError(f"Cannot load model config file: {config_path}") from e
+
+    # Validation and type conversions for int keys
+    # List of top-level mapping keys to load and check
+    mapping_keys = [
+        "conversation_history_mapping",
+        "context_window_mapping",
+        "output_window_mapping",
+        "model_max_tpm",
+        "openai_model_tpm_tier",
+        "anthropic_model_tpm_tier",
+        "xai_model_tpm_tier",
+        "google_model_tpm_tier",
+    ]
+    # Ensure these all exist in the JSON
+    for key in mapping_keys:
+        if key not in model_config:
+            logger.error(f"{config_filename} missing required key: '{key}'")
+            raise RuntimeError(f"{config_filename} missing required key: '{key}'")
+
+    # For all *_tpm_tier mappings, convert keys to int
+    for tier_name in [
+        "openai_model_tpm_tier",
+        "anthropic_model_tpm_tier",
+        "xai_model_tpm_tier",
+        "google_model_tpm_tier",
+    ]:
+        val = model_config[tier_name]
+        if not isinstance(val, dict):
+            logger.error(f"Key '{tier_name}' in {config_filename} must be a dictionary")
+            raise RuntimeError(f"{tier_name} in {config_filename} must be a dict")
+        # Convert string keys that are numeric to int, keep non-numeric keys as is
+        int_val = {}
+        for k, v in val.items():
+            try:
+                int_key = int(k)
+            except Exception:
+                int_key = k
+            int_val[int_key] = v
+        model_config[tier_name] = int_val
+
+    # For each mapping that is model_key -> int or str, just check they're dicts
+    for k in ["conversation_history_mapping", "context_window_mapping", "output_window_mapping", "model_max_tpm"]:
+        if not isinstance(model_config[k], dict):
+            logger.error(f"Key '{k}' in {config_filename} must be a dictionary")
+            raise RuntimeError(f"{k} in {config_filename} must be a dict")
+
+    return model_config
+
+# ===== Initialize (on import) model mappings using new loader =====
+
+_MODEL_CONFIG_CACHE=None
+conversation_history_mapping=None
+context_window_mapping=None
+output_window_mapping=None
+model_max_tpm=None
+openai_model_tpm_tier=None
+anthropic_model_tpm_tier=None
+xai_model_tpm_tier=None
+google_model_tpm_tier=None
+model_tpm_mapping=None
+model_mapping=None 
+
+def load_model_config():
+    global _MODEL_CONFIG_CACHE
+    global conversation_history_mapping, context_window_mapping, output_window_mapping
+    global model_max_tpm, openai_model_tpm_tier, anthropic_model_tpm_tier, xai_model_tpm_tier
+    global google_model_tpm_tier, model_tpm_mapping, model_mapping
+    try:
+        _MODEL_CONFIG_CACHE = _load_and_validate_model_config()
+        conversation_history_mapping = _MODEL_CONFIG_CACHE["conversation_history_mapping"]
+        context_window_mapping = _MODEL_CONFIG_CACHE["context_window_mapping"]
+        output_window_mapping = _MODEL_CONFIG_CACHE["output_window_mapping"]
+        model_max_tpm = _MODEL_CONFIG_CACHE["model_max_tpm"]
+        openai_model_tpm_tier = _MODEL_CONFIG_CACHE["openai_model_tpm_tier"]
+        anthropic_model_tpm_tier = _MODEL_CONFIG_CACHE["anthropic_model_tpm_tier"]
+        xai_model_tpm_tier = _MODEL_CONFIG_CACHE["xai_model_tpm_tier"]
+        google_model_tpm_tier = _MODEL_CONFIG_CACHE["google_model_tpm_tier"]
+        model_mapping = _MODEL_CONFIG_CACHE["model_mapping"]
+
+        # The rest of the mappings remain hardcoded
+        model_tpm_mapping = {
+            "sonnet4": anthropic_model_tpm_tier,
+            "sonnet35": anthropic_model_tpm_tier,
+            "sonnet37": anthropic_model_tpm_tier,
+            "4o-mini": openai_model_tpm_tier,
+            "gpt4o": openai_model_tpm_tier,
+            "o3-mini": openai_model_tpm_tier,
+            "gpt41": openai_model_tpm_tier,
+            "o3": openai_model_tpm_tier,
+            "grok3": xai_model_tpm_tier,
+            "grok4": xai_model_tpm_tier,
+            "gemini20": google_model_tpm_tier
+        }
+    except Exception as _model_config_e:
+        # Already logged in loader, but abort import
         raise
-
-def load_environment_variables(verbose=False):
-    """
-    Loads environment variables from these .env files in this order (if present):
-    1. .env discovered via find_dotenv (nearest up the directory tree from CWD)
-    2. ~/.config/monitor/.env
-
-    ~/.config/monitor/.env variables will override variables set by project .env.
-    Logs .env loading for audit/debug; does not exit if missing (defaults/secrets may be used).
-    Returns:
-        dict: {"cwd_env_loaded": bool, "home_env_loaded": bool}
-    All .env file IO errors are logged and abort with exception.
-    """
-    status = {"cwd_env_loaded": False, "home_env_loaded": False}
-    try:
-        cwd_dotenv_path = find_dotenv()
-    except Exception as e:
-        logger.error(f"Error finding project .env via find_dotenv: {e}", exc_info=True)
-        raise RuntimeError("Failed during find_dotenv for project .env") from e
-    try:
-        status["cwd_env_loaded"] = _load_one_dotenv(cwd_dotenv_path, description="Project .env", verbose=verbose)
-    except Exception as e:
-        logger.error(f"Exception loading cwd .env file: {e}", exc_info=True)
-        raise
-    home_dotenv_path = os.path.expanduser(os.path.join("~", ".config/monitor", ".env"))
-    try:
-        status["home_env_loaded"] = _load_one_dotenv(home_dotenv_path, description="Home secrets .env", verbose=verbose)
-    except Exception as e:
-        logger.error(f"Exception loading home .env file: {e}", exc_info=True)
-        raise
-
-    if not status["cwd_env_loaded"] and not status["home_env_loaded"]:
-        logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
-    return status
-
-def load_yaml_config(file_path=find_config_file("app.yaml")):
-    yaml_path = file_path
-    try:
-        try:
-            with open(yaml_path) as f:
-                try:
-                    config = yaml.safe_load(f)
-                except yaml.YAMLError as exc:
-                    logger.error(f"Error parsing YAML file: {exc}", exc_info=True)
-                    raise RuntimeError(f"YAML parsing error in {yaml_path}: {exc}") from exc
-        except FileNotFoundError as e:
-            logger.error(f"Configuration file {yaml_path} not found.", exc_info=True)
-            raise RuntimeError(f"Configuration file {yaml_path} not found.") from e
-        except Exception as e:
-            logger.error(f"Failed opening configuration file {yaml_path}: {e}", exc_info=True)
-            raise RuntimeError(f"Open error for {yaml_path}: {e}") from e
-        return config
-    except Exception as e:
-        logger.error(f"Failed to load YAML config ({yaml_path}): {e}", exc_info=True)
-        raise
-
-def get_logging_config():
-    """
-    Retrieves logging configuration from the YAML config with sensible defaults.
-    Directory creation is wrapped with exception handling.
-    Any directory or file error is logged and aborts config loading.
-    """
-    try:
-        config = load_yaml_config().get('logging', {})
-    except Exception as e:
-        logger.error(f"Error retrieving 'logging' config from YAML: {e}", exc_info=True)
-        raise
-    default_log_dir = os.path.join(os.path.expanduser("~"), ".config/monitor", "logs")
-    try:
-        log_dir = os.path.expanduser(config.get('log_dir', default_log_dir))
-    except Exception as e:
-        logger.error(f"Path expansion failed for log_dir: {e}", exc_info=True)
-        raise RuntimeError("Error expanding log_dir path in logging config") from e
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except Exception as e:
-        logger.error(f"Failed to create log directory {log_dir}: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to create log directory {log_dir}: {e}") from e
-
-    app_log_filename = config.get('app_log_filename', 'app.log')
-    conversation_log_filename = config.get('conversation_log_filename', 'conversation.log')
-    try:
-        file_path = os.path.join(log_dir, f"{STARTUP_TIME}_{app_log_filename}")
-    except Exception as e:
-        logger.error(f"Path join failed for log file: {e}", exc_info=True)
-        raise RuntimeError("Failed joining file path for log file") from e
-    log_config = {
-        'level': config.get('level', 'INFO'),
-        'format': config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
-        'date_format': config.get('date_format', '%Y-%m-%d %H:%M:%S'),
-        'log_dir': log_dir,
-        'app_log_filename': app_log_filename,
-        'conversation_log_filename': conversation_log_filename,
-        'console_logging_enabled': config.get('console_logging_enabled', True),
-        'max_bytes': config.get('max_bytes', 10485760),
-        'backup_count': config.get('backup_count', 5),
-        'file_path': file_path,
-        'encoding': config.get('encoding', 'utf-8')
-    }
-    return log_config
-
-# Dictionary to map shorthand keys to full model names
-model_mapping = {
-    "sonnet4": "anthropic/claude-sonnet-4-20250514",
-    "sonnet35": "anthropic/claude-3-5-sonnet-20241022",
-    "sonnet37": "anthropic/claude-3-7-sonnet-20250219",
-    "4o-mini": "openai/gpt-4o-mini",
-    "gpt4o": "openai/gpt-4o-2024-08-06",
-    "o3-mini": "openai/o3-mini-2025-01-31",
-    "gemini20": "gemini/gemini-2.0-flash",
-    "gpt41": "openai/gpt-4.1-2025-04-14",
-    "o3": "openai/o3-2025-04-16",
-    "grok4": "xai/grok-4-0709",
-    "grok3": "xai/grok-3",
-}
 
 def get_model_reverse_mapping():
     """
@@ -246,107 +212,6 @@ def get_model_reverse_mapping():
             logger.warning(f"Duplicate model alias detected: model string '{v}' is mapped to multiple shorthand keys {keys}")
     return reverse
 
-
-conversation_history_mapping = {
-    "sonnet4": 25,
-    "sonnet35": 25,
-    "sonnet37": 25,
-    "4o-mini": 25,
-    "gpt4o": 20,
-    "o3-mini": 25,
-    "gemini20": 150,
-    "gpt41": 150,
-    "o3": 25,
-    "grok4": 35,    # 32000 TPM
-    "grok3": 20,    # Unknown TPM
-}
-
-context_window_mapping = {
-    "sonnet4": 200000,
-    "sonnet35": 200000,
-    "sonnet37": 200000,
-    "4o-mini": 200000,
-    "gpt4o": 128000,
-    "o3-mini": 200000,
-    "gemini20": 1048576, #out 8192
-    "gpt41": 1048576,
-    "o3": 200000,
-    "grok4": 256000,
-    "grok3": 131072,
-}
-
-
-output_window_mapping = {
-    "sonnet4": 64000,
-    "sonnet35": 8192,
-    "sonnet37": 64000,
-    "4o-mini": 16384,
-    "gpt4o": 16384,
-    "o3-mini": 100000,
-    "gemini20": 8192,
-    "gpt41": 32768,
-    "o3": 100000,
-    "grok4": 128000,
-    "grok3": 64000,
-}
-
-model_max_tpm = {
-    "sonnet4": 1,
-    "sonnet35": 1,
-    "sonnet37": 1,
-    "4o-mini": 1,
-    "gpt4o": 1,
-    "o3-mini": 1,
-    "gpt41": 1,
-    "o3": 1,
-    "grok4": 1,
-    "grok3": 1,
-    "gemini20": 1,
-}
-
-openai_model_tpm_tier = {
-    1: 30000,
-    2: 450000,
-    3: 800000,
-    4: 2000000,
-    5: 30000000
-}
-
-anthropic_model_tpm_tier = {
-    1: 20000,
-    2: 40000,
-    3: 80000,
-    4: 200000
-}
-
-# xAI has no tiers, default to 2000000
-xai_model_tpm_tier = {
-    1: 2000000,
-    2: 2000000,
-    3: 2000000,
-    4: 2000000
-}
-
-google_model_tpm_tier = {
-    1: 80000,
-    2: 80000,
-    3: 80000,
-    4: 80000
-}
-
-model_tpm_mapping = {
-    "sonnet4": anthropic_model_tpm_tier,
-    "sonnet35": anthropic_model_tpm_tier,
-    "sonnet37": anthropic_model_tpm_tier,
-    "4o-mini": openai_model_tpm_tier,
-    "gpt4o": openai_model_tpm_tier,
-    "o3-mini": openai_model_tpm_tier,
-    "gpt41": openai_model_tpm_tier,
-    "o3": openai_model_tpm_tier,
-    "grok3": xai_model_tpm_tier,
-    "grok4": xai_model_tpm_tier,
-    "gemini20": google_model_tpm_tier
-}
 
 MODEL=None
 MODEL_CONTEXT_WINDOW=None 
@@ -569,7 +434,7 @@ def load_environment_globals():
     load_environment_variables()
     configure_globals()
     configure_logging_globals()
-
+    
 def start_logging():
     configure_logging()
 
@@ -643,3 +508,145 @@ def set_model(model_key: str):
         f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE}),"
         f"MAX_TOKEN_COUNT={MAX_TOKEN_COUNT}, TOTAL_TOKEN_COUNT={TOTAL_TOKEN_COUNT})"
     )
+
+def _load_one_dotenv(dotenv_path, description=None, verbose=False):
+    """
+    Attempt to load a single .env file, logging success/failure. Used in load_environment_variables.
+    Returns True if loaded, False otherwise.
+    All file existence and load attempts are logged and exceptions are fatal.
+    """
+    try:
+        if dotenv_path:
+            try:
+                dotenv_exists = os.path.exists(dotenv_path)
+            except Exception as e:
+                logger.error(f"Error checking .env existence at {dotenv_path}: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to check existence of dotenv file: {dotenv_path}") from e
+            if dotenv_exists:
+                try:
+                    load_dotenv(dotenv_path, override=True)
+                except Exception as e:
+                    logger.error(f"Failed loading dotenv file at {dotenv_path}: {e}", exc_info=True)
+                    raise RuntimeError(f"Failed loading dotenv: {dotenv_path}") from e
+                if description:
+                    logger.info(f"{description} loaded successfully from {dotenv_path}.")
+                else:
+                    logger.info(f".env file loaded successfully from {dotenv_path}.")
+                return True
+            else:
+                if verbose:
+                    if description:
+                        logger.info(f"{description} not found at {dotenv_path}.")
+                    else:
+                        logger.info(f".env file not found at {dotenv_path}.")
+                return False
+        else:
+            if verbose:
+                if description:
+                    logger.info(f"{description} path is None.")
+                else:
+                    logger.info(".env file path is None.")
+            return False
+    except Exception as e:
+        logger.error(f"Exception during loading dotenv file at {dotenv_path}: {e}", exc_info=True)
+        raise
+
+def load_environment_variables(verbose=False):
+    """
+    Loads environment variables from these .env files in this order (if present):
+    1. .env discovered via find_dotenv (nearest up the directory tree from CWD)
+    2. ~/.config/monitor/.env
+
+    ~/.config/monitor/.env variables will override variables set by project .env.
+    Logs .env loading for audit/debug; does not exit if missing (defaults/secrets may be used).
+    Returns:
+        dict: {"cwd_env_loaded": bool, "home_env_loaded": bool}
+    All .env file IO errors are logged and abort with exception.
+    """
+    status = {"cwd_env_loaded": False, "home_env_loaded": False}
+    try:
+        cwd_dotenv_path = find_dotenv()
+    except Exception as e:
+        logger.error(f"Error finding project .env via find_dotenv: {e}", exc_info=True)
+        raise RuntimeError("Failed during find_dotenv for project .env") from e
+    try:
+        status["cwd_env_loaded"] = _load_one_dotenv(cwd_dotenv_path, description="Project .env", verbose=verbose)
+    except Exception as e:
+        logger.error(f"Exception loading cwd .env file: {e}", exc_info=True)
+        raise
+    home_dotenv_path = os.path.expanduser(os.path.join("~", ".config/monitor", ".env"))
+    try:
+        status["home_env_loaded"] = _load_one_dotenv(home_dotenv_path, description="Home secrets .env", verbose=verbose)
+    except Exception as e:
+        logger.error(f"Exception loading home .env file: {e}", exc_info=True)
+        raise
+
+    if not status["cwd_env_loaded"] and not status["home_env_loaded"]:
+        logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
+    return status
+
+def load_yaml_config(file_path=find_config_file("app.yaml")):
+    yaml_path = file_path
+    try:
+        try:
+            with open(yaml_path) as f:
+                try:
+                    config = yaml.safe_load(f)
+                except yaml.YAMLError as exc:
+                    logger.error(f"Error parsing YAML file: {exc}", exc_info=True)
+                    raise RuntimeError(f"YAML parsing error in {yaml_path}: {exc}") from exc
+        except FileNotFoundError as e:
+            logger.error(f"Configuration file {yaml_path} not found.", exc_info=True)
+            raise RuntimeError(f"Configuration file {yaml_path} not found.") from e
+        except Exception as e:
+            logger.error(f"Failed opening configuration file {yaml_path}: {e}", exc_info=True)
+            raise RuntimeError(f"Open error for {yaml_path}: {e}") from e
+        return config
+    except Exception as e:
+        logger.error(f"Failed to load YAML config ({yaml_path}): {e}", exc_info=True)
+        raise
+
+def get_logging_config():
+    """
+    Retrieves logging configuration from the YAML config with sensible defaults.
+    Directory creation is wrapped with exception handling.
+    Any directory or file error is logged and aborts config loading.
+    """
+    try:
+        config = load_yaml_config().get('logging', {})
+    except Exception as e:
+        logger.error(f"Error retrieving 'logging' config from YAML: {e}", exc_info=True)
+        raise
+    default_log_dir = os.path.join(os.path.expanduser("~"), ".config/monitor", "logs")
+    try:
+        log_dir = os.path.expanduser(config.get('log_dir', default_log_dir))
+    except Exception as e:
+        logger.error(f"Path expansion failed for log_dir: {e}", exc_info=True)
+        raise RuntimeError("Error expanding log_dir path in logging config") from e
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create log directory {log_dir}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to create log directory {log_dir}: {e}") from e
+
+    app_log_filename = config.get('app_log_filename', 'app.log')
+    conversation_log_filename = config.get('conversation_log_filename', 'conversation.log')
+    try:
+        file_path = os.path.join(log_dir, f"{STARTUP_TIME}_{app_log_filename}")
+    except Exception as e:
+        logger.error(f"Path join failed for log file: {e}", exc_info=True)
+        raise RuntimeError("Failed joining file path for log file") from e
+    log_config = {
+        'level': config.get('level', 'INFO'),
+        'format': config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
+        'date_format': config.get('date_format', '%Y-%m-%d %H:%M:%S'),
+        'log_dir': log_dir,
+        'app_log_filename': app_log_filename,
+        'conversation_log_filename': conversation_log_filename,
+        'console_logging_enabled': config.get('console_logging_enabled', True),
+        'max_bytes': config.get('max_bytes', 10485760),
+        'backup_count': config.get('backup_count', 5),
+        'file_path': file_path,
+        'encoding': config.get('encoding', 'utf-8')
+    }
+    return log_config

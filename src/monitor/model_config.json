@@ -1,0 +1,79 @@
+{
+  "conversation_history_mapping": {
+    "sonnet4": 25,
+    "sonnet35": 25,
+    "sonnet37": 25,
+    "4o-mini": 25,
+    "gpt4o": 20,
+    "o3-mini": 25,
+    "gemini20": 150,
+    "gpt41": 150,
+    "o3": 25,
+    "grok4": 35,
+    "grok3": 20
+  },
+  "context_window_mapping": {
+    "sonnet4": 200000,
+    "sonnet35": 200000,
+    "sonnet37": 200000,
+    "4o-mini": 200000,
+    "gpt4o": 128000,
+    "o3-mini": 200000,
+    "gemini20": 1048576,
+    "gpt41": 1048576,
+    "o3": 200000,
+    "grok4": 256000,
+    "grok3": 131072
+  },
+  "output_window_mapping": {
+    "sonnet4": 64000,
+    "sonnet35": 8192,
+    "sonnet37": 64000,
+    "4o-mini": 16384,
+    "gpt4o": 16384,
+    "o3-mini": 100000,
+    "gemini20": 8192,
+    "gpt41": 32768,
+    "o3": 100000,
+    "grok4": 128000,
+    "grok3": 64000
+  },
+  "model_max_tpm": {
+    "sonnet4": 1,
+    "sonnet35": 1,
+    "sonnet37": 1,
+    "4o-mini": 1,
+    "gpt4o": 1,
+    "o3-mini": 1,
+    "gpt41": 1,
+    "o3": 1,
+    "grok4": 1,
+    "grok3": 1,
+    "gemini20": 1
+  },
+  "openai_model_tpm_tier": {
+    "1": 30000,
+    "2": 450000,
+    "3": 800000,
+    "4": 2000000,
+    "5": 30000000
+  },
+  "anthropic_model_tpm_tier": {
+    "1": 20000,
+    "2": 40000,
+    "3": 80000,
+    "4": 200000
+  },
+  "xai_model_tpm_tier": {
+    "1": 2000000,
+    "2": 2000000,
+    "3": 2000000,
+    "4": 2000000
+  },
+  "google_model_tpm_tier": {
+    "1": 80000,
+    "2": 80000,
+    "3": 80000,
+    "4": 80000
+  }
+}

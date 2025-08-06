@@ -22,7 +22,7 @@ from datetime import datetime  # For backup filename timestamps
 import importlib.resources  # For accessing package resource defaults
 
 from monitor import config
-from monitor.config import configure_subsystems, load_environment_globals, start_logging
+from monitor.config import configure_subsystems, load_environment_globals, start_logging, load_model_config
 from monitor.config import set_model  # Import set_model for CLI model override.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 
@@ -237,6 +237,7 @@ def main():
     if getattr(args, "reset_config", False):
         _reset_config()
 
+    load_model_config()
     load_environment_globals()
     start_logging()
 

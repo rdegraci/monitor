@@ -19,7 +19,7 @@ def main():
     ensure_user_config_file("app.yaml","app.yaml")
     ensure_user_config_file("macros.json","macros.json")
     ensure_user_config_file("preferences.prompt","preferences.prompt")
-
+    ensure_user_config_file("model_config.json", "model_config.json")
     app_main()
 
 if __name__ == "__main__":
