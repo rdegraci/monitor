@@ -6,3 +6,4 @@
 - Always ensure dependencies are included and code is properly structured.
 - Always add Doc Comment doc strings to every new Swift function. Prefer the /// commenting style.
 - Do not remove comments from the source code if the comments are accurate.
+- Make sure that the code changes are architectually sound and follow best practices.
