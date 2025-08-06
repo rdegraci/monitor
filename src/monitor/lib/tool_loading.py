@@ -108,7 +108,7 @@ def add_tool(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: 
         # Check if tool already exists
         tool_name = tool_definition['function']['name']
         if any(tool['function']['name'] == tool_name for tool in tool_descriptions):
-            logger.warning("Tool '%s' already exists and cannot be added again.", tool_name)
+            logger.info("Tool '%s' already exists and cannot be added again. (This may be normal behavior)", tool_name)
             return False
             
         # Add the tool
