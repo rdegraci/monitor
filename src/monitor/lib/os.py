@@ -1,4 +1,3 @@
-
 # Output Convention Update:
 # -------------------------------------------------------------------------------
 # All functions in this module must return either:
@@ -70,11 +69,71 @@ def cat_file(path: str):
     try:
         logger.debug("Reading file %s", path)
         print(f"{yellow}Reading {path}{reset}")
-        content = read_file(path)
-        if content is None:
-            logger.error("File %s does not exist or could not be read", path)
-            return json.dumps({"error": f"File '{path}' does not exist or could not be read."})
-        return json.dumps({"content": content})
+
+        if not os.path.lexists(path):
+            logger.error("File %s does not exist", path)
+            return json.dumps({"error": f"File '{path}' does not exist."})
+
+        if os.path.islink(path):
+            try:
+                link_target = os.readlink(path)
+                # For relative links, resolve relative to the symlink's directory
+                if not os.path.isabs(link_target):
+                    link_dir = os.path.dirname(os.path.abspath(path))
+                    link_target_abs = os.path.normpath(os.path.join(link_dir, link_target))
+                else:
+                    link_target_abs = link_target
+            except OSError as e:
+                logger.error("Could not read symlink at %s: %s", path, str(e))
+                return json.dumps({"error": f"Could not read symlink at '{path}': {str(e)}"})
+
+            if not os.path.exists(link_target_abs):
+                logger.error("Broken symlink: %s points to %s, which does not exist", path, link_target)
+                return json.dumps({
+                    "error": f"Broken symlink: '{path}' points to '{link_target}', which does not exist (absolute: '{link_target_abs}').",
+                    "symlink": True,
+                    "target": link_target,
+                    "target_absolute": link_target_abs,
+                    "broken": True
+                })
+            else:
+                try:
+                    content = read_file(path)
+                except Exception as e:
+                    logger.error("Permission or IO error when reading symlinked file %s (target %s): %s", path, link_target_abs, str(e))
+                    return json.dumps({
+                        "error": f"Permission or IO error when reading symlinked file '{path}' (target '{link_target_abs}'): {str(e)}",
+                        "symlink": True,
+                        "target": link_target,
+                        "target_absolute": link_target_abs
+                    })
+                if content is None:
+                    logger.error("Symlink %s points to %s, but target could not be read.", path, link_target)
+                    return json.dumps({
+                        "error": f"Symlink '{path}' points to '{link_target}', but the target could not be read.",
+                        "symlink": True,
+                        "target": link_target,
+                        "target_absolute": link_target_abs
+                    })
+                # Normal case: symlink resolved successfully
+                return json.dumps({
+                    "content": content,
+                    "symlink": True,
+                    "target": link_target,
+                    "target_absolute": link_target_abs,
+                    "broken": False,
+                    "message": f"'{path}' is a symlink to '{link_target_abs}'."
+                })
+        else:
+            try:
+                content = read_file(path)
+            except Exception as e:
+                logger.error("Error reading file %s: %s", path, str(e))
+                return json.dumps({"error": f"Error reading file '{path}': {str(e)}"})
+            if content is None:
+                logger.error("File %s could not be read", path)
+                return json.dumps({"error": f"File '{path}' could not be read."})
+            return json.dumps({"content": content})
     except Exception as e:
         print(f"{red}{str(e)}{reset}")
         logger.error("Error reading file %s: %s", path, str(e))

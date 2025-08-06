@@ -1,4 +1,3 @@
-
 """
 tests/test_os.py
 Unit tests for lib/os.py utilities (cat_file etc).
@@ -166,4 +165,67 @@ def test_file_type_bad():
     assert isinstance(out["error"], str)
     assert out["error"].strip() != ""
 
+def test_cat_file_symlink_to_file(tmp_path):
+    """cat_file should report valid symlink info, correct target, and file content for symlink to file."""
+    file = tmp_path / "target.txt"
+    file.write_text("content for symlink target")
+    symlink = tmp_path / "thelink"
+    symlink.symlink_to(file)
+    res = libos.cat_file(str(symlink))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "symlink" in res and res["symlink"] is True
+    assert "target" in res
+    # Target is relative or absolute, allow both for robustness
+    assert os.path.basename(res["target"]) == "target.txt"
+    assert "broken" not in res or not res.get("broken", False)
+    assert "content" in res and res["content"] == "content for symlink target"
 
+def test_cat_file_broken_symlink(tmp_path):
+    """cat_file should report error, symlink:true, and broken:true for a broken symlink."""
+    missing = tmp_path / "missing.txt"
+    symlink = tmp_path / "brokenlink"
+    symlink.symlink_to(missing)
+    res = libos.cat_file(str(symlink))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "error" in res and isinstance(res["error"], str)
+    assert res["error"].strip() != ""
+    assert res.get("symlink") is True
+    assert "target" in res
+    assert os.path.basename(res["target"]) == "missing.txt"
+    assert res.get("broken") is True
+
+def test_cat_file_symlink_to_directory(tmp_path):
+    """cat_file should report error and symlink:true for symlink to a directory, cannot open as file."""
+    directory = tmp_path / "adirectory"
+    directory.mkdir()
+    symlink = tmp_path / "dirlink"
+    symlink.symlink_to(directory)
+    res = libos.cat_file(str(symlink))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "error" in res and isinstance(res["error"], str)
+    assert res["error"].strip() != ""
+    assert res.get("symlink") is True
+    assert "target" in res
+    assert os.path.basename(res["target"]) == "adirectory"
+
+def test_cat_file_symlink_chain(tmp_path):
+    """cat_file should resolve symlink chains and report correct info and final target content."""
+    file = tmp_path / "file.txt"
+    file.write_text("final chain content!")
+    symlink2 = tmp_path / "link2"
+    symlink2.symlink_to(file)
+    symlink1 = tmp_path / "link1"
+    symlink1.symlink_to(symlink2)
+    res = libos.cat_file(str(symlink1))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert res.get("symlink") is True
+    # Accept if the reported target is link2 or file.txt - robust to implementation details
+    assert "target" in res
+    target_last = os.path.basename(res["target"])
+    assert target_last in ("link2", "file.txt")
+    assert "content" in res and res["content"] == "final chain content!"
+    assert res.get("broken") is not True
