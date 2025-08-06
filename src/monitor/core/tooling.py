@@ -153,6 +153,8 @@ def handle_tool_call(response):
         lambda msg, conv_hist: append_to_history_with_count(
             msg, conv_hist, count_message_tokens, update_token_usage
         ),
+        count_message_tokens,
+        update_token_usage
     )
     return result
 
@@ -203,7 +205,17 @@ def handle(function_call):
         # Update conversation history and return result
         if result is None:
             result = "Ok."
-        update_conversation_history(result)
+        update_conversation_history(
+            result,
+            "assistant",
+            config.CONVERSATION_HISTORY,
+            lambda msg, conv_hist: append_to_history_with_count(
+                msg, conv_hist, count_message_tokens, update_token_usage
+            ),
+            count_message_tokens,
+            update_token_usage
+        )
+
         return result
 
     except Exception as e:

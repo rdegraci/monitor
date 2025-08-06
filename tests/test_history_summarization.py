@@ -185,17 +185,13 @@ def test_summarization_triggers_and_reset(
                 logger.info(f"Appended message; token count now {config.TOTAL_TOKEN_COUNT}")
                 return count
 
-            def set_token_count_func(new_val):
-                logger.info(f"Token count explicitly reset to {new_val}")
-                config.TOTAL_TOKEN_COUNT = new_val
-
+            # set_token_count_func removed: function and argument
             history.reset_conversation_with_summary(
-                summary=summary_resp.choices[0].message,
+                summary=summary_resp.choices[0].message["content"],
                 system_prompt=system_prompt,
                 user_input="User resumed after summary.",
                 conversation_history=conversation,
                 append_func=append_func,
-                set_token_count_func=set_token_count_func,
                 logger=logger,
                 config=config
             )
@@ -209,7 +205,6 @@ def test_summarization_triggers_and_reset(
         assert found_summary_content, "Reset conversation must include the summary message content."
     else:
         assert config.TOTAL_TOKEN_COUNT == recount_conversation_tokens(conversation, count_message_tokens_always_10)
-
 
 def _fill_tokens_to_threshold(config, conversation, summarization_config, max_token_count):
     threshold_pct = summarization_config['triggers']['token_threshold']
@@ -425,17 +420,13 @@ def test_prompt_count_stale_after_summarization(logger, config, monkeypatch):
             config.TOTAL_TOKEN_COUNT += count
             return count
 
-        def set_token_count_func(new_val):
-            config.TOTAL_TOKEN_COUNT = new_val
-
-        # Perform summarization + reset.
+        # set_token_count_func removed: function and argument
         history.reset_conversation_with_summary(
-            summary=summary_resp.choices[0].message,
+            summary=summary_resp.choices[0].message["content"],
             system_prompt=system_prompt,
             user_input="Resume input after summary.",
             conversation_history=conversation,
             append_func=append_func,
-            set_token_count_func=set_token_count_func,
             logger=logger,
             config=config
         )

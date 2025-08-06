@@ -1,4 +1,4 @@
-# conversation_management.py
+# history.py
 # =============================================================================
 # This module manages conversation history, token counting, dynamic summarization,
 # and system prompts for chat-based applications powered by LLMs (e.g., Litellm).
@@ -38,7 +38,7 @@ from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib import rate_limiter
 
-logger = logging.getLogger('monitor.core.commit')
+logger = logging.getLogger(__name__)  # Standardized to __name__
 
 def log_negative_token_count(logger, config):
     """
@@ -76,16 +76,18 @@ def append_to_history_with_count(
     try:
         tokens = count_message_tokens_func(message)
         update_token_usage_func(tokens)
-        logging.getLogger(__name__).debug(f"Appended message with {tokens} tokens to conversation_history (len={len(conversation_history)+1})")
+        logger.debug(f"Appended message with {tokens} tokens to conversation_history (len={len(conversation_history)+1})")
         conversation_history.append(message)
     except Exception as e:
-        logging.getLogger(__name__).error(f"Error appending to conversation history: {str(e)}", exc_info=True)
+        logger.error(f"Error appending to conversation history: {str(e)}", exc_info=True)
 
 def update_conversation_history(
     content: str,
     role: str,
     conversation_history: list,
     append_func: callable,
+    count_message_tokens_func: callable,
+    update_token_usage_func: callable,
 ) -> None:
     """
     Conditionally adds a message of specified role and content to the chat history.
@@ -95,13 +97,15 @@ def update_conversation_history(
         role (str): 'user', 'assistant', etc.
         conversation_history (list): The chat history.
         append_func (callable): Function to append message to the history.
+        count_message_tokens_func (callable): Counts tokens in the message.
+        update_token_usage_func (callable): Updates tracked usage (side effect).
     """
     if content:
         try:
             append_func({"role": role, "content": content}, conversation_history)
-            logging.getLogger(__name__).debug(f"Updated conversation history with {role} message: '{content[:80]}'... (new len={len(conversation_history)})")
+            logger.debug(f"Updated conversation history with {role} message: '{content[:80]}'... (new len={len(conversation_history)})")
         except Exception as e:
-            logging.getLogger(__name__).error(f"Error appending to conversation history: {str(e)}", exc_info=True)
+            logger.error(f"Error appending to conversation history: {str(e)}", exc_info=True)
 
 def append_conversation_history(
     user_input: str,
@@ -222,11 +226,13 @@ def append_conversation_history(
             summary_content = None
             summary_token_count = None
             if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
-                summary_content = str(response.choices[0].message)
+                summary_content = response.choices[0].message.content  # Fixed: extract .content
                 summary_token_count = count_message_tokens({"role": "system", "content": summary_content})
             logger.info(
                 f"[SUMMARIZATION] Summary generated. Length: {len(summary_content) if summary_content else 'n/a'} chars, Estimated tokens: {summary_token_count}. Snippet: '{summary_content[:200] if summary_content else 'n/a'}...'"
             )
+            if not summary_content:
+                raise ValueError("[SUMMARIZATION] Empty summary generated; cannot reset conversation.")
             if summary_token_count and summary_token_count > config.MAX_TOKEN_COUNT * 0.6:
                 logger.warning(
                     f"[SUMMARIZATION] WARNING: Generated summary itself is large ({summary_token_count} tokens, limit {config.MAX_TOKEN_COUNT}). Efficiency shortfall."
@@ -237,12 +243,11 @@ def append_conversation_history(
                     f"[SUMMARIZATION] Resetting conversation history. Pre-reset: len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
                 )
                 reset_with_summary_func(
-                    response.choices[0].message,
+                    summary_content,
                     system_prompt,
                     user_input,
                     conversation_history,
                     append_to_history_with_count,
-                    lambda x: None,
                     logger,
                     config,  # pass config for live token count usage
                 )
@@ -295,6 +300,9 @@ def initialize_chat_history(
     system_prompt: str,
     history_file_path: str,
     logger: object,
+    config: object,
+    count_message_tokens_func: callable,
+    update_token_usage_func: callable,
 ) -> str:
     """
     Loads prior readline input history (if available) and appends the base system prompt as the initial message.
@@ -305,6 +313,9 @@ def initialize_chat_history(
         system_prompt (str): Launch prompt.
         history_file_path (str): Where CLI/readline history is stored.
         logger (object): Diagnostics.
+        config (object): Contains runtime state and settings.
+        count_message_tokens_func (callable): Counts tokens in the message.
+        update_token_usage_func (callable): Updates tracked usage (side effect).
     Returns:
         str: The path to the readline history file used.
     """
@@ -317,7 +328,7 @@ def initialize_chat_history(
         logger.debug(f"No history file found at expected location: {history_file}")
     system_message = {"role": "system", "content": f"{system_prompt}"}
     try:
-        append_func(system_message, conversation_history)
+        append_func(system_message, conversation_history, count_message_tokens_func, update_token_usage_func)
         logger.debug(f"Appended system prompt as first message to conversation history (len={len(conversation_history)})")
     except Exception as e:
         logger.error(f"Error appending system prompt to conversation history: {str(e)}", exc_info=True)
@@ -330,6 +341,7 @@ def adjust_history_size(
     print_func: callable,
     color_warning_funcs: dict,
     logger: object,
+    config: object,
 ) -> int:
     """
     Adjusts the maximum allowable conversation history size and trims history if needed.
@@ -341,6 +353,7 @@ def adjust_history_size(
         print_func (callable): To relay warnings or confirmations.
         color_warning_funcs (dict): Dict containing color functions/strings.
         logger (object): Diagnostics.
+        config (object): Contains runtime state and settings.
     Returns:
         int: The new or existing history size limit.
     """
@@ -373,6 +386,9 @@ def adjust_history_size(
                     conversation_history[:] = conversation_history[-(current_max_size):]
                 logger.info(f"Conversation history trimmed from {orig_len} to {len(conversation_history)} messages (new max: {current_max_size})")
                 print_func(f"Conversation history trimmed to {current_max_size} messages")
+                # Recalculate token count after trim
+                config.TOTAL_TOKEN_COUNT = sum(count_message_tokens(m) for m in conversation_history)
+                logger.debug(f"Updated TOTAL_TOKEN_COUNT after trim: {config.TOTAL_TOKEN_COUNT}")
         except Exception as e:
             logger.error(f"Error trimming conversation history: {str(e)}", exc_info=True)
         return current_max_size
@@ -380,7 +396,14 @@ def adjust_history_size(
         print_func(f"{red}Error: Please provide a valid integer for history size{reset}")
         return current_max_size
 
-
+def deep_size(obj):
+    """Recursive deep size calculation for memory usage."""
+    if isinstance(obj, dict):
+        return sys.getsizeof(obj) + sum(deep_size(v) for v in obj.values())
+    elif isinstance(obj, list):
+        return sys.getsizeof(obj) + sum(deep_size(item) for item in obj)
+    else:
+        return sys.getsizeof(obj)
 
 def check_limits(
     total_token_count: int,
@@ -415,6 +438,51 @@ def check_limits(
         f"max_history_size={max_history_size}, len(conversation_history)={len(conversation_history)}, "
         f"time_since_last_summary={time_since_last_summary}"
     )
+
+    # Defensive type coercion and validation for numeric params
+    logger.debug(f"Pre-coercion types: total_token_count={type(total_token_count)}, max_token_count={type(max_token_count)}, max_history_size={type(max_history_size)}")
+
+    # Coerce total_token_count
+    try:
+        total_token_count = int(total_token_count)
+    except (ValueError, TypeError) as e:
+        logger.error(f"[CHECK_LIMITS] Cannot coerce total_token_count to int: {str(e)}")
+        raise ValueError(f"Cannot coerce total_token_count to int: {str(e)}")
+
+    # Coerce max_token_count
+    try:
+        max_token_count = int(max_token_count)
+    except (ValueError, TypeError) as e:
+        logger.error(f"[CHECK_LIMITS] Cannot coerce max_token_count to int: {str(e)}")
+        raise ValueError(f"Cannot coerce max_token_count to int: {str(e)}")
+
+    # Coerce max_history_size
+    try:
+        max_history_size = int(max_history_size)
+    except (ValueError, TypeError) as e:
+        logger.error(f"[CHECK_LIMITS] Cannot coerce max_history_size to int: {str(e)}")
+        raise ValueError(f"Cannot coerce max_history_size to int: {str(e)}")
+
+    logger.debug(f"Post-coercion types: total_token_count={type(total_token_count)}, max_token_count={type(max_token_count)}, max_history_size={type(max_history_size)}")
+
+    # Coerce token_threshold (ratio, so float)
+    token_threshold = summarization_config['triggers'].get('token_threshold')
+    if token_threshold is None:
+        logger.warning("[CHECK_LIMITS] token_threshold missing from summarization_config, using default 0.95")
+        token_threshold = 0.95
+    try:
+        token_threshold = float(token_threshold)
+    except (ValueError, TypeError):
+        logger.error(f"[CHECK_LIMITS] Invalid token_threshold ({token_threshold}), using default 0.95")
+        token_threshold = 0.95
+    if not 0 < token_threshold <= 1:
+        logger.warning(f"[CHECK_LIMITS] token_threshold ({token_threshold}) out of expected range (0-1], using default 0.95")
+        token_threshold = 0.95
+
+    # Now calculate threshold safely
+    token_limit_threshold = max_token_count * token_threshold
+    logger.debug(f"[CHECK_LIMITS] Calculated token_limit_threshold = {token_limit_threshold} (type: {type(token_limit_threshold)})")
+
     if total_token_count < 0:
         logger.error("[CHECK_LIMITS] CRITICAL: Negative total_token_count computed!")
     elif max_token_count is not None and total_token_count > (2 * max_token_count):
@@ -429,7 +497,6 @@ def check_limits(
     if time_since_last_summary is None:
         time_since_last_summary = current_time - config.last_summary_time
         logger.debug(f"[CHECK_LIMITS] Calculated time_since_last_summary={time_since_last_summary:.3f} (current_time={current_time}, last_summary_time={config.last_summary_time})")
-    token_limit_threshold = max_token_count * summarization_config['triggers']['token_threshold']
     logger.debug(
         f"[CHECK_LIMITS] Calculated token_limit_threshold = {token_limit_threshold} "
         f"(max_token_count={max_token_count}, trigger_ratio={summarization_config['triggers']['token_threshold']})"
@@ -453,15 +520,18 @@ def check_limits(
         f"[CHECK_LIMITS] avg_message_size = {avg_message_size:.3f} (total_content_size={total_content_size}, n_msgs={len(conversation_history)})"
     )
     # Effective history size is set to avoid exceeding token budget with large messages
-    if avg_message_size > 0:
-        effective_history_limit = min(max_history_size, max_token_count / avg_message_size)
+    avg_tokens_per_message = (
+        total_token_count / len(conversation_history) if conversation_history else 0
+    )  # Fixed: use avg_tokens_per_message for units
+    if avg_tokens_per_message > 0:
+        effective_history_limit = min(max_history_size, max_token_count / avg_tokens_per_message)
         logger.debug(
-            f"[CHECK_LIMITS] avg_message_size > 0, so effective_history_limit = min({max_history_size}, {max_token_count} / {avg_message_size}) = {effective_history_limit:.3f}"
+            f"[CHECK_LIMITS] avg_tokens_per_message > 0, so effective_history_limit = min({max_history_size}, {max_token_count} / {avg_tokens_per_message}) = {effective_history_limit:.3f}"
         )
     else:
         effective_history_limit = max_history_size
         logger.debug(
-            f"[CHECK_LIMITS] avg_message_size == 0, so effective_history_limit = max_history_size = {effective_history_limit:.3f}"
+            f"[CHECK_LIMITS] avg_tokens_per_message == 0, so effective_history_limit = max_history_size = {effective_history_limit:.3f}"
         )
     over_history_limit = len(conversation_history) > effective_history_limit
     logger.debug(
@@ -473,19 +543,16 @@ def check_limits(
     logger.debug(
         f"[CHECK_LIMITS] time_limit_exceeded? time_since_last_summary={time_since_last_summary} > time_limit_seconds={summarization_config['triggers']['time_limit_seconds']} -> {time_limit_exceeded}"
     )
-    # System memory (in MB) for the chat history list object
-    current_memory_usage = sys.getsizeof(conversation_history) / (1024 * 1024)
+    # System memory (in MB) for the chat history list object - Fixed: use deep_size
+    current_memory_usage = deep_size(conversation_history) / (1024 * 1024)
     logger.debug(
-        f"[CHECK_LIMITS] current_memory_usage = sys.getsizeof(conversation_history) / (1024*1024) = {sys.getsizeof(conversation_history)} bytes = {current_memory_usage:.6f} MB"
+        f"[CHECK_LIMITS] current_memory_usage = deep_size(conversation_history) / (1024*1024) = {deep_size(conversation_history)} bytes = {current_memory_usage:.6f} MB"
     )
     memory_limit_exceeded = (
         current_memory_usage > summarization_config['triggers']['memory_limit_mb']
     )
     logger.debug(
         f"[CHECK_LIMITS] memory_limit_exceeded? current_memory_usage={current_memory_usage:.6f} > memory_limit_mb={summarization_config['triggers']['memory_limit_mb']} -> {memory_limit_exceeded}"
-    )
-    avg_tokens_per_message = (
-        total_token_count / len(conversation_history) if conversation_history else 0
     )
     logger.debug(
         f"[CHECK_LIMITS] avg_tokens_per_message = {avg_tokens_per_message:.3f} (total_token_count={total_token_count}, n_msgs={len(conversation_history)})"
@@ -632,7 +699,7 @@ def generate_conversation_summary(
         summary_content = None
         summary_token_count = None
         if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
-            summary_content = str(response.choices[0].message)
+            summary_content = response.choices[0].message.content  # Fixed: extract .content
             summary_token_count = count_message_tokens_func({"role": "system", "content": summary_content})
             logger.info(
                 f"[SUMMARIZATION] Summary length: {len(summary_content)} chars, estimated {summary_token_count} tokens. Snippet: '{summary_content[:200]}...'"
@@ -653,12 +720,11 @@ def generate_conversation_summary(
         raise
 
 def reset_conversation_with_summary(
-    summary: object,
+    summary: str,  # Fixed: expect str (content), not object
     system_prompt: str,
     user_input: str,
     conversation_history: list,
     append_func: callable,
-    set_token_count_func: callable,
     logger: object,
     config: object,
 ) -> None:
@@ -668,16 +734,17 @@ def reset_conversation_with_summary(
     All appending and token count management routed via canonical count_message_tokens and update_token_usage from monitor.lib/token_management.py.
 
     Args:
-        summary (object): The generated summary, either str or message-like object.
+        summary (str): The generated summary content.
         system_prompt (str): The preserved system prompt string.
         user_input (str): The latest user input that triggered the reset.
         conversation_history (list): Mutated in-place to just system, summary, user prompt.
         append_func (callable): For tracking tokens & appending messages.
-        set_token_count_func (callable): Optionally no-op, must exist for interface.
         logger (object): Logging for diagnostics.
         config (object): The live config object (will update TOTAL_TOKEN_COUNT).
     """
     conversation_history.clear()
+    if hasattr(config, "TOTAL_TOKEN_COUNT"):
+        config.TOTAL_TOKEN_COUNT = 0  # Fixed: reset incremental count before appends
     logger.debug(f"[RESET_CONVERSATION] Cleared conversation history for summary reset.")
     try:
         # Append the preserved system prompt as first message
@@ -686,11 +753,12 @@ def reset_conversation_with_summary(
     except Exception as e:
         logger.error(f"Error appending system prompt in reset: {str(e)}", exc_info=True)
     try:
-        # Use summary as context, followed by user input for a seamless restart
-        append_func({"role": "user", "content": f"Let's continue our discussion based on this summary: {summary}. {user_input} "}, conversation_history, count_message_tokens, update_token_usage)
-        logger.debug(f"[RESET_CONVERSATION] Summary+user input added post-reset.")
+        # Use summary as context, followed by user input for a seamless restart - Changed: append as assistant role for better context
+        append_func({"role": "assistant", "content": summary}, conversation_history, count_message_tokens, update_token_usage)
+        append_func({"role": "user", "content": user_input}, conversation_history, count_message_tokens, update_token_usage)
+        logger.debug(f"[RESET_CONVERSATION] Summary (as system) and user input added post-reset.")
     except Exception as e:
-        logger.error(f"Error appending user summary message in reset: {str(e)}", exc_info=True)
+        logger.error(f"Error appending summary/user message in reset: {str(e)}", exc_info=True)
     total_tokens = sum(count_message_tokens(m) for m in conversation_history)
     num_msgs = len(conversation_history)
     logger.info(
@@ -713,4 +781,4 @@ def reset_conversation_with_summary(
             logger.critical("[SUMMARIZATION] CRITICAL: Negative total token count detected after reset!")
     logger.debug(f"After reset: total token count reset, new entries added to conversation history.")
 
-# End of conversation_management.py (no further lines)
+# End of history.py

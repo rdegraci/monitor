@@ -383,7 +383,7 @@ def chat():
     history_file = config.HISTORY_FILE
     initialize_chat_history(
         config.CONVERSATION_HISTORY,
-        lambda message, conversation_history: append_to_history_with_count(
+        lambda message, conversation_history, count_message_tokens, update_token_usage: append_to_history_with_count(
             message,
             conversation_history,
             count_message_tokens,
@@ -391,7 +391,10 @@ def chat():
         ),
         SYSTEM_PROMPT,
         config.HISTORY_FILE,
-        logger
+        logger,
+        config,
+        count_message_tokens,
+        update_token_usage
     )
 
     config.last_summary_time = time.time()
