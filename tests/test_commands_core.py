@@ -93,3 +93,31 @@ def test_execute_internal_command_macro_error(mock_macro):
     display = MagicMock()
     # We expect handle_error to be called
     commands.execute_internal_command('exp foo', display)
+
+@patch('monitor.core.commands.internal_commands', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
+def test_llm_internal_command_success():
+    # Arrange
+    shell_code = "echo hello"
+    prompt = "Explain this"
+    cmd_line = f"llm< {shell_code} >llm {prompt}"
+    display = MagicMock()
+    # Patch at both possible locations, just in case:
+    with patch('monitor.core.commands.run_subprocess', return_value=(0, "some shell output", "", None)) as mock_run, \
+         patch('monitor.core.commands.query', return_value="llm result") as mock_query, \
+         patch('monitor.core.commands.logger'):
+        commands.execute_internal_command(cmd_line, display)
+        # Run checks
+        assert mock_run.call_count == 1
+        assert "echo hello" in mock_run.call_args[0][0]
+        assert mock_query.called, "query was not called -- ensure patch path matches actual import location in commands.py"
+        display.assert_called_once_with("llm result")
+
+@patch('monitor.core.commands.internal_commands', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
+def test_llm_internal_command_missing_shell():
+    # Arrange: no shell code before >llm, should handle error
+    cmd_line = "llm<   >llm why is this broken"
+    display = MagicMock()
+    with patch('monitor.core.commands.handle_error') as mock_handle_error, \
+         patch('monitor.core.commands.logger') as mock_logger:
+        commands.execute_internal_command(cmd_line, display)
+        mock_handle_error.assert_called_once()

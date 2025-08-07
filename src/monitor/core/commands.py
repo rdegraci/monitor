@@ -28,6 +28,9 @@ from monitor.lib.macro_utils import recursive_macro_expand
 
 from monitor import config
 
+from monitor.core.query_service import query
+from monitor.lib.display_output import display_query_result
+
 logger = logging.getLogger(__name__)
 
 PUBLIC_INTERACTIVE_COMMANDS=None
@@ -74,7 +77,10 @@ private_interactive_commands = [
 ]
 
 
-
+# Both commands def< and comment< pull a template from a file, substitute in user arguments, and route 
+# the final text to your application's internal display handler, facilitating the 
+# rapid generation of code or comments according to predefined patterns.
+# The llm< command, by contrast, uses shell code and user prompts rather than substituting from a template file.
 internal_commands = [
     {
         "command": "def<",
@@ -86,8 +92,11 @@ internal_commands = [
         "expansion": "!< function _func_comment() { local content=$(cat ~/.config/monitor/function_comment); for i in {1..$#}; do content=$(echo \"$content\" | sed \"s/\\${i}/$(P)i/g\"); done; echo \"$content\"; }; _func_comment",
         "internalize": True,
     },
+    {
+        "command": "llm<",
+        "llm_eval": True
+    },
 ]
-
 
 def is_interactive_command(command: str):
     first_word = get_first_word(command)
@@ -179,7 +188,6 @@ def execute_interactive_command(command: str):
             display=True,
         )
 
-
 def print_interactive_commands(arg):
     """
     Print all public interactive command names as a comma-separated list.
@@ -189,19 +197,109 @@ def print_interactive_commands(arg):
     print(command_string)
     print("***")
 
-
 def is_internal_command(command: str):
     first_word = get_first_word(command)
     return next((cmd for cmd in internal_commands if cmd["command"] == first_word), None)
 
+def internalize_to_llm(command: str, display_query_result_call):
+    first_word = get_first_word(command)
+    rest_of_command = command[len(first_word):].lstrip()
+    if not rest_of_command:
+        handle_error(
+            f"No command string provided after 'llm<'",
+            error_type="Error",
+            log_level="error",
+            display=True,
+        )
+        return
+
+    shell_code = None
+    user_prompt = None
+    if '>llm' in rest_of_command:
+        try:
+            shell_code, user_prompt = rest_of_command.split('>llm', 1)
+            shell_code = shell_code.strip()
+            user_prompt = user_prompt.strip()
+        except Exception as parse_ex:
+            handle_error(
+                f"Error parsing llm< ... >llm syntax in command: '{command}'",
+                exception=parse_ex,
+                error_type="Parse Error",
+                log_level="error",
+                display=True,
+            )
+            return
+    else:
+        shell_code = rest_of_command
+        user_prompt = None
+
+    if not shell_code:
+        handle_error(
+            f"No shell code segment provided after 'llm<' in command: '{command}'",
+            error_type="Error",
+            log_level="error",
+            display=True,
+        )
+        return
+
+    exit_code, stdout, stderr, process = run_subprocess(
+        shell_code,
+        interactive=False,
+        shell=True,
+        preexec_fn=None,
+        text=True,
+        fetch_output=True,
+    )
+    result = stdout if stdout is not None else ''
+    if stdout is None:
+        logger.warning("run_subprocess() for llm< command returned None for stdout; using empty string.")
+
+    if result is not None:
+        result = result.strip()
+
+    if exit_code == 0:
+        try:
+            llm_input = None
+            if user_prompt is not None:
+                if '${result}' in user_prompt:
+                    llm_input = user_prompt.replace('${result}', result)
+                else:
+                    if user_prompt:
+                        if result:
+                            llm_input = user_prompt.rstrip() + "\n" + result
+                        else:
+                            llm_input = user_prompt.rstrip()
+                    else:
+                        llm_input = result
+            else:
+                llm_input = result
+            if llm_input is None:
+                llm_input = ""
+            llm_input = llm_input.strip()
+            if not llm_input:
+                logger.warning("Calling query() for llm< command with empty input string.")
+            query_result = query(llm_input)
+            display_query_result_call(query_result)
+        except Exception as ex:
+            handle_error(
+                f"Error in query() after successful execution of llm_eval command: {rest_of_command}",
+                exception=ex,
+                error_type="Error",
+                log_level="error",
+                display=True,
+            )
+        return
+    else:
+        handle_error(
+            f"llm_eval command failed (exit_code {exit_code})",
+            exception=stderr,
+            error_type="Error",
+            log_level="error",
+            display=True,
+        )
+        return
 
 def execute_internal_command(command: str, display_query_result):
-    """
-    Executes a command from internal_commands. If internalize=True, output is passed to
-    display_query_result instead of printed.
-
-    All errors are displayed if display is set, and exception details are always shown.
-    """
     first_word = get_first_word(command)
     matching_internal_command = None
 
@@ -216,6 +314,10 @@ def execute_internal_command(command: str, display_query_result):
                 log_level="error",
                 display=True,
             )
+            return
+
+        if first_word == "llm<" and matching_internal_command.get("llm_eval"):
+            internalize_to_llm(command, display_query_result)
             return
 
         expansion = matching_internal_command.get("expansion")
