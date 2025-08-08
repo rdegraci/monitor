@@ -43,6 +43,8 @@ def list_directory_contents(path: str = None):
     :param path: The path to the directory to list. If None, uses current working directory.
     :return: str: JSON-encoded result dict. On error or success, always returns a JSON string.
     """
+    if path is not None:
+        path = os.path.expanduser(path)
     logger.debug("Entering list_directory_contents function with path=%s", path)
     try:
         directory = path if path and path.strip() else os.getcwd()
@@ -65,6 +67,7 @@ def cat_file(path: str):
     :param path: The path to the file.
     :return: str: JSON-encoded result dict.
     """
+    path = os.path.expanduser(path)
     logger.debug("Entering cat_file function with path=%s", path)
     try:
         logger.debug("Reading file %s", path)
@@ -152,6 +155,8 @@ def run_diff(file1: str, file2: str):
             On success: JSON dict with 'success', 'stdout', 'stderr', and 'returncode'.
             On error: JSON dict with 'error' and information.
     """
+    file1 = os.path.expanduser(file1)
+    file2 = os.path.expanduser(file2)
     logger.debug("Running diff between %s and %s", file1, file2)
     try:
         diff = subprocess.run(['diff', '-u', file1, file2],
@@ -200,6 +205,7 @@ def run_file_type(path: str):
             On success: JSON dict with 'success', 'stdout', 'stderr', and 'returncode'.
             On error: JSON dict with 'error' and information.
     """
+    path = os.path.expanduser(path)
     logger.debug("Running file type check for %s", path)
     try:
         result = subprocess.run(['file', '--brief', '--mime-type', path],
@@ -246,6 +252,7 @@ def run_patch(patch_file_path: str):
             On success: JSON dict with 'success', 'stdout', 'stderr', and 'returncode'.
             On error: JSON dict with 'error' and information.
     """
+    patch_file_path = os.path.expanduser(patch_file_path)
     logger.debug("Running patch with patch file %s", patch_file_path)
     try:
         command = f'patch -p0 < {patch_file_path}'
@@ -279,7 +286,6 @@ def run_patch(patch_file_path: str):
         logger.error("Exception running patch: %s", str(e), exc_info=True)
         return json.dumps({"error": f"Exception running patch command: {str(e)}"})
 
-
 def create_patch_for_file(path: str, contents: str):
     """
     Create a patch file for updating the contents of a file at the given path.
@@ -288,6 +294,7 @@ def create_patch_for_file(path: str, contents: str):
     :param contents: The string contents to write to the file.
     :return: str: JSON-encoded result dict. On error or success, always returns a JSON string.
     """
+    path = os.path.expanduser(path)
     logger.debug("Entering create_patch_for_file function with path=%s", path)
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -335,6 +342,7 @@ def create_file(path, contents):
 
     :return: str: JSON-encoded result dict.
     """
+    path = os.path.expanduser(path)
     logger.debug("Entering create_file function with path=%s", path)
     if file_exists(path):
         logger.warning("File already exists at %s; will not overwrite", path)
@@ -357,6 +365,7 @@ def apply_patch(patch_file_path):
     :param patch_file_path: Fully qualified path to the patch file.
     :return: str: JSON-encoded result dict. On error or success, always returns a JSON string.
     """
+    patch_file_path = os.path.expanduser(patch_file_path)
     logger.debug("Entering apply_patch function with patch_file_path=%s", patch_file_path)
     patch_result_json = run_patch(patch_file_path)
     patch_result = json.loads(patch_result_json)
@@ -384,6 +393,7 @@ def file_type(path: str):
     Returns:
     str: JSON-encoded result dict.
     """
+    path = os.path.expanduser(path)
     logger.debug("Entering file_type function with path=%s", path)
     result_json = run_file_type(path)
     result = json.loads(result_json)

@@ -24,6 +24,7 @@ def file_exists(path: str) -> bool:
     Returns:
         bool: True if it exists and is a file, False otherwise.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -50,6 +51,7 @@ def read_file(path: str) -> Optional[str]:
     Returns:
         str: File contents if successful, None if error occurred.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -82,6 +84,7 @@ def write_file(path: str, contents: str, overwrite: bool = True) -> bool:
     Returns:
         bool: True on success, False on error.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -121,6 +124,7 @@ def create_file(path: str, contents: str) -> bool:
     Returns:
         bool: True if file created, False otherwise.
     """
+    path = os.path.expanduser(path)
     return write_file(path, contents, overwrite=False)
 
 def delete_file(path: str) -> bool:
@@ -131,6 +135,7 @@ def delete_file(path: str) -> bool:
     Returns:
        bool: True if deleted, False otherwise.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -157,6 +162,7 @@ def list_directory(path: str) -> Optional[list]:
     Returns:
         list | None: List of entry names, or None if error.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -187,6 +193,7 @@ def is_file(path: str) -> bool:
     Returns:
         bool: True if the path exists and is a file, False otherwise.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -215,6 +222,7 @@ def is_directory(path: str) -> bool:
     Returns:
         bool: True if the path exists and is a directory, False otherwise.
     """
+    path = os.path.expanduser(path)
     try:
         if os.path.islink(path):
             link_target = os.readlink(path)
@@ -243,4 +251,5 @@ def make_dirs(path: str) -> None:
     Returns:
         None
     """
+    path = os.path.expanduser(path)
     os.makedirs(path, exist_ok=True)
