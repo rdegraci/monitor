@@ -184,6 +184,7 @@ def load_model_config():
             "gpt4o": openai_model_tpm_tier,
             "o3-mini": openai_model_tpm_tier,
             "gpt41": openai_model_tpm_tier,
+            "gpt5": openai_model_tpm_tier,
             "o3": openai_model_tpm_tier,
             "grok3": xai_model_tpm_tier,
             "grok4": xai_model_tpm_tier,

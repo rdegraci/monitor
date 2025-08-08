@@ -286,7 +286,20 @@ class TestTPMMapping:
         assert config.model_tpm_mapping is not None
         
         # Should contain model key mappings to tier mappings
-        expected_model_keys = ["sonnet4", "sonnet35", "sonnet37", "4o-mini", "gpt4o", "o3-mini", "gpt41", "o3", "grok3", "grok4", "gemini20"]
+        expected_model_keys = [
+        "sonnet4", 
+        "sonnet35", 
+        "sonnet37", 
+        "4o-mini", 
+        "gpt4o", 
+        "o3-mini", 
+        "gpt41", 
+        "o3", 
+        "grok3", 
+        "grok4", 
+        "gemini20",
+        "gpt5"
+        ]
         for model_key in expected_model_keys:
             assert model_key in config.model_tpm_mapping
 
