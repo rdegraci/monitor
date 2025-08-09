@@ -1,4 +1,3 @@
-
 """
 Modified rate limiter with a reduced safety factor to prevent hitting rate limits.
 """
@@ -221,16 +220,30 @@ class RateLimiter:
         if projected_usage > self.safety_threshold:
             # If approaching limit, calculate recommended wait time
             if self.token_usage:
-                oldest_time = self.token_usage[0][0]
-                time_to_free = (oldest_time + self.window_seconds) - now
+                # Threshold-sensitive cooldown calculation
+                target_remaining = self.safety_threshold - estimated_tokens
+                remaining = current_usage
+                boundary_timestamp = None
+
+                for ts, tokens in self.token_usage:
+                    remaining -= tokens
+                    if remaining <= target_remaining:
+                        boundary_timestamp = ts
+                        break
+
+                if boundary_timestamp is not None:
+                    time_to_free = (boundary_timestamp + self.window_seconds) - now
+                else:
+                    oldest_time = self.token_usage[0][0]
+                    time_to_free = (oldest_time + self.window_seconds) - now
 
                 # Only log a warning once every 5 seconds to prevent spam
                 if now - self.last_warning_time > 5:
+                    tokens_to_clear = int(max(0, projected_usage - self.safety_threshold))
                     self.logger.warning(
                         "Token usage is at %d tokens in the last %ds (limit: %d, safety threshold: %d). "
-                        "This may temporarily exceed the configured limit due to request bursts. "
-                        "Cooling down for %.1f seconds to remain under the API cap.",
-                        current_usage, self.window_seconds, self.limit, self.safety_threshold, round(time_to_free, 1)
+                        "Approximately %d tokens must clear. Cooling down for %.1f seconds to remain under the API cap.",
+                        current_usage, self.window_seconds, self.limit, int(self.safety_threshold), tokens_to_clear, round(max(0, time_to_free) + 3.0, 1)
                     )
                     self.last_warning_time = now
 
