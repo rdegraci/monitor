@@ -155,17 +155,25 @@ class TestModelMapping:
             # First call load_model_config as required
             config.load_model_config()
             
-            # Test with unknown model - this should set the model directly (skips TPM block)
-            config.set_model("unknown-model")
+            # First set a valid model to establish baseline
+            config.set_model("gpt4o")
             assert config.MODEL == "gpt-4o-2024-08-06"
+            baseline_model = config.MODEL
+
+            # Unknown model should be a no-op and return False
+            ok = config.set_model("unknown-model")
+            assert ok is False
+            assert config.MODEL == baseline_model
     
     def test_set_model_with_none_model_mapping(self):
         """Test set_model when MODEL_MAPPING is None."""
         config.MODEL_MAPPING = None
         
-        # Should raise TypeError when trying to check 'model_key in MODEL_MAPPING'
-        with pytest.raises(TypeError):
-            config.set_model("gpt4")
+        # Should return False and keep existing state
+        old_model = getattr(config, "MODEL", None)
+        ok = config.set_model("gpt4")
+        assert ok is False
+        assert getattr(config, "MODEL", None) == old_model
 
 
 class TestConfigLoading:
@@ -371,14 +379,18 @@ class TestSetModelBehavior:
         assert config.TOTAL_TOKEN_COUNT == 0
         assert config.CONVERSATION_HISTORY == []
     
-    def test_set_model_with_defaults_for_unknown_model(self):
-        """Test that unknown models get sensible defaults."""
-        # Set an unknown model
-        config.set_model("some-unknown-model")
+    def test_set_model_noop_for_unknown_model(self):
+        """Test that unknown models are a no-op and do not change state."""
+        # First set a valid model to establish baseline
+        config.set_model("gpt4o")
+        baseline_model = config.MODEL
+        baseline_history_len = len(config.CONVERSATION_HISTORY)
         
-        assert config.MODEL == "gpt-4o-2024-08-06"
-        # Should use defaults when model is not in mappings
-        assert config.CONVERSATION_HISTORY == []
+        # Now attempt to set an unknown model; should return False and not change state
+        ok = config.set_model("some-unknown-model")
+        assert ok is False
+        assert config.MODEL == baseline_model
+        assert len(config.CONVERSATION_HISTORY) == baseline_history_len
 
 
 if __name__ == "__main__":

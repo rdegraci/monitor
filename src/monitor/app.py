@@ -13,10 +13,7 @@ Ctrl-C).
 import logging
 import sys
 import argparse  # Added for command-line argument parsing.
-import threading  # Added for enhanced shutdown reliability.
 import os  # Added for forced process exit fallback.
-import time  # Added for small delay before forced exit.
-import traceback  # Added for enhanced error trace reporting in debug/development mode.
 import shutil  # For config file backup/copy
 from datetime import datetime  # For backup filename timestamps
 import importlib.resources  # For accessing package resource defaults
@@ -30,7 +27,6 @@ from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT han
 from monitor.core.built_ins import configure_built_ins
 from monitor.lib.macros import configure_macros
 from monitor.core.conversation import chat
-from monitor.core.command_processing import internalize_command  # Command processing for server requests.
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
@@ -146,41 +142,31 @@ def main():
 
     # Apply --model CLI override as early as possible before dependency components are initialized.
     if hasattr(args, "model") and args.model is not None:
-        # First ensure MODEL_MAPPING is a dict
-        if not isinstance(config.MODEL_MAPPING, dict):
-            warning_msg = (
-                "Warning: config.MODEL_MAPPING is not a dictionary as expected; "
-                "cannot validate or override model. Model override via --model ignored."
-            )
-            print(warning_msg)
-            logger.warning(warning_msg)
+        ok = set_model(args.model)
+        if ok:
+            resolved_model = config.MODEL
+            logger.info(f"Model override applied via CLI: {args.model} -> {resolved_model}")
+            logger.info(f"Effective model is now: {resolved_model}")
+            print(f"Effective model: {resolved_model}")
         else:
-            # Validate the argument by checking if it is a key or value in the dict
-            model_key_list = list(config.MODEL_MAPPING.keys())
-            model_value_list = list(config.MODEL_MAPPING.values())
-            valid_model = False
-
-            if args.model in model_key_list:
-                valid_model = True
-            elif args.model in model_value_list:
-                valid_model = True
-
-            if valid_model:
-                set_model(args.model)
-                logger.info(f"Model override applied via CLI: {args.model}")
-                logger.info(f"Effective model is now: {args.model}")
-                print(f"Effective model: {args.model}")
-            else:
+            model_mapping = getattr(config, "MODEL_MAPPING", None)
+            if isinstance(model_mapping, dict):
+                model_key_list = list(model_mapping.keys())
+                model_value_list = list(model_mapping.values())
                 available_keys = ', '.join(map(str, model_key_list)) if model_key_list else '(none found)'
                 available_values = ', '.join(map(str, model_value_list)) if model_value_list else '(none found)'
                 warning_msg = (
-                    f"Warning: The supplied model '{args.model}' is not valid.\n"
-                    f"No model override was applied.\n"
+                    f"Warning: Could not apply model override '{args.model}'.\n"
                     f"Available models (keys): {available_keys}\n"
                     f"Available models (values): {available_values}"
                 )
-                print(warning_msg)
-                logger.warning(warning_msg)
+            else:
+                warning_msg = (
+                    f"Warning: Could not apply model override '{args.model}'. "
+                    "MODEL_MAPPING is unavailable or invalid; cannot list available models."
+                )
+            print(warning_msg)
+            logger.warning(warning_msg)
 
     configure_subsystems()
 

@@ -457,62 +457,71 @@ def configure_subsystems():
     configure_consultant()
     configure_voice_to_text()
 
-def set_model(model_key: str):
+def set_model(model_key: str) -> bool:
     """
     Changes the active model configuration at runtime.
-    
-    set_model(model_key: str) updates and sets
-    - MODEL
-    - MODEL_CONTEXT_WINDOW
-    - MODEL_OUTPUT_WINDOW
-    - MODEL_MAX_TPM
-    - CONVERSATION_MAX_SIZE
 
-    according to the mappings defined at the top of config.py. model_key may be a shorthand mapping key,
-    or a full model string (e.g. "openai/gpt-4o-2024-08-06"). If model_key is not in the mapping,
-    it is presumed to be a full model string and sensible defaults are applied.
-    
-    This function updates the above globals in-place for use throughout the application. It logs all changes for audit.
-    Call this function to dynamically select a model and propagate its config.
+    Behavior:
+    - Recognizes either a shorthand key present in MODEL_MAPPING keys or a full model string present in MODEL_MAPPING values.
+    - If MODEL_MAPPING is missing, not a dict, or empty, logs a warning and returns False without changing any globals.
+    - If the provided model_key is unknown, logs a warning listing the unknown key and available keys, returns False, and does not modify any globals (including not clearing CONVERSATION_HISTORY).
+    - On success, sets MODEL to the resolved full model string and derives related settings from context_window_mapping, output_window_mapping, conversation_history_mapping, model_max_tpm, and model_tpm_mapping using the shorthand key. If model_max_tpm or model_tpm_mapping lacks the needed entries, sets MODEL_MAX_TPM to None.
+    - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY
 
-    # Determine mapping values
+    # Validate MODEL_MAPPING
+    if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
+        logger.warning("set_model: MODEL_MAPPING is not available or is empty; cannot set model.")
+        return False
+
     mapped_key = None
+    model_full = None
+
     if model_key in MODEL_MAPPING:
         mapped_key = model_key
         model_full = MODEL_MAPPING[model_key]
+    elif model_key in MODEL_MAPPING.values():
+        mapped_key = next((k for k, v in MODEL_MAPPING.items() if v == model_key), None)
+        model_full = model_key if mapped_key is not None else None
     else:
-        if model_key in MODEL_MAPPING.values():
-            model_full = model_key
-            mapped_key = next((k for k, v in MODEL_MAPPING.items() if v == model_key), None)
-        else:
-            model_full = model_key
-            mapped_key = None
+        available = sorted(MODEL_MAPPING.keys())
+        logger.warning(f"set_model: Unknown model key '{model_key}'. Available keys: {available}")
+        return False
 
-    if mapped_key:
-        MODEL = model_full
-        MODEL_CONTEXT_WINDOW = context_window_mapping.get(mapped_key, 128000)
-        MODEL_OUTPUT_WINDOW = output_window_mapping.get(mapped_key, 8192)
-        max_tpm_tier = model_max_tpm.get(mapped_key, 30000)     
-        tpm_mapping = model_tpm_mapping.get(mapped_key, None)   
-        MODEL_MAX_TPM = tpm_mapping.get(max_tpm_tier)
-        CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key, 50)
+    if mapped_key is None or model_full is None:
+        available = sorted(MODEL_MAPPING.keys())
+        logger.warning(f"set_model: Could not resolve model for key '{model_key}'. Available keys: {available}")
+        return False
 
-        # These must be set, so that the counts are correct
-        MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
-        TOTAL_TOKEN_COUNT=0
+    MODEL = model_full
 
-    # Reset the conversation history when the model is set
-    CONVERSATION_HISTORY = []
+    MODEL_CONTEXT_WINDOW = context_window_mapping.get(mapped_key) if isinstance(context_window_mapping, dict) else None
+    MODEL_OUTPUT_WINDOW = output_window_mapping.get(mapped_key) if isinstance(output_window_mapping, dict) else None
+
+    max_tpm_tier = model_max_tpm.get(mapped_key) if isinstance(model_max_tpm, dict) else None
+    tpm_mapping = model_tpm_mapping.get(mapped_key) if isinstance(model_tpm_mapping, dict) else None
+    MODEL_MAX_TPM = tpm_mapping.get(max_tpm_tier) if isinstance(tpm_mapping, dict) and (max_tpm_tier in tpm_mapping if isinstance(tpm_mapping, dict) else False) else None
+
+    CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key) if isinstance(conversation_history_mapping, dict) else None
+
+    MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
+    TOTAL_TOKEN_COUNT = 0
+
+    if isinstance(CONVERSATION_HISTORY, list):
+        CONVERSATION_HISTORY.clear()
+    else:
+        CONVERSATION_HISTORY = []
 
     logger.info(
         f"set_model: Activated model '{MODEL}' "
         f"(CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW}, OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW}, "
-        f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE}),"
+        f"MAX_TPM={MODEL_MAX_TPM}, CONVERSATION_MAX_SIZE={CONVERSATION_MAX_SIZE}, "
         f"MAX_TOKEN_COUNT={MAX_TOKEN_COUNT}, TOTAL_TOKEN_COUNT={TOTAL_TOKEN_COUNT})"
     )
+
+    return True
 
 def _load_one_dotenv(dotenv_path, description=None, verbose=False):
     """

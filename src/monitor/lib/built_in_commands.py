@@ -301,7 +301,7 @@ def llm_command(arg: str = None) -> None:
             print("Dynamically set the active LLM model for completions.")
             print("Usage: :llm <modelname>")
             print("Available models:")
-            mapping = getattr(config, "model_mapping", {})
+            mapping = getattr(config, "MODEL_MAPPING", {})
             for k, v in mapping.items():
                 current = ""
                 if config.MODEL == v:
@@ -311,7 +311,11 @@ def llm_command(arg: str = None) -> None:
             return
 
         model_arg = str(arg).strip()
-        config.set_model(model_arg)
+        ok = config.set_model(model_arg)
+        if not ok:
+            logger.warning("LLM change request could not be applied: %s", model_arg)
+            print_colored_error(f"Could not apply model '{model_arg}'. Active model not changed.")
+            return
         config.configure_subsystems()
         print_yellow(
             f"Active model set to: {config.MODEL}\n"
@@ -322,7 +326,7 @@ def llm_command(arg: str = None) -> None:
         )
     except Exception as e:
         print_colored_error(f"Could not set LLM model: {e}")
-        mapping = getattr(config, "model_mapping", {})
+        mapping = getattr(config, "MODEL_MAPPING", {})
         if mapping:
             print("Available models:")
             for k, v in mapping.items():
