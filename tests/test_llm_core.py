@@ -20,6 +20,7 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.LAST_INPUT_WAS_VOICE = False
         self.mock_config.CONVERSATION_LOG_FILE = MagicMock(spec=['write', 'closed'])
         self.mock_config.CONVERSATION_LOG_FILE.closed = False
+        self.mock_config.SUMMARIZATION_CONFIG = {}
 
     def test_attrdict_access_and_conversion(self):
         d = {'foo': {'bar': [1, {'baz': 5}]}}
@@ -108,7 +109,7 @@ class TestLLMCore(unittest.TestCase):
         mock_hist.assert_called()
 
     @patch('monitor.core.llm.append_to_history_with_count')
-    def test_process_response_by_finish_reason_main_paths(self, mock_hist):
+    def test_process_response_by_finish_reason(self, mock_hist):
         # refusal: pops user then assistant
         self.mock_config.CONVERSATION_HISTORY = [
             {'role': 'user', 'content': 'hi'},
@@ -170,6 +171,127 @@ class TestLLMCore(unittest.TestCase):
             result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}])
             self.assertEqual(mock_lite.call_args[1].get('reasoning_effort'), 4)
             self.assertEqual(mock_lite.call_args[1].get('max_completion_tokens'), 33)
+
+    def test_auto_summarize_on_token_limit_retries_once(self):
+        self.mock_config.MODEL = 'gpt-4o'
+        self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
+        self.mock_config.MODEL_MAX_TPM = 5
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
+             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
+            mock_prepare.side_effect = [
+                [{'role': 'user', 'content': f'm{i}'} for i in range(6)],
+                [{'role': 'user', 'content': f'm{i}'} for i in range(2)]
+            ]
+            mock_count.side_effect = lambda msgs: len(msgs)
+            mock_rl.wait_if_needed.return_value = True
+            mock_call.return_value = {'choices': [{}], 'usage': {'total_tokens': 2}}
+            mock_gen.return_value = "summary text"
+            mock_reset.return_value = None
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(err)
+            self.assertTrue(hasattr(resp, 'choices'))
+            self.assertEqual(mock_gen.call_count, 1)
+            self.assertEqual(mock_reset.call_count, 1)
+            self.assertEqual(mock_call.call_count, 1)
+
+    def test_auto_summarize_on_rate_limit_retries_once(self):
+        self.mock_config.MODEL = 'gpt-4o'
+        self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
+        self.mock_config.MODEL_MAX_TPM = 100
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
+             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
+            mock_prepare.return_value = [{'role': 'user', 'content': 'hi'} for _ in range(5)]
+            mock_count.side_effect = lambda msgs: len(msgs)
+            mock_rl.wait_if_needed.side_effect = [None, True]
+            mock_call.return_value = {'choices': [{}], 'usage': {'total_tokens': 2}}
+            mock_gen.return_value = "summary text"
+            mock_reset.return_value = None
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(err)
+            self.assertTrue(hasattr(resp, 'choices'))
+            self.assertEqual(mock_gen.call_count, 1)
+            self.assertEqual(mock_reset.call_count, 1)
+            self.assertEqual(mock_call.call_count, 1)
+
+    def test_auto_summarize_disabled_returns_error(self):
+        self.mock_config.MODEL = 'gpt-4o'
+        self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = False
+        self.mock_config.MODEL_MAX_TPM = 100
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
+             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
+            mock_prepare.return_value = [{'role': 'user', 'content': 'hi'} for _ in range(5)]
+            mock_count.side_effect = lambda msgs: len(msgs)
+            mock_rl.wait_if_needed.return_value = None
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(resp)
+            self.assertIsNotNone(err)
+            self.assertIn('Input too large', err)
+            mock_gen.assert_not_called()
+            mock_reset.assert_not_called()
+            mock_call.assert_not_called()
+
+    def test_auto_summarize_fallback_empty_summary(self):
+        self.mock_config.MODEL = 'gpt-4o'
+        self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
+        self.mock_config.MODEL_MAX_TPM = 100
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
+             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
+            mock_prepare.return_value = [{'role': 'user', 'content': 'hi'} for _ in range(5)]
+            mock_count.side_effect = lambda msgs: len(msgs)
+            mock_rl.wait_if_needed.side_effect = [None, True]
+            mock_call.return_value = {'choices': [{}], 'usage': {'total_tokens': 3}}
+            mock_gen.return_value = {}
+            mock_reset.return_value = None
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(err)
+            self.assertTrue(hasattr(resp, 'choices'))
+            self.assertEqual(mock_gen.call_count, 1)
+            self.assertEqual(mock_reset.call_count, 1)
+            args, kwargs = mock_reset.call_args
+            self.assertTrue(len(args) >= 1 and isinstance(args[0], str))
+
+    def test_auto_summarize_only_once_then_error(self):
+        self.mock_config.MODEL = 'gpt-4o'
+        self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
+        self.mock_config.MODEL_MAX_TPM = 3
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
+             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
+            mock_prepare.side_effect = [
+                [{'role': 'user', 'content': f'm{i}'} for i in range(4)],
+                [{'role': 'user', 'content': f'm{i}'} for i in range(4)]
+            ]
+            mock_count.side_effect = lambda msgs: len(msgs)
+            mock_rl.wait_if_needed.return_value = True
+            mock_call.return_value = {'choices': [{}], 'usage': {'total_tokens': 3}}
+            mock_gen.return_value = "summary text"
+            mock_reset.return_value = None
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(resp)
+            self.assertIsNotNone(err)
+            self.assertIn('Input too large', err)
+            self.assertEqual(mock_gen.call_count, 1)
+            self.assertEqual(mock_reset.call_count, 1)
+            mock_call.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

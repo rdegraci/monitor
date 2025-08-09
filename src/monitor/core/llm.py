@@ -14,8 +14,9 @@ from monitor.lib.message_utils import prepare_messages_with_cache_control
 from monitor.lib.preferences import PREFERENCE_PROMPT
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.text_to_speech import TextToSpeech
-from monitor.lib.history import append_to_history_with_count
+from monitor.lib.history import append_to_history_with_count, generate_conversation_summary, reset_conversation_with_summary
 from monitor.lib.token_management import count_message_tokens, update_token_usage
+from monitor.lib.system_prompt import SYSTEM_PROMPT
 
 TTS = TextToSpeech()           # Configure with preferred voice if needed
 
@@ -59,6 +60,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
     Token counting and updates use canonical helpers from monitor.lib/token_management.py.
     """
     try:
+        summarization_attempted = False
         # Estimate token count for the conversation history using canonical helper
         messages = prepare_messages_with_cache_control(config.CONVERSATION_HISTORY, config.MODEL)
         estimated_tokens = 0
@@ -77,6 +79,69 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         )
 
         if estimated_request > config.MODEL_MAX_TPM:
+            if getattr(config, "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False) and not summarization_attempted:
+                logger.info("Attempting auto-summarization due to token limit...")
+                try:
+                    summary_response = generate_conversation_summary(
+                        SYSTEM_PROMPT,
+                        config.CONVERSATION_HISTORY,
+                        config.SUMMARIZATION_CONFIG,
+                        config.MODEL,
+                        litellm.completion,
+                        count_message_tokens,
+                        rate_limiter.RATE_LIMITER,
+                        logger,
+                        config
+                    )
+                    summary_content = None
+                    try:
+                        response_attr = dict_to_attr(summary_response)
+                        if (
+                            hasattr(response_attr, "choices")
+                            and response_attr.choices
+                            and len(response_attr.choices) > 0
+                            and hasattr(response_attr.choices[0], "message")
+                            and response_attr.choices[0].message
+                            and hasattr(response_attr.choices[0].message, "content")
+                        ):
+                            summary_content = response_attr.choices[0].message.content
+                    except Exception:
+                        pass
+
+                    last_user_content = ""
+                    for m in reversed(config.CONVERSATION_HISTORY):
+                        if m.get("role") == "user":
+                            last_user_content = m.get("content", "")
+                            break
+
+                    reset_conversation_with_summary(
+                        summary_content or "",
+                        SYSTEM_PROMPT,
+                        last_user_content,
+                        config.CONVERSATION_HISTORY,
+                        append_to_history_with_count,
+                        logger,
+                        config
+                    )
+                    summarization_attempted = True
+
+                    messages = prepare_messages_with_cache_control(config.CONVERSATION_HISTORY, config.MODEL)
+                    estimated_tokens = 0
+                    for msg in messages:
+                        estimated_tokens += count_message_tokens(msg)
+                    if preferences:
+                        messages = [{"role": "system", "content": preferences}] + messages
+                        estimated_tokens += count_message_tokens({"role": "system", "content": preferences})
+                    estimated_request = estimated_tokens + (
+                        config.REASONING_MAX_COMPLETION_TOKENS
+                        if config.REASONING_MODEL_PREFIX.lower() in config.MODEL.lower()
+                        else 0
+                    )
+                    logger.info("Auto-summarization complete; retrying request.")
+                except Exception as se:
+                    logger.error(f"Auto-summarization failed: {se}", exc_info=True)
+
+        if estimated_request > config.MODEL_MAX_TPM:
             return None, (
                 f"Input too large: {estimated_request} tokens "
                 f"vs model limit {config.MODEL_MAX_TPM}. Cannot send request."
@@ -85,11 +150,75 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
 
         wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
         if wait_result is None:
-            return None, (
-                f"Input too large: {estimated_request} tokens. Model limit {config.MODEL_MAX_TPM} tokens."
-                "Reduce the size of your request."
-            ), 
+            if getattr(config, "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False) and not summarization_attempted:
+                logger.info("Attempting auto-summarization due to rate limit safety threshold...")
+                try:
+                    summary_response = generate_conversation_summary(
+                        SYSTEM_PROMPT,
+                        config.CONVERSATION_HISTORY,
+                        config.SUMMARIZATION_CONFIG,
+                        config.MODEL,
+                        litellm.completion,
+                        count_message_tokens,
+                        rate_limiter.RATE_LIMITER,
+                        logger,
+                        config
+                    )
+                    summary_content = None
+                    try:
+                        response_attr = dict_to_attr(summary_response)
+                        if (
+                            hasattr(response_attr, "choices")
+                            and response_attr.choices
+                            and len(response_attr.choices) > 0
+                            and hasattr(response_attr.choices[0], "message")
+                            and response_attr.choices[0].message
+                            and hasattr(response_attr.choices[0].message, "content")
+                        ):
+                            summary_content = response_attr.choices[0].message.content
+                    except Exception:
+                        pass
 
+                    last_user_content = ""
+                    for m in reversed(config.CONVERSATION_HISTORY):
+                        if m.get("role") == "user":
+                            last_user_content = m.get("content", "")
+                            break
+
+                    reset_conversation_with_summary(
+                        summary_content or "",
+                        SYSTEM_PROMPT,
+                        last_user_content,
+                        config.CONVERSATION_HISTORY,
+                        append_to_history_with_count,
+                        logger,
+                        config
+                    )
+                    summarization_attempted = True
+
+                    messages = prepare_messages_with_cache_control(config.CONVERSATION_HISTORY, config.MODEL)
+                    estimated_tokens = 0
+                    for msg in messages:
+                        estimated_tokens += count_message_tokens(msg)
+                    if preferences:
+                        messages = [{"role": "system", "content": preferences}] + messages
+                        estimated_tokens += count_message_tokens({"role": "system", "content": preferences})
+                    estimated_request = estimated_tokens + (
+                        config.REASONING_MAX_COMPLETION_TOKENS
+                        if config.REASONING_MODEL_PREFIX.lower() in config.MODEL.lower()
+                        else 0
+                    )
+                    logger.info("Auto-summarization complete; retrying request.")
+                except Exception as se:
+                    logger.error(f"Auto-summarization failed: {se}", exc_info=True)
+
+                wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
+
+            if wait_result is None:
+                return None, (
+                    f"Input too large: {estimated_request} tokens. Model limit {config.MODEL_MAX_TPM} tokens."
+                    "Reduce the size of your request."
+                ), 
 
         response = call_litellm_completion(config.MODEL, messages)
 
