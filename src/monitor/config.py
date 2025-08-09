@@ -8,16 +8,11 @@
 
 import yaml
 import os
-import argparse
 import time
 import logging
-import logging.handlers
-import sys
 import json
-import shutil
 import appdirs
 import importlib.resources
-import importlib.util
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -108,6 +103,7 @@ def _load_and_validate_model_config():
         "anthropic_model_tpm_tier",
         "xai_model_tpm_tier",
         "google_model_tpm_tier",
+        "model_mapping",
     ]
     # Ensure these all exist in the JSON
     for key in mapping_keys:
@@ -137,7 +133,7 @@ def _load_and_validate_model_config():
         model_config[tier_name] = int_val
 
     # For each mapping that is model_key -> int or str, just check they're dicts
-    for k in ["conversation_history_mapping", "context_window_mapping", "output_window_mapping", "model_max_tpm"]:
+    for k in ["conversation_history_mapping", "context_window_mapping", "output_window_mapping", "model_max_tpm", "model_mapping"]:
         if not isinstance(model_config[k], dict):
             logger.error(f"Key '{k}' in {config_filename} must be a dictionary")
             raise RuntimeError(f"{k} in {config_filename} must be a dict")
@@ -233,7 +229,6 @@ MACRO_DELIMITER_ESCAPE=None
 MACRO_FILE_PATH=None 
 SUMMARIZATION_CONFIG=None
 EXTERNAL_SERVICES=None
-MEMORY_SERVICES=None
 OLLAMA_CONFIG=None
 TOTAL_TOKEN_COUNT = 0 
 PUBLIC_COMMANDS_PATH=None
