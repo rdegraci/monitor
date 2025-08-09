@@ -22,6 +22,7 @@ from monitor.lib.built_in_commands import (
     edit_macros_command,
     reload_macros_command,
     llm_command,
+    reasoning_command,
     trim_history_command,
     compact_history_command,
 )
@@ -128,6 +129,11 @@ def configure_built_ins() -> None:
                     "command": ":llm",
                     "function": llm_command,
                     "description": "Change the active LLM model at runtime. Usage: :llm <model> or :llm help for available models.",
+                },
+                {
+                    "command": ":reasoning",
+                    "function": reasoning_command,
+                    "description": "Change reasoning effort (minimal/low/medium/high). Usage: :reasoning <level> or :reasoning help.",
                 },
                 {
                     "command": "macros",

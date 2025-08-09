@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock, mock_open
 import types
 import builtins
 import monitor.core.llm as llm
+from monitor.lib.built_in_commands import reasoning_command
 
 class TestLLMCore(unittest.TestCase):
     def setUp(self):
@@ -292,6 +293,23 @@ class TestLLMCore(unittest.TestCase):
             self.assertEqual(mock_gen.call_count, 1)
             self.assertEqual(mock_reset.call_count, 1)
             mock_call.assert_not_called()
+
+    def test_reasoning_command_sets_config(self):
+        with patch('monitor.lib.built_in_commands.config') as mock_cfg:
+            mock_cfg.REASONING_MODEL_PREFIX = 'openai/o3'
+            mock_cfg.MODEL = 'openai/o3-test'
+            reasoning_command(None)
+            reasoning_command('help')
+            reasoning_command('low')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'low')
+            reasoning_command('minimal')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'minimal')
+            reasoning_command('medium')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'medium')
+            reasoning_command('high')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
+            reasoning_command('invalid')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
 
 if __name__ == "__main__":
     unittest.main()

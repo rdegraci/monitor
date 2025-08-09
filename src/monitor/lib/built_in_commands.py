@@ -279,6 +279,50 @@ def print_tools_command():
         print(f"  Active: {info['active']}")
         print("-" * 40)
 
+def reasoning_command(arg: str = None) -> None:
+    """
+    Change the reasoning effort level at runtime.
+
+    Usage:
+        :reasoning <minimal|low|medium|high>
+
+    With no argument or 'help', prints available options, current setting, and the
+    reasoning model prefix requirement.
+    """
+    try:
+        arg_provided = arg is not None and str(arg).strip() != ""
+        if not arg_provided or str(arg).strip().lower() in {"help", "?", "-h", "--help"}:
+            current = getattr(config, "REASONING_EFFORT", None)
+            prefix = getattr(config, "REASONING_MODEL_PREFIX", "")
+            print("Set the reasoning effort level used with reasoning-capable models.")
+            print("Usage: :reasoning <minimal|low|medium|high>")
+            print(f"Current reasoning effort: {current}")
+            print(f"Reasoning model prefix requirement: {prefix}")
+            return
+
+        value = str(arg).strip().lower()
+        valid = {"minimal", "low", "medium", "high"}
+        if value not in valid:
+            print_colored_error("Invalid reasoning effort. Valid options: minimal, low, medium, high.")
+            return
+
+        config.REASONING_EFFORT = value
+        prefix = getattr(config, "REASONING_MODEL_PREFIX", "")
+        print_yellow(
+            f"Reasoning effort set to: {config.REASONING_EFFORT}\n"
+            f"Reasoning model prefix requirement: {prefix}\n"
+            f"Active model: {config.MODEL}"
+        )
+        try:
+            model_name = str(getattr(config, "MODEL", ""))
+            prefix_str = "" if prefix is None else str(prefix)
+            if prefix_str and prefix_str.lower() not in model_name.lower():
+                print_yellow("Warning: Active model does not match the reasoning model prefix; the reasoning effort setting may have no effect.")
+        except Exception:
+            pass
+    except Exception as e:
+        print_colored_error(f"Could not set reasoning effort: {e}")
+
 def llm_command(arg: str = None) -> None:
     """
     Change the active LLM model at runtime.
