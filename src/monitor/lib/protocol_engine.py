@@ -198,6 +198,7 @@ class ProtocolEngine:
         retries = 0
         output = None
         last_noncompliant_output = None
+        prohibited = set()
         while retries < self.MAX_RETRIES_PER_CHUNK:
             augmented_query = query
             if retries > 0:
@@ -230,7 +231,7 @@ class ProtocolEngine:
                 original_source=self._modification_script_content,
                 chunk_index=chunk_index,
             )
-            prohibited = self._find_prohibited_phrases_in_text(corrected_chunk)
+            prohibited = self._find_prohibited_phrases_in_text(corrected_chunk) if corrected_chunk else set()
             if corrected_chunk and not prohibited:
                 return corrected_chunk
         logger.warning(f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'}")
