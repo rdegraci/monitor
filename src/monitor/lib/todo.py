@@ -2,16 +2,71 @@ import json
 import logging
 from typing import List, Dict, Any
 
-from .redis_utils import save_to_memory, read_from_memory, delete_from_memory
+from . import todo_redis as _todo_store
 
 logger = logging.getLogger(__name__)
 
 TODO_KEY_PREFIX = "todo:"
+TODO_KEY_SUFFIX = ":coding_task"
 TODO_TTL = 1800  # 30 minutes, adjustable
+
+def _session_id_from_key(key: str) -> str:
+    """Extract the session_id from a key of the form f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"."""
+    try:
+        if not key.startswith(TODO_KEY_PREFIX):
+            logger.warning(f"Key does not start with expected prefix: key={key}")
+            return key
+        if not key.endswith(TODO_KEY_SUFFIX):
+            logger.warning(f"Key does not end with expected suffix: key={key}")
+            return key[len(TODO_KEY_PREFIX):]
+        start = len(TODO_KEY_PREFIX)
+        end = len(key) - len(TODO_KEY_SUFFIX)
+        return key[start:end]
+    except Exception as e:
+        logger.error(f"Error extracting session_id from key={key}: {e}")
+        return key
+
+def save_todo_to_memory(*, key: str, value: str, ttl: int) -> None:
+    """
+    Adapter: convert key/value usage to session_id-based API.
+    """
+    session_id = _session_id_from_key(key)
+    todos: List[Dict[str, Any]] = []
+    if value:
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                todos = parsed
+            else:
+                logger.error(f"Invalid todos value for session_id={session_id}: not a list (type: {type(parsed)})")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"JSON decode error in save_todo_to_memory for session_id={session_id}: {e}")
+    _todo_store.save_todo_to_memory(session_id=session_id, todos=todos, ttl=ttl)
+
+def read_todo_from_memory(key: str) -> str | None:
+    """
+    Adapter: read todos from session_id-based API and return as JSON string or None.
+    """
+    session_id = _session_id_from_key(key)
+    todos = _todo_store.read_todo_from_memory(session_id=session_id)
+    if not todos:
+        return None
+    try:
+        return json.dumps(todos)
+    except (TypeError, ValueError) as e:
+        logger.error(f"JSON encode error in read_todo_from_memory for session_id={session_id}: {e}")
+        return None
+
+def clear_todo_from_memory(key: str) -> None:
+    """
+    Adapter: clear todos using session_id-based API.
+    """
+    session_id = _session_id_from_key(key)
+    _todo_store.clear_todo_from_memory(session_id=session_id)
 
 def _get_todo_key(session_id: str) -> str:
     """Generate the Redis key for the todo list based on session_id."""
-    return f"{TODO_KEY_PREFIX}{session_id}:coding_task"
+    return f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"
 
 def add_todo(session_id: str, item: str, priority: int = 0) -> str:
     """
@@ -24,7 +79,7 @@ def add_todo(session_id: str, item: str, priority: int = 0) -> str:
              Example: {"ok": true, "action": "add_todo", "session_id": "...", "item": "...", "priority": 1, "count": 3}
     """
     key = _get_todo_key(session_id)
-    current_list = read_from_memory(key)
+    current_list = read_todo_from_memory(key)
     todos: List[Dict[str, Any]] = []
     if current_list:
         try:
@@ -37,7 +92,7 @@ def add_todo(session_id: str, item: str, priority: int = 0) -> str:
             todos = []
     todos.append({"item": item, "status": "pending", "priority": priority})
     # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
-    save_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
+    save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
     logger.info(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
     print(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
     response = {
@@ -59,7 +114,7 @@ def list_todos(session_id: str) -> str:
              Example: [{"item": "...", "status": "pending", "priority": 0}, ...]
     """
     key = _get_todo_key(session_id)
-    current_list = read_from_memory(key)
+    current_list = read_todo_from_memory(key)
     todos: List[Dict[str, Any]] = []
     if current_list:
         try:
@@ -87,7 +142,7 @@ def update_todo(session_id: str, index: int, status: str = "done") -> str:
              Failure (index out of range): {"ok": false, "action": "update_todo", "error": "index_out_of_range", "session_id": "...", "index": 0, "count": <len>}
     """
     key = _get_todo_key(session_id)
-    current_list = read_from_memory(key)
+    current_list = read_todo_from_memory(key)
     if not current_list:
         logger.info(f"Update failed for session_id={session_id}, index={index}, status={status}: no todos found")
         error_resp = {
@@ -128,7 +183,7 @@ def update_todo(session_id: str, index: int, status: str = "done") -> str:
         return json.dumps(error_resp)
     if 0 <= index < len(todos):
         todos[index]["status"] = status
-        save_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
+        save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
         logger.info(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
         print(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
         resp = {
@@ -161,7 +216,7 @@ def clear_todos(session_id: str) -> str:
              Example: {"ok": true, "action": "clear_todos", "session_id": "..."}
     """
     key = _get_todo_key(session_id)
-    delete_from_memory(key)
+    clear_todo_from_memory(key)
     logger.info(f"Cleared todos for session_id={session_id}")
     print(f"Cleared todos for session_id={session_id}")
     response = {

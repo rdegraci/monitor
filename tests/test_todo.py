@@ -38,9 +38,9 @@ def fake_memory(monkeypatch) -> Dict[str, str]:
         store.pop(key, None)
         ttls.pop(key, None)
 
-    monkeypatch.setattr(todo, "save_to_memory", fake_save_to_memory)
-    monkeypatch.setattr(todo, "read_from_memory", fake_read_from_memory)
-    monkeypatch.setattr(todo, "delete_from_memory", fake_delete_from_memory)
+    monkeypatch.setattr(todo, "save_todo_to_memory", fake_save_to_memory)
+    monkeypatch.setattr(todo, "read_todo_from_memory", fake_read_from_memory)
+    monkeypatch.setattr(todo, "clear_todo_from_memory", fake_delete_from_memory)
 
     return {"store": store, "ttls": ttls}
 
