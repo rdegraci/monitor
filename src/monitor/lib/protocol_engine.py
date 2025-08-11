@@ -529,8 +529,10 @@ def modify_source_code(source_file: str, modification_request: str) -> str:
             logger.debug(f"Reading file {source_file}")
             print(f"{yellow}Modifying file {source_file}{reset}")
             source_content = file.read()
+    except FileNotFoundError:
+        return f"Unable to open {source_file}. Does not exist."
     except Exception as e:
-        logger.error(f"Error reading file {source_file}: {str(e)}", exc_info=True)
+        logger.error(f"Error reading file {source_file}: {str(e)}")
         return f"Error reading file {source_file}: {str(e)}"
     try:
         modified_script = ENGINE.fetch_modified_script(
