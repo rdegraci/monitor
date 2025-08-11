@@ -2,6 +2,7 @@
 Pytest unit tests for monitor.lib.todo
 Covers: add_todo, list_todos, update_todo, clear_todos
 Mocks the Redis utility functions imported inside todo.py.
+Extended to cover handling when stored values are invalid JSON or not a list.
 """
 
 import json
@@ -158,3 +159,113 @@ def test_clear_todos_deletes_key(fake_memory):
     # Ensure key removed
     assert key not in fake_memory["store"]
     assert key not in fake_memory["ttls"]
+
+
+def test_list_todos_invalid_json_returns_empty_list(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload invalid JSON string
+    fake_memory["store"][key] = "{this is not valid json"
+
+    result = todo.list_todos(session_id)
+    assert isinstance(result, str)
+    data = json.loads(result)
+    assert data == []
+
+
+def test_list_todos_non_list_returns_empty_list(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload valid JSON but not a list
+    fake_memory["store"][key] = json.dumps({"unexpected": "mapping"})
+
+    result = todo.list_todos(session_id)
+    assert isinstance(result, str)
+    data = json.loads(result)
+    assert data == []
+
+
+def test_add_todo_recovers_from_invalid_json(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload invalid JSON string
+    fake_memory["store"][key] = "not-json!!"
+
+    result = todo.add_todo(session_id, "Recovered Task", priority=2)
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["action"] == "add_todo"
+    assert resp["session_id"] == session_id
+    assert resp["item"] == "Recovered Task"
+    assert resp["priority"] == 2
+    assert resp["count"] == 1
+
+    # Verify saved list has only the new item
+    saved_list = json.loads(fake_memory["store"][key])
+    assert isinstance(saved_list, list)
+    assert len(saved_list) == 1
+    assert saved_list[0]["item"] == "Recovered Task"
+    assert saved_list[0]["status"] == "pending"
+    assert saved_list[0]["priority"] == 2
+
+    # TTL recorded
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_add_todo_recovers_from_non_list_value(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload valid JSON but not a list
+    fake_memory["store"][key] = json.dumps({"oops": True})
+
+    result = todo.add_todo(session_id, "Recovered From Non-List", priority=3)
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["action"] == "add_todo"
+    assert resp["session_id"] == session_id
+    assert resp["item"] == "Recovered From Non-List"
+    assert resp["priority"] == 3
+    assert resp["count"] == 1
+
+    # Verify saved list has only the new item
+    saved_list = json.loads(fake_memory["store"][key])
+    assert isinstance(saved_list, list)
+    assert len(saved_list) == 1
+    assert saved_list[0]["item"] == "Recovered From Non-List"
+    assert saved_list[0]["status"] == "pending"
+    assert saved_list[0]["priority"] == 3
+
+    # TTL recorded
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_update_todo_invalid_json_returns_decode_error(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload invalid JSON string
+    fake_memory["store"][key] = "}{ invalid json ]["
+
+    result = todo.update_todo(session_id, index=0, status="done")
+    resp = json.loads(result)
+    assert resp["ok"] is False
+    assert resp["action"] == "update_todo"
+    assert resp["error"] == "decode_error"
+    assert resp["session_id"] == session_id
+    assert resp["index"] == 0
+    assert resp["status"] == "done"
+
+
+def test_update_todo_non_list_returns_decode_error(fake_memory):
+    session_id = "session-123"
+    key = _key(session_id)
+    # Preload valid JSON but not a list
+    fake_memory["store"][key] = json.dumps({"not": "a list"})
+
+    result = todo.update_todo(session_id, index=0, status="done")
+    resp = json.loads(result)
+    assert resp["ok"] is False
+    assert resp["action"] == "update_todo"
+    assert resp["error"] == "decode_error"
+    assert resp["session_id"] == session_id
+    assert resp["index"] == 0
+    assert resp["status"] == "done"

@@ -25,7 +25,16 @@ def add_todo(session_id: str, item: str, priority: int = 0) -> str:
     """
     key = _get_todo_key(session_id)
     current_list = read_from_memory(key)
-    todos: List[Dict[str, Any]] = json.loads(current_list) if current_list else []
+    todos: List[Dict[str, Any]] = []
+    if current_list:
+        try:
+            todos = json.loads(current_list)
+            if not isinstance(todos, list):
+                logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
+                todos = []
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"JSON decode error reading todos for session_id={session_id}: {e}")
+            todos = []
     todos.append({"item": item, "status": "pending", "priority": priority})
     # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
     save_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
@@ -51,7 +60,16 @@ def list_todos(session_id: str) -> str:
     """
     key = _get_todo_key(session_id)
     current_list = read_from_memory(key)
-    todos: List[Dict[str, Any]] = json.loads(current_list) if current_list else []
+    todos: List[Dict[str, Any]] = []
+    if current_list:
+        try:
+            todos = json.loads(current_list)
+            if not isinstance(todos, list):
+                logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
+                todos = []
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"JSON decode error listing todos for session_id={session_id}: {e}")
+            todos = []
     logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
     print(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
     return json.dumps(todos)
@@ -82,7 +100,32 @@ def update_todo(session_id: str, index: int, status: str = "done") -> str:
             "status": status,
         }
         return json.dumps(error_resp)
-    todos: List[Dict[str, Any]] = json.loads(current_list)
+    try:
+        todos: List[Dict[str, Any]] = json.loads(current_list)
+        if not isinstance(todos, list):
+            logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
+            error_resp = {
+                "ok": False,
+                "action": "update_todo",
+                "error": "decode_error",
+                "reason": "stored value is not a list",
+                "session_id": session_id,
+                "index": index,
+                "status": status,
+            }
+            return json.dumps(error_resp)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.error(f"JSON decode error updating todos for session_id={session_id}: {e}")
+        error_resp = {
+            "ok": False,
+            "action": "update_todo",
+            "error": "decode_error",
+            "reason": "json_decode_error",
+            "session_id": session_id,
+            "index": index,
+            "status": status,
+        }
+        return json.dumps(error_resp)
     if 0 <= index < len(todos):
         todos[index]["status"] = status
         save_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
