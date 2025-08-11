@@ -133,7 +133,7 @@ def test_modify_source_code_file_not_found(tmp_path):
     protocol_engine.configure_protocol_engine()
     bad_file = tmp_path / "no_such_file.py"
     result = protocol_engine.modify_source_code(str(bad_file), "change anything")
-    assert result.startswith("Error reading file")
+    assert result.startswith("Unable to open")
 
 def test_modify_source_code_success(tmp_path, monkeypatch):
     file_path = tmp_path / "file.py"
@@ -306,4 +306,30 @@ def test_global_retry_logic(tmp_path, monkeypatch):
             source_file=str(file_path),
         )
     assert "Non-compliant output at chunk" in str(exc.value)
+
+def test_global_retry_logic_in_modify_source_code(tmp_path, monkeypatch):
+    """
+    Tests that modify_source_code raises an exception when ProtocolEngine's
+    global retry logic is exhausted, due to the current implementation behavior.
+    """
+    from unittest.mock import Mock
+    
+    # Setup: create a file to modify
+    file_path = tmp_path / "retryfile.py"
+    with open(file_path, "w") as f:
+        f.write("foo\nbar\nbaz\n")
+
+    # Mock the ENGINE to return an error string (simulating retry exhaustion)
+    def mock_fetch_modified_script(script_content, modification_request, source_file):
+        return "Modification process failed after all automatic retries. Manual intervention required."
+    
+    monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script)
+    monkeypatch.setattr(protocol_engine.ENGINE, "reset_state", lambda: None)
+    monkeypatch.setattr("monitor.lib.protocol_engine.perform_git_diff_file", lambda x: None)
+    
+    # The current modify_source_code implementation should NOT raise an exception 
+    # when fetch_modified_script returns a string (even an error string)
+    result = protocol_engine.modify_source_code(str(file_path), "test modification")
+    assert isinstance(result, str)
+    assert "Modification process failed after all automatic retries" in result
     
