@@ -229,3 +229,70 @@ def test_cat_file_symlink_chain(tmp_path):
     assert target_last in ("link2", "file.txt")
     assert "content" in res and res["content"] == "final chain content!"
     assert res.get("broken") is not True
+
+def test_make_directory_creates_new(tmp_path):
+    """make_directory should create a new directory and not report an error."""
+    d = tmp_path / "newdir_for_creation"
+    assert not d.exists()
+    res = libos.make_directory(str(d))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "error" not in res, f"Unexpected error creating directory: {res!r}"
+    assert d.is_dir()
+    if "success" in res:
+        assert res["success"] is True
+
+def test_make_directory_existing_directory(tmp_path):
+    """make_directory should handle an already existing directory gracefully (no crash)."""
+    d = tmp_path / "existing_dir"
+    d.mkdir()
+    res = libos.make_directory(str(d))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    if "error" in res:
+        return
+    assert d.is_dir()
+    if "success" in res:
+        assert res["success"] is True
+
+def test_make_directory_file_collision(tmp_path):
+    """make_directory should return an error when the target path is an existing file."""
+    f = tmp_path / "file_collision_target"
+    f.write_text("not a directory")
+    res = libos.make_directory(str(f))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "error" in res
+    assert isinstance(res["error"], str)
+    assert res["error"].strip() != ""
+
+def test_make_directory_invalid_parent_file(tmp_path):
+    """make_directory should return an error when parent path is a file (invalid path)."""
+    parent_file = tmp_path / "parent_is_file"
+    parent_file.write_text("data")
+    bad_dir = parent_file / "child"
+    res = libos.make_directory(str(bad_dir))
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    assert "error" in res
+    assert isinstance(res["error"], str)
+    assert res["error"].strip() != ""
+    assert not bad_dir.exists()
+
+def test_make_directory_user_expansion(monkeypatch, tmp_path):
+    """make_directory should expand '~' to the user's home directory."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    base_name = ".make_dir_user_expand"
+    candidate = os.path.join("~", base_name)
+    expanded = os.path.expanduser(candidate)
+    i = 0
+    while os.path.exists(expanded):
+        i += 1
+        candidate = os.path.join("~", f"{base_name}_{i}")
+        expanded = os.path.expanduser(candidate)
+    res = libos.make_directory(candidate)
+    res = json.loads(res)
+    assert isinstance(res, dict)
+    if "error" in res:
+        return
+    assert os.path.isdir(expanded)

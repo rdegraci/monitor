@@ -358,6 +358,45 @@ def create_file(path, contents):
             print_red(f"Error creating file: {str(e)}")
             return json.dumps({"error": f"Error creating file: {str(e)}"})
 
+def make_directory(path: str):
+    """
+    Create a directory (and parents as needed) at the given path.
+
+    - Expands '~' in the path.
+    - Validates that the path is a non-empty string.
+    - If the path exists and is a directory: returns JSON with result message and created=false.
+    - If the path exists and is not a directory: returns JSON with an 'error' message.
+    - Otherwise, creates the directory and returns JSON with result message and created=true.
+
+    Returns:
+        str: JSON-encoded result dict.
+    """
+    logger.debug("Entering make_directory function with path=%s", path)
+    if not isinstance(path, str) or not path.strip():
+        logger.error("Invalid path: must be a non-empty string.")
+        return json.dumps({"error": "Invalid path: must be a non-empty string."})
+    try:
+        path = os.path.expanduser(path)
+        logger.debug("Expanded path to %s", path)
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                logger.info("Directory already exists at %s", path)
+                print_yellow(f"Directory already exists: {path}")
+                return json.dumps({"result": "Directory already exists", "path": path, "created": False})
+            else:
+                logger.error("Path exists and is not a directory: %s", path)
+                print_red(f"Path exists and is not a directory: {path}")
+                return json.dumps({"error": f"Path exists and is not a directory: {path}"})
+        else:
+            os.makedirs(path, exist_ok=True)
+            logger.info("Directory created at %s", path)
+            print_yellow(f"Directory created at {path}.")
+            return json.dumps({"result": "Directory created", "path": path, "created": True})
+    except Exception as e:
+        print_red(f"Error creating directory: {str(e)}")
+        logger.error("Error creating directory %s: %s", path, str(e), exc_info=True)
+        return json.dumps({"error": f"Error creating directory: {str(e)}"})
+
 def apply_patch(patch_file_path):
     """
     Apply a patch file using the patch command.

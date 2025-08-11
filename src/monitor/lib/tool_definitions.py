@@ -24,6 +24,7 @@ from monitor.lib.os import (
     cat_file,
     create_file,
     file_type,
+    make_directory
 )
 
 from monitor.lib.db_storage import execute_duckdb, execute_psql, execute_mc
@@ -77,6 +78,7 @@ AVAILABLE_TOOLS = {
     "list_todos": list_todos,
     "update_todo": update_todo,
     "clear_todos": clear_todos,
+    "make_directory": make_directory
 }
 
 # List of fundamental LLM tool/function descriptions with parameters and descriptions
@@ -357,6 +359,22 @@ TOOL_DESCRIPTIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_directory",
+            "description": "Create a directory (and parents) if needed at the given path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The path to the directory to create."
+                    }
+                },
+                "required": ["path"]
+            }
+        }
     }
 ]
 
@@ -600,5 +618,20 @@ GEMINI_TOOL_DESCRIPTIONS = [
       "type": "object"
     }
   },
+  {
+    "description": "Create a directory (and parents) if needed at the given path.",
+    "name": "make_directory",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "The path to the directory to create.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
   }
 ]
