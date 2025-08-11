@@ -13,6 +13,7 @@ import logging
 import json
 import appdirs
 import importlib.resources
+import uuid
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -250,6 +251,7 @@ DIRECTIVES_DIR=None
 ECS_HOST=None
 ECS_PORT=None 
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT=None
+SESSION_ID=None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
@@ -261,7 +263,9 @@ def configure_globals():
     global PUBLIC_COMMANDS_PATH, REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
-    global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT
+    global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
+
+    SESSION_ID = str(uuid.uuid4())
 
     yaml_config = load_yaml_config()
 

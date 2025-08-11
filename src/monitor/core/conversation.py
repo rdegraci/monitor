@@ -379,6 +379,9 @@ def chat():
     """
     logger.info("Starting chat loop...")
 
+    global SYSTEM_PROMPT
+    SYSTEM_PROMPT += f'\nCurrent session ID: {config.SESSION_ID}. Use this SESSION_ID in all todo tool calls.'
+
     # Initialize chat history
     history_file = config.HISTORY_FILE
     initialize_chat_history(
