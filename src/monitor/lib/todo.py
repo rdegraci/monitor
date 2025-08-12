@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 TODO_KEY_PREFIX = "todo:"
 TODO_KEY_SUFFIX = ":coding_task"
-TODO_TTL = 1800  # 30 minutes, adjustable
+TODO_TTL = 28800  # 8 hours, adjustable
 
 def _session_id_from_key(key: str) -> str:
     """Extract the session_id from a key of the form f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"."""
