@@ -84,7 +84,12 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
             logger.error(f"Error: {e}", exc_info=True)
 
     model_str = f"{model}" if model is not None else ""
-    return f"\n{cwd}\nT:{tt_count} H:{tch_count}{extra_history_str} {model_str} ] "
+
+    prefix = getattr(config, 'REASONING_MODEL_PREFIX', '')
+    effort = getattr(config, 'REASONING_EFFORT', '')
+    reasoning_str = effort if isinstance(model, str) and prefix and (prefix in model) else ""
+
+    return f"\n{cwd}\nT:{tt_count} H:{tch_count}{extra_history_str} {model_str} {reasoning_str} ] "
 
 
 
