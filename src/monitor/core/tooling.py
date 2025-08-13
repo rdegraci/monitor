@@ -149,11 +149,9 @@ def handle_tool_call(response):
         result,
         "assistant",
         config.CONVERSATION_HISTORY,
-        lambda msg, conv_hist: append_to_history_with_count(
-            msg, conv_hist, count_message_tokens, update_token_usage
-        ),
-        count_message_tokens,
-        update_token_usage
+        append_func=append_to_history_with_count,
+        count_message_tokens_func=count_message_tokens,
+        update_token_usage_func=update_token_usage
     )
     return result
 
@@ -207,11 +205,9 @@ def handle(function_call):
             result,
             "assistant",
             config.CONVERSATION_HISTORY,
-            lambda msg, conv_hist: append_to_history_with_count(
-                msg, conv_hist, count_message_tokens, update_token_usage
-            ),
-            count_message_tokens,
-            update_token_usage
+            append_func=append_to_history_with_count,
+            count_message_tokens_func=count_message_tokens,
+            update_token_usage_func=update_token_usage
         )
 
         return result
@@ -228,6 +224,10 @@ def create_tool_result_message(result, error, tool_call_id):
     Ensures content is a JSON-encoded string. Non-string results are JSON-serialized;
     if serialization fails, falls back to str(content). Minimal logging is emitted
     when coercion or fallback occurs.
+
+    Note: No behavior change to message field ordering. Validates presence/type of
+    tool_call_id; if missing or None, logs an error and sets it to an empty string
+    to satisfy APIs that require a string identifier.
     """
     content = error if error else result
 
@@ -239,6 +239,29 @@ def create_tool_result_message(result, error, tool_call_id):
         except Exception as e:
             logger.warning(f"Failed to JSON-encode tool result for tool_call_id={tool_call_id}; falling back to str(): {str(e)}")
             content = str(content)
+
+    # Validate tool_call_id before returning the message
+    try:
+        original_tool_call_id = tool_call_id
+        if tool_call_id is None:
+            logger.error("tool_call_id was None when creating tool result message; normalizing to empty string. Upstream must provide non-empty string IDs.")
+            tool_call_id = ""
+        elif not isinstance(tool_call_id, str):
+            # Coerce to string for safety while preserving information
+            logger.warning(f"Non-string tool_call_id of type {type(tool_call_id)} encountered; coercing to string via str() for safety")
+            try:
+                tool_call_id = str(tool_call_id)
+            except Exception as ce:
+                logger.error(f"Failed coercing non-string tool_call_id={original_tool_call_id!r} to string; defaulting to empty string: {str(ce)}", exc_info=True)
+                tool_call_id = ""
+        if isinstance(tool_call_id, str) and tool_call_id == "":
+            logger.error("Empty tool_call_id after validation/coercion; leaving as empty string to maintain API compatibility. No inference will be attempted; upstream should supply a non-empty ID.")
+        elif not tool_call_id:
+            logger.error("Falsy tool_call_id after validation/coercion; converting to empty string to maintain API compatibility.")
+            tool_call_id = ""
+    except Exception as e:
+        logger.error(f"Failed validating/coercing tool_call_id; defaulting to empty string: {str(e)}", exc_info=True)
+        tool_call_id = ""
 
     return {"role": "tool", "content": content, "tool_call_id": tool_call_id}
 

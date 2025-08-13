@@ -65,6 +65,13 @@ def count_message_tokens(message):
                     return estimate_token_count(content)
                 elif isinstance(item, str):
                     return estimate_token_count(item)
+                elif hasattr(item, 'content'):
+                    logger.debug("Fast-path handling object with 'content' attribute for token counting.")
+                    content = item.content
+                    if not isinstance(content, str):
+                        logger.debug(f"Coercing non-str 'content' attribute to str for token counting: {type(content)}")
+                        content = str(content)
+                    return estimate_token_count(content)
                 else:
                     if idx is not None:
                         logger.warning(f"Coercing non-dict/non-str message element at index {idx} to str for token counting: {type(item)}")

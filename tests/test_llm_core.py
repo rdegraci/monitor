@@ -103,10 +103,11 @@ class TestLLMCore(unittest.TestCase):
     def test_extract_tool_calls(self, mock_hist):
         resp = MagicMock()
         msg = MagicMock()
-        msg.tool_calls = [42]
+        msg.role = 'assistant'
+        msg.tool_calls = [{'id': 'call_1', 'type': 'function', 'function': {'name': 'x', 'arguments': '{}'}}]
         resp.choices = [MagicMock(message=msg)]
         result = llm.extract_tool_calls(resp)
-        self.assertEqual(result, [42])
+        self.assertEqual(result, [{'id': 'call_1', 'type': 'function', 'function': {'name': 'x', 'arguments': '{}'}}])
         mock_hist.assert_called()
 
     @patch('monitor.core.llm.append_to_history_with_count')
