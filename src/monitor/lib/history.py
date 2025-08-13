@@ -43,16 +43,43 @@ logger = logging.getLogger(__name__)  # Standardized to __name__
 def log_negative_token_count(logger, config):
     """
     Logs explicit warnings if TOTAL_TOKEN_COUNT is negative or unexpectedly high.
+    Hardened to safely handle non-integer MAX_TOKEN_COUNT/TOTAL_TOKEN_COUNT values.
     """
-    total_tokens = getattr(config, "TOTAL_TOKEN_COUNT", None)
-    max_tokens = getattr(config, "MAX_TOKEN_COUNT", None)
+    if isinstance(config, dict):
+        total_tokens_attr = config.get("TOTAL_TOKEN_COUNT", None)
+        max_tokens_attr = config.get("MAX_TOKEN_COUNT", None)
+    else:
+        total_tokens_attr = getattr(config, "TOTAL_TOKEN_COUNT", None)
+        max_tokens_attr = getattr(config, "MAX_TOKEN_COUNT", None)
+
+    total_tokens = None
+    max_tokens = None
+
+    # Safely coerce TOTAL_TOKEN_COUNT
+    if total_tokens_attr is not None:
+        try:
+            total_tokens = int(total_tokens_attr)
+        except (ValueError, TypeError):
+            total_tokens = None  # Skip numeric comparisons if invalid
+
+    # Safely coerce MAX_TOKEN_COUNT
+    if max_tokens_attr is not None:
+        try:
+            max_tokens = int(max_tokens_attr)
+        except (ValueError, TypeError):
+            max_tokens = None
+            try:
+                logger.debug(f"[TOKEN COUNT] Invalid MAX_TOKEN_COUNT value ({max_tokens_attr}); skipping comparative checks.")
+            except Exception:
+                logger.debug("[TOKEN COUNT] Invalid MAX_TOKEN_COUNT value; skipping comparative checks.")
+
     if total_tokens is not None:
         if total_tokens < 0:
             logger.error(f"[TOKEN COUNT] CRITICAL: TOTAL_TOKEN_COUNT is negative ({total_tokens})!")
         elif max_tokens is not None and total_tokens > (2 * max_tokens):
-            logger.warning(f"[TOKEN COUNT] WARNING: TOTAL_TOKEN_COUNT ({total_tokens}) is more than double MAX_TOKEN_COUNT ({max_tokens}). Possible runaway growth.")
+            logger.warning(f"[TOKEN COUNT][CUMULATIVE] WARNING: TOTAL_TOKEN_COUNT ({total_tokens}) is more than double MAX_TOKEN_COUNT ({max_tokens}). Possible runaway growth.")
         elif max_tokens is not None and total_tokens > (0.95 * max_tokens):
-            logger.warning(f"[TOKEN COUNT] Near MAX_TOKEN_COUNT: total_tokens={total_tokens} of max_tokens={max_tokens}")
+            logger.warning(f"[TOKEN COUNT][CUMULATIVE] Near MAX_TOKEN_COUNT: total_tokens={total_tokens} of max_tokens={max_tokens}")
 
 def append_to_history_with_count(
     message: dict,
@@ -280,7 +307,7 @@ def append_conversation_history(
                     f"[SUMMARIZATION] After reset: history message count={len(conversation_history)}, total tokens={post_reset_total_tokens}"
                 )
                 logger.info(
-                    f"[SUMMARIZATION] Post-summarization limit check: triggers={limits_post['trigger_reasons']}, metrics={limits_post['metrics']}"
+                    f"[SUMMARIZATION] Post-summarization limit check: triggers={limits_post['trigger_reasons']}, metrics: {limits_post['metrics']}"
                 )
                 if limits_post["should_summarize"]:
                     logger.error(
@@ -299,9 +326,29 @@ def append_conversation_history(
     else:
         logger.debug("[SUMMARIZATION] Summarization not triggered by limit check.")
         # Extra: warn if state size is still dangerously high even if not triggered (defensive)
-        if getattr(config, 'TOTAL_TOKEN_COUNT', 0) >= getattr(config, 'MAX_TOKEN_COUNT', 1) * 0.95:
+        # Guard against invalid MAX_TOKEN_COUNT before using it and use configured token_threshold for comparison
+        try:
+            max_token_count_value = int(getattr(config, 'MAX_TOKEN_COUNT', None))
+        except Exception as e:
+            logger.error("[SUMMARIZATION] Invalid or missing MAX_TOKEN_COUNT when evaluating prompt-size warning.", exc_info=True)
+            raise RuntimeError("Invalid or missing MAX_TOKEN_COUNT for prompt-size warning") from e
+        token_threshold = None
+        try:
+            token_threshold = config.SUMMARIZATION_CONFIG['triggers'].get('token_threshold')
+            if token_threshold is None:
+                logger.warning("[SUMMARIZATION] token_threshold missing from summarization_config, using default 0.95")
+                token_threshold = 0.95
+            token_threshold = float(token_threshold)
+        except Exception:
+            logger.error("[SUMMARIZATION] Invalid token_threshold in summarization_config; using default 0.95")
+            token_threshold = 0.95
+        if not 0 < token_threshold <= 1:
+            logger.warning(f"[SUMMARIZATION] token_threshold ({token_threshold}) out of expected range (0-1]; using default 0.95")
+            token_threshold = 0.95
+        token_limit_threshold = max_token_count_value * token_threshold
+        if tokens_in_history >= token_limit_threshold:
             logger.warning(
-                f"[SUMMARIZATION] NOT TRIGGERED: But TOTAL_TOKEN_COUNT ({config.TOTAL_TOKEN_COUNT}) is >= 95% of MAX_TOKEN_COUNT ({config.MAX_TOKEN_COUNT})"
+                f"[SUMMARIZATION][PROMPT] NOT TRIGGERED: But prompt token count (tokens_in_history={tokens_in_history}) is >= {int(token_threshold*100)}% of MAX_TOKEN_COUNT ({max_token_count_value})"
             )
 
 def initialize_chat_history(
