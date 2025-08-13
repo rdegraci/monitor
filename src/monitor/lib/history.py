@@ -102,7 +102,12 @@ def update_conversation_history(
     """
     if content:
         try:
-            append_func({"role": role, "content": content}, conversation_history)
+            append_func(
+                {"role": role, "content": content},
+                conversation_history,
+                count_message_tokens_func,
+                update_token_usage_func,
+            )
             logger.debug(f"Updated conversation history with {role} message: '{content[:80]}'... (new len={len(conversation_history)})")
         except Exception as e:
             logger.error(f"Error appending to conversation history: {str(e)}", exc_info=True)
@@ -173,9 +178,14 @@ def append_conversation_history(
     logger.debug(
         f"[APPEND_CONVERSATION_HISTORY] About to call check_limits with TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}, MAX_TOKEN_COUNT={getattr(config, 'MAX_TOKEN_COUNT', 'n/a')}, len(conversation_history)={len(conversation_history)}"
     )
+    # Compute actual tokens in history for accurate limit checks and diagnostics
+    tokens_in_history = count_message_tokens(conversation_history)
+    logger.debug(
+        f"[APPEND_CONVERSATION_HISTORY] Token diagnostics: tokens_in_history={tokens_in_history}, config.TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
+    )
     # Evaluate whether summarization or other limits are triggered
     limits = check_limits_func(
-        config.TOTAL_TOKEN_COUNT,
+        tokens_in_history,
         config.MAX_TOKEN_COUNT,
         config.CONVERSATION_MAX_SIZE,
         conversation_history,
@@ -253,7 +263,7 @@ def append_conversation_history(
                 )
                 config.last_summary_time = time.time()
                 # Check if summarization genuinely reduced state below limits
-                post_reset_total_tokens = sum(count_message_tokens(m) for m in conversation_history)
+                post_reset_total_tokens = count_message_tokens(conversation_history)
                 log_negative_token_count(logger, config)
                 logger.debug(f"[SUMMARIZATION] After reset: len(conversation_history)={len(conversation_history)}, TOTAL_TOKEN_COUNT={post_reset_total_tokens}")
                 limits_post = check_limits_func(
@@ -387,7 +397,7 @@ def adjust_history_size(
                 logger.info(f"Conversation history trimmed from {orig_len} to {len(conversation_history)} messages (new max: {current_max_size})")
                 print_func(f"Conversation history trimmed to {current_max_size} messages")
                 # Recalculate token count after trim
-                config.TOTAL_TOKEN_COUNT = sum(count_message_tokens(m) for m in conversation_history)
+                config.TOTAL_TOKEN_COUNT = count_message_tokens(conversation_history)
                 logger.debug(f"Updated TOTAL_TOKEN_COUNT after trim: {config.TOTAL_TOKEN_COUNT}")
         except Exception as e:
             logger.error(f"Error trimming conversation history: {str(e)}", exc_info=True)
@@ -759,7 +769,7 @@ def reset_conversation_with_summary(
         logger.debug(f"[RESET_CONVERSATION] Summary (as system) and user input added post-reset.")
     except Exception as e:
         logger.error(f"Error appending summary/user message in reset: {str(e)}", exc_info=True)
-    total_tokens = sum(count_message_tokens(m) for m in conversation_history)
+    total_tokens = count_message_tokens(conversation_history)
     num_msgs = len(conversation_history)
     logger.info(
         f"[SUMMARIZATION] Conversation reset after summary. New state: {num_msgs} messages, total tokens: {total_tokens}"

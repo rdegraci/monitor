@@ -5,10 +5,9 @@ import monitor.core.conversation as conversation
 class TestConversation(unittest.TestCase):
     @patch('monitor.core.conversation.prepare_query_context')
     @patch('monitor.core.conversation.get_llm_initial_completion')
-    @patch('monitor.core.conversation.update_token_usage')
     @patch('monitor.core.conversation.process_response_by_type')
     @patch('monitor.core.conversation.determine_response_type', return_value='direct')
-    def test_query(self, mock_determine, mock_process, mock_update_token, mock_llm_init, mock_prepare):
+    def test_query(self, mock_determine, mock_process, mock_llm_init, mock_prepare):
         # get_llm_initial_completion returns (response, error)
         fake_choices = [MagicMock(message='msg')]
         fake_response = MagicMock(choices=fake_choices)
@@ -17,7 +16,6 @@ class TestConversation(unittest.TestCase):
         result = conversation.query('user input')
         mock_prepare.assert_called_once_with('user input')
         mock_llm_init.assert_called_once()
-        mock_update_token.assert_called_once_with(fake_response)
         mock_process.assert_called_once_with('direct', fake_response, 'msg')
         self.assertEqual(result, 'FINAL RESULT')
 

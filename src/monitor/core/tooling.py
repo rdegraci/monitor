@@ -130,13 +130,12 @@ def handle_tool_call(response):
         if error:
             continue
 
-    # Get second response from LLM
+    # Get second response from LLM (token usage is recorded by get_llm_completion via monitor.lib.token_management)
     second_response, error = get_llm_completion()
     if error:
         return "I apologize, but I encountered an error while processing the tool response. Please try again."
 
-    # Update token count: handled by append_to_history_with_count for each message
-    config.TOTAL_TOKEN_COUNT += second_response.usage.total_tokens
+    # Token accounting handled by get_llm_completion; no additional update here.
 
     # Process the response
     result = process_response_by_finish_reason(second_response)
@@ -196,8 +195,7 @@ def handle(function_call):
         if error:
             return "I apologize, but I encountered an error processing your request. Please try again."
 
-        # Update token count
-        config.TOTAL_TOKEN_COUNT += second_response.usage.total_tokens
+        # Token accounting handled by get_llm_completion; no additional update here.
 
         # Process the response
         result = process_response_by_finish_reason(second_response)
@@ -227,9 +225,20 @@ def handle(function_call):
 def create_tool_result_message(result, error, tool_call_id):
     """Create a message for tool execution result.
 
-    Content must be a JSON string. This function does not perform any type coercion or warnings.
+    Ensures content is a JSON-encoded string. Non-string results are JSON-serialized;
+    if serialization fails, falls back to str(content). Minimal logging is emitted
+    when coercion or fallback occurs.
     """
     content = error if error else result
+
+    if not isinstance(content, str):
+        try:
+            coerced_content = json.dumps(content, ensure_ascii=False)
+            logger.debug(f"Coerced non-string tool result into JSON string for tool_call_id={tool_call_id}")
+            content = coerced_content
+        except Exception as e:
+            logger.warning(f"Failed to JSON-encode tool result for tool_call_id={tool_call_id}; falling back to str(): {str(e)}")
+            content = str(content)
 
     return {"role": "tool", "content": content, "tool_call_id": tool_call_id}
 

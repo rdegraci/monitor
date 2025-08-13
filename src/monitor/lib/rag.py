@@ -1,4 +1,3 @@
-
 import logging
 import os
 import ollama
@@ -17,15 +16,14 @@ from monitor.lib.colors import red, yellow, blue, reset
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 
 # Additional imports for print_raw_code
+PYGMENTS_AVAILABLE = False
 try:
     from pygments.lexers import SwiftLexer
     from pygments.formatters import TerminalFormatter
+    from pygments import highlight
+    PYGMENTS_AVAILABLE = True
 except ImportError as e:
     logger.error("Failed to import SwiftLexer or TerminalFormatter: %s", str(e))
-    raise ImportError(
-        "Required pygments components (SwiftLexer and TerminalFormatter) are not available. "
-        "Please install pygments and ensure necessary lexers/formatters are accessible."
-    )
 
 OLLAMA_CONVERSATION_HISTORY = []
 
@@ -38,8 +36,11 @@ def print_raw_code(results):
             logger.warning("Skipped entry without valid 'raw_code_full' (missing or malformed): %s", entry)
             continue
         try:
-            highlighted_output = highlight(raw_code, SwiftLexer(), TerminalFormatter(reset=True))
-            print(f"{highlighted_output}\n{'!!!'*50}")
+            if PYGMENTS_AVAILABLE:
+                highlighted_output = highlight(raw_code, SwiftLexer(), TerminalFormatter(reset=True))
+                print(f"{highlighted_output}\n{'!!!'*50}")
+            else:
+                print(f"{raw_code}\n{'!!!'*50}")
         except Exception as e:
             logger.error("Error highlighting code snippet: %s", str(e), exc_info=True)
 
@@ -146,7 +147,7 @@ def build_rag_prompt(query, user_input, max_tokens=None):
             f"Symbol Name: {entry.get('symbol_name', 'None')}\n"
             f"Summaries:\n" + "\n".join(
                 f"{s.get('summary_type', 'None').capitalize()}: {s.get('summary', 'None')}"
-                for s in entry['summaries']
+                for s in entry.get('summaries', [])
             )
         )
         
@@ -313,13 +314,53 @@ def query_using_rag(raw_user_input):
         )
 
         # Process and display response
-        query_result = response.message.content
+        query_result = ""
+        try:
+            if isinstance(response, dict):
+                query_result = (response.get('message', {}) or {}).get('content')
+            else:
+                message_obj = getattr(response, 'message', None)
+                if message_obj is not None:
+                    query_result = getattr(message_obj, 'content', None)
+                if not query_result:
+                    query_result = getattr(response, 'content', None)
+            if not isinstance(query_result, str):
+                query_result = ""
+            if not query_result:
+                logger.warning("Ollama response did not contain message content")
+        except Exception as e:
+            logger.error("Error accessing Ollama response content: %s", str(e), exc_info=True)
+            query_result = ""
         try:
             highlightMarkdown(query_result)
         except Exception as e:
             logger.error("Failed to display highlighted Ollama response: %s", str(e), exc_info=True)
  
-        update_token_usage(estimated_tokens)
+        # Update token usage: prefer actual usage from Ollama if available; otherwise fall back to our estimate.
+        try:
+            usage_tokens = None
+            if isinstance(response, dict):
+                usage_tokens = (
+                    response.get('eval_count')
+                    or response.get('prompt_eval_count')
+                    or response.get('total_tokens')
+                )
+            else:
+                usage_tokens = (
+                    getattr(response, 'eval_count', None)
+                    or getattr(response, 'prompt_eval_count', None)
+                    or getattr(response, 'total_tokens', None)
+                )
+            if isinstance(usage_tokens, int) and usage_tokens > 0:
+                update_token_usage(usage_tokens)
+            else:
+                # Ollama may not provide usage metrics; fall back to estimated tokens
+                update_token_usage(estimated_tokens)
+        except Exception as e:
+            logger.error("Failed to read token usage from Ollama response: %s", str(e), exc_info=True)
+            # Ollama may not provide usage metrics; fall back to estimated tokens
+            update_token_usage(estimated_tokens)
+
         OLLAMA_CONVERSATION_HISTORY.append({"role": "assistant", "content": query_result})
 
         logger.info("Successfully generated response using Ollama (resp. length: %d)", 

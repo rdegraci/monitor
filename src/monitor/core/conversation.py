@@ -87,8 +87,8 @@ from monitor.lib.lexer import create_prompt_session
 
 # Remove: from monitor.lib.rate_limiter import estimate_token_count
 # All token counting now enforced via lib.token_management
-
 from monitor.lib.display_output import format_prompt_display
+from monitor.lib import rate_limiter
 
 from monitor.lib.keyboard import (
     ctrl_left_handler,
@@ -227,13 +227,10 @@ def query(user_prompt):
     # Prepare the conversation context
     prepare_query_context(user_prompt)
 
-    # Get initial response from LLM
+    # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
     response, error = get_llm_initial_completion()
     if error:
         return ConversationResult.ERROR
-
-    # Update token count (policy: must route via update_token_usage)
-    update_token_usage(response)
 
     # Get response message
     response_message = response.choices[0].message
@@ -258,17 +255,16 @@ def process_pipeline_directives(directives):
         # 1. Canonical token count using token_management
         # All token estimation and usage logic must call count_message_tokens
         estimated_tokens = count_message_tokens(history)
-        # Note: Rate limiting logic must also use only update_token_usage if applicable.
+        # Note: Rate limiting logic must also use only update_token_usage if applicable; token usage is already recorded by get_llm_completion.
         # 2. Enforce rate limit BEFORE making LLM call
         # NOTE: All token accounting must flow through canonical helpers; if custom rate limiting is required,
-        # ensure it calls update_token_usage after LLM call
-        # 3. Make the LLM call
+        # ensure it relies on the usage recorded by get_llm_completion
+        # 3. Make the LLM call (token usage is recorded internally by get_llm_completion)
         response, error = get_llm_completion(history)
         if error:
             print(PIPELINE_FAILURE_FORMAT.format(step=idx + 1, error=error))
             return ConversationResult.ERROR
-        # 4. Track token usage via update_token_usage
-        update_token_usage(response)
+        # Token usage already recorded by get_llm_completion; avoid duplicate accounting.
         current_input = response.choices[0].message.content
     return current_input
 
@@ -423,37 +419,76 @@ def chat():
                 config.MAX_TOKEN_COUNT = config.MODEL_CONTEXT_WINDOW  # fetch latest window size
                 logger.info(f"Model switched: new config.MODEL: {config.MODEL}, context_window: {config.MODEL_CONTEXT_WINDOW}, MAX_TOKEN_COUNT updated from {old_max_token_count} to {config.MAX_TOKEN_COUNT}")
 
-                # After switch, re-compute tokens_remaining, log the status.
-                tokens_remaining = config.MAX_TOKEN_COUNT - config.TOTAL_TOKEN_COUNT
-                logger.info(f"Tokens remaining after model switch: {tokens_remaining}")
+                # After switch, compute tokens_in_history using canonical counter and derive tokens_remaining.
+                tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
+                tokens_remaining = config.MAX_TOKEN_COUNT - tokens_in_history
+                logger.info(f"Tokens in history after model switch: {tokens_in_history}; tokens remaining: {tokens_remaining}")
 
                 # If token count now exceeds window, auto-summarize or alert user. (this is proactive behavior)
-                if config.TOTAL_TOKEN_COUNT > config.MAX_TOKEN_COUNT:
-                    logger.warning(f"TOTAL_TOKEN_COUNT ({config.TOTAL_TOKEN_COUNT}) exceeds new MAX_TOKEN_COUNT ({config.MAX_TOKEN_COUNT}) after model switch, triggering summarization or alert...")
+                if tokens_in_history > config.MAX_TOKEN_COUNT:
+                    logger.warning(f"tokens_in_history ({tokens_in_history}) exceeds new MAX_TOKEN_COUNT ({config.MAX_TOKEN_COUNT}) after model switch, triggering summarization or alert...")
 
-                    # Try auto-summarize/reset (the specific logic is via check_limits==generate_conversation_summary or reset_conversation_with_summary)
-                    summary_result = check_limits(
-                        config.CONVERSATION_HISTORY,
-                        config.TOTAL_TOKEN_COUNT,
-                        config.MAX_TOKEN_COUNT,
-                        generate_conversation_summary,
-                        reset_conversation_with_summary,
-                        SYSTEM_PROMPT,
-                        config,
-                        logger
-                    )
-                    if summary_result is ConversationResult.RESET:
-                        logger.info(f"Conversation history reset (auto-summarized) to comply with context window after model switch.")
-                        print(yellow + MODEL_SWITCH_SUMMARY_MESSAGE + reset)
-                    else:
+                    # Use check_limits to determine whether summarization should occur
+                    try:
+                        limits = check_limits(
+                            tokens_in_history,
+                            config.MAX_TOKEN_COUNT,
+                            config.CONVERSATION_MAX_SIZE,
+                            config.CONVERSATION_HISTORY,
+                            config.SUMMARIZATION_CONFIG,
+                            logger,
+                            config,
+                            time_since_last_summary=0
+                        )
+                    except Exception as e:
+                        logger.error("check_limits failed during model switch handling", exc_info=True)
                         print(red + TOKEN_EXCEED_WARNING + reset)
+                    else:
+                        if limits and limits.get('should_summarize'):
+                            try:
+                                response = generate_conversation_summary(
+                                    SYSTEM_PROMPT,
+                                    config.CONVERSATION_HISTORY,
+                                    config.SUMMARIZATION_CONFIG,
+                                    config.MODEL,
+                                    litellm.completion,
+                                    count_message_tokens,
+                                    rate_limiter.RATE_LIMITER,
+                                    logger,
+                                    config
+                                )
+                                logger.debug("Received summary response for auto-summarization during model switch")
+                                summary_text = None
+                                if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
+                                    summary_text = response.choices[0].message.content
+                                if not isinstance(summary_text, str) or not summary_text.strip():
+                                    logger.error("generate_conversation_summary returned empty or invalid summary during model switch handling")
+                                    print(red + TOKEN_EXCEED_WARNING + reset)
+                                else:
+                                    reset_conversation_with_summary(
+                                        summary=summary_text,
+                                        system_prompt=SYSTEM_PROMPT,
+                                        user_input="",
+                                        conversation_history=config.CONVERSATION_HISTORY,
+                                        append_func=append_to_history_with_count,
+                                        logger=logger,
+                                        config=config
+                                    )
+                                    logger.info(f"Conversation history reset (auto-summarized) to comply with context window after model switch.")
+                                    print(yellow + MODEL_SWITCH_SUMMARY_MESSAGE + reset)
+                            except Exception as e:
+                                logger.error("Failed to auto-summarize/reset after model switch", exc_info=True)
+                                print(red + TOKEN_EXCEED_WARNING + reset)
+                        else:
+                            print(red + TOKEN_EXCEED_WARNING + reset)
                 # Update last_model to reflect switch has been handled
                 last_model = config.MODEL
 
             # Use live history count for bug-free prompt display after summarization or history reset:
+            tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
             prompt = format_prompt_display(
                 conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
-                tokens_remaining=(config.MAX_TOKEN_COUNT - config.TOTAL_TOKEN_COUNT),  # live config values
+                tokens_remaining=(config.MAX_TOKEN_COUNT - tokens_in_history),  # live calculation based on current history
                 cwd=os.getcwd(),
                 model=config.MODEL,  # live config.MODEL value
                 extra_history_str=f"({len(config.CONVERSATION_HISTORY) - config.CONVERSATION_MAX_SIZE})"

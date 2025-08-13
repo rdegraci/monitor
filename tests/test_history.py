@@ -13,7 +13,9 @@ def test_update_conversation_history_appends_message():
         appended['updated'] = True
         appended['tokens'] = tokens
 
-    def mock_append_func(msg, hist):
+    def mock_append_func(msg, hist, count_message_tokens_func, update_token_usage_func):
+        tokens = count_message_tokens_func(msg)
+        update_token_usage_func(tokens)
         hist.append(msg)
         appended['called'] = True
 
@@ -35,7 +37,7 @@ def test_update_conversation_history_appends_message():
 def test_update_conversation_history_handles_none_content():
     conversation_history = []
     appended = {}
-    def mock_append_func(msg, hist):
+    def mock_append_func(msg, hist, count_message_tokens_func, update_token_usage_func):
         appended['called'] = True
 
     update_conversation_history(

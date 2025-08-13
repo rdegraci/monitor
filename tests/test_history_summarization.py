@@ -60,6 +60,8 @@ def config():
     return DummyConfig()
 
 def count_message_tokens_always_10(msg):
+    if isinstance(msg, (list, tuple)):
+        return sum(count_message_tokens_always_10(m) for m in msg)
     return 10
 
 def recount_conversation_tokens(conversation, token_counter):

@@ -1,4 +1,3 @@
-
 """
 Token management module – THE SINGLE CANONICAL API for token counting and usage tracing.
 This module is the sole, official, and *mandatory* entry point for any token counting,
@@ -34,22 +33,58 @@ from monitor.lib.colors import red, reset
 
 def count_message_tokens(message):
     """
-    Canonical function to count tokens in a message.
-    Use THIS function for all message token counting
-    across the codebase—never call `estimate_token_count` directly!
-    
+    Canonical function to count tokens in message(s).
+    Use THIS function for all message token counting across the codebase—never call
+    `estimate_token_count` directly!
+
+    Accepts:
+      - dict: Reads 'content' key and counts tokens for its value.
+      - list/tuple: Sums token counts for each element (each element can be dict, str, or other; see below).
+      - str: Counts tokens directly from the string.
+      - any other type: Coerces to str and counts tokens.
+
     Args:
-        message (dict): Message dictionary with 'content' key
-        
+        message (dict | list | tuple | str | any): Message object(s) to count.
+
     Returns:
         int: Estimated token count
-        
+
     Raises:
         Exception: If token counting fails
     """
     try:
-        content = message.get('content', '')
-        return estimate_token_count(content)
+        def count_single(item, idx=None):
+            try:
+                if isinstance(item, dict):
+                    content = item.get('content', '')
+                    if 'content' not in item:
+                        logger.warning("Message dict missing 'content' key; treating as empty string.")
+                    if not isinstance(content, str):
+                        logger.debug(f"Coercing non-str 'content' value to str for token counting: {type(content)}")
+                        content = str(content)
+                    return estimate_token_count(content)
+                elif isinstance(item, str):
+                    return estimate_token_count(item)
+                else:
+                    if idx is not None:
+                        logger.warning(f"Coercing non-dict/non-str message element at index {idx} to str for token counting: {type(item)}")
+                    else:
+                        logger.warning(f"Coercing non-dict/non-str message to str for token counting: {type(item)}")
+                    return estimate_token_count(str(item))
+            except Exception as inner_e:
+                if idx is not None:
+                    logger.error(f"Error counting tokens for element at index {idx}: {str(inner_e)}", exc_info=True)
+                else:
+                    logger.error(f"Error counting tokens for message: {str(inner_e)}", exc_info=True)
+                raise
+
+        if isinstance(message, (list, tuple)):
+            total = 0
+            for i, elem in enumerate(message):
+                total += count_single(elem, idx=i)
+            return total
+        else:
+            return count_single(message)
     except Exception as e:
         logger.error(f"Error counting message tokens: {str(e)}", exc_info=True)
         raise
@@ -131,5 +166,3 @@ def update_token_usage(tokens_or_response):
         except Exception:
             logger.error("Complete failure accessing config, returning 0", exc_info=True)
             return 0
-
-

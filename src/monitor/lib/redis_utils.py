@@ -1,4 +1,3 @@
-
 import logging
 import json
 import redis
@@ -13,6 +12,7 @@ from monitor import config
 
 from monitor.lib.colors import red, blue, yellow, reset 
 from monitor.lib.token_management import count_message_tokens, update_token_usage
+from monitor.lib.history import append_to_history_with_count
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def get_redis_client() -> redis.Redis:
             raise
     return _redis_client.instance
 
-def with_redis_retry(max_retries=REDIS_MAX_RETRIES, retry_interval=REDIS_RETRY_INTERVAL):
+def with_redis_retry(max_retries=None, retry_interval=None):
     """
     Decorator that implements retry logic for Redis operations.
 
@@ -79,22 +79,24 @@ def with_redis_retry(max_retries=REDIS_MAX_RETRIES, retry_interval=REDIS_RETRY_I
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            resolved_max_retries = max_retries if max_retries is not None else REDIS_MAX_RETRIES
+            resolved_retry_interval = retry_interval if retry_interval is not None else REDIS_RETRY_INTERVAL
             logger.debug("Calling %s with retry logic: args=%s, kwargs=%s", func.__name__, args, kwargs)
             last_exception = None
-            for attempt in range(max_retries):
+            for attempt in range(resolved_max_retries):
                 try:
                     return func(*args, **kwargs)
                 except (ConnectionError, TimeoutError, RedisError) as e:
                     last_exception = e
-                    if attempt < max_retries - 1:  # Don't sleep on the last attempt
-                        logger.warning("Redis operation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
-                        time.sleep(retry_interval)
+                    if attempt < resolved_max_retries - 1:  # Don't sleep on the last attempt
+                        logger.warning("Redis operation failed (attempt %d/%d): %s", attempt + 1, resolved_max_retries, e)
+                        time.sleep(resolved_retry_interval)
                         # Reset client connection
                         if hasattr(_redis_client, 'instance'):
                             delattr(_redis_client, 'instance')
-            logger.error("Redis operation failed after %d attempts: %s", max_retries, last_exception)
+            logger.error("Redis operation failed after %d attempts: %s", resolved_max_retries, last_exception)
             # Don't propagate further, but return reasonable error structure or None:
-            return {"error": f"Redis operation failed after {max_retries} attempts: {last_exception}"}
+            return {"error": f"Redis operation failed after {resolved_max_retries} attempts: {last_exception}"}
         return wrapper
     return decorator
 
@@ -114,6 +116,9 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
     logger.debug("Entering verify_ttl with key=%s", key)
     try:
         client = get_redis_client()
+        if client is None:
+            logger.warning("verify_ttl short-circuit: MEMORY_SERVICES disabled.")
+            return False, -2
         exists = client.exists(key)
         ttl = client.ttl(key) if exists else -2
         logger.debug("verify_ttl result: exists=%s, ttl=%s", exists, ttl)
@@ -162,6 +167,10 @@ def update_memory(user_input: str, response: str = "", key: Optional[str] = None
     )
     try:
         client = get_redis_client()
+        if client is None:
+            message = "MEMORY_SERVICES disabled. Skipping save to memory."
+            logger.warning(message)
+            return message
         if key is None:
             prefix = f"conversation:{time.time()}"
         else:
@@ -237,6 +246,9 @@ def read_from_memory(key: str) -> Union[str, None, Dict[str, str]]:
     logger.debug("Entering read_from_memory with key=%s", key)
     try:
         client = get_redis_client()
+        if client is None:
+            logger.warning("read_from_memory short-circuit: MEMORY_SERVICES disabled.")
+            return None
         logger.debug("Reading from memory: %s", key)
 
         if key.startswith('conversation:'):
@@ -291,6 +303,9 @@ def fetch_memory_for_context() -> List[str]:
     keys = []
     try:
         client = get_redis_client()
+        if client is None:
+            logger.warning("fetch_memory_for_context short-circuit: MEMORY_SERVICES disabled.")
+            return keys
         # Get all conversation keys
         all_keys = client.keys(pattern="conversation:*")
 
@@ -334,6 +349,13 @@ def fetch_memory_keys_as_json() -> str:
     """
     logger.debug("Entering fetch_memory_keys_as_json")
     try:
+        client = get_redis_client()
+        if client is None:
+            logger.warning("fetch_memory_keys_as_json short-circuit: MEMORY_SERVICES disabled.")
+            try:
+                return json.dumps([])
+            except Exception:
+                return "[]"
         keys = fetch_memory_for_context()
         try:
             json_keys = json.dumps(keys)
@@ -363,6 +385,9 @@ def prepend_memory_to_history() -> None:
             logger.warning("Unable to prepend memory to history. No MEMORY_SERVICES.")
             return
         client = get_redis_client()
+        if client is None:
+            logger.warning("prepend_memory_to_history short-circuit: MEMORY_SERVICES disabled.")
+            return
         logger.debug("Prepending memory to history")
         keys = fetch_memory_for_context()
         memory_entries = []
@@ -424,24 +449,6 @@ def prepare_model_input(user_input: str) -> None:
     )
     logger.info("Model input prepared and appended for user_input")
 
-def append_to_history_with_count(message, conversation_history, count_message_tokens_func, update_token_usage_func):
-    """
-    Adds a message to the conversation history list, updates token usage accounting, and logs information.
-
-    Args:
-        message (dict): The message to add.
-        conversation_history (list): The conversation history list.
-        count_message_tokens_func (callable): Function to count tokens.
-        update_token_usage_func (callable): Function to update token usage.
-
-    Returns:
-        None.
-    """
-    conversation_history.append(message)
-    num_tokens = count_message_tokens_func([message])
-    update_token_usage_func(num_tokens)
-    logger.info("Appended message to history and updated token usage by %d tokens.", num_tokens)
-
 @with_redis_retry()
 def delete_from_memory(key: str) -> bool:
     """
@@ -456,6 +463,9 @@ def delete_from_memory(key: str) -> bool:
     """
     logger.debug("Entering delete_from_memory with key=%s", key)
     client = get_redis_client()
+    if client is None:
+        logger.warning("delete_from_memory short-circuit: MEMORY_SERVICES disabled.")
+        return False
     if not key.startswith('conversation:'):
         redis_key = f"conversation:{key}"
     else:
@@ -509,4 +519,3 @@ def dump_memories(arg):
 
 
 # End of file. There is no additional code following dump_memories.
-
