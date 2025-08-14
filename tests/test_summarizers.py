@@ -34,7 +34,7 @@ def test_history_too_short(mock_completion):
     fake_history = [{'role': 'user', 'content': 'Hello'}]
     model = 'model'
     result = summarizers.summarize_conversation_for_twitter(fake_history, model)
-    assert result is None
+    assert result == ''
     mock_completion.assert_not_called()
 
 @patch('monitor.lib.summarizers.litellm.completion')

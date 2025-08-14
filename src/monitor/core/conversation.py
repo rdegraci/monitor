@@ -77,6 +77,12 @@ from monitor.lib.external_services import (
     send_file_to_indexing_service,
     send_query_to_indexing_service
 )
+from monitor.lib.summarizers import (
+    summarize_conversation_questionnaire_for_twitch,
+    summarize_conversation_for_linkedin,
+    summarize_conversation_for_twitter,
+    summarize_conversation_for_twitch
+)
 from monitor.lib.colors import blue, red, yellow, reset
 from monitor.lib.redis_utils import prepend_memory_to_history
 
@@ -157,57 +163,73 @@ TOKEN_EXCEED_WARNING = "Warning: Token usage exceeds the new model context windo
 
 def post_social_media_summaries():
     """Generate and post summaries to social media (robust error handling per platform)"""
-    # Fetch live model from monitor.config to ensure summary logic is always up to date
-    summary_twitch = summarize_conversation_for_twitch(config.CONVERSATION_HISTORY, config.MODEL)
-    try:
-        send_twitch_message_command(summary_twitch)
-    except Exception as e:
-        logger.error("Failed to post summary to Twitch.", exc_info=True)
-        print(
-            red + 
-            "Twitch posting failed: Unable to post summary to Twitch. Please check your network connection and Twitch credentials/configuration." +
-            reset
-        )
-    else:
-        print(
-            yellow + 
-            "Successfully posted summary to Twitch." +
-            reset
-        )
 
-    summary_linkedin = summarize_conversation_for_linkedin(config.CONVERSATION_HISTORY, config.MODEL)
-    try:
-        send_linkedin_message(summary_linkedin)
-    except Exception as e:
-        logger.error("Failed to post summary to LinkedIn.", exc_info=True)
-        print(
-            red +
-            "LinkedIn posting failed: Unable to post summary to LinkedIn. Please check your network connection and LinkedIn credentials/configuration." +
-            reset
-        )
-    else:
-        print(
-            yellow +
-            "Successfully posted summary to LinkedIn." +
-            reset
-        )
+    if config.SUMMARY_TWITCH is True:
+        # Fetch live model from monitor.config to ensure summary logic is always up to date
+        summary_twitch = summarize_conversation_questionnaire_for_twitch(config.CONVERSATION_HISTORY, config.MODEL)
+        if not isinstance(summary_twitch, str) or not summary_twitch.strip():
+            logger.info("No Twitch questions generated; skipping post to Twitch.")
+            print(yellow + "No Twitch questions generated; skipping post to Twitch." + reset)
+            return
+        try:
+            send_twitch_message_command(summary_twitch)
+        except Exception as e:
+            logger.error("Unable to post questions to Twitch.", exc_info=True)
+            print(
+                red + 
+                "Twitch posting failed: Unable to post questions to Twitch. Please check your network connection and Twitch credentials/configuration." +
+                reset
+            )
+        else:
+            print(
+                yellow + 
+                "Successfully posted Twitch questions." +
+                reset
+            )
 
-    summary_twitter = summarize_conversation_for_twitter(config.CONVERSATION_HISTORY, config.MODEL)
-    try:
-        send_twitter_message(summary_twitter)
-    except Exception as e:
-        logger.error("Failed to post summary to Twitter.", exc_info=True)
-        print(
-            red +
-            "Twitter posting failed: Unable to post summary to Twitter. Please check your network connection and Twitter credentials/configuration." +
-            reset
-        )
-    else:
-        print(
-            yellow +
-            "Successfully posted summary to Twitter." +
-            reset
-        )
+    if config.SUMMARY_LINKEDIN is True:
+        summary_linkedin = summarize_conversation_for_linkedin(config.CONVERSATION_HISTORY, config.MODEL)
+        if not isinstance(summary_linkedin, str) or not summary_linkedin.strip():
+            logger.info("No LinkedIn summary generated; skipping post to LinkedIn.")
+            print(yellow + "No LinkedIn summary generated; skipping post to LinkedIn." + reset)
+            return
+        try:
+            send_linkedin_message(summary_linkedin)
+        except Exception as e:
+            logger.error("Failed to post summary to LinkedIn.", exc_info=True)
+            print(
+                red +
+                "LinkedIn posting failed: Unable to post summary to LinkedIn. Please check your network connection and LinkedIn credentials/configuration." +
+                reset
+            )
+        else:
+            print(
+                yellow +
+                "Successfully posted summary to LinkedIn." +
+                reset
+            )
+
+    if config.SUMMARY_TWITTER is True:
+        summary_twitter = summarize_conversation_for_twitter(config.CONVERSATION_HISTORY, config.MODEL)
+        if not isinstance(summary_twitter, str) or not summary_twitter.strip():
+            logger.info("No Twitter summary generated; skipping post to Twitter.")
+            print(yellow + "No Twitter summary generated; skipping post to Twitter." + reset)
+            return
+        try:
+            send_twitter_message(summary_twitter)
+        except Exception as e:
+            logger.error("Failed to post summary to Twitter.", exc_info=True)
+            print(
+                red +
+                "Twitter posting failed: Unable to post summary to Twitter. Please check your network connection and Twitter credentials/configuration." +
+                reset
+            )
+        else:
+            print(
+                yellow +
+                "Successfully posted summary to Twitter." +
+                reset
+            )
 
 def update_conversation_logs(user_input, conversation_log_file=config.CONVERSATION_LOG_FILE):
     """Update conversation logs with user input"""

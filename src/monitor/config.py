@@ -252,6 +252,9 @@ ECS_HOST=None
 ECS_PORT=None 
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT=None
 SESSION_ID=None
+SUMMARY_TWITCH=None
+SUMMARY_LINKEDIN=None
+SUMMARY_TWITTER=None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
@@ -264,6 +267,7 @@ def configure_globals():
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
     global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
+    global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -315,6 +319,10 @@ def configure_globals():
     })
 
     EXTERNAL_SERVICES = yaml_config.get('EXTERNAL_SERVICES', False)
+    SUMMARY_TWITCH = yaml_config.get('SUMMARY_TWITCH', False)
+    SUMMARY_LINKEDIN = yaml_config.get('SUMMARY_LINKEDIN', False)
+    SUMMARY_TWITTER = yaml_config.get('SUMMARY_TWITTER', False)
+
     MEMORY_SERVICES = yaml_config.get('MEMORY_SERVICES', False)
     OLLAMA_CONFIG = yaml_config.get('ollama', {
         'host': 'http://localhost:11434/api/generate',
