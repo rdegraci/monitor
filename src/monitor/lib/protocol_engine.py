@@ -370,7 +370,6 @@ class ProtocolEngine:
         with open(partial_file, "w") as f:
             f.write(full_script)
         logger.info(f"Modified script saved to: {partial_file}")
-        self.message_history = [{"role": "system", "content": self.system_prompt}]
         return full_script + f"\n\nTask not completed successfully. Content saved to: {partial_file} file."
 
     def _get_checkpoint_path(self):
