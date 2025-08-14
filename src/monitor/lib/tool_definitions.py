@@ -310,9 +310,9 @@ TOOL_DESCRIPTIONS = [
                     "session_id": {"type": "string", "description": "The session identifier."},
                     "item": {"type": "string", "description": "The todo item description."},
                     "priority": {"type": "integer", "description": "Optional priority (higher number = higher priority).", "default": 0},
-                    "notes": {"type": "string", "description": "Optional notes for the todo item."}
+                    "notes": {"type": "string", "description": "Notes for the todo item."}
                 },
-                "required": ["session_id", "item", "priority"]
+                "required": ["session_id", "item", "priority", "notes"]
             }
         }
     },
@@ -341,9 +341,9 @@ TOOL_DESCRIPTIONS = [
                     "session_id": {"type": "string", "description": "The session identifier."},
                     "index": {"type": "integer", "description": "The index of the todo item to update (0-based)."},
                     "status": {"type": "string", "description": "The new status (e.g., 'done', 'in_progress').", "default": "done"},
-                    "notes": {"type": "string", "description": "Optional notes to set/update for the todo item."}
+                    "notes": {"type": "string", "description": "Optional notes to update for the todo item."}
                 },
-                "required": ["session_id", "index", "status"]
+                "required": ["session_id", "index", "status", "notes"]
             }
         }
     },
@@ -553,14 +553,15 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "default": 0
         },
         "notes": {
-          "description": "Optional notes for the todo item.",
+          "description": "Notes for the todo item.",
           "type": "string"
         }
       },
       "required": [
         "session_id",
         "item",
-        "priority"
+        "priority",
+        "notes"
       ],
       "type": "object"
     }
@@ -600,14 +601,15 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "default": "done"
         },
         "notes": {
-          "description": "Optional notes to set/update for the todo item.",
+          "description": "Optional notes to update for the todo item.",
           "type": "string"
         }
       },
       "required": [
         "session_id",
         "index",
-        "status"
+        "status",
+        "notes"
       ],
       "type": "object"
     }
