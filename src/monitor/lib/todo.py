@@ -68,14 +68,16 @@ def _get_todo_key(session_id: str) -> str:
     """Generate the Redis key for the todo list based on session_id."""
     return f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"
 
-def add_todo(session_id: str, item: str, priority: int = 0) -> str:
+def add_todo(session_id: str, item: str, priority: int = 0, notes: str | None = None) -> str:
     """
     Add a new todo item to the list for the given session.
     
     :param session_id: The session identifier.
     :param item: The todo item description.
     :param priority: Optional priority (higher number = higher priority).
+    :param notes: Optional notes for the todo item. If not provided, stored as an empty string "" for schema consistency.
     :return: A JSON string indicating success and containing the action, session_id, item, priority, and the new count.
+             Items are stored as dictionaries with keys {'item', 'status', 'priority', 'notes'}.
              Example: {"ok": true, "action": "add_todo", "session_id": "...", "item": "...", "priority": 1, "count": 3}
     """
     key = _get_todo_key(session_id)
@@ -90,7 +92,7 @@ def add_todo(session_id: str, item: str, priority: int = 0) -> str:
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"JSON decode error reading todos for session_id={session_id}: {e}")
             todos = []
-    todos.append({"item": item, "status": "pending", "priority": priority})
+    todos.append({"item": item, "status": "pending", "priority": priority, "notes": notes or ""})
     # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
     save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
     logger.info(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
@@ -110,8 +112,8 @@ def list_todos(session_id: str) -> str:
     Retrieve the current todo list for the given session as a JSON array string.
     
     :param session_id: The session identifier.
-    :return: A JSON array string of todo items, each as {'item': str, 'status': str, 'priority': int}.
-             Example: [{"item": "...", "status": "pending", "priority": 0}, ...]
+    :return: A JSON array string of todo items, each as {'item': str, 'status': str, 'priority': int, 'notes': str}.
+             Example: [{"item": "...", "status": "pending", "priority": 0, "notes": ""}, ...]
     """
     key = _get_todo_key(session_id)
     current_list = read_todo_from_memory(key)
@@ -125,21 +127,26 @@ def list_todos(session_id: str) -> str:
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"JSON decode error listing todos for session_id={session_id}: {e}")
             todos = []
+    for _idx, _item in enumerate(todos):
+        if isinstance(_item, dict) and "notes" not in _item:
+            _item["notes"] = ""
     logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
     print(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
     return json.dumps(todos)
 
-def update_todo(session_id: str, index: int, status: str = "done") -> str:
+def update_todo(session_id: str, index: int, status: str = "done", notes: str | None = None) -> str:
     """
     Update the status of a todo item at the given index for the session.
     
     :param session_id: The session identifier.
     :param index: The index of the todo item to update (0-based).
     :param status: The new status (e.g., 'done', 'in_progress').
+    :param notes: Optional notes to set on the todo item. If provided and non-empty (not ""), updates the item's 'notes' field.
     :return: A JSON string indicating success or failure.
              Success: {"ok": true, "action": "update_todo", "session_id": "...", "index": 0, "status": "...", "item": {...}}
              Failure (no list): {"ok": false, "action": "update_todo", "error": "not_found", "reason": "no todos for session", "session_id": "...", "index": 0, "status": "..."}
              Failure (index out of range): {"ok": false, "action": "update_todo", "error": "index_out_of_range", "session_id": "...", "index": 0, "count": <len>}
+             The "item" in the success response reflects the updated item, which may include a 'notes' field.
     """
     key = _get_todo_key(session_id)
     current_list = read_todo_from_memory(key)
@@ -183,6 +190,8 @@ def update_todo(session_id: str, index: int, status: str = "done") -> str:
         return json.dumps(error_resp)
     if 0 <= index < len(todos):
         todos[index]["status"] = status
+        if notes is not None and notes != "":
+            todos[index]["notes"] = notes
         save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
         logger.info(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
         print(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")

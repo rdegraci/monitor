@@ -309,7 +309,8 @@ TOOL_DESCRIPTIONS = [
                 "properties": {
                     "session_id": {"type": "string", "description": "The session identifier."},
                     "item": {"type": "string", "description": "The todo item description."},
-                    "priority": {"type": "integer", "description": "Optional priority (higher number = higher priority).", "default": 0}
+                    "priority": {"type": "integer", "description": "Optional priority (higher number = higher priority).", "default": 0},
+                    "notes": {"type": "string", "description": "Optional notes for the todo item."}
                 },
                 "required": ["session_id", "item", "priority"]
             }
@@ -319,7 +320,7 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "list_todos",
-            "description": "Retrieve the current todo list for the given session as a JSON array.",
+            "description": "Retrieve the current todo list for the given session as a JSON array of items including a 'notes' field.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -339,7 +340,8 @@ TOOL_DESCRIPTIONS = [
                 "properties": {
                     "session_id": {"type": "string", "description": "The session identifier."},
                     "index": {"type": "integer", "description": "The index of the todo item to update (0-based)."},
-                    "status": {"type": "string", "description": "The new status (e.g., 'done', 'in_progress').", "default": "done"}
+                    "status": {"type": "string", "description": "The new status (e.g., 'done', 'in_progress').", "default": "done"},
+                    "notes": {"type": "string", "description": "Optional notes to set/update for the todo item."}
                 },
                 "required": ["session_id", "index", "status"]
             }
@@ -549,6 +551,10 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "description": "Optional priority (higher number = higher priority).",
           "type": "integer",
           "default": 0
+        },
+        "notes": {
+          "description": "Optional notes for the todo item.",
+          "type": "string"
         }
       },
       "required": [
@@ -560,7 +566,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Retrieve the current todo list for the given session as a JSON array.",
+    "description": "Retrieve the current todo list for the given session as a JSON array of items including a 'notes' field.",
     "name": "list_todos",
     "parameters": {
       "properties": {
@@ -592,6 +598,10 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "description": "The new status (e.g., 'done', 'in_progress').",
           "type": "string",
           "default": "done"
+        },
+        "notes": {
+          "description": "Optional notes to set/update for the todo item.",
+          "type": "string"
         }
       },
       "required": [

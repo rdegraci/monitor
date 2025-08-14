@@ -244,7 +244,6 @@ def test_update_todo_invalid_json_returns_decode_error(fake_memory):
     key = _key(session_id)
     # Preload invalid JSON string
     fake_memory["store"][key] = "}{ invalid json ]["
-
     result = todo.update_todo(session_id, index=0, status="done")
     resp = json.loads(result)
     assert resp["ok"] is False
@@ -260,7 +259,6 @@ def test_update_todo_non_list_returns_decode_error(fake_memory):
     key = _key(session_id)
     # Preload valid JSON but not a list
     fake_memory["store"][key] = json.dumps({"not": "a list"})
-
     result = todo.update_todo(session_id, index=0, status="done")
     resp = json.loads(result)
     assert resp["ok"] is False
@@ -269,3 +267,106 @@ def test_update_todo_non_list_returns_decode_error(fake_memory):
     assert resp["session_id"] == session_id
     assert resp["index"] == 0
     assert resp["status"] == "done"
+
+
+def test_add_todo_sets_empty_notes_when_not_provided(fake_memory):
+    session_id = "session-notes-1"
+    key = _key(session_id)
+    result = todo.add_todo(session_id, "Notes Default Empty", priority=0)
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    saved_list = json.loads(fake_memory["store"][key])
+    assert isinstance(saved_list, list) and len(saved_list) == 1
+    assert saved_list[0]["item"] == "Notes Default Empty"
+    assert saved_list[0]["notes"] == ""
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_add_todo_with_notes_persists_notes(fake_memory):
+    session_id = "session-notes-2"
+    key = _key(session_id)
+    result = todo.add_todo(session_id, "Notes Provided", priority=1, notes="remember to test notes")
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    saved_list = json.loads(fake_memory["store"][key])
+    assert isinstance(saved_list, list) and len(saved_list) == 1
+    assert saved_list[0]["item"] == "Notes Provided"
+    assert saved_list[0]["notes"] == "remember to test notes"
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_list_todos_backfills_missing_notes_on_legacy_items(fake_memory):
+    session_id = "session-notes-3"
+    key = _key(session_id)
+    fake_memory["store"][key] = json.dumps([
+        {"item": "Legacy Missing Notes", "status": "pending", "priority": 0},
+        {"item": "Already Has Notes", "status": "done", "priority": 1, "notes": "kept"}
+    ])
+    result = todo.list_todos(session_id)
+    assert isinstance(result, str)
+    data = json.loads(result)
+    assert isinstance(data, list) and len(data) == 2
+    assert data[0]["item"] == "Legacy Missing Notes"
+    assert data[0]["notes"] == ""
+    assert data[1]["item"] == "Already Has Notes"
+    assert data[1]["notes"] == "kept"
+
+
+def test_update_todo_does_not_overwrite_notes_when_notes_none(fake_memory):
+    session_id = "session-notes-4"
+    key = _key(session_id)
+    fake_memory["store"][key] = json.dumps([
+        {"item": "Task With Notes", "status": "pending", "priority": 0, "notes": "original notes"}
+    ])
+    result = todo.update_todo(session_id, index=0, status="in_progress")
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["item"]["notes"] == "original notes"
+    saved_list = json.loads(fake_memory["store"][key])
+    assert saved_list[0]["notes"] == "original notes"
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_update_todo_does_not_overwrite_notes_when_empty_string(fake_memory):
+    session_id = "session-notes-5"
+    key = _key(session_id)
+    fake_memory["store"][key] = json.dumps([
+        {"item": "Task Keep Notes", "status": "pending", "priority": 0, "notes": "keep me"}
+    ])
+    result = todo.update_todo(session_id, index=0, status="done", notes="")
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["item"]["notes"] == "keep me"
+    saved_list = json.loads(fake_memory["store"][key])
+    assert saved_list[0]["notes"] == "keep me"
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_update_todo_updates_notes_when_non_empty(fake_memory):
+    session_id = "session-notes-6"
+    key = _key(session_id)
+    fake_memory["store"][key] = json.dumps([
+        {"item": "Task Update Notes", "status": "pending", "priority": 0, "notes": "old"}
+    ])
+    result = todo.update_todo(session_id, index=0, status="done", notes="new note value")
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["item"]["notes"] == "new note value"
+    saved_list = json.loads(fake_memory["store"][key])
+    assert saved_list[0]["notes"] == "new note value"
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_update_todo_updates_notes_for_legacy_item_without_notes(fake_memory):
+    session_id = "session-notes-7"
+    key = _key(session_id)
+    fake_memory["store"][key] = json.dumps([
+        {"item": "Legacy No Notes", "status": "pending", "priority": 0}
+    ])
+    result = todo.update_todo(session_id, index=0, status="done", notes="added later")
+    resp = json.loads(result)
+    assert resp["ok"] is True
+    assert resp["item"]["notes"] == "added later"
+    saved_list = json.loads(fake_memory["store"][key])
+    assert saved_list[0].get("notes") == "added later"
+    assert fake_memory["ttls"][key] == todo.TODO_TTL
