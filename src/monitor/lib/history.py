@@ -76,10 +76,8 @@ def log_negative_token_count(logger, config):
     if total_tokens is not None:
         if total_tokens < 0:
             logger.error(f"[TOKEN COUNT] CRITICAL: TOTAL_TOKEN_COUNT is negative ({total_tokens})!")
-        elif max_tokens is not None and total_tokens > (2 * max_tokens):
-            logger.warning(f"[TOKEN COUNT][CUMULATIVE] WARNING: TOTAL_TOKEN_COUNT ({total_tokens}) is more than double MAX_TOKEN_COUNT ({max_tokens}). Possible runaway growth.")
         elif max_tokens is not None and total_tokens > (0.95 * max_tokens):
-            logger.warning(f"[TOKEN COUNT][CUMULATIVE] Near MAX_TOKEN_COUNT: total_tokens={total_tokens} of max_tokens={max_tokens}")
+            logger.warning(f"[TOKEN COUNT][CUMULATIVE] TOTAL_TOKEN_COUNT: ({total_tokens}) processed.")
 
 def append_to_history_with_count(
     message: dict,
@@ -634,19 +632,19 @@ def check_limits(
         f"time_limit_exceeded={time_limit_exceeded}, memory_limit_exceeded={memory_limit_exceeded})"
     )
     if over_token_limit:
-        logger.warning(
+        logger.info(
             f"[CHECK_LIMITS] Token limit triggered: total_token_count={total_token_count} > token_limit_threshold={token_limit_threshold}"
         )
     if over_history_limit:
-        logger.warning(
+        logger.info(
             f"[CHECK_LIMITS] History limit triggered: len(conversation_history)={len(conversation_history)} > effective_history_limit={effective_history_limit:.3f}"
         )
     if time_limit_exceeded:
-        logger.warning(
+        logger.info(
             f"[CHECK_LIMITS] Time limit triggered: time_since_last_summary={time_since_last_summary:.3f} > time_limit_seconds={summarization_config['triggers']['time_limit_seconds']}"
         )
     if memory_limit_exceeded:
-        logger.warning(
+        logger.info(
             f"[CHECK_LIMITS] Memory limit triggered: current_memory_usage={current_memory_usage:.6f} MB > memory_limit_mb={summarization_config['triggers']['memory_limit_mb']} MB"
         )
     if not any([
