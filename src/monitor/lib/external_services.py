@@ -103,8 +103,10 @@ def send_twitch_message_command(message: str) -> None:
         else:
             logger.error("Failed to send Twitch message: status_code=%s, response=%s", 
                          response.status_code, response.text)
+            raise requests.exceptions.RequestException(f"Twitch API returned status code {response.status_code}")
     except requests.exceptions.RequestException as e:
         logger.error("Error occurred when sending Twitch message: %s", str(e), exc_info=True)
+        raise  # Re-raise the exception so the calling code can handle it
 
 
 def send_linkedin_message(message: str) -> None:
