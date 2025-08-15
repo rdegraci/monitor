@@ -10,7 +10,7 @@ from monitor.lib.redis_utils import (
 
 from monitor.lib.weather import get_current_weather
 from monitor.lib.web_search import tavily_search
-from monitor.lib.ripgrep_search import ripgrep_search
+from monitor.lib.ripgrep_search import ripgrep_search_tool
 from monitor.lib.modeling import train_model, evaluate_model
 from monitor.lib.git import (
     perform_git_status,
@@ -62,7 +62,7 @@ AVAILABLE_TOOLS = {
     "execute_psql": execute_psql,
     "file_type": file_type,
     "tavily_search": tavily_search,
-    "ripgrep_search": ripgrep_search,
+    "ripgrep_search_tool": ripgrep_search_tool,
     "execute_duckdb": execute_duckdb,
     "execute_mc": execute_mc,
     "train_model": train_model,
@@ -281,7 +281,7 @@ TOOL_DESCRIPTIONS = [
     {
         "type": "function",
         "function": {
-            "name": "ripgrep_search",
+            "name": "ripgrep_search_tool",
             "description": "Searches for a term across files within the repository using ripgrep. Useful for quickly locating occurrences of a string or pattern in code or text files.",
             "parameters": {
                 "type": "object",
@@ -292,10 +292,15 @@ TOOL_DESCRIPTIONS = [
                     },
                     "filetype": {
                         "type": "string",
-                        "description": "Optional file extension filter (e.g., '.py', '.txt') to limit the search scope."
+                        "description": "Optional ripgrep type (e.g., 'py', 'js') to limit the search scope."
+                    },
+                    "word": {
+                        "type": "boolean",
+                        "description": "Match whole words only (passes -w to ripgrep).",
+                        "default": False
                     }
                 },
-                "required": ["term", "filetype"]
+                "required": ["term", "filetype", "word"]
             }
         }
     },
@@ -514,7 +519,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
   },
   {
     "description": "Searches for a term across files within the repository using ripgrep. Useful for quickly locating occurrences of a string or pattern in code or text files.",
-    "name": "ripgrep_search",
+    "name": "ripgrep_search_tool",
     "parameters": {
       "type": "object",
       "properties": {
@@ -524,12 +529,18 @@ GEMINI_TOOL_DESCRIPTIONS = [
         },
         "filetype": {
           "type": "string",
-          "description": "Optional file extension filter (e.g., '.py', '.txt') to limit the search scope."
+          "description": "Optional ripgrep type (e.g., 'py', 'js') to limit the search scope."
+        },
+        "word": {
+          "type": "boolean",
+          "description": "Match whole words only (passes -w to ripgrep).",
+          "default": False
         }
       },
       "required": [
         "term",
-        "filetype"
+        "filetype",
+        "word"
       ],
       "type": "object"
     }
