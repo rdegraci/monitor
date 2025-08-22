@@ -185,7 +185,8 @@ def load_model_config():
             "o3": openai_model_tpm_tier,
             "grok3": xai_model_tpm_tier,
             "grok4": xai_model_tpm_tier,
-            "gemini20": google_model_tpm_tier
+            "gemini20": google_model_tpm_tier,
+            "gpt5-mini": openai_model_tpm_tier,
         }
     except Exception as _model_config_e:
         # Already logged in loader, but abort import
