@@ -77,7 +77,7 @@ public_macro_values = {
     "plan": "Give me a step by step plan.",
     "wdyt": "Tell me what do you think.",
     "check_refactor_constants": "(xdiff) HEAD; Make sure that the constants have not changed values.",
-    "review_changes": "(do_diff) then examine each source file noted in the diff. Tell me what do you think about the changes. If there are bugs provide a bug report, ordered such that the easiest to solve first.",
+    "review_changes": "Source code files have been updated. (do_diff) then examine each source file noted in the diff. Tell me what do you think about the changes. If there are bugs provide a bug report, ordered such that the easiest to solve first.",
     "order_swift_file": """
     Update the Swift class so that all properties and methods are grouped and ordered according to the following guidelines:
 
