@@ -14,7 +14,7 @@ def perform_git_status():
     :return: The result of git status as a string
     """
     logger.debug("Entering perform_git_status function")
-    stdout, _, error = run_git_capture(['git', 'status'])
+    stdout, _, error = run_git_capture(['git', '--no-pager', 'status'])
     if error:
         logger.error("An error occurred while executing git status: %s", error)
         return error
@@ -30,7 +30,7 @@ def perform_git_diff():
         str: The diff output or an error message/status
     """
     logger.debug("Entering perform_git_diff function")
-    stdout, _, error = run_git_capture(['git', 'diff'])
+    stdout, _, error = run_git_capture(['git', '--no-pager', 'diff'])
     if error:
         logger.error("An error occurred while executing git diff: %s", error)
         return f"An error occurred while executing git diff: {error.split(': ', 1)[-1]}"
@@ -58,7 +58,7 @@ def perform_git_diff_file(path):
     logger.debug("Entering perform_git_diff_file function with path: %s", path)
     try:
         ensured_path = ensure_non_empty_string(path, "Path")
-        stdout, _, error = run_git_capture(['git', 'diff', ensured_path])
+        stdout, _, error = run_git_capture(['git', '--no-pager', 'diff', ensured_path])
         if error:
             logger.error("Error executing git diff on %s: %s", ensured_path, error)
             return f"An error occurred while executing git diff on {ensured_path}: {error.split(': ', 1)[-1]}"
@@ -85,7 +85,7 @@ def perform_git_diff_previous():
         str: The diff output or an error message/status
     """
     logger.debug("Entering perform_git_diff_previous function")
-    stdout, _, error = run_git_capture(['git', 'diff', 'HEAD^'])
+    stdout, _, error = run_git_capture(['git', '--no-pager', 'diff', 'HEAD^..HEAD'])
     if error:
         logger.error("Error executing git diff HEAD^: %s", error)
         return "An error occurred while executing git diff: " + error.split(': ', 1)[-1]
@@ -139,8 +139,8 @@ def perform_git_diff_staged():
     Returns:
         str: The diff output or an error message/status
     """
-    logger.debug("Entering perform_git_diff function")
-    stdout, _, error = run_git_capture(['git', 'diff', '--staged'])
+    logger.debug("Entering perform_git_diff_staged function")
+    stdout, _, error = run_git_capture(['git', '--no-pager', 'diff', '--staged'])
     if error:
         logger.error("An error occurred while executing git diff: %s", error)
         return f"An error occurred while executing git diff: {error.split(': ', 1)[-1]}"
@@ -214,20 +214,38 @@ def perform_git_commit(message):
 
 def perform_git_stash(subcommand=None):
     """
-    Run git stash with optional subcommand (e.g. 'save', 'pop', etc).
+    Run git stash with a subcommand (e.g. 'push', 'pop', 'apply', 'list').
 
     Args:
-        subcommand (str or None): Stash subcommand, e.g., 'save', 'pop', or None for just 'git stash'.
+        subcommand (str or list or None): Stash subcommand as a string (e.g., 'push', 'pop', 'apply', 'list')
+            or a non-empty list of arguments. If None, empty, or whitespace-only, no git command is executed.
     Returns:
         str: Stash output or error message/status.
     """
     logger.debug("Entering perform_git_stash with subcommand: %s", subcommand)
+
+    # Validate subcommand before building the command or invoking git
+    invalid = False
+    if subcommand is None:
+        invalid = True
+    elif isinstance(subcommand, str):
+        if subcommand.strip() == "":
+            invalid = True
+    elif isinstance(subcommand, list):
+        if len(subcommand) == 0:
+            invalid = True
+    else:
+        invalid = True
+
+    if invalid:
+        logger.warning("Invalid stash subcommand provided: %r", subcommand)
+        return "Invalid stash subcommand. Provide a subcommand like 'push', 'pop', 'apply', or 'list'."
+
     cmd = ['git', 'stash']
-    if subcommand:
-        if isinstance(subcommand, str):
-            cmd.append(subcommand)
-        elif isinstance(subcommand, list):
-            cmd.extend(subcommand)
+    if isinstance(subcommand, str):
+        cmd.append(subcommand)
+    elif isinstance(subcommand, list):
+        cmd.extend(subcommand)
 
     stdout, stderr, error = run_git_capture(cmd)
     if error:
@@ -260,7 +278,7 @@ def perform_git_log_range(main_branch, topic_branch):
             raise RuntimeError(merge_error)
         merge_base = merge_stdout.strip()
 
-        log_cmd = ['git', 'log', '--format=%H|%s|%ct', f'{merge_base}..{topic_branch}']
+        log_cmd = ['git', '--no-pager', 'log', '--format=%H%x1f%s%x1f%ct', f'{merge_base}..{topic_branch}']
         log_stdout, _, log_error = run_git_capture(log_cmd)
         if log_error:
             raise RuntimeError(log_error)
@@ -269,7 +287,11 @@ def perform_git_log_range(main_branch, topic_branch):
         for line in log_stdout.strip().splitlines():
             if not line.strip():
                 continue
-            hash_, message, timestamp = line.split('|', 2)
+            parts = line.split('\x1f')
+            if len(parts) != 3:
+                logger.debug("Skipping malformed git log line: %r", line)
+                continue
+            hash_, message, timestamp = parts
             commits.append({
                 'hash': hash_,
                 'message': message,
