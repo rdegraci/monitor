@@ -1,19 +1,11 @@
-import subprocess
-import json
-import os
 import logging
-from colored import fg, attr
 
-from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
-from pygments.formatters import TerminalFormatter
+from pygments.lexers import BashLexer, DiffLexer
+
+from .git_utils import ensure_non_empty_string, run_git_capture, print_highlight_or_empty
 
 logger = logging.getLogger(__name__)
 
-blue = fg('blue')
-red = fg('red')
-yellow = fg('yellow')
-reset = attr('reset')
 
 def perform_git_status():
     """
@@ -22,13 +14,13 @@ def perform_git_status():
     :return: The result of git status as a string
     """
     logger.debug("Entering perform_git_status function")
-    try:
-        result = subprocess.run(['git', 'status'], check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git status")
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("An error occurred while executing git status: %s", e, exc_info=True)
-        return f"An error occurred while executing git status: {e}"
+    stdout, _, error = run_git_capture(['git', 'status'])
+    if error:
+        logger.error("An error occurred while executing git status: %s", error)
+        return error
+    logger.info("Successfully performed git status")
+    return stdout
+
 
 def perform_git_diff():
     """
@@ -38,20 +30,20 @@ def perform_git_diff():
         str: The diff output or an error message/status
     """
     logger.debug("Entering perform_git_diff function")
-    try:
-        result = subprocess.run(['git', 'diff'], check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git diff")  
-        if result.stdout == "":
-            logger.debug("No changes detected in git diff")
-            return "No changes detected."
+    stdout, _, error = run_git_capture(['git', 'diff'])
+    if error:
+        logger.error("An error occurred while executing git diff: %s", error)
+        return f"An error occurred while executing git diff: {error.split(': ', 1)[-1]}"
 
-        highlighted_output = highlight(result.stdout, DiffLexer(), TerminalFormatter(reset=True))
-        print(highlighted_output if result.stdout else f"{yellow}No differences found.{reset}")
+    logger.info("Successfully performed git diff")
+    if stdout == "":
+        logger.debug("No changes detected in git diff")
+        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+        return "No changes detected."
 
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("An error occurred while executing git diff: %s", e, exc_info=True)
-        return f"An error occurred while executing git diff: {e}"
+    print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+    return stdout
+
 
 def perform_git_diff_file(path):
     """
@@ -65,38 +57,25 @@ def perform_git_diff_file(path):
     """
     logger.debug("Entering perform_git_diff_file function with path: %s", path)
     try:
-        # Ensure path is a string and not empty
-        if not isinstance(path, str) or not path.strip():
-            logger.error("Invalid path provided: path must be a non-empty string")
-            raise ValueError("Path must be a non-empty string")
-            
-        result = subprocess.run(
-            ['git', 'diff', path],
-            check=True,
-            text=True,
-            capture_output=True
-        )
-        logger.info("Successfully performed git diff on file: %s", path)
-        
-        if result.stdout == "":
-            logger.debug("No changes detected in file: %s", path)
-            return f"No changes detected in {path}"
-            
-        highlighted_output = highlight(
-            result.stdout,
-            DiffLexer(),
-            TerminalFormatter(reset=True)
-        )
-        print(highlighted_output if result.stdout else f"{yellow}No differences found in {path}.{reset}")
-        
-        return result.stdout
-        
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git diff on %s: %s", path, e, exc_info=True)
-        return f"An error occurred while executing git diff on {path}: {e}"
+        ensured_path = ensure_non_empty_string(path, "Path")
+        stdout, _, error = run_git_capture(['git', 'diff', ensured_path])
+        if error:
+            logger.error("Error executing git diff on %s: %s", ensured_path, error)
+            return f"An error occurred while executing git diff on {ensured_path}: {error.split(': ', 1)[-1]}"
+
+        logger.info("Successfully performed git diff on file: %s", ensured_path)
+        if stdout == "":
+            logger.debug("No changes detected in file: %s", ensured_path)
+            print_highlight_or_empty(stdout, DiffLexer(), f"No differences found in {ensured_path}.")
+            return f"No changes detected in {ensured_path}"
+
+        print_highlight_or_empty(stdout, DiffLexer(), f"No differences found in {ensured_path}.")
+        return stdout
+
     except ValueError as e:
         logger.error("Invalid path provided: %s", e, exc_info=True)
         return f"Invalid path provided: {e}"
+
 
 def perform_git_diff_previous():
     """
@@ -106,20 +85,20 @@ def perform_git_diff_previous():
         str: The diff output or an error message/status
     """
     logger.debug("Entering perform_git_diff_previous function")
-    try:
-        result = subprocess.run(['git', 'diff', 'HEAD^'], check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git diff HEAD^")  
-        if result.stdout == "":
-            logger.debug("No changes detected between current and previous commit")
-            return "No changes detected."
+    stdout, _, error = run_git_capture(['git', 'diff', 'HEAD^'])
+    if error:
+        logger.error("Error executing git diff HEAD^: %s", error)
+        return "An error occurred while executing git diff: " + error.split(': ', 1)[-1]
 
-        highlighted_output = highlight(result.stdout, DiffLexer(), TerminalFormatter(reset=True))
-        print(highlighted_output if result.stdout else f"{yellow}No differences found.{reset}")
+    logger.info("Successfully performed git diff HEAD^")
+    if stdout == "":
+        logger.debug("No changes detected between current and previous commit")
+        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+        return "No changes detected."
 
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git diff HEAD^: %s", e, exc_info=True)
-        return f"An error occurred while executing git diff: {e}"
+    print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+    return stdout
+
 
 def perform_git_show(ref):
     """
@@ -134,35 +113,24 @@ def perform_git_show(ref):
     """
     logger.debug("Entering perform_git_show function with ref: %s", ref)
     try:
-        if not isinstance(ref, str) or not ref.strip():
-            logger.error("Invalid ref provided: ref must be a non-empty string")
-            raise ValueError("Ref must be a non-empty string.")
-        result = subprocess.run(
-            ['git', '--no-pager', 'show', ref],
-            check=True,
-            text=True,
-            capture_output=True
-        )
-        logger.info("Successfully performed git show on ref: %s", ref)
-        if result.stdout == "":
-            logger.debug("No output received from git show for ref: %s", ref)
-            return f"No output for {ref}"
+        ensured_ref = ensure_non_empty_string(ref, "Ref")
+        stdout, _, error = run_git_capture(['git', '--no-pager', 'show', ensured_ref])
+        if error:
+            logger.error("Error executing git show on ref %s: %s", ensured_ref, error)
+            return f"An error occurred while executing git show on {ensured_ref}: {error.split(': ', 1)[-1]}"
 
-        # Use BashLexer for generic command output highlighting
-        highlighted_output = highlight(
-            result.stdout,
-            BashLexer(),
-            TerminalFormatter(reset=True)
-        )
-        print(highlighted_output if result.stdout else f"{yellow}No output found for {ref}.{reset}")
+        logger.info("Successfully performed git show on ref: %s", ensured_ref)
+        if stdout == "":
+            logger.debug("No output received from git show for ref: %s", ensured_ref)
+            print_highlight_or_empty(stdout, BashLexer(), f"No output found for {ensured_ref}.")
+            return f"No output for {ensured_ref}"
 
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git show on ref %s: %s", ref, e, exc_info=True)
-        return f"An error occurred while executing git show on {ref}: {e}"
+        print_highlight_or_empty(stdout, BashLexer(), f"No output found for {ensured_ref}.")
+        return stdout
     except ValueError as e:
         logger.error("Invalid ref provided: %s", e, exc_info=True)
         return f"Invalid ref provided: {e}"
+
 
 def perform_git_diff_staged():
     """
@@ -172,20 +140,20 @@ def perform_git_diff_staged():
         str: The diff output or an error message/status
     """
     logger.debug("Entering perform_git_diff function")
-    try:
-        result = subprocess.run(['git', 'diff', '--staged'], check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git diff")  
-        if result.stdout == "":
-            logger.debug("No changes detected in git diff")
-            return "No changes detected."
+    stdout, _, error = run_git_capture(['git', 'diff', '--staged'])
+    if error:
+        logger.error("An error occurred while executing git diff: %s", error)
+        return f"An error occurred while executing git diff: {error.split(': ', 1)[-1]}"
 
-        highlighted_output = highlight(result.stdout, DiffLexer(), TerminalFormatter(reset=True))
-        print(highlighted_output if result.stdout else f"{yellow}No differences found.{reset}")
+    logger.info("Successfully performed git diff")
+    if stdout == "":
+        logger.debug("No changes detected in git diff")
+        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+        return "No changes detected."
 
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("An error occurred while executing git diff: %s", e, exc_info=True)
-        return f"An error occurred while executing git diff: {e}"
+    print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+    return stdout
+
 
 def perform_git_log(ref_or_args=None):
     """
@@ -203,17 +171,16 @@ def perform_git_log(ref_or_args=None):
             cmd.extend(ref_or_args.split())
         elif isinstance(ref_or_args, list):
             cmd.extend(ref_or_args)
-    try:
-        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git log")
-        if not result.stdout:
-            return "No log output."
-        highlighted_output = highlight(result.stdout, BashLexer(), TerminalFormatter(reset=True))
-        print(highlighted_output)
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git log: %s", e, exc_info=True)
-        return f"An error occurred while executing git log: {e}"
+    stdout, _, error = run_git_capture(cmd)
+    if error:
+        logger.error("Error executing git log: %s", error)
+        return f"An error occurred while executing git log: {error.split(': ', 1)[-1]}"
+
+    logger.info("Successfully performed git log")
+    if not stdout:
+        return "No log output."
+    print_highlight_or_empty(stdout, BashLexer(), "No log output.")
+    return stdout
 
 
 def perform_git_commit(message):
@@ -226,20 +193,24 @@ def perform_git_commit(message):
         str: Commit output or error message/status
     """
     logger.debug("Entering perform_git_commit function with message: %s", message)
-    if not isinstance(message, str) or not message.strip():
+    try:
+        ensured_message = ensure_non_empty_string(message, "Commit message")
+    except ValueError:
         logger.error("Invalid commit message provided: must be non-empty string")
         return "Commit message must be a non-empty string."
-    try:
-        result = subprocess.run(['git', 'commit', '-m', message], check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git commit")
-        if result.stdout:
-            print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
-        return result.stdout or result.stderr or "Commit executed with no output."
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git commit: %s", e, exc_info=True)
-        return f"An error occurred while executing git commit: {e}"
+
+    stdout, stderr, error = run_git_capture(['git', 'commit', '-m', ensured_message])
+    if error:
+        logger.error("Error executing git commit: %s", error)
+        return f"An error occurred while executing git commit: {error.split(': ', 1)[-1]}"
+
+    logger.info("Successfully performed git commit")
+    if stdout:
+        print(stdout)
+    if stderr:
+        print(stderr)
+    return stdout or stderr or "Commit executed with no output."
+
 
 def perform_git_stash(subcommand=None):
     """
@@ -257,22 +228,24 @@ def perform_git_stash(subcommand=None):
             cmd.append(subcommand)
         elif isinstance(subcommand, list):
             cmd.extend(subcommand)
-    try:
-        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
-        logger.info("Successfully performed git stash with subcommand: %s", subcommand)
-        if not result.stdout and not result.stderr:
-            return "No output from git stash."
-        output = ""
-        if result.stdout:
-            output += result.stdout
-            print(result.stdout)
-        if result.stderr:
-            output += result.stderr
-            print(result.stderr)
-        return output or f"git stash {subcommand or ''} executed with no output."
-    except subprocess.CalledProcessError as e:
-        logger.error("Error executing git stash: %s", e, exc_info=True)
-        return f"An error occurred while executing git stash: {e}"
+
+    stdout, stderr, error = run_git_capture(cmd)
+    if error:
+        logger.error("Error executing git stash: %s", error)
+        return f"An error occurred while executing git stash: {error.split(': ', 1)[-1]}"
+
+    logger.info("Successfully performed git stash with subcommand: %s", subcommand)
+    if not stdout and not stderr:
+        return "No output from git stash."
+    output = ""
+    if stdout:
+        output += stdout
+        print(stdout)
+    if stderr:
+        output += stderr
+        print(stderr)
+    return output or f"git stash {subcommand or ''} executed with no output."
+
 
 def perform_git_log_range(main_branch, topic_branch):
     """
@@ -282,12 +255,18 @@ def perform_git_log_range(main_branch, topic_branch):
     logger.debug("Entering perform_git_log_range: %s..%s", main_branch, topic_branch)
     try:
         merge_base_cmd = ['git', 'merge-base', main_branch, topic_branch]
-        merge_base_result = subprocess.run(merge_base_cmd, check=True, text=True, capture_output=True)
-        merge_base = merge_base_result.stdout.strip()
+        merge_stdout, _, merge_error = run_git_capture(merge_base_cmd)
+        if merge_error:
+            raise RuntimeError(merge_error)
+        merge_base = merge_stdout.strip()
+
         log_cmd = ['git', 'log', '--format=%H|%s|%ct', f'{merge_base}..{topic_branch}']
-        log_result = subprocess.run(log_cmd, check=True, text=True, capture_output=True)
+        log_stdout, _, log_error = run_git_capture(log_cmd)
+        if log_error:
+            raise RuntimeError(log_error)
+
         commits = []
-        for line in log_result.stdout.strip().splitlines():
+        for line in log_stdout.strip().splitlines():
             if not line.strip():
                 continue
             hash_, message, timestamp = line.split('|', 2)
