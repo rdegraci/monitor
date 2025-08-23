@@ -70,44 +70,32 @@ def evaluate_command(command: str) -> CommandResult:
     effects such as printing to stdout, writing files, or mutating readline
     history. It is therefore safe to call from both interactive and HTTP
     contexts.
+
+    IMPORTANT:
+    - This routine assumes the command has already been macro-expanded (if
+      desired) by the caller. It will NOT perform macro expansion or execute
+      side effects such as calling query() or changing directories.
     """
     try:
-        if not command.strip():
+        if not command or not command.strip():
             return CommandResult(command_type=CommandType.EMPTY)
 
-        # Expand macros in the command unless explicitly suppressed with '!<'
-        if not command.lstrip().startswith("!<"):
-            command = recursive_macro_expand(
-                command,
-                MACRO_VALUES,
-                config.MACRO_DELIMITER_OPEN,
-                config.MACRO_DELIMITER_CLOSE,
-                config.MACRO_DELIMITER_ESCAPE,
-            )
-        else:
-            command = command.replace("!<", "")
-
-        # Detect exit commands early
+        # Detect exit commands early (no side-effects here)
         if command.lower() in ["/exit", "exit"]:
             return CommandResult(exit_requested=True, command_type=CommandType.EXIT)
 
         # Parse first lexical word
         first_word = command.split()[0] if command.split() else ""
 
-        # Handle 'cd' command
+        # For 'cd' commands: classify and provide the target path as output, but
+        # do NOT perform the actual directory change here.
         if first_word == "cd":
-            cwd = handle_cd_command(" ".join(command.split()[1:]))
-            logger.debug("Changed directory to: {}".format(cwd))
-            # Informing the LLM of directory changes is a side effect and is
-            # intentionally omitted here.
-            return CommandResult(output=cwd, command_type=CommandType.CD)
+            # Provide the target path (may be empty string if no args)
+            target_path = " ".join(command.split()[1:]) if command.split()[1:] else ""
+            return CommandResult(output=target_path, command_type=CommandType.CD)
 
-        # For non-interactive evaluation, do not process special command types here.
-        # All commands that are not handled as macros, cd, internal, built-in, or exit
-        # fall through as CommandType.LLM.
-
-        # Unsupported command classes in non-interactive evaluation
-        if (
+        # Unsupported command classes in non-interactive evaluation (server mode)
+        if config.SERVER_MODE and (
             is_interactive_command(command)
             or is_internal_command(command)
             or is_built_in_function(command)
@@ -120,14 +108,139 @@ def evaluate_command(command: str) -> CommandResult:
                 command_type=CommandType.UNSUPPORTED,
             )
 
-        # Default: treat as LLM query.
-        logger.debug("Executing LLM query evaluation for command: {}".format(command))
-        command_string = command.replace("!<", "")
-        query_result = query(command_string)
-        return CommandResult(output=query_result, command_type=CommandType.LLM)
+        if is_interactive_command(command):
+            return CommandResult(command_type=CommandType.INTERACTIVE)
+        elif is_internal_command(command):
+            return CommandResult(command_type=CommandType.INTERNAL)
+        elif is_built_in_function(command):
+            return CommandResult(command_type=CommandType.BUILT_IN)
+
+        # Default: treat as LLM query (classification only; do not execute query())
+        logger.debug("Classified as LLM query for command: {}".format(command))
+        return CommandResult(command_type=CommandType.LLM)
 
     except Exception as exc:
         logger.error("Error while evaluating command.", exc_info=True)
+        return CommandResult(error=str(exc), command_type=CommandType.ERROR)
+
+
+def execute_command(command_result: CommandResult, original_command: str, history_file: str) -> CommandResult:
+    """
+    Perform side-effects for a command previously classified by evaluate_command.
+
+    Parameters:
+    - command_result: the result returned by evaluate_command (may be updated)
+    - original_command: the command string as provided to the REPL (already macro-expanded
+      or raw depending on suppression). This string will be used for query execution
+      and contextual updates.
+    - history_file: path to the history file; kept for API compatibility in case
+      further side-effects need it (not used currently).
+
+    Returns:
+    - The possibly-updated CommandResult with output filled for LLM/CD commands and
+      exit_requested set if applicable.
+    """
+    try:
+        # No-op for empty commands
+        if command_result.command_type == CommandType.EMPTY:
+            return command_result
+
+        # Handle explicit exit requests: perform legacy side-effects via handle_exit_command
+        if command_result.command_type == CommandType.EXIT or command_result.exit_requested:
+            # Use the legacy handler to perform signal/print side-effects
+            handle_exit_command(original_command)
+            command_result.exit_requested = True
+            return command_result
+
+        # Handle CD: perform the actual directory change and notify the LLM
+        if command_result.command_type == CommandType.CD:
+            # Determine the target path: prefer the output provided by evaluation,
+            # otherwise parse from the original_command
+            target_path = command_result.output if command_result.output is not None else (
+                " ".join(original_command.split()[1:]) if original_command.split()[1:] else ""
+            )
+            cwd = handle_cd_command(target_path)
+            logger.debug("Changed directory to: {}".format(cwd))
+            # Inform the LLM of directory changes (side-effect intentionally performed here)
+            try:
+                query(f"Be aware I have changed directory to {cwd}")
+            except Exception:
+                # Query side-effect failures should not crash the REPL; log instead
+                logger.exception("Failed to notify LLM about directory change.")
+            command_result.output = cwd
+            if command_result.output is not None:
+                print(command_result.output)
+            return command_result
+
+        if command_result.command_type == CommandType.INTERACTIVE:
+            execute_interactive_command(original_command)
+            return command_result
+        elif command_result.command_type == CommandType.INTERNAL:
+            execute_internal_command(original_command, display_query_result)
+            return command_result
+        elif command_result.command_type == CommandType.BUILT_IN:
+            execute_built_in_function(original_command)
+            return command_result
+
+        # Unsupported commands: print error message but do not attempt execution
+        if command_result.command_type == CommandType.UNSUPPORTED:
+            if command_result.error:
+                print(f"{yellow}{command_result.error}{reset}")
+            return command_result
+
+        # If evaluation resulted in an error classification, display it
+        if command_result.command_type == CommandType.ERROR:
+            if command_result.error:
+                print(f"{yellow}{command_result.error}{reset}")
+            return command_result
+
+        # Handle LLM queries: execute the query(), send artifact, display results,
+        # and prepare query context (all side-effects).
+        if command_result.command_type == CommandType.LLM:
+            try:
+                # Execute the LLM query
+                query_result = query(original_command)
+                command_result.output = query_result
+
+                # Send artifact (side-effect)
+                try:
+                    send_artifact(query_result)
+                except Exception:
+                    logger.exception("Failed to send artifact for query result.")
+
+                # Display result and update conversation history count
+                try:
+                    display_query_result(
+                        query_result,
+                        update_history_count=lambda: setattr(
+                            monitor.core.conversation,
+                            "TOTAL_CONVERSATION_HISTORY_COUNT",
+                            monitor.core.conversation.TOTAL_CONVERSATION_HISTORY_COUNT + 2,
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Failed to display query result.")
+
+                # Prepare query context for future interactions
+                try:
+                    prepare_query_context(original_command)
+                except Exception:
+                    logger.exception("Failed to prepare query context.")
+
+            except Exception as exc:
+                logger.exception("Error while executing LLM query.")
+                command_result.error = str(exc)
+                command_result.command_type = CommandType.ERROR
+                # Ensure the error is visible to the user
+                print(f"{yellow}{command_result.error}{reset}")
+
+            return command_result
+
+        # For any other command types that might be added in future, default to no-op
+        return command_result
+
+    except Exception as exc:
+        logger.exception("Unexpected error during command execution.")
         return CommandResult(error=str(exc), command_type=CommandType.ERROR)
 
 
@@ -156,7 +269,20 @@ def process_command(command, history_file):
             f"Failed to write command history to {history_file}: {e}", exc_info=True
         )
 
-    if not command.lstrip().startswith("!<"):
+    # Log and expand macros unless explicitly suppressed with '!<'.
+    # Remove only the leading '!<' instance following any leading whitespace.
+    if command.lstrip().startswith("!<"):
+        logger.info("Macro expansion suppressed for input (found !<)")
+        # Remove only the first occurrence of the suppression marker after leading whitespace
+        leading_ws_len = len(command) - len(command.lstrip())
+        leading_ws = command[:leading_ws_len]
+        rest = command[leading_ws_len:]
+        if rest.startswith("!<"):
+            rest = rest.replace("!<", "", 1)
+        command = leading_ws + rest
+        logger.info(f"[PROCESS COMMAND] - Using raw command after suppression: {command}")
+    else:
+        logger.info("[PROCESS COMMAND] - Performing macro expansion for input")
         command = recursive_macro_expand(
             command,
             MACRO_VALUES,
@@ -164,50 +290,15 @@ def process_command(command, history_file):
             config.MACRO_DELIMITER_CLOSE,
             config.MACRO_DELIMITER_ESCAPE,
         )
-    else:
-        command = command.replace("!<", "")
 
-    # Legacy behavior: exit command handling
-    if handle_exit_command(command):
-        return True
-
-    # Legacy behavior: determine first word
-    first_word = command.split()[0] if command and command.split() else ""
-
-    # Legacy behavior: change directory command handling
-    if process_cd_command(command, first_word):
-        return False
-
-    # Legacy behavior: interactive, internal, and built-in commands
-    if is_interactive_command(command):
-        execute_interactive_command(command)
-        return False
-    elif is_internal_command(command):
-        execute_internal_command(command, display_query_result)
-        return False
-    elif is_built_in_function(command):
-        execute_built_in_function(command)
-        return False
-
-    # Evaluate the command with the new side-effect-free routine
+    # Legacy behavior: exit command handling is performed during execution phase.
+    # Evaluate the command (side-effect-free)
     result = evaluate_command(command)
 
-    # Handle output and side effects appropriate for the REPL environment
-    if result.command_type in (CommandType.MACRO, CommandType.CD) and result.output is not None:
-        print(result.output)
-    elif result.command_type == CommandType.LLM:
-        send_artifact(result.output)
-        display_query_result(
-            result.output,
-            update_history_count=lambda: setattr(
-                monitor.core.conversation,
-                "TOTAL_CONVERSATION_HISTORY_COUNT",
-                monitor.core.conversation.TOTAL_CONVERSATION_HISTORY_COUNT + 2,
-            ),
-        )
-        prepare_query_context(command)
+    # Execute side-effects based on evaluation
+    result = execute_command(result, command, history_file)
 
-    # Display errors in a distinct color for visibility
+    # If command execution produced an error, ensure it's displayed (redundant guard)
     if result.error:
         print(f"{yellow}{result.error}{reset}")
 
@@ -225,5 +316,11 @@ def handle_exit_command(command):
 
 
 def internalize_command(command):
-    """Backward-compatible helper delegating to evaluate_command()."""
-    return evaluate_command(command).output
+    """Backward-compatible helper delegating to evaluate_command() and returning a JSON-serializable dict."""
+    result = evaluate_command(command)
+    return {
+        "output": result.output,
+        "error": result.error,
+        "command_type": result.command_type.value if isinstance(result.command_type, CommandType) else str(result.command_type),
+        "exit_requested": result.exit_requested,
+    }

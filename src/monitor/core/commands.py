@@ -126,6 +126,12 @@ def execute_interactive_command(command: str):
     try:
         if matching_command is not None:
             command_to_run = matching_command.get("expansion")
+            # Log whether macros will be expanded or suppressed for interactive commands
+            if command_to_run is not None:
+                if command_to_run.startswith("!<"):
+                    logger.info(f"Macro expansion suppressed for interactive command '{first_word}'; using raw expansion: {command_to_run}")
+                else:
+                    logger.info(f"Macro expansion will be performed for interactive command '{first_word}': {command_to_run}")
             if command_to_run:
                 command_to_run += f" {' '.join(command.split()[1:])}"
             else:
@@ -322,6 +328,12 @@ def execute_internal_command(command: str, display_query_result):
 
         expansion = matching_internal_command.get("expansion")
         try:
+            if expansion is not None:
+                # Log whether macros will be expanded or suppressed for internal commands
+                if expansion.startswith("!<"):
+                    logger.info(f"Macro expansion suppressed for internal command '{first_word}'; using raw expansion: {expansion}")
+                else:
+                    logger.info(f"Macro expansion will be performed for internal command '{first_word}': {expansion}")
             if not expansion.startswith("!<"):
                 try:
                     expansion = recursive_macro_expand(expansion, MACRO_VALUES, config.MACRO_DELIMITER_OPEN, config.MACRO_DELIMITER_CLOSE, config.MACRO_DELIMITER_ESCAPE)

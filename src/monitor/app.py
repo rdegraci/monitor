@@ -179,6 +179,7 @@ def main():
 
     try:
         if args.server is not None:
+            config.SERVER_MODE = True
             host_address = args.server if args.server else "127.0.0.1"
             # Register the query function so that external modules can access it in server mode.
             register_query_function(conversation_query)

@@ -304,9 +304,11 @@ def process_input(user_input, history_file):
         return False
 
     # Special handling for pipeline input mode
-    if determine_input_mode(user_input) == InputMode.PIPELINE.value:
+    # NOTE: determine_input_mode and process_input_mode expect the first argument to be the input string (first_line),
+    #       with the session passed as the last argument. Correct argument ordering is applied here.
+    if determine_input_mode(user_input, SESSION) == InputMode.PIPELINE.value:
         # Gather directives using process_input_mode and handle_pipeline_command
-        lines = process_input_mode(user_input, InputMode.PIPELINE.value)
+        lines = process_input_mode(user_input, InputMode.PIPELINE.value, SESSION)
         if not lines:
             return False
         final_output = process_pipeline_directives(lines)
@@ -341,11 +343,13 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT):
         print(reset)
 
         # Determine input mode
-        input_mode = determine_input_mode(first_line)
+        # NOTE: determine_input_mode expects first_line first and session last; corrected ordering here.
+        input_mode = determine_input_mode(first_line, SESSION)
         logger.debug(f"Input mode determined: {input_mode}")
         
-        # Process input according to mode
-        lines = process_input_mode(first_line, input_mode)
+        # Process input according to mode, passing the existing SESSION so continuations use same PromptSession
+        # process_input_mode expects (first_line, input_mode, session)
+        lines = process_input_mode(first_line, input_mode, SESSION)
         
         # Validate collected input
         if not validate_input(lines):
