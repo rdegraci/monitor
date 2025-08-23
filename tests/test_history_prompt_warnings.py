@@ -141,5 +141,5 @@ def test_cumulative_warning_prefixes_in_log_negative_token_count(caplog_info):
     # Assert
     warnings = [r.getMessage() for r in caplog_info.records if r.levelno >= logging.WARNING]
     joined = "\n".join(warnings)
-    assert any("[TOKEN COUNT][CUMULATIVE] Near MAX_TOKEN_COUNT" in m for m in warnings), f"Expected near-threshold cumulative warning. Logs:\n{joined}"
-    assert any("[TOKEN COUNT][CUMULATIVE] WARNING: TOTAL_TOKEN_COUNT" in m for m in warnings), f"Expected >2x cumulative warning. Logs:\n{joined}"
+    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(96)" in m for m in warnings), f"Expected near-threshold cumulative warning with (96). Logs:\n{joined}"
+    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(205)" in m for m in warnings), f"Expected >2x cumulative warning with (205). Logs:\n{joined}"
