@@ -273,11 +273,11 @@ class ProtocolEngine:
             except Exception as e:
                 logger.error(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}", exc_info=True)
                 raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}")
-            if self._has_prohibited_summary_marker(output):
+            prohibited = self._find_prohibited_phrases_in_text(output)
+            if prohibited:
                 retries += 1
                 time.sleep(2 ** retries)
                 last_noncompliant_output = output
-                prohibited = self._find_prohibited_phrases_in_text(output)
                 logger.warning(f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'} {last_noncompliant_output}")
                 continue
             return output
@@ -300,7 +300,7 @@ class ProtocolEngine:
         return bool(self.PROHIBITED_SUMMARY_PATTERN.search(text)) if text else False
 
     # Helper: remove string literals so matches inside strings are not found.
-    def _remove_string_literals(text: str) -> str:
+    def _remove_string_literals(self, text: str) -> str:
         """
         Replace string literal contents with spaces to avoid matching inside strings.
         Handles:
@@ -321,7 +321,7 @@ class ProtocolEngine:
         return string_re.sub(lambda m: " " * len(m.group(0)), text)
 
     # Helper: extract comment spans from the code (single-line and block comments)
-    def _extract_comments_without_strings(text: str):
+    def _extract_comments_without_strings(self, text: str):
         """
         Return a list of comment strings found in text (after strings have been removed).
         Supports:
@@ -429,8 +429,8 @@ class ProtocolEngine:
             )
 
         # Forbidden summary markers (you already have this check; keep it)
-        if self._has_prohibited_summary_marker(content):
-            prohibited_phrases = self._find_prohibited_phrases_in_text(content)
+        prohibited_phrases = self._find_prohibited_phrases_in_text(content)
+        if prohibited_phrases:
             print(f"Prohibited summary markers found in chunk {expected_index}: {list(prohibited_phrases)}")
             raise ValueError("Prohibited summary language detected in chunk content.")
 
