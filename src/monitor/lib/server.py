@@ -41,7 +41,7 @@ def make_flask_app():
             return jsonify({"message": "Server shutting down..."}), 200
         try:
             result = internalize_command(command)
-            return jsonify({"result": result}), 200
+            return jsonify(result), 200
         except Exception as exc:
             logger.error(f"Error processing command via API: {exc}", exc_info=True)
             if app.debug or app.env == 'development':
