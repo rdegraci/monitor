@@ -24,7 +24,10 @@ def test_flask_server_cli():
         # Test normal command
         response = client.post("/cli", json={"command": "echo test"})
         assert response.status_code == 200
-        assert "result" in response.get_json()
+        json_response = response.get_json()
+        # The server returns the structure from internalize_command: {output, error, command_type, exit_requested}
+        assert json_response is not None
+        assert "output" in json_response or "error" in json_response
 
         # Test exit command (clean shutdown)
         response_exit = client.post("/cli", json={"command": "/exit"})
@@ -32,7 +35,7 @@ def test_flask_server_cli():
 
         # Test that /exit returns expected shutdown message (if implemented)
         exit_json = response_exit.get_json()
-        msg = exit_json.get("result", "") or exit_json.get("message", "")
+        msg = exit_json.get("message", "")
         msg = msg.lower()
         assert "shutting down" in msg or "exit" in msg
 
@@ -45,10 +48,11 @@ def test_flask_server_cli():
 
         # Test error response with a failing/invalid command
         response_invalid = client.post("/cli", json={"command": "nonexistentcommandthatshouldfail"})
-        assert response_invalid.status_code >= 400 or response_invalid.status_code == 200  # Some servers do 200 with error in JSON
+        assert response_invalid.status_code == 200  # Server returns 200 with error in the response structure
         invalid_json = response_invalid.get_json()
         assert invalid_json is not None
-        assert "error" in invalid_json or "result" in invalid_json
+        # The response should contain the internalize_command structure with error details
+        assert "error" in invalid_json or ("output" in invalid_json and invalid_json["output"])
 
         # Check submitting another normal command after exit command within same context
         # (behavior may depend on server implementation; for Flask test_client() the app restarts per test_client context)
@@ -56,4 +60,5 @@ def test_flask_server_cli():
         assert followup.status_code == 200
         followup_json = followup.get_json()
         assert followup_json is not None
-        assert "result" in followup_json
+        # Should have the internalize_command response structure
+        assert "output" in followup_json or "error" in followup_json
