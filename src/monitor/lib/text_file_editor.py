@@ -291,8 +291,8 @@ def text_file_str_replace_in_file(command: str, path: str, old_str: str, new_str
         return "Error writing updated file."
     delete_file(tmp_path)
 
-    success_msg = f"Successfully replaced {occurrence_count} occurrence(s) in {path}"
-    print_green(success_msg)
+    success_msg = f"Successfully replaced {occurrence_count} occurrence(s) with {new_str} in {path}"
+    print_yellow(success_msg)
     logger.info(success_msg)
 
     return new_content
@@ -363,8 +363,8 @@ def text_file_insert_text_at_line(command: str, path: str, insert_line: int, new
         return "Error writing updated file."
     delete_file(tmp_path)
 
-    success_msg = f"Successfully inserted new_str at line {insert_line} in {path}"
-    print_green(success_msg)
+    success_msg = f"Successfully inserted {new_str} at line {insert_line} in {path}"
+    print_yellow(success_msg)
     logger.info(success_msg)
 
     return tmp_content
