@@ -14,6 +14,7 @@ def patch_config_macros():
         mock_config.MACRO_DELIMITER_OPEN = "<"
         mock_config.MACRO_DELIMITER_CLOSE = ">"
         mock_config.MACRO_DELIMITER_ESCAPE = "!"
+        mock_config.SERVER_MODE = False
         yield mock_config
 
 def test_evaluate_command_empty(patch_config_macros):
@@ -32,15 +33,15 @@ def test_evaluate_command_exit(mock_config, mock_expand, patch_config_macros):
         assert result.command_type.name == "EXIT"
 
 def test_evaluate_command_macro_expansion(patch_config_macros):
-    # Macro expansion called for non-macro-suppressed inputs
+    # Macro expansion should be called during process_command
     with patch.object(cp, "recursive_macro_expand", return_value="expanded") as mexpand:
-        cp.evaluate_command("hello macro")
+        with patch("src.monitor.core.command_processing.readline.write_history_file"):
+            cp.process_command("hello macro", "/tmp/history.txt")
         mexpand.assert_called()
 
-@patch.object(cp, "handle_cd_command", return_value="/mock/dir")
-def test_evaluate_command_cd(mock_cd, patch_config_macros):
+def test_evaluate_command_cd(patch_config_macros):
     result = cp.evaluate_command("cd somewhere")
-    assert result.output == "/mock/dir"
+    assert result.output == "somewhere"
     assert result.command_type.name == "CD"
 
 @patch.object(cp, "recursive_macro_expand", side_effect=lambda c, *args, **kwargs: c)
@@ -48,6 +49,7 @@ def test_evaluate_command_cd(mock_cd, patch_config_macros):
 @patch.object(cp, "is_internal_command", return_value=False)
 @patch.object(cp, "is_built_in_function", return_value=False)
 def test_evaluate_command_unsupported_interactive(mock_expand, mock_is_interactive, mock_is_internal, mock_is_builtin, patch_config_macros):
+    cp.config.SERVER_MODE = True
     result = cp.evaluate_command("something interactive")
     assert result.command_type.name == "UNSUPPORTED"
     assert result.error
@@ -57,6 +59,7 @@ def test_evaluate_command_unsupported_interactive(mock_expand, mock_is_interacti
 @patch.object(cp, "is_internal_command", return_value=True)
 @patch.object(cp, "is_built_in_function", return_value=False)
 def test_evaluate_command_unsupported_internal(mock_expand, mock_is_interactive, mock_is_internal, mock_is_builtin, patch_config_macros):
+    cp.config.SERVER_MODE = True
     result = cp.evaluate_command("unsupported whatever")
     assert result.command_type.name == "UNSUPPORTED"
     assert result.error
@@ -66,6 +69,7 @@ def test_evaluate_command_unsupported_internal(mock_expand, mock_is_interactive,
 @patch.object(cp, "is_internal_command", return_value=False)
 @patch.object(cp, "is_built_in_function", return_value=True)
 def test_evaluate_command_unsupported_builtin(mock_expand, mock_is_interactive, mock_is_internal, mock_is_builtin, patch_config_macros):
+    cp.config.SERVER_MODE = True
     result = cp.evaluate_command("some builtin")
     assert result.command_type.name == "UNSUPPORTED"
     assert result.error
@@ -81,10 +85,10 @@ def test_evaluate_command_default_llm(mock_expand, mock_is_interactive, mock_is_
     cp.config.MACRO_DELIMITER_ESCAPE = "!"
     result = cp.evaluate_command("llm stuff")
     assert result.command_type.name == "LLM"
-    assert result.output == "llm response"
+    assert result.output is None
 
 def test_evaluate_command_exception(patch_config_macros):
-    with patch.object(cp, "recursive_macro_expand", side_effect=Exception("fail!")):
+    with patch.object(cp, "is_interactive_command", side_effect=Exception("fail!")):
         result = cp.evaluate_command("test crash")
         assert result.command_type.name == "ERROR"
         assert "fail!" in result.error
@@ -117,11 +121,13 @@ def test_process_command_exit(mock_exit, patch_config_macros):
         mock_exit.assert_called_once()
 
 @patch.object(cp, "handle_exit_command", return_value=False)
-@patch.object(cp, "process_cd_command", return_value=True)
-def test_process_command_cd(mock_cd, mock_exit, patch_config_macros):
+@patch.object(cp, "handle_cd_command", return_value="/mock/dir")
+@patch.object(cp, "query")
+def test_process_command_cd(mock_query, mock_handle_cd, mock_exit, patch_config_macros):
     with patch("src.monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("cd somewhere", "dummy_history")
-        mock_cd.assert_called_once()
+        mock_handle_cd.assert_called_once()
+        mock_query.assert_called_once()
 
 @patch.object(cp, "handle_exit_command", return_value=False)
 @patch.object(cp, "process_cd_command", return_value=False)
@@ -168,7 +174,8 @@ def test_process_command_built_in(mock_exec, mock_builtin, mock_is_internal, moc
 @patch.object(cp, "send_artifact")
 @patch.object(cp, "display_query_result")
 @patch.object(cp, "prepare_query_context")
-def test_process_command_llm(mock_ctx, mock_disp, mock_art, mock_eval, mock_builtin, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros):
+@patch.object(cp, "query", return_value="resp")
+def test_process_command_llm(mock_query, mock_ctx, mock_disp, mock_art, mock_eval, mock_builtin, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros):
     from src.monitor.core.command_processing import CommandType, CommandResult
     mock_eval.return_value = CommandResult(output="llm", command_type=CommandType.LLM)
     with patch("src.monitor.core.command_processing.readline.write_history_file"):
@@ -191,8 +198,8 @@ def test_handle_exit_command_nonexit():
     # Not an exit command
     assert not cp.handle_exit_command("nope")
 
-@patch.object(cp, "evaluate_command", return_value=cp.CommandResult(output="ok"))
+@patch.object(cp, "evaluate_command", return_value=cp.CommandResult(output="ok", command_type=cp.CommandType.LLM))
 def test_internalize_command(mock_eval, patch_config_macros):
     out = cp.internalize_command("echo something")
-    assert out == "ok"
+    assert out == {"output": "ok", "error": None, "command_type": "llm", "exit_requested": False}
     mock_eval.assert_called_once_with("echo something")
