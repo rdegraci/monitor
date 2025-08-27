@@ -62,7 +62,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
     Routes to responses API if config.RESPONSES_API is True, otherwise uses conversations API.
     """
     # Check if responses API should be used
-    if getattr(config, 'RESPONSES_API', False):
+    if getattr(config, 'RESPONSES_API', None) is True:
         logger.debug("Using responses API for completion")
         user_input = extract_user_input_from_history()
         if not user_input:
@@ -325,7 +325,13 @@ def get_llm_initial_completion():
     # Check if responses API should be used
     prefix = getattr(config, 'REASONING_MODEL_PREFIX')
     model = getattr(config, 'MODEL')
-    if getattr(config, 'RESPONSES_API', False) and model.startswith(prefix):
+    if (
+        getattr(config, 'RESPONSES_API', None) is True
+        and isinstance(model, str)
+        and isinstance(prefix, str)
+        and prefix
+        and model.startswith(prefix)
+    ):
         logger.debug("Getting initial responses API response...")
         user_input = extract_user_input_from_history()
         if not user_input:
