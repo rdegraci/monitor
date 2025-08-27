@@ -44,6 +44,7 @@ OUTPUT_TEXT_ATTR = "output_text"
 ID_KEY = "id"
 USAGE_KEYS = ("total_tokens", "total_token_count", "total")
 MAX_FUNCTION_CALL_ITERATIONS = 25
+SUMMARY_MAX_OUTPUT_TOKENS = 300
 MAX_ERROR_INPUT_SNIPPET = 100
 PARAMETERS_PROPERTIES_KEY = "properties"
 PARAMETERS_REQUIRED_KEY = "required"
@@ -453,6 +454,7 @@ def call_responses_api(messages):
         last_response = response
         max_iterations = MAX_FUNCTION_CALL_ITERATIONS
         iteration = 0
+        last_iteration_had_calls = False
         while iteration < max_iterations:
             iteration += 1
             logger.debug(f"Function call handling iteration {iteration}")
@@ -552,6 +554,9 @@ def call_responses_api(messages):
                         logger.exception(
                             "Error while scanning output items for function calls"
                         )
+
+            # Track whether this iteration had any function/tool calls
+            last_iteration_had_calls = bool(function_call_items)
 
             # If no function calls detected, break the loop
             if not function_call_items:
@@ -707,6 +712,33 @@ def call_responses_api(messages):
                             "Failed to add follow-up request to rate limiter after OpenAI response"
                         )
 
+                    # Safely add follow_tokens to actual_tokens so total token accounting includes the follow-up
+                    try:
+                        if actual_tokens is None:
+                            actual_tokens = 0
+                        try:
+                            # Attempt numeric addition; coerce to int if possible
+                            if isinstance(follow_tokens, (int, float)):
+                                actual_tokens += int(follow_tokens)
+                                logger.debug(
+                                    f"Added {follow_tokens} follow-up tokens to actual_tokens, new total: {actual_tokens}"
+                                )
+                            else:
+                                # Try to coerce strings that represent integers
+                                if isinstance(follow_tokens, str) and follow_tokens.isdigit():
+                                    actual_tokens += int(follow_tokens)
+                                    logger.debug(
+                                        f"Coerced and added follow-up tokens '{follow_tokens}' to actual_tokens, new total: {actual_tokens}"
+                                    )
+                                else:
+                                    logger.debug(
+                                        f"Follow-up tokens value not numeric, skipping addition to actual_tokens: {follow_tokens}"
+                                    )
+                        except Exception:
+                            logger.exception("Failed while attempting to coerce and add follow_tokens to actual_tokens")
+                    except Exception:
+                        logger.exception("Failed to add follow_tokens to actual_tokens")
+
                     # Set last_response to followup_response and continue loop
                     last_response = followup_response
                 except Exception as e:
@@ -718,6 +750,127 @@ def call_responses_api(messages):
             else:
                 # No outputs to send back; break loop
                 break
+
+        # If we reached the max iteration limit and the last iteration had function/tool calls,
+        # attempt to send a summarization follow-up to avoid truncation of tool call results.
+        try:
+            if (
+                iteration >= max_iterations
+                and last_iteration_had_calls
+            ):
+                if client is None:
+                    logger.debug("Skipping summarization follow-up because client is not configured")
+                elif not (hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID")):
+                    logger.debug("Skipping summarization follow-up because no config.RESPONSE_ID is present")
+                else:
+                    try:
+                        summary_instruction = (
+                            "Please summarize the previous response and the results of the function/tool calls into a concise summary."
+                        )
+                        summary_params = {
+                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                            REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
+                            REQUEST_PARAM_INPUT: summary_instruction,
+                        }
+                        # Set a conservative max output tokens for the summary
+                        summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = SUMMARY_MAX_OUTPUT_TOKENS
+
+                        logger.debug("Sending summarization follow-up due to function call iteration truncation")
+                        summary_response = client.responses.create(**summary_params)
+                        logger.debug("Received summarization follow-up response from OpenAI Responses API")
+
+                        # Persist summary response id
+                        try:
+                            summary_id = getattr(summary_response, ID_KEY, None)
+                            if summary_id:
+                                setattr(config, "RESPONSE_ID", summary_id)
+                                logger.debug(
+                                    f"Persisted summarization response id {summary_id} into config.RESPONSE_ID"
+                                )
+                        except Exception:
+                            logger.debug("Failed to persist summarization response id to config, continuing")
+
+                        # Extract token usage for summary response
+                        summary_tokens = None
+                        try:
+                            usage = getattr(summary_response, "usage", None)
+                            if usage is None:
+                                summary_tokens = None
+                            else:
+                                if isinstance(usage, dict):
+                                    summary_tokens = (
+                                        usage.get(USAGE_KEYS[0])
+                                        or usage.get(USAGE_KEYS[1])
+                                        or usage.get(USAGE_KEYS[2])
+                                    )
+                                else:
+                                    summary_tokens = (
+                                        getattr(usage, USAGE_KEYS[0], None)
+                                        or getattr(usage, USAGE_KEYS[1], None)
+                                        or getattr(usage, USAGE_KEYS[2], None)
+                                    )
+                        except Exception:
+                            summary_tokens = None
+
+                        if summary_tokens is None:
+                            summary_tokens = 0
+
+                        # Update token usage and rate limiter for summary
+                        try:
+                            update_token_usage(summary_tokens)
+                            logger.debug(
+                                f"Updated token usage with {summary_tokens} tokens from summarization OpenAI response"
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to update token usage after summarization OpenAI response"
+                            )
+
+                        try:
+                            if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
+                                rate_limiter.RATE_LIMITER.add_request(summary_tokens)
+                                logger.debug(
+                                    f"Added summarization request of {summary_tokens} tokens to rate limiter"
+                                )
+                        except Exception:
+                            logger.exception(
+                                "Failed to add summarization request to rate limiter after OpenAI response"
+                            )
+
+                        # Safely add summary_tokens to actual_tokens so total token accounting includes the summary follow-up
+                        try:
+                            if actual_tokens is None:
+                                actual_tokens = 0
+                            try:
+                                # Attempt numeric addition; coerce to int if possible
+                                if isinstance(summary_tokens, (int, float)):
+                                    actual_tokens += int(summary_tokens)
+                                    logger.debug(
+                                        f"Added {summary_tokens} summary tokens to actual_tokens, new total: {actual_tokens}"
+                                    )
+                                else:
+                                    # Try to coerce strings that represent integers
+                                    if isinstance(summary_tokens, str) and summary_tokens.isdigit():
+                                        actual_tokens += int(summary_tokens)
+                                        logger.debug(
+                                            f"Coerced and added summary tokens '{summary_tokens}' to actual_tokens, new total: {actual_tokens}"
+                                        )
+                                    else:
+                                        logger.debug(
+                                            f"Summary tokens value not numeric, skipping addition to actual_tokens: {summary_tokens}"
+                                        )
+                            except Exception:
+                                logger.exception("Failed while attempting to coerce and add summary_tokens to actual_tokens")
+                        except Exception:
+                            logger.exception("Failed to add summary_tokens to actual_tokens")
+
+                        # Replace last_response with the summary response so normalization returns the summary
+                        last_response = summary_response
+                    except Exception:
+                        logger.exception("Failed to send or process summarization follow-up; proceeding without summary")
+        except Exception:
+            # Any unexpected error in summarization handling should not prevent normal flow
+            logger.exception("Unexpected error while attempting summarization follow-up")
 
         # After loop finishes, normalize the last_response into wrapper as before
         output_text = ""
