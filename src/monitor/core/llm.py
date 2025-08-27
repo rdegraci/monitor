@@ -29,7 +29,7 @@ from monitor.lib.llm_utils import (
 )
 
 # Import responses API adapter
-from monitor.lib.llm_responses_adapter import response_completion, get_response_initial_completion
+from monitor.core.llm_responses_adapter import response_completion, get_response_initial_completion
 
 TTS = TextToSpeech()           # Configure with preferred voice if needed
 
