@@ -9,8 +9,9 @@ import logging
 import re
 import litellm
 
+from typing import List, Dict, Any
+
 from monitor import config
-from monitor.core.tools import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.history import append_to_history_with_count
@@ -281,7 +282,7 @@ def process_response_by_finish_reason(response):
     return f"Unexpected finish reason: {finish_reason}"
 
 
-def call_litellm_completion(model: str, messages: list):
+def call_litellm_completion(model: str, messages: list, tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]]):
     """
     Wrapper that adds `reasoning_effort` and `max_completion_tokens` when the
     model name contains the configured reasoning model prefix.
@@ -297,7 +298,7 @@ def call_litellm_completion(model: str, messages: list):
         "model": model,
         "messages": messages,
         "tools": function_descriptions(
-            TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, model
+            tool_descriptions, gemini_tool_descriptions, model
         ),
         "drop_params": True,
     }

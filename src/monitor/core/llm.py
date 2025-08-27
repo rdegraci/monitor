@@ -284,7 +284,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
             logger.error(f"Message validation failed (pre-completion): {ve}")
             return None, str(ve)
 
-        response = call_litellm_completion(config.MODEL, messages)
+        response = call_litellm_completion(config.MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS)
 
         # Convert response (and possibly inner objects) to attribute-access-friendly structures
         response = dict_to_attr(response)
