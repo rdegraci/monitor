@@ -58,12 +58,20 @@ class TestLLMCore(unittest.TestCase):
         # Simulate TextToSpeech being used
         msg = MagicMock()
         msg.content = "Response"
-        self.mock_config.LAST_INPUT_WAS_VOICE = True
-        with patch.object(llm, 'TTS') as mock_tts, patch('monitor.core.llm.append_to_history_with_count') as mock_hist, patch('monitor.core.llm.count_message_tokens'), patch('monitor.core.llm.update_token_usage'):
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config, \
+             patch('monitor.lib.llm_utils.TTS') as mock_tts, \
+             patch('monitor.lib.llm_utils.append_to_history_with_count') as mock_hist, \
+             patch('monitor.lib.llm_utils.count_message_tokens'), \
+             patch('monitor.lib.llm_utils.update_token_usage'), \
+             patch('monitor.lib.llm_utils.normalize_message') as mock_normalize:
+            # Set up the config mock
+            mock_llm_config.LAST_INPUT_WAS_VOICE = True
+            # Mock normalize_message to return a dict
+            mock_normalize.return_value = {'role': 'assistant', 'content': 'Response'}
             out = llm.process_direct_response(msg)
             mock_tts.speak.assert_called_with('Response')
             self.assertEqual(out, "Response")
-            self.assertFalse(self.mock_config.LAST_INPUT_WAS_VOICE)
+            self.assertFalse(mock_llm_config.LAST_INPUT_WAS_VOICE)
 
     def test_determine_response_type(self):
         class Msg:
@@ -99,7 +107,7 @@ class TestLLMCore(unittest.TestCase):
             self.assertEqual(result, ("ok", None))
             mock_get.assert_called()
 
-    @patch('monitor.core.llm.append_to_history_with_count')
+    @patch('monitor.lib.llm_utils.append_to_history_with_count')
     def test_extract_tool_calls(self, mock_hist):
         resp = MagicMock()
         msg = MagicMock()
@@ -110,66 +118,89 @@ class TestLLMCore(unittest.TestCase):
         self.assertEqual(result, [{'id': 'call_1', 'type': 'function', 'function': {'name': 'x', 'arguments': '{}'}}])
         mock_hist.assert_called()
 
-    @patch('monitor.core.llm.append_to_history_with_count')
+    @patch('monitor.lib.llm_utils.append_to_history_with_count')
     def test_process_response_by_finish_reason(self, mock_hist):
         # refusal: pops user then assistant
-        self.mock_config.CONVERSATION_HISTORY = [
-            {'role': 'user', 'content': 'hi'},
-            {'role': 'assistant', 'content': 'AI'}
-        ]
-        resp = MagicMock()
-        resp.choices = [MagicMock(finish_reason="refusal")]
-        with patch('monitor.core.llm.logger'):
-            res = llm.process_response_by_finish_reason(resp)
-        self.assertIn("Request was refused", res)
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config:
+            mock_llm_config.CONVERSATION_HISTORY = [
+                {'role': 'user', 'content': 'hi'},
+                {'role': 'assistant', 'content': 'AI'}
+            ]
+            resp = MagicMock()
+            resp.choices = [MagicMock(finish_reason="refusal")]
+            with patch('monitor.lib.llm_utils.logger'):
+                res = llm.process_response_by_finish_reason(resp)
+            self.assertIn("Request was refused", res)
         # stop, content present
-        resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content="ok"))]
-        with patch('monitor.core.llm.logger'):
-            res = llm.process_response_by_finish_reason(resp)
-        self.assertEqual(res, "ok")
-        # stop, content None
-        resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content=None))]
-        with patch('monitor.core.llm.logger'):
-            res = llm.process_response_by_finish_reason(resp)
-        self.assertEqual(res, "Ok.")
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config:
+            mock_llm_config.CONVERSATION_LOG_FILE = MagicMock(spec=['write', 'closed'])
+            mock_llm_config.CONVERSATION_LOG_FILE.closed = False
+            resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content="ok"))]
+            with patch('monitor.lib.llm_utils.logger'):
+                res = llm.process_response_by_finish_reason(resp)
+            self.assertEqual(res, "ok")
+        # stop, content None  
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config:
+            mock_llm_config.CONVERSATION_LOG_FILE = MagicMock(spec=['write', 'closed'])
+            mock_llm_config.CONVERSATION_LOG_FILE.closed = False
+            resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content=None))]
+            with patch('monitor.lib.llm_utils.logger'):
+                res = llm.process_response_by_finish_reason(resp)
+            self.assertEqual(res, "Ok.")
         # length
         resp.choices = [MagicMock(finish_reason="length")]
-        with patch('monitor.core.llm.logger'):
+        with patch('monitor.lib.llm_utils.logger'):
             res = llm.process_response_by_finish_reason(resp)
         self.assertIn("Length too long", res)
         # content_filter
         resp.choices = [MagicMock(finish_reason="content_filter")]
-        with patch('monitor.core.llm.logger'):
+        with patch('monitor.lib.llm_utils.logger'):
             res = llm.process_response_by_finish_reason(resp)
         self.assertIn("Content filtered", res)
         # tool_calls
         resp.choices = [MagicMock(finish_reason="tool_calls")]
-        with patch('monitor.core.llm.logger'):
+        with patch('monitor.lib.llm_utils.logger'):
             res = llm.process_response_by_finish_reason(resp)
         self.assertIsNone(res)
         # empty finish (xai/grok)
-        self.mock_config.MODEL = "xai/grok-v0"
-        resp.choices = [MagicMock(finish_reason="")]
-        with patch('monitor.core.llm.logger'):
-            res = llm.process_response_by_finish_reason(resp)
-        self.assertIsNone(res)
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config:
+            mock_llm_config.MODEL = "xai/grok-v0"
+            resp.choices = [MagicMock(finish_reason="")]
+            with patch('monitor.lib.llm_utils.logger'):
+                res = llm.process_response_by_finish_reason(resp)
+            self.assertIsNone(res)
         # unexpected reason
-        resp.choices = [MagicMock(finish_reason="unexpected", __str__=lambda s: "obj")] 
-        with patch('monitor.core.llm.logger'):
+        mock_choice = MagicMock()
+        mock_choice.finish_reason = "unexpected"
+        mock_choice.__str__ = lambda self: "mock_choice_obj"
+        mock_choice.__repr__ = lambda self: "mock_choice_obj"
+        resp.choices = [mock_choice]
+        with patch('monitor.lib.llm_utils.logger') as mock_logger:
             res = llm.process_response_by_finish_reason(resp)
         self.assertIn("Unexpected finish reason", res)
 
-    @patch('monitor.core.llm.function_descriptions', return_value='tooldesc')
-    @patch('monitor.core.llm.litellm.completion', return_value={'ok': True})
-    def test_call_litellm_completion_args(self, mock_lite, mock_funcdesc):
-        result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}])
-        self.assertEqual(result, {'ok': True})
-        # Check reasoning_effort+max_completion_tokens prepends
-        with patch('monitor.core.llm.config') as cfg:
-            cfg.REASONING_MODEL_PREFIX = 'openai/o3'
-            cfg.REASONING_EFFORT = 4
-            cfg.REASONING_MAX_COMPLETION_TOKENS = 33
-            cfg.MODEL = "openai/o3-test"
+    def test_call_litellm_completion_args(self):
+        with patch('monitor.lib.llm_utils.config') as mock_llm_config, \
+             patch('monitor.lib.llm_utils.litellm.completion') as mock_lite, \
+             patch('monitor.lib.llm_utils.function_descriptions') as mock_funcdesc, \
+             patch('monitor.lib.llm_utils.TOOL_DESCRIPTIONS', {}), \
+             patch('monitor.lib.llm_utils.GEMINI_TOOL_DESCRIPTIONS', {}):
+            
+            # Set up proper mock returns
+            mock_funcdesc.return_value = []
+            mock_lite.return_value = {'ok': True}
+            mock_llm_config.REASONING_MODEL_PREFIX = 'openai/o3'
+            mock_llm_config.REASONING_EFFORT = 2
+            mock_llm_config.REASONING_MAX_COMPLETION_TOKENS = 32
+            
+            result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}])
+            self.assertEqual(result, {'ok': True})
+            
+            # Check reasoning_effort+max_completion_tokens prepends
+            mock_llm_config.REASONING_MODEL_PREFIX = 'openai/o3'
+            mock_llm_config.REASONING_EFFORT = 4
+            mock_llm_config.REASONING_MAX_COMPLETION_TOKENS = 33
+            mock_funcdesc.return_value = []  # Reset mock for second call
             result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}])
             self.assertEqual(mock_lite.call_args[1].get('reasoning_effort'), 4)
             self.assertEqual(mock_lite.call_args[1].get('max_completion_tokens'), 33)
