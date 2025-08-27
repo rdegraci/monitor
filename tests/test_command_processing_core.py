@@ -199,7 +199,9 @@ def test_handle_exit_command_nonexit():
     assert not cp.handle_exit_command("nope")
 
 @patch.object(cp, "evaluate_command", return_value=cp.CommandResult(output="ok", command_type=cp.CommandType.LLM))
-def test_internalize_command(mock_eval, patch_config_macros):
+@patch.object(cp, "execute_command", return_value=cp.CommandResult(output="ok", command_type=cp.CommandType.LLM))
+def test_internalize_command(mock_exec, mock_eval, patch_config_macros):
     out = cp.internalize_command("echo something")
     assert out == {"output": "ok", "error": None, "command_type": "llm", "exit_requested": False}
     mock_eval.assert_called_once_with("echo something")
+    mock_exec.assert_called_once()
