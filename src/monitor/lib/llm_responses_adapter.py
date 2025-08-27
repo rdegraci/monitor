@@ -2,10 +2,12 @@ import logging
 import litellm
 
 from monitor import config
+from monitor.core.tools import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib import rate_limiter
 from monitor.lib.llm_utils import dict_to_attr, validate_tool_message_order
+from monitor.lib.tool_loading import function_descriptions
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,39 @@ def estimate_response_tokens(messages):
         return 0
 
 
+def get_tools_for_model():
+    """Get appropriate tool definitions based on the model type.
+    
+    Returns:
+        tuple: (tools, tool_choice) where tools is the tool definitions and 
+               tool_choice is the tool selection strategy
+    """
+    try:
+        model_lower = config.MODEL.lower()
+        
+        # Check if tools are disabled
+        if getattr(config, 'DISABLE_TOOLS', False):
+            logger.debug("Tools disabled by configuration")
+            return None, None
+        
+        # Determine which tools to use based on model
+        if "gemini" in model_lower:
+            tools = GEMINI_TOOL_DESCRIPTIONS
+            logger.debug(f"Using Gemini tool descriptions ({len(tools) if tools else 0} tools)")
+        else:
+            tools = function_descriptions()
+            logger.debug(f"Using function descriptions ({len(tools) if tools else 0} tools)")
+        
+        # Set tool choice strategy
+        tool_choice = "auto" if tools else None
+        
+        return tools, tool_choice
+        
+    except Exception as e:
+        logger.error(f"Error getting tools for model: {e}", exc_info=True)
+        return None, None
+
+
 def call_responses_api(messages):
     """Make the actual call to the responses API via litellm.
     
@@ -91,17 +126,30 @@ def call_responses_api(messages):
     try:
         logger.debug("Calling responses API via litellm")
         
+        # Get tools for the current model
+        tools, tool_choice = get_tools_for_model()
+        
+        # Build completion parameters
+        completion_params = {
+            'model': config.MODEL,
+            'messages': messages,
+            'temperature': getattr(config, 'TEMPERATURE', 0.7),
+            'max_tokens': getattr(config, 'MAX_COMPLETION_TOKENS', None),
+            'top_p': getattr(config, 'TOP_P', None),
+            'frequency_penalty': getattr(config, 'FREQUENCY_PENALTY', None),
+            'presence_penalty': getattr(config, 'PRESENCE_PENALTY', None),
+        }
+        
+        # Add tools if available
+        if tools:
+            completion_params['tools'] = tools
+            completion_params['tool_choice'] = tool_choice
+            logger.debug(f"Added {len(tools)} tools to responses API call with choice '{tool_choice}'")
+        else:
+            logger.debug("No tools available for responses API call")
+        
         # Use litellm.completion for responses API
-        # The MODEL should be configured appropriately for responses API
-        response = litellm.completion(
-            model=config.MODEL,
-            messages=messages,
-            temperature=getattr(config, 'TEMPERATURE', 0.7),
-            max_tokens=getattr(config, 'MAX_COMPLETION_TOKENS', None),
-            top_p=getattr(config, 'TOP_P', None),
-            frequency_penalty=getattr(config, 'FREQUENCY_PENALTY', None),
-            presence_penalty=getattr(config, 'PRESENCE_PENALTY', None),
-        )
+        response = litellm.completion(**completion_params)
         
         logger.debug("Successfully received response from responses API")
         return response
