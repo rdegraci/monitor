@@ -316,8 +316,9 @@ def handle_exit_command(command):
 
 
 def internalize_command(command):
-    """Backward-compatible helper delegating to evaluate_command() and returning a JSON-serializable dict."""
+    """Helper for command evaluation and execution (LLM, built-ins, etc)."""
     result = evaluate_command(command)
+    result = execute_command(result, command, config.HISTORY_FILE)
     return {
         "output": result.output,
         "error": result.error,
