@@ -1,6 +1,5 @@
 import logging
 import litellm
-import re
 
 from monitor import config
 
@@ -29,12 +28,54 @@ from monitor.lib.llm_utils import (
     TextToSpeech,
 )
 
+# Import responses API adapter
+from monitor.lib.llm_responses_adapter import response_completion, get_response_initial_completion
+
 TTS = TextToSpeech()           # Configure with preferred voice if needed
+
+def extract_user_input_from_history():
+    """Extract the most recent user input from conversation history.
+    
+    This is used by responses API which needs the current user query
+    rather than full conversation context.
+    
+    Returns:
+        str: The most recent user input, or empty string if not found
+    """
+    try:
+        # Look for the most recent user message in conversation history
+        for message in reversed(config.CONVERSATION_HISTORY):
+            if message.get("role") == "user":
+                return message.get("content", "")
+        
+        logger.warning("No user input found in conversation history")
+        return ""
+        
+    except Exception as e:
+        logger.error(f"Error extracting user input from history: {e}", exc_info=True)
+        return ""
 
 def get_llm_completion(log_prefix='', error_message='Error during litellm completion'):
     """Common logic for getting completion from LLM with error handling and rate limiting.
     Token counting and updates use canonical helpers from monitor.lib/token_management.py.
+    
+    Routes to responses API if config.RESPONSES_API is True, otherwise uses conversations API.
     """
+    # Check if responses API should be used
+    if getattr(config, 'RESPONSES_API', False):
+        logger.debug("Using responses API for completion")
+        user_input = extract_user_input_from_history()
+        if not user_input:
+            return None, "No user input found in conversation history for responses API"
+        
+        return response_completion(
+            user_input=user_input,
+            log_prefix=log_prefix,
+            error_message=error_message
+        )
+    
+    # Use conversations API (existing logic)
+    logger.debug("Using conversations API for completion")
     try:
         summarization_attempted = False
         # Build conversation messages
@@ -139,9 +180,9 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         if estimated_request > config.MODEL_MAX_TPM:
             return None, (
                 f"Input too large: {estimated_request} tokens "
-                f"vs model limit {config.MODEL_MAX_TPM}. Cannot send request."
+                f"vs model limit {config.MODEL_MAX_TPM}. Cannot send request. "
                 "Please reduce the size of your input (file, diff, or message) or send smaller requests."
-            ), 
+            ) 
 
         # Validate before waiting on rate limiter
         try:
@@ -232,9 +273,9 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
 
             if wait_result is None:
                 return None, (
-                    f"Input too large: {estimated_request} tokens. Model limit {config.MODEL_MAX_TPM} tokens."
+                    f"Input too large: {estimated_request} tokens. Model limit {config.MODEL_MAX_TPM} tokens. "
                     "Reduce the size of your request."
-                ), 
+                )
 
         # Final validation just before making the completion call
         try:
@@ -249,13 +290,12 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         response = dict_to_attr(response)
 
         # Record actual usage using canonical update
-        update_token_usage(response if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens') else estimated_tokens)
-
         actual_used = (
-           response.usage.total_tokens
-           if hasattr(response, "usage") and hasattr(response, "usage") and hasattr(response.usage, "total_tokens")
-           else estimated_tokens
+            response.usage.total_tokens
+            if hasattr(response, "usage") and hasattr(response.usage, "total_tokens")
+            else estimated_tokens
         )
+        update_token_usage(actual_used)
         rate_limiter.RATE_LIMITER.add_request(actual_used)
 
         logger.debug(f"{log_prefix} Received response from the language model.")
@@ -278,8 +318,21 @@ def process_response_by_type(response_type, response, response_message):
         return process_direct_response(response_message)
 
 def get_llm_initial_completion():
-    """Get initial response from LLM for the query with rate limiting"""
-    logger.debug("Getting initial LLM response...")
+    """Get initial response from LLM for the query with rate limiting
+    
+    Routes to appropriate API based on config.RESPONSES_API setting.
+    """
+    # Check if responses API should be used
+    if getattr(config, 'RESPONSES_API', False):
+        logger.debug("Getting initial responses API response...")
+        user_input = extract_user_input_from_history()
+        if not user_input:
+            return None, "No user input found in conversation history for responses API"
+        
+        return get_response_initial_completion(user_input)
+    
+    # Use conversations API
+    logger.debug("Getting initial conversations API response...")
     return get_llm_completion(
         log_prefix="Initial request:",
         error_message="I apologize, but I encountered an error processing your request. Please try again"
