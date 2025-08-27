@@ -129,6 +129,7 @@ def reset_conversation_history_command(arg=None):
         config.CONVERSATION_HISTORY.clear()
         config.CONVERSATION_HISTORY.append({"role": "system", "content": SYSTEM_PROMPT})
         config.TOTAL_TOKEN_COUNT = 0
+        config.RESPONSE_ID = None
         print("Conversation history was reset to initial system prompt.")
     except Exception as e:
         logger.error(f"Failed to reset conversation history: {e}", exc_info=True)
