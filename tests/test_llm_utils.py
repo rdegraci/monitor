@@ -222,6 +222,6 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
     config.REASONING_MAX_COMPLETION_TOKENS = 50
     model = 'openai/o3-test'
     messages = [{'role': 'user', 'content': 'hi'}]
-    res = llm_utils.call_litellm_completion(model, messages)
+    res = llm_utils.call_litellm_completion(model, messages, tool_descriptions=[], gemini_tool_descriptions=[])
     assert 'reasoning_effort' in captured and captured['reasoning_effort'] == 2
     assert 'max_completion_tokens' in captured and captured['max_completion_tokens'] == 50
