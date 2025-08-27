@@ -19,6 +19,7 @@ from dotenv import find_dotenv, load_dotenv
 
 from monitor.lib.rate_limiter import configure_rate_limiter
 from monitor.core.tools import configure_tools
+from monitor.core.llm_responses_adapter import configure_responses_adapter
 from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
@@ -257,6 +258,7 @@ SUMMARY_TWITCH=None
 SUMMARY_LINKEDIN=None
 SUMMARY_TWITTER=None
 SERVER_MODE=None
+RESPONSES_API=None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
@@ -269,7 +271,7 @@ def configure_globals():
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
     global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
-    global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE
+    global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, RESPONSES_API
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -337,9 +339,10 @@ def configure_globals():
 
     PREFERENCE_PROMPT_FILE = os.path.expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
-    REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX', 'openai/o3')
+    REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX')
     REASONING_EFFORT = yaml_config.get('REASONING_EFFORT', "medium")
     REASONING_MAX_COMPLETION_TOKENS = yaml_config.get('REASONING_MAX_COMPLETION_TOKENS', 25000)
+    RESPONSES_API = yaml_config.get('RESPONSES_API')
 
     ARTIFACT_SERVER = yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/')
     CODE_LENS_HOST = yaml_config.get('CODE_LENS_HOST', 'localhost')
@@ -468,6 +471,7 @@ def configure_subsystems():
     configure_protocol_engine()
     configure_consultant()
     configure_voice_to_text()
+    configure_responses_adapter()
 
 def set_model(model_key: str) -> bool:
     """

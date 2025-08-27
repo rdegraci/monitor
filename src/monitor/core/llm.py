@@ -323,7 +323,9 @@ def get_llm_initial_completion():
     Routes to appropriate API based on config.RESPONSES_API setting.
     """
     # Check if responses API should be used
-    if getattr(config, 'RESPONSES_API', False):
+    prefix = getattr(config, 'REASONING_MODEL_PREFIX')
+    model = getattr(config, 'MODEL')
+    if getattr(config, 'RESPONSES_API', False) and model.startswith(prefix):
         logger.debug("Getting initial responses API response...")
         user_input = extract_user_input_from_history()
         if not user_input:
