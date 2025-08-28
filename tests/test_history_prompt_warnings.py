@@ -138,8 +138,8 @@ def test_cumulative_warning_prefixes_in_log_negative_token_count(caplog_info):
     cfg2.TOTAL_TOKEN_COUNT = 205
     history.log_negative_token_count(logger, cfg2)
 
-    # Assert
-    warnings = [r.getMessage() for r in caplog_info.records if r.levelno >= logging.WARNING]
-    joined = "\n".join(warnings)
-    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(96)" in m for m in warnings), f"Expected near-threshold cumulative warning with (96). Logs:\n{joined}"
-    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(205)" in m for m in warnings), f"Expected >2x cumulative warning with (205). Logs:\n{joined}"
+    # Assert: check INFO-level records for cumulative token count messages
+    infos = [r.getMessage() for r in caplog_info.records if r.levelno >= logging.INFO]
+    joined = "\n".join(infos)
+    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(96)" in m for m in infos), f"Expected near-threshold cumulative info message with (96). Logs:\n{joined}"
+    assert any("[TOKEN COUNT][CUMULATIVE]" in m and "(205)" in m for m in infos), f"Expected >2x cumulative info message with (205). Logs:\n{joined}"

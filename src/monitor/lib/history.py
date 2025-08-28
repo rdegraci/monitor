@@ -77,7 +77,7 @@ def log_negative_token_count(logger, config):
         if total_tokens < 0:
             logger.error(f"[TOKEN COUNT] CRITICAL: TOTAL_TOKEN_COUNT is negative ({total_tokens})!")
         elif max_tokens is not None and total_tokens > (0.95 * max_tokens):
-            logger.warning(f"[TOKEN COUNT][CUMULATIVE] TOTAL_TOKEN_COUNT: ({total_tokens}) processed.")
+            logger.info(f"[TOKEN COUNT][CUMULATIVE] TOTAL_TOKEN_COUNT: ({total_tokens}) processed.")
 
 def append_to_history_with_count(
     message: dict,
