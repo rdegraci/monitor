@@ -4,7 +4,9 @@ def ripgrep_search_tool(term, filetype=None, word=False):
     """
     A ripgrep_search wrapper, used by LLM as a tool call
     """
-    return ripgrep_search(term, filetype, '.', word)
+    result = ripgrep_search(term, filetype, '.', word)
+    print(result)
+    return result
 
 
 def ripgrep_search(term, filetype=None, search_path='.', word=False):
