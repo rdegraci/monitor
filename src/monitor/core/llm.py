@@ -70,6 +70,8 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
         
         return response_completion(
             user_input=user_input,
+            tool_descriptions=TOOL_DESCRIPTIONS,
+            gemini_tool_descriptions=GEMINI_TOOL_DESCRIPTIONS,
             log_prefix=log_prefix,
             error_message=error_message
         )
@@ -337,7 +339,7 @@ def get_llm_initial_completion():
         if not user_input:
             return None, "No user input found in conversation history for responses API"
         
-        return get_response_initial_completion(user_input)
+        return get_response_initial_completion(user_input, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS)
     
     # Use conversations API
     logger.debug("Getting initial conversations API response...")

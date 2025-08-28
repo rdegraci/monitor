@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 TTS = TextToSpeech()
 
-
 class AttrDict(dict):
     """
     Dictionary subclass whose entries can be accessed by attributes (as well as normally).
@@ -311,3 +310,322 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
         )
 
     return litellm.completion(**kwargs)
+
+OPENAI_PREFIX = "openai/"
+
+def strip_openai_prefix(model_name):
+    """Remove a leading 'openai/' prefix from a model name, case-insensitively.
+
+    Args:
+        model_name (str or None): The model name to normalize.
+
+    Returns:
+        str or original value: The model name with a leading 'openai/' removed
+        if present (case-insensitive). If model_name is falsy or not a str,
+        returns model_name unchanged.
+
+    Examples:
+        >>> strip_openai_prefix("openai/gpt-4")
+        'gpt-4'
+        >>> strip_openai_prefix("OpenAI/GPT-4o")
+        'GPT-4o'
+        >>> strip_openai_prefix(None) is None
+        True
+        >>> strip_openai_prefix(123)
+        123
+    """
+    if not model_name or not isinstance(model_name, str):
+        return model_name
+    lower = model_name.lower()
+    prefix = OPENAI_PREFIX
+    if lower.startswith(prefix):
+        return model_name[len(prefix) :]
+    return model_name
+
+TYPE_KEY = "type"
+NAME_KEY = "name"
+DESCRIPTION_KEY = "description"
+DEFAULT_TOOL_TYPE = "function"
+PARAMETERS_PROPERTIES_KEY = "properties"
+PARAMETERS_REQUIRED_KEY = "required"
+PARAMETERS_TYPE_OBJECT = "object"
+
+def normalize_tool_descriptors(tool_list):
+    """Normalize a list of tool descriptor dicts into a flat, consistent shape.
+
+    The function accepts tool descriptor entries in one of two common shapes:
+      1) Flat descriptors:
+         { 'type': 'function', 'name': 'foo', 'description': '...', 'parameters': { ... } }
+      2) Nested descriptors:
+         { 'type': 'function', 'function': { 'name': 'foo', 'description': '...', 'parameters': {...} } }
+
+    Returns a new list where each descriptor is a dict with at minimum:
+      { 'type': 'function', 'name': <str>, 'description': <str>, 'parameters': {
+            'type': 'object', 'properties': {...}, 'required': [...] (if present)
+        }
+      }
+
+    Defensive behavior:
+    - Skips non-dict entries.
+    - Skips entries without a valid string 'name'.
+    - Ensures 'parameters' is a dict; sets parameters['type'] == 'object'.
+    - Ensures parameters['properties'] exists as a dict.
+    - If 'required' exists, ensures it's a list (or converts/cleans to an empty list).
+    - Logs exceptions per-entry but continues processing other entries.
+    """
+    if not tool_list:
+        return tool_list
+
+    normalized = []
+    for idx, entry in enumerate(tool_list):
+        try:
+            if not isinstance(entry, dict):
+                logger.debug(
+                    f"Skipping non-dict tool descriptor at index {idx}: {type(entry)}"
+                )
+                continue
+
+            # Support nested 'function' wrapper
+            nested = entry.get("function") if isinstance(entry.get("function"), dict) else None
+
+            # Derive core fields with nested taking precedence
+            name = None
+            description = None
+            parameters = None
+            type_val = None
+
+            if nested:
+                name = nested.get(NAME_KEY) or entry.get(NAME_KEY)
+                description = nested.get(DESCRIPTION_KEY) or entry.get(DESCRIPTION_KEY) or ""
+                parameters = nested.get("parameters") or entry.get("parameters")
+                type_val = entry.get(TYPE_KEY) or nested.get(TYPE_KEY) or DEFAULT_TOOL_TYPE
+            else:
+                name = entry.get(NAME_KEY)
+                description = entry.get(DESCRIPTION_KEY) or entry.get("doc") or ""
+                parameters = entry.get("parameters")
+                type_val = entry.get(TYPE_KEY) or DEFAULT_TOOL_TYPE
+
+            # Validate name
+            if not name or not isinstance(name, str):
+                logger.debug(
+                    f"Skipping tool descriptor without valid name at index {idx}: {name}"
+                )
+                continue
+
+            # Ensure parameters is a dict
+            if not isinstance(parameters, dict):
+                parameters = {}
+
+            # Work on a shallow copy to avoid mutating original
+            parameters = dict(parameters)
+
+            # Ensure parameters['type'] == 'object'
+            if parameters.get(TYPE_KEY) != PARAMETERS_TYPE_OBJECT:
+                parameters[TYPE_KEY] = PARAMETERS_TYPE_OBJECT
+
+            # Ensure properties exists as a dict
+            props = parameters.get(PARAMETERS_PROPERTIES_KEY)
+            if not isinstance(props, dict):
+                parameters[PARAMETERS_PROPERTIES_KEY] = {}
+
+            # Ensure 'required' is a list if present; coerce if possible
+            if PARAMETERS_REQUIRED_KEY in parameters:
+                req = parameters.get(PARAMETERS_REQUIRED_KEY)
+                if isinstance(req, list):
+                    # fine
+                    pass
+                elif hasattr(req, "__iter__") and not isinstance(req, (str, bytes, dict)):
+                    try:
+                        parameters[PARAMETERS_REQUIRED_KEY] = list(req)
+                    except Exception:
+                        parameters[PARAMETERS_REQUIRED_KEY] = []
+                else:
+                    parameters[PARAMETERS_REQUIRED_KEY] = []
+
+            normalized.append(
+                {
+                    TYPE_KEY: type_val,
+                    NAME_KEY: name,
+                    DESCRIPTION_KEY: description or "",
+                    "parameters": parameters,
+                }
+            )
+
+        except Exception as e:
+            logger.exception(f"Error normalizing tool descriptor at index {idx}: {e}")
+            # Continue processing other entries despite the error
+            continue
+
+    return normalized
+
+ROLE_KEY = "role"
+SYSTEM_ROLE = "system"
+CONTENT_KEY = "content"
+USER_ROLE = "user"
+
+def prepare_response_messages(user_input):
+    """Prepare messages for responses API format.
+
+    The responses API typically expects a simpler format focused on the current request
+    rather than full conversation history.
+
+    Args:
+        user_input (str): The current user input/query
+
+    Returns:
+        list: Formatted messages for responses API
+    """
+    try:
+        # For responses API, we focus on the current request
+        # Add system message if preferences are configured
+        messages = []
+
+        from monitor.lib.preferences import PREFERENCE_PROMPT
+
+        if PREFERENCE_PROMPT:
+            messages.append({ROLE_KEY: SYSTEM_ROLE, CONTENT_KEY: PREFERENCE_PROMPT})
+
+        # Add the user input
+        messages.append({ROLE_KEY: USER_ROLE, CONTENT_KEY: user_input})
+
+        # Sanitize messages before sending
+        messages = sanitize_messages(messages)
+
+        logger.debug(f"Prepared {len(messages)} messages for responses API")
+        return messages
+
+    except Exception as e:
+        logger.error(f"Error preparing response messages: {e}", exc_info=True)
+        raise
+
+def estimate_response_tokens(messages):
+    """Estimate token count for responses API messages."""
+    try:
+        estimated_tokens = 0
+        for msg in messages:
+            normalized_msg = normalize_message(msg)
+            estimated_tokens += count_message_tokens(normalized_msg)
+
+        logger.debug(f"Estimated {estimated_tokens} tokens for responses API")
+        return estimated_tokens
+
+    except Exception as e:
+        logger.error(f"Error estimating response tokens: {e}", exc_info=True)
+        return 0
+
+def get_tools_for_model(tool_descriptions, gemini_tool_descriptions):
+    """Get appropriate tool definitions based on the model type.
+
+    Returns:
+        tuple: (tools, tool_choice) where tools is the tool definitions and
+               tool_choice is the tool selection strategy
+    """
+    try:
+        model_lower = config.MODEL.lower()
+
+        # Check if tools are disabled
+        if getattr(config, "DISABLE_TOOLS", False):
+            logger.debug("Tools disabled by configuration")
+            return None, None
+
+        # Determine which tools to use based on model
+        if "gemini" in model_lower:
+            tools = gemini_tool_descriptions
+            logger.debug(
+                f"Using Gemini tool descriptions ({len(tools) if tools else 0} tools)"
+            )
+        else:
+            tools = function_descriptions(tool_descriptions, gemini_tool_descriptions, model_lower)
+            logger.debug(
+                f"Using function descriptions ({len(tools) if tools else 0} tools)"
+            )
+
+        # Normalize tool descriptors to a consistent flat shape for downstream usage
+        if tools:
+            try:
+                tools = normalize_tool_descriptors(tools)
+            except Exception:
+                logger.exception("Failed to normalize tool descriptors, proceeding with original tools")
+
+        # Set tool choice strategy
+        tool_choice = "auto" if tools else None
+
+        return tools, tool_choice
+
+    except Exception as e:
+        logger.error(f"Error getting tools for model: {e}", exc_info=True)
+        return None, None
+
+CHOICES_KEY = "choices"
+MESSAGE_KEY = "message"
+
+def convert_response_format(api_response):
+    """Convert responses API response to expected format.
+
+    Ensures the response format matches what the rest of the system expects.
+
+    Args:
+        api_response (dict): Raw or normalized API response
+
+    Returns:
+        AttrDict: Converted response with attribute access
+    """
+    try:
+        # Convert to attribute-accessible format
+        response = dict_to_attr(api_response)
+
+        # Validate expected response structure
+        if not hasattr(response, CHOICES_KEY) or not response.choices:
+            raise ValueError("Invalid response format: missing choices")
+
+        if len(response.choices) == 0:
+            raise ValueError("Invalid response format: empty choices")
+
+        first_choice = response.choices[0]
+        if not hasattr(first_choice, MESSAGE_KEY):
+            raise ValueError("Invalid response format: missing message in choice")
+
+        logger.debug("Successfully converted response format")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error converting response format: {e}", exc_info=True)
+        raise
+
+MAX_ERROR_INPUT_SNIPPET = 100
+
+def handle_response_errors(error, user_input=None):
+    """Handle responses API specific errors with appropriate logging.
+
+    Args:
+        error (Exception): The error that occurred
+        user_input (str, optional): The original user input for context
+
+    Returns:
+        tuple: (None, error_message) following llm.py error format
+    """
+    error_context = (
+        f" for input: {user_input[:MAX_ERROR_INPUT_SNIPPET]}..."
+        if user_input and len(user_input) > MAX_ERROR_INPUT_SNIPPET
+        else f" for input: {user_input}"
+        if user_input
+        else ""
+    )
+
+    if "rate limit" in str(error).lower():
+        error_msg = f"Responses API rate limit exceeded{error_context}. Please try again later."
+        logger.error(f"Rate limit error: {error}", exc_info=True)
+    elif "authentication" in str(error).lower() or "unauthorized" in str(error).lower():
+        error_msg = f"Responses API authentication failed{error_context}. Please check your API credentials."
+        logger.error(f"Authentication error: {error}", exc_info=True)
+    elif "quota" in str(error).lower() or "billing" in str(error).lower():
+        error_msg = f"Responses API quota exceeded{error_context}. Please check your account status."
+        logger.error(f"Quota error: {error}", exc_info=True)
+    elif "timeout" in str(error).lower():
+        error_msg = f"Responses API request timed out{error_context}. Please try again."
+        logger.error(f"Timeout error: {error}", exc_info=True)
+    else:
+        error_msg = f"Responses API error{error_context}: {str(error)}"
+        logger.error(f"General responses API error: {error}", exc_info=True)
+
+    return None, error_msg
