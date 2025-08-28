@@ -9,6 +9,16 @@ import logging
 import re
 import litellm
 
+try:
+    import httpcore
+except ImportError:
+    httpcore = None
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
 from typing import List, Dict, Any
 
 from monitor import config
@@ -604,6 +614,39 @@ def handle_response_errors(error, user_input=None):
     Returns:
         tuple: (None, error_message) following llm.py error format
     """
+    # Detect network/connectivity-related errors and handle them specially.
+    network_error_classes = []
+    if httpcore is not None:
+        try:
+            network_error_classes.append(httpcore.ConnectError)
+        except Exception:
+            # If httpcore doesn't expose ConnectError as expected, ignore.
+            pass
+    if httpx is not None:
+        try:
+            network_error_classes.append(httpx.ConnectError)
+        except Exception:
+            # If httpx doesn't expose ConnectError as expected, ignore.
+            pass
+    # OSError covers many low-level network errors (e.g., socket errors).
+    network_error_classes.append(OSError)
+
+    is_network_error = False
+    try:
+        is_network_error = any(isinstance(error, cls) for cls in network_error_classes if cls is not None)
+    except Exception:
+        # If isinstance checks fail for some reason, fall back to string matching below.
+        is_network_error = False
+
+    error_str = str(error) if error is not None else ""
+    if not is_network_error and isinstance(error_str, str) and "network is unreachable" in error_str.lower():
+        is_network_error = True
+
+    if is_network_error:
+        # Log a warning without traceback to avoid leaking internal details, then raise a sanitized error.
+        logger.warning("Network error detected while calling Responses API; marking as network unreachable.")
+        raise RuntimeError("Network unreachable") from None
+
     error_context = (
         f" for input: {user_input[:MAX_ERROR_INPUT_SNIPPET]}..."
         if user_input and len(user_input) > MAX_ERROR_INPUT_SNIPPET
