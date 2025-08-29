@@ -75,5 +75,7 @@
 "xapp": "examine (appfile)",
 "a": "world",
 "b": "hello (a)",
-"c": "(tcl puts \"$env(HOME)\")"
+"c": "(tcl puts \"$env(HOME)\")",
+"todos?":"what is in the todos list?",
+"self_test":"what is the weather in san diego, ca in F? (purpose?) (memories?)"
 }
