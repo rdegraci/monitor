@@ -1,98 +1,131 @@
-# lib/ Platform Integration and Extensibility Hub
+# lib/ — Platform Integration and Extensibility Hub
 
-The `lib/` directory is the Monitor platform's integration, utility, and extensibility engine. This layer forms a robust suite of helpers—ranging from stateless tools, connectors to external systems and AI, memory management components, to advanced editors and macro infrastructure. The `lib/` modules are orchestrated by the `core/` layer but built to be independently replaceable, testable, and pluggable.
+This document describes the monitor.lib package: the integration, utility, and extensibility layer for the Monitor platform. It is intended to be practical and actionable for contributors who want to add, update, or integrate helpers, connectors, and stateful services.
 
----
+Key points up-front
+- monitor.lib contains focused modules that encapsulate single responsibilities (connectors, helpers, editors, memory, rate limiting, token accounting, etc.).
+- monitor.lib.token_management is the canonical token counting and update API for the platform. Other modules (notably rate_limiter.py) should use that API rather than duplicating token accounting logic.
+- rate_limiter.py provides request and token rate limiting and delegates token counting/updating to monitor.lib.token_management.
+- Several modules in lib are integration points with core systems (history, conversation, tooling, LLM adapters) and with external adapters (redis_utils, semantic_store, text_vector_store, tool_loading).
+- If you add a new helper module, register it with core or tool-loading when it provides tool-like behavior or needs to be exposed to macros/workflows.
 
-## High-Level Architecture
+High-level architecture
+- Integration-first: connectors and adapters live here and are designed for rapid extension.
+- Helpers and state infra: most modules are stateless utilities; a few (macros, memory, editors, logging) provide explicit stateful services.
+- Plug-and-play: add new modules as single files under lib/, follow minimal dependency rules, and register where appropriate.
+- Explicit state: prefer pure functions; surface stateful behavior through clear, well-documented APIs.
 
-- **Integration First:** All connectors (system, AI, memory, search, APIs) reside here—modules are focused, single-responsibility, and designed for rapid extensibility.
-- **Helpers and State Infrastructure:** Most modules are stateless for composability, but key infrastructure pieces (macros, memory, editor, logging) are stateful where platform function requires.
-- **Plug-and-Play Extensibility:** Add new modules (platforms, tools, modeling, editors) as single files. Register in the orchestration layer to expose them via the UI, macros, or workflows.
-- **Loose Coupling and Bridging:** Minimize dependencies between helpers. Compatibility stubs or bridging logic are clearly marked and limited to isolated files.
+Files in src/monitor/lib (one-line responsibilities)
+- built_in_commands.py — Common built-in commands and shared platform helper command implementations.
+- built_ins_utils.py — Utilities for registering and managing built-in helper functions and commands.
+- colors.py — Terminal and UI color helpers and color scheme utilities.
+- command_utils.py — Command definition, parsing, and execution utilities for CLI and macro invocation.
+- commit_analysis.py — High-level commit analysis and summary helpers (semantic interpretation of diffs/commits).
+- commit_analyzer.py — Legacy/bridge Git commit analysis helper (compatibility shim for older workflows).
+- consult.py — Consultative AI/system orchestration helpers and templating utilities.
+- db_storage.py — DuckDB/Postgres connection helpers and query abstractions used by storage-backed features.
+- deployment.py — Helpers and utilities for deploying code, models, or artifacts.
+- display_output.py — Formatting, streaming, and display management utilities for UI and logs.
+- ecs.py — AWS ECS integration helpers and deployment orchestration utilities.
+- external_services.py — Utilities for publishing artifacts and posting to social platforms (Twitter, Twitch, LinkedIn, etc.).
+- file_io.py — Filesystem reading/writing, path utilities, and safe file helpers.
+- git.py — Git command wrappers and version control helpers.
+- history.py — Persistent or session-based history management used by core conversation/history features.
+- input_modes.py — Helpers for managing and switching interactive input modes.
+- keyboard.py — Keyboard event handling and shortcut utilities for interactive UIs.
+- lexer.py — Syntax highlighting, lexing, and prompt-toolkit integration for autocompletion and display.
+- logging.py — Robust logging, auditing, and trace utilities for platform events and actions.
+- macro_utils.py — Macro expansion helpers, validation, and utility functions for macro workflows.
+- macros.py — Persistent macro definitions, orchestration, storage, and macro lifecycle management.
+- message_utils.py — Formatting and managing system and LLM messages; conversation content helpers.
+- modeling.py — Data science / ML model helpers and basic training / inference utilities.
+- os.py — OS compatibility helpers and platform bridging (legacy/compatibility shim).
+- preferences.py — User and system preference loading, saving, and management helpers.
+- preprocessing.py — Input and data preprocessing pipelines and utilities used by prompts and tools.
+- protocol_engine.py — Protocol and streaming execution engine abstractions used by streaming components.
+- rag.py — Retrieval-augmented generation helpers that combine search results and context for LLMs.
+- rate_limiter.py — Rate limiting utilities and token/request throttling that rely on token_management for token bookkeeping.
+- redis_utils.py — Redis-based persistent memory/context helpers and fast storage adapters.
+- ripgrep_search.py — High-performance project/file search wrapper around ripgrep.
+- semantic_store.py — Embedding and semantic similarity helpers, and a context store interface for retrieval.
+- signal_handler.py — OS signal handling and graceful shutdown utilities.
+- summarizers.py — Text and chat summarization helpers using LLMs or heuristic approaches.
+- system_prompt.py — System prompt management and prompt editing/orchestration helpers.
+- terminal_commands.py — Shell subprocess orchestration and command launching utilities.
+- text_file_editor.py — Stateful text/buffer editor logic, undo/redo, and editor session management.
+- text_to_speech.py — Speech output utilities for LLM or system messages.
+- token_management.py — Canonical token counting, usage tracking, and update API for LLM requests; used across platform features.
+- tool_definitions.py — Schemas and definitions for tool/function/plugin structures exposed to workflows and LLMs.
+- tool_loading.py — Dynamic tool loading, discovery, and function definition registration utilities.
+- voice_to_text.py — Speech-to-text helpers and audio input utilities.
+- weather.py — External weather data adapter and simple API helper utilities.
+- web_search.py — External web search connector utilities and search result normalization.
 
----
+Key integrations and responsibilities
+- Core integration points:
+  - history.py is the canonical integration point for persistent conversation/history storage and is used by core conversation and UI layers.
+  - message_utils.py, macros.py, and macro_utils.py are used by orchestration layers (core) to drive macro execution and message flows.
+  - tool_definitions.py and tool_loading.py are the bridge between lib/ helpers and core tooling/macro systems — register tools here so core/tooling can discover and invoke them.
+  - modeling.py, rag.py, and preprocessors are frequently used by core LLM adapter workflows to prepare context and inputs.
+- External adapters and stores:
+  - redis_utils.py provides a Redis-backed memory/context store for session persistence and fast access.
+  - semantic_store.py provides embedding and vector search integration for retrieval.
+  - text_vector_store (if present in your installation) should be treated as a separate vector store adapter — align schema and integration with semantic_store semantics.
+  - tool_loading.py is the canonical place for registering dynamically-discoverable tools that may interact with external adapters.
+- Token & rate control:
+  - token_management.py is the canonical API for counting and updating token usage across LLM requests. All modules that consume or charge tokens MUST call into this API to ensure consistent accounting and telemetry.
+  - rate_limiter.py implements transport/request throttling and delegates token updating and decrementation to token_management.py to enforce consistent limits and telemetry.
 
-## Current Modules (June 2024)
+Security and server note
+- server.create_flask_server (or the server module's create_flask_server helper in the project) can be used to quickly start a local HTTP server for integrations and testing.
+- Security warning: Do NOT bind the development Flask server to 0.0.0.0 (non-localhost) in production or on untrusted networks. The default development server is not hardened; if you need remote access, run behind a production-grade WSGI server (Gunicorn/uvicorn) and secure the endpoint (TLS, authentication, firewall).
 
-| File                      | Purpose                                                                                              | Notes                                    |
-|---------------------------|------------------------------------------------------------------------------------------------------|------------------------------------------|
-| `built_in_commands.py`    | Built-in shared commands and platform-level helper logic                                             |                                          |
-| `built_ins_utils.py`      | Utility functions for managing and registering built-in helpers                                      |                                          |
-| `colors.py`               | Terminal and UI color management helpers                                                             |                                          |
-| `command_utils.py`        | Command definition, parsing, and execution utilities                                                 |                                          |
-| `commit_analysis.py`      | Detailed commit analysis and summary logic                                                           |                                          |
-| `commit_analyzer.py`      | Git commit analysis (compatibility/legacy stub)                                                      | Bridging/legacy only                      |
-| `consult.py`              | Consultative AI/system logic and template helpers                                                    |                                          |
-| `db_storage.py`           | Database (DuckDB/Postgres) connection and query helpers                                              |                                          |
-| `deployment.py`           | Tools for deploying code, models, or artifacts                                                       |                                          |
-| `display_output.py`       | Display, format, and stream output management                                                        |                                          |
-| `ecs.py`                  | ECS (Elastic Container Service) integration and management utilities                                 |                                          |
-| `external_services.py`    | Social posting and artifact publication (Twitch, Twitter, LinkedIn, etc.)                            |                                          |
-| `file_io.py`              | File system reading, writing, and path utilities                                                     |                                          |
-| `git.py`                  | Git command and version control integration                                                          |                                          |
-| `history.py`              | Persistent or session-based operation and command history                                            |                                          |
-| `input_modes.py`          | Helpers for handling and switching user input modes                                                  |                                          |
-| `keyboard.py`             | Keyboard event handling and shortcut utilities                                                       |                                          |
-| `lexer.py`                | Syntax highlighting, lexing, and autocompletion (prompt-toolkit integration)                        |                                          |
-| `logging.py`              | Robust logging, auditing, and tracing infrastructure                                                 |                                          |
-| `macro_utils.py`          | Macro expansion, utilities, and validation helpers                                                   |                                          |
-| `macros.py`               | Persistent macro definitions, orchestration, and storage                                             |                                          |
-| `message_utils.py`        | Format, manage, and log LLM/system messages                                                         |                                          |
-| `modeling.py`             | Data science/ML/AI model helpers, training, and inference                                            |                                          |
-| `os.py`                   | OS compatibility, environment helpers, and platform bridging (stub/bridge module)                    | Bridging/compatibility                    |
-| `preferences.py`          | User/system preference loading, saving, and management                                               |                                          |
-| `preprocessing.py`        | Pipeline and pre-processing utilities for input, code, or data                                       |                                          |
-| `protocol_engine.py`      | Protocol and streaming execution engine/design                                                       |                                          |
-| `rag.py`                  | Retrieval augmented generation: combines search and context for LLMs                                 |                                          |
-| `rate_limiter.py`         | Rate limiting and advanced token counting for APIs and LLM providers                                 |                                          |
-| `redis_utils.py`          | Persistent memory/context management and fast data store access using Redis                          | Platform memory/state infrastructure      |
-| `ripgrep_search.py`       | High-speed file/project search via ripgrep                                                           |                                          |
-| `semantic_store.py`       | Embedding/semantic similarity and context store helpers                                              |                                          |
-| `signal_handler.py`       | System and application signal handling                                 |                                          |
-| `summarizers.py`          | Text/chat summarization using LLMs or heuristics                                                     |                                          |
-| `system_prompt.py`        | System prompt management, editing, and orchestration                                                 |                                          |
-| `terminal_commands.py`    | Shell/system command launching and subprocess orchestration                                          |                                          |
-| `text_file_editor.py`     | Advanced text/buffer editor logic with stateful behavior                                             | Stateful editor infrastructure           |
-| `text_to_speech.py`       | Speech output of LLM or system messages                                                             |                                          |
-| `token_management.py`     | Token accounting and limits for API/LLM requests                                                     |                                          |
-| `tool_definitions.py`     | Definitions and schemas for tool, function, and plugin structures                                    |                                          |
-| `tool_loading.py`         | Dynamic tool loading and function definition schema                                                  |                                          |
-| `voice_to_text.py`        | Speech-to-text utilities for audio/voice input                                                       |                                          |
-| `weather.py`              | External weather and API query helpers                                                               |                                          |
-| `web_search.py`           | Web, Tavily, and external search connector utilities                                                 |                                          |
+Contributor guidance — adding a new helper module
+1. Create the module
+   - Add a single Python file under src/monitor/lib with a focused responsibility.
+   - Keep external dependencies minimal; prefer pure functions where possible.
+   - Include docstrings and small usage examples in the module header.
 
-<continued in next chunk>
+2. Design API and state
+   - If the module is stateless, expose small pure functions that accept explicit inputs and return deterministic outputs.
+   - If the module requires state (memory caches, editor sessions, macros), expose a small class or well-defined manager object and document lifecycle expectations.
 
+3. Integration & registration
+   - If your helper should be exposed as a tool/function to macros or the orchestration layer, register it via tool_definitions.py and tool_loading.py so core tooling can discover it.
+   - If your helper interacts with persistent memory, prefer using redis_utils.py or semantic_store.py adapters rather than re-implementing storage logic.
+   - If your helper affects token usage, call monitor.lib.token_management APIs to report consumption and updates.
 
----
+4. Tests and portability
+   - Add unit tests under tests/ that exercise pure logic and edge cases.
+   - Provide integration tests or a small example script showing how the module is wired into core workflows if applicable.
+   - Ensure cross-platform behavior for file/OS utilities; prefer higher-level stdlib helpers.
 
-*Notes:*
-- Bridging/legacy/stub modules (e.g., `os.py`, `commit_analyzer.py`) are included for compatibility with legacy workflows or external integrations. When extending, prefer modern equivalents or document bridging intent.
-- Platform infrastructure modules (e.g., `redis_utils.py`, `macros.py`, `text_file_editor.py`, `logging.py`) provide persistent or core stateful services beyond the stateless plugin pattern.
+5. Documentation
+   - Add a short README or docstring demonstrating intended usage and integration points.
+   - If the module is a bridge to legacy behavior, clearly label it as a compatibility shim and document expected migration paths.
 
----
+6. Security and operational considerations
+   - Validate and sanitize external inputs (URLs, files, command strings).
+   - Limit network calls and provide configurable timeouts for external adapters.
+   - For any server-facing feature, document expected threat model and required operational hardening.
 
-## Design Principles
+Examples of registration (patterns)
+- Tool registration (conceptual)
+  - Define a tool schema in tool_definitions.py.
+  - Ensure tool_loading.py can discover and instantiate the tool using a lightweight factory.
+  - Surface the tool name and input/output schema to orchestration layers so macros and workflows can call it.
 
-- **Plug-and-Play Extensibility:** Add connectors, helpers, editors, or integrations as individual Python modules under `lib/`. Each module should encapsulate a single concern and be minimally coupled.
-- **Orchestration via Core:** Actions, macros, workflows, and UI components orchestrate helpers in `lib/`, controlling stateful systems like memory and macros and seamlessly invoking stateless tools.
-- **Composability:** Modules combine flexibly via orchestration logic, macros, or tool definitions—compose new functionality by wiring helpers together.
-- **Minimal/Explicit State:** Prefer pure functions for helpers when possible. State (memory, preferences, macros, editor) is managed explicitly and surfaced via clear APIs.
-- **Compatibility & Bridging:** Use dedicated stub modules (e.g., `os.py`) to maintain legacy support or integrate new platforms. Always document compatibility boundaries transparently.
+- Token reporting (conceptual)
+  - Before an LLM call: tokens = token_management.count(prompt, model=model)
+  - After an LLM response: token_management.update_usage(user_id, model, request_tokens=tokens.request, response_tokens=tokens.response)
 
----
+Style and maintainability notes
+- Keep functions small and focused; prefer composition over large monolithic helpers.
+- Favor explicit dependencies injected as parameters (clients, adapters) rather than global singletons where testability matters.
+- Preserve backward-compatible behavior in bridge modules (os.py, commit_analyzer.py). Document deprecation timelines when making breaking changes.
 
-## Onboarding & Extension Guidance
+Contact and escalation
+- If your change affects token accounting, rate limiting, or persistent memory, add a note in the PR description describing the integration points touched and notify the platform core maintainers for review.
+- For questions about registering tools or adjusting tooling discovery, refer to the tool_loading.py docs and contact the tooling owner on the engineering channel.
 
-To introduce new helpers, connectors, or extensibility:
-
-1. **Create Module:** Add your module as a single Python file in `lib/`, following conventions of minimal dependencies and clear responsibility.
-2. **Register with Core:** Reference/register your helper in the orchestration layer (core), macros, or tool discovery logic to make it accessible to workflows and the UI.
-3. **Document Role:** Clearly state your module’s API, expected inputs/outputs, and any stateful infrastructure it uses or exposes.
-4. **Favor Reusability:** Structure logic into pure functions or explicit, well-namespaced classes to support maximum reuse by other macros and helpers.
-5. **Compatibility:** If bridging legacy systems or platforms, isolate compatibility logic into a well-documented stub module.
-
----
-
-The `lib/` directory thus powers the platform's rapidly extensible set of capabilities—connecting AI, system, memory, macros, editor, workflow, and external APIs in a robust, loosely coupled architecture. Register your extension, and it’s available across conversation, macros, and composition engines!
+This README is intended to help contributors quickly understand responsibilities, integration points, and safe extension patterns for src/monitor/lib. Follow the guidance above to keep the library modular, testable, and operable across the platform.
