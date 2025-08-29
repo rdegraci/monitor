@@ -29,6 +29,28 @@ from monitor.lib.keyboard import configure_voice_to_text
 
 logger = logging.getLogger(__name__)
 
+def _safe_expanduser(path):
+    """
+    Safely expand user path (os.path.expanduser) only for str inputs.
+    - If path is None: returns None.
+    - If path is a str: returns os.path.expanduser(path), raising RuntimeError (chained) on expansion errors.
+    - If path is not a str: returns the input unchanged.
+    Any unexpected exception is logged and re-raised as RuntimeError to abort execution.
+    """
+    try:
+        if path is None:
+            return None
+        if not isinstance(path, str):
+            return path
+        try:
+            return os.path.expanduser(path)
+        except Exception as e:
+            logger.error(f"Path expansion failed for path '{path}': {e}", exc_info=True)
+            raise RuntimeError(f"Error expanding path: {path}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error in _safe_expanduser for path '{path}': {e}", exc_info=True)
+        raise RuntimeError("Unexpected error in _safe_expanduser") from e
+
 def find_config_file(filename):
     """
     Search for 'filename' in system (site) config dir first, then in user config dir.
@@ -199,6 +221,10 @@ def get_model_reverse_mapping():
     Caveat: If multiple shorthand keys alias to the same model string, only the last alias key is kept in the mapping.
     Logs a warning for each duplicate (same model string for multiple keys), listing the duplicate model and conflicting shorthand keys.
     """
+    if not isinstance(MODEL_MAPPING, dict):
+        logger.warning(f"MODEL_MAPPING is not a dict (type: {type(MODEL_MAPPING).__name__}); returning empty reverse mapping.")
+        return {}
+
     reverse = {}
     value_to_keys = {}
     for k, v in MODEL_MAPPING.items():
@@ -286,10 +312,27 @@ def configure_globals():
     MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
     MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
     if MODEL_MAX_TPM is None:
-        reversed_model = get_model_reverse_mapping().get(MODEL) 
-        model_tpm = model_tpm_mapping.get(reversed_model)
-        MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER) 
-    
+        # Guarded lookups: ensure reverse mapping and model_tpm_mapping are dicts before accessing,
+        # and fall back to None if any lookup fails. This prevents runtime errors during startup.
+        try:
+            reversed_model = get_model_reverse_mapping().get(MODEL)
+        except Exception as e:
+            logger.error(f"Failed to get reverse model mapping for MODEL '{MODEL}': {e}", exc_info=True)
+            reversed_model = None
+
+        model_tpm = None
+        if isinstance(model_tpm_mapping, dict) and reversed_model in model_tpm_mapping:
+            model_tpm = model_tpm_mapping.get(reversed_model)
+        if isinstance(model_tpm, dict) and MODEL_INPUT_TIER in model_tpm:
+            MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER)
+        else:
+            # Could not determine MODEL_MAX_TPM from mappings; set to None to indicate unknown.
+            logger.warning(
+                f"Could not determine MODEL_MAX_TPM for MODEL='{MODEL}', reversed_model='{reversed_model}', "
+                f"MODEL_INPUT_TIER='{MODEL_INPUT_TIER}'. MODEL_MAX_TPM set to None."
+            )
+            MODEL_MAX_TPM = None
+
     CONVERSATION_MAX_SIZE = yaml_config.get("CONVERSATION_MAX_SIZE")
     RATE_LIMITING_CONFIG = yaml_config.get('rate_limiting', {
      'safety_factor': 0.6,
@@ -307,7 +350,7 @@ def configure_globals():
     MACRO_DELIMITER_OPEN = macro_delims.get('open', '(')
     MACRO_DELIMITER_CLOSE = macro_delims.get('close', ')')
     MACRO_DELIMITER_ESCAPE = macro_delims.get('escape', '\\')
-    MACRO_FILE_PATH = os.path.expanduser(yaml_config.get("MACRO_FILE"))
+    MACRO_FILE_PATH = _safe_expanduser(yaml_config.get("MACRO_FILE"))
 
     SUMMARIZATION_CONFIG = yaml_config.get('summarization', {
         'triggers': {
@@ -334,10 +377,10 @@ def configure_globals():
     })
 
     public_commands_path_cfg = yaml_config.get("PUBLIC_COMMANDS_PATH")
-    PUBLIC_COMMANDS_PATH = os.path.expanduser(public_commands_path_cfg)
+    PUBLIC_COMMANDS_PATH = _safe_expanduser(public_commands_path_cfg)
     REDIS_HOST = yaml_config.get("REDIS_HOST")
 
-    PREFERENCE_PROMPT_FILE = os.path.expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
+    PREFERENCE_PROMPT_FILE = _safe_expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
     REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX')
     REASONING_EFFORT = yaml_config.get('REASONING_EFFORT', "medium")
@@ -349,9 +392,9 @@ def configure_globals():
     CODE_LENS_PORT = yaml_config.get('CODE_LENS_PORT', '5000')
 
     # Global list to store jokes told previously
-    JOKES_FILE = os.path.expanduser(yaml_config.get('JOKES_FILE'))
+    JOKES_FILE = _safe_expanduser(yaml_config.get('JOKES_FILE'))
 
-    DIRECTIVES_DIR = os.path.expanduser(yaml_config.get('DIRECTIVES_DIR'))
+    DIRECTIVES_DIR = _safe_expanduser(yaml_config.get('DIRECTIVES_DIR'))
     if DIRECTIVES_DIR:
         os.environ['DIRECTIVES_DIR'] = DIRECTIVES_DIR
 
@@ -615,9 +658,33 @@ def load_environment_variables(verbose=False):
         logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
     return status
 
-def load_yaml_config(file_path=find_config_file("app.yaml")):
+def load_yaml_config(file_path=None):
+    """
+    Load YAML configuration from a file.
+
+    This function will load and parse a YAML configuration file. If file_path is None,
+    the function will attempt to locate 'app.yaml' using find_config_file("app.yaml").
+    All filesystem IO errors (finding, opening, reading, parsing) are logged via
+    logger.error with exc_info=True and result in exceptions being raised to abort execution.
+
+    Args:
+        file_path (str | None): Path to the YAML file to load. If None, the function will
+            try to discover 'app.yaml' via find_config_file.
+
+    Returns:
+        dict: Parsed YAML configuration mapping.
+
+    Raises:
+        RuntimeError: If the file cannot be found, opened, or parsed.
+    """
     yaml_path = file_path
     try:
+        if yaml_path is None:
+            try:
+                yaml_path = find_config_file("app.yaml")
+            except Exception as e:
+                logger.error(f"Unable to locate app.yaml: {e}", exc_info=True)
+                raise RuntimeError("Cannot find app.yaml") from e
         try:
             with open(yaml_path) as f:
                 try:
@@ -631,6 +698,13 @@ def load_yaml_config(file_path=find_config_file("app.yaml")):
         except Exception as e:
             logger.error(f"Failed opening configuration file {yaml_path}: {e}", exc_info=True)
             raise RuntimeError(f"Open error for {yaml_path}: {e}") from e
+
+        # Validate that the parsed YAML is a mapping (dict). If YAML is empty or not a dict,
+        # treat this as a fatal configuration error.
+        if config is None or not isinstance(config, dict):
+            logger.error(f"YAML file {yaml_path} did not produce a mapping (dict). Parsed value: {config!r}")
+            raise RuntimeError(f"YAML config {yaml_path} must contain a mapping at top level (got {type(config).__name__}).")
+
         return config
     except Exception as e:
         logger.error(f"Failed to load YAML config ({yaml_path}): {e}", exc_info=True)

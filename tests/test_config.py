@@ -326,9 +326,11 @@ class TestEdgeCases:
         """Test behavior when MODEL_MAPPING is None for reverse mapping."""
         config.MODEL_MAPPING = None
         
-        # Should raise AttributeError when trying to call .items() on None
-        with pytest.raises(AttributeError):
-            config.get_model_reverse_mapping()
+        # Should return empty dict and log a warning
+        with patch('monitor.config.logger') as mock_logger:
+            reverse_mapping = config.get_model_reverse_mapping()
+            assert reverse_mapping == {}
+            mock_logger.warning.assert_called()
     
     def test_malformed_model_mapping(self):
         """Test behavior with malformed model mapping data."""
