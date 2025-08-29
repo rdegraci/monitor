@@ -1,7 +1,15 @@
 import pytest
 
 from monitor.lib import llm_utils
-from monitor.lib.llm_utils import AttrDict, dict_to_attr, validate_tool_message_order, determine_response_type
+from monitor.lib.llm_utils import (
+    AttrDict,
+    dict_to_attr,
+    validate_tool_message_order,
+    determine_response_type,
+    safe_extract_total_tokens,
+    compute_token_delta,
+    apply_usage_delta,
+)
 
 class DummyChoice:
     def __init__(self, message=None, finish_reason=None):
@@ -225,3 +233,110 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
     res = llm_utils.call_litellm_completion(model, messages, tool_descriptions=[], gemini_tool_descriptions=[])
     assert 'reasoning_effort' in captured and captured['reasoning_effort'] == 2
     assert 'max_completion_tokens' in captured and captured['max_completion_tokens'] == 50
+
+
+# New tests for safe_extract_total_tokens, compute_token_delta, and apply_usage_delta
+
+def test_safe_extract_total_tokens_various():
+    # integers
+    assert safe_extract_total_tokens(5) == 5
+    # floats are coerced to int
+    assert safe_extract_total_tokens(3.2) == 3
+    # numeric strings
+    assert safe_extract_total_tokens('42') == 42
+    # nested dict with usage.total_tokens as string
+    assert safe_extract_total_tokens({'usage': {'total_tokens': '7'}}) == 7
+    # prompt + completion sum
+    assert safe_extract_total_tokens({'usage': {'prompt_tokens': 4, 'completion_tokens': 6}}) == 10
+    # object attribute access
+    u = DummyUsage(9)
+    assert safe_extract_total_tokens(u) == 9
+    # None should return None
+    assert safe_extract_total_tokens(None) is None
+    # invalid dict should raise ValueError
+    with pytest.raises(ValueError):
+        safe_extract_total_tokens({'usage': {'foo': 'bar'}})
+
+
+def test_compute_token_delta():
+    # current None => delta 0
+    assert compute_token_delta(None, 10) == 0
+    # previous None => treat previous as 0
+    assert compute_token_delta('20', None) == 20
+    # numeric string subtraction
+    assert compute_token_delta('30', '10') == 20
+    # invalid current (non-numeric string) returns 0
+    assert compute_token_delta('bad', '10') == 0
+
+
+def test_apply_usage_delta_updates_and_rate_limiter_and_config(monkeypatch):
+    # Capture calls to update_token_usage
+    captured_update = {}
+
+    def mock_update_token_usage(delta, *args, **kwargs):
+        captured_update['delta'] = delta
+
+    # Dummy rate limiter with add_tokens
+    class DummyRateLimiter:
+        def __init__(self):
+            self.added = []
+
+        def add_tokens(self, n):
+            self.added.append(n)
+
+    dummy_rl = DummyRateLimiter()
+
+    monkeypatch.setattr(llm_utils, 'update_token_usage', mock_update_token_usage)
+    monkeypatch.setattr(llm_utils, 'rate_limiter', dummy_rl)
+
+    from monitor import config
+    # Ensure canonical usage starts at something else
+    config.CANONICAL_TOKEN_USAGE = 0
+
+    # Call apply_usage_delta with current and previous totals
+    result = apply_usage_delta('50', '20')
+
+    # Expect return is (current_total, delta)
+    assert isinstance(result, tuple) and len(result) == 2
+    assert result[0] == 50
+    assert result[1] == 30
+
+    # update_token_usage should have been called with delta
+    assert captured_update.get('delta') == 30
+
+    # rate_limiter.add_tokens should have been called with delta
+    assert dummy_rl.added == [30]
+
+    # config.CANONICAL_TOKEN_USAGE should be updated to 50
+    assert config.CANONICAL_TOKEN_USAGE == 50
+
+
+def test_apply_usage_delta_no_delta_does_not_update(monkeypatch):
+    # If delta is zero, update_token_usage and rate_limiter should not be called
+    def fail_update(*args, **kwargs):
+        raise AssertionError("update_token_usage should not be called when delta is 0")
+
+    class DummyRateLimiter:
+        def add_tokens(self, n):
+            raise AssertionError("rate_limiter.add_tokens should not be called when delta is 0")
+
+    monkeypatch.setattr(llm_utils, 'update_token_usage', fail_update)
+    monkeypatch.setattr(llm_utils, 'rate_limiter', DummyRateLimiter())
+
+    from monitor import config
+    config.CANONICAL_TOKEN_USAGE = 100
+
+    # Call with equal totals
+    result = apply_usage_delta('50', '50')
+    # Expect return is (current_total, delta)
+    assert isinstance(result, tuple) and len(result) == 2
+    assert result[0] == 50
+    assert result[1] == 0
+    # Ensure config not changed
+    assert config.CANONICAL_TOKEN_USAGE == 100
+
+
+def test_apply_usage_delta_invalid_usage_raises():
+    # Uncoercible current should raise ValueError
+    with pytest.raises(ValueError):
+        apply_usage_delta('bad', '10')

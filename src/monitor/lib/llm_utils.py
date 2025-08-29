@@ -19,7 +19,12 @@ try:
 except ImportError:
     httpx = None
 
-from typing import List, Dict, Any
+try:
+    from monitor.lib import rate_limiter
+except Exception:
+    rate_limiter = None
+
+from typing import List, Dict, Any, Optional, Union, Tuple
 
 from monitor import config
 from monitor.lib.tool_loading import function_descriptions
@@ -672,3 +677,203 @@ def handle_response_errors(error, user_input=None):
         logger.error(f"General responses API error: {error}", exc_info=True)
 
     return None, error_msg
+
+def safe_extract_total_tokens(usage: Any) -> Optional[int]:
+    """Safely extract a canonical total token count from a usage-like object.
+
+    This helper centralizes coercion logic for the various shapes a "usage"
+    response can take across models and response formats. It attempts to
+    coerce `usage` into a non-negative integer representing total tokens.
+
+    Supported input shapes:
+    - None -> returns None
+    - int/float -> coerced to int and clamped to >= 0
+    - numeric strings -> parsed to int (or float then int) and clamped
+    - dicts -> common keys checked in order:
+        'total_tokens', 'total', 'total_used', 'usage', or a sum of
+        'prompt_tokens' + 'completion_tokens' when present.
+    - objects -> will look for attributes with the names used above and recurse
+
+    Args:
+        usage: The usage value (dict, object, number, or string).
+
+    Returns:
+        Optional[int]: The extracted total token count, or None if input was None.
+
+    Raises:
+        ValueError: If the input cannot be coerced into a token count.
+    """
+    if usage is None:
+        return None
+
+    # Direct numeric types
+    if isinstance(usage, int):
+        return max(0, usage)
+    if isinstance(usage, float):
+        try:
+            return max(0, int(usage))
+        except Exception:
+            return max(0, int(float(usage)))
+
+    # Strings that might contain numbers
+    if isinstance(usage, str):
+        usage_str = usage.strip()
+        if usage_str == "":
+            raise ValueError("Empty string provided for usage")
+        try:
+            return max(0, int(usage_str))
+        except Exception:
+            try:
+                return max(0, int(float(usage_str)))
+            except Exception:
+                raise ValueError(f"Unable to parse numeric string for usage: {usage!r}")
+
+    # Dict-like structures
+    if isinstance(usage, dict):
+        # Preferred keys in order
+        preferred = ("total_tokens", "total", "total_used", "usage", "tokens")
+        for key in preferred:
+            if key in usage and usage.get(key) is not None:
+                return safe_extract_total_tokens(usage.get(key))
+        # Fallback: sum prompt_tokens + completion_tokens
+        if "prompt_tokens" in usage or "completion_tokens" in usage:
+            try:
+                prompt = usage.get("prompt_tokens", 0) or 0
+                completion = usage.get("completion_tokens", 0) or 0
+                return max(0, int(prompt) + int(completion))
+            except Exception:
+                # fall through to error below
+                pass
+        raise ValueError(f"Unable to coerce total tokens from usage dict: {usage!r}")
+
+    # Object-like structures: attempt attribute access
+    # Common attribute names used by various SDKs
+    attr_candidates = ("total_tokens", "total", "total_used", "usage", "tokens", "prompt_tokens", "completion_tokens")
+    for attr in attr_candidates:
+        if hasattr(usage, attr):
+            try:
+                return safe_extract_total_tokens(getattr(usage, attr))
+            except Exception:
+                # try next candidate
+                continue
+
+    # Last-resort: try to coerce using __dict__ if available
+    if hasattr(usage, "__dict__"):
+        try:
+            return safe_extract_total_tokens({k: v for k, v in usage.__dict__.items()})
+        except Exception:
+            pass
+
+    raise ValueError(f"Unable to coerce total tokens from usage: {usage!r}")
+
+def compute_token_delta(current_total: Optional[Union[int, float]], previous_total: Optional[Union[int, float]]) -> int:
+    """Compute a safe, non-negative delta between two token totals.
+
+    This function centralizes the logic for computing how many new tokens were
+    consumed given a potentially new `current_total` and a prior `previous_total`.
+
+    Behavior:
+    - If current_total is None -> returns 0
+    - If previous_total is None -> returns max(0, int(current_total))
+    - Otherwise returns max(0, int(current_total) - int(previous_total))
+
+    Args:
+        current_total: The current canonical total token count (or None).
+        previous_total: The previous total token count (or None).
+
+    Returns:
+        int: Non-negative integer delta representing additional tokens used.
+    """
+    if current_total is None:
+        return 0
+    try:
+        current = int(current_total)
+    except Exception:
+        try:
+            current = int(float(current_total))
+        except Exception:
+            logger.debug(f"compute_token_delta: unable to coerce current_total={current_total!r}")
+            return 0
+
+    if previous_total is None:
+        return max(0, current)
+
+    try:
+        prev = int(previous_total)
+    except Exception:
+        try:
+            prev = int(float(previous_total))
+        except Exception:
+            logger.debug(f"compute_token_delta: unable to coerce previous_total={previous_total!r}")
+            prev = 0
+
+    return max(0, current - prev)
+
+def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = None) -> Tuple[Optional[int], int]:
+    """Apply a usage update by computing the delta and updating token counters.
+
+    This convenience helper performs the following steps:
+    1. Safely extract the canonical total token count from `usage` using
+       `safe_extract_total_tokens`.
+    2. Compute a non-negative delta against `previous_total` using
+       `compute_token_delta`.
+    3. If a positive delta is observed:
+         - Attempt to call the project's `update_token_usage` to register the delta.
+         - Attempt to inform an optional rate limiter module (when available)
+           using common function names if present.
+    4. Attempt to record the canonical current total on the `config` module as
+       `CANONICAL_TOKEN_USAGE` for other parts of the system to inspect.
+
+    The helper is defensive and will log exceptions rather than raise in most
+    update-path scenarios; it will raise if the `usage` value cannot be
+    interpreted as a token count.
+
+    Args:
+        usage: The usage payload (dict/object/number/string).
+        previous_total: Optional previous total count to compute a delta against.
+
+    Returns:
+        tuple:
+            (current_total_or_none, delta_int)
+            - current_total_or_none: The canonical current total tokens (or None if input was None).
+            - delta_int: The non-negative delta that was applied (0 when none).
+
+    Raises:
+        ValueError: If the provided `usage` cannot be coerced to a token count.
+    """
+    try:
+        current = safe_extract_total_tokens(usage)
+    except ValueError:
+        logger.debug("apply_usage_delta: could not extract total tokens from usage; skipping updates.")
+        raise
+
+    delta = compute_token_delta(current, previous_total)
+
+    if delta > 0:
+        # Update project-level token usage helper if available
+        try:
+            update_token_usage(delta)
+        except Exception:
+            logger.exception("apply_usage_delta: update_token_usage failed")
+
+        # Attempt to notify a rate limiter if one is available.
+        if rate_limiter is not None:
+            # Try a set of common function names used across codebases.
+            candidate_names = ("add_usage", "add_tokens", "consume", "consume_tokens", "record_usage", "record")
+            for name in candidate_names:
+                fn = getattr(rate_limiter, name, None)
+                if callable(fn):
+                    try:
+                        fn(delta)
+                        break
+                    except Exception:
+                        logger.debug(f"apply_usage_delta: rate_limiter.{name} failed", exc_info=True)
+
+    # Persist canonical total on config for visibility; swallow errors if not possible.
+    try:
+        if delta > 0:
+            setattr(config, "CANONICAL_TOKEN_USAGE", current)
+    except Exception:
+        logger.debug("apply_usage_delta: unable to set config.CANONICAL_TOKEN_USAGE", exc_info=True)
+
+    return current, delta
