@@ -137,6 +137,10 @@ def joke_for_twitch(arg=""):
     """Generate and send a joke to Twitch, ensuring no repetition."""
     logger.debug("Entering joke_for_twitch function")
     
+    if JOKES_FILE is None:
+        logger.warning("Jokes file not configured, skipping joke generation")
+        return
+
     # Load already told jokes from the file
     try:
         with open(JOKES_FILE, "r") as f:

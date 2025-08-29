@@ -34,14 +34,15 @@ def _safe_expanduser(path):
     Safely expand user path (os.path.expanduser) only for str inputs.
     - If path is None: returns None.
     - If path is a str: returns os.path.expanduser(path), raising RuntimeError (chained) on expansion errors.
-    - If path is not a str: returns the input unchanged.
+    - If path is not a str: returns None (coerce non-string values to None) and logs a warning indicating coercion.
     Any unexpected exception is logged and re-raised as RuntimeError to abort execution.
     """
     try:
         if path is None:
             return None
         if not isinstance(path, str):
-            return path
+            logger.warning(f"_safe_expanduser: Coercing non-string path {path!r} to None.")
+            return None
         try:
             return os.path.expanduser(path)
         except Exception as e:
@@ -342,7 +343,7 @@ def configure_globals():
     
 
     history_config = yaml_config.get('history', {})
-    HISTORY_FILE = os.path.expanduser(history_config.get('file', '~/.config/monitor/chat_history'))
+    HISTORY_FILE = _safe_expanduser(history_config.get('file', '~/.config/monitor/chat_history'))
     MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
     OLD_MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
 
@@ -506,11 +507,35 @@ def configure_subsystems():
     from monitor.core.modes import configure_consultant
 
     configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])
-    load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
+
+    # Guarded loading of public interactive commands: skip if PUBLIC_COMMANDS_PATH is None
+    if PUBLIC_COMMANDS_PATH is None:
+        logger.warning("PUBLIC_COMMANDS_PATH is None; skipping load_public_interactive_commands.")
+    else:
+        try:
+            load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
+        except Exception as e:
+            logger.error(f"Failed to load public interactive commands from {PUBLIC_COMMANDS_PATH}: {e}", exc_info=True)
+
+    # Guarded loading of user preferences prompt: skip if PREFERENCE_PROMPT_FILE is None
+    if PREFERENCE_PROMPT_FILE is None:
+        logger.warning("PREFERENCE_PROMPT_FILE is None; skipping load_user_preferences_prompt.")
+    else:
+        try:
+            load_user_preferences_prompt(PREFERENCE_PROMPT_FILE)
+        except Exception as e:
+            logger.error(f"Failed to load user preferences prompt from {PREFERENCE_PROMPT_FILE}: {e}", exc_info=True)
+
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
-    load_user_preferences_prompt(PREFERENCE_PROMPT_FILE)
     configure_tools()
-    configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
+
+    # configure_external_services can fail due to various non-fatal issues; log errors and continue.
+    try:
+        configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
+    except Exception as e:
+        logger.error(f"Error configuring external services: {e}", exc_info=True)
+        # Continue execution despite external services configuration failure.
+
     configure_protocol_engine()
     configure_consultant()
     configure_voice_to_text()
