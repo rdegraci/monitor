@@ -1,101 +1,131 @@
 [
   {
     "command": "ls",
-    "description": ""
+    "description": "list directory contents"
   },
   {
     "command": "cat",
-    "description": ""
+    "description": "concatenate and display files"
   },
   {
-    "command": "rm"
+    "command": "rm",
+    "description": "remove files or directories"
   },
   {
-    "command": "touch"
+    "command": "touch",
+    "description": "create empty files or update file timestamps"
   },
   {
-    "command": "cd"
+    "command": "cd",
+    "description": "change the current directory"
   },
   {
-    "command": "git"
+    "command": "git",
+    "description": "distributed version control system"
   },
   {
-    "command": "clear"
+    "command": "clear",
+    "description": "clear the terminal screen"
   },
   {
-    "command": "man"
+    "command": "man",
+    "description": "display manual pages"
   },
   {
-    "command": "pwd"
+    "command": "pwd",
+    "description": "print the current working directory"
   },
   {
-    "command": "cp"
+    "command": "cp",
+    "description": "copy files and directories"
   },
   {
-    "command": "mv"
+    "command": "mv",
+    "description": "move or rename files and directories"
   },
   {
-    "command": "mkdir"
+    "command": "mkdir",
+    "description": "create directories"
   },
   {
-    "command": "rmdir"
+    "command": "rmdir",
+    "description": "remove empty directories"
   },
   {
-    "command": "less"
+    "command": "less",
+    "description": "view files one page at a time"
   },
   {
-    "command": "head"
+    "command": "head",
+    "description": "output the first part of files"
   },
   {
-    "command": "tail"
+    "command": "tail",
+    "description": "output the last part of files"
   },
   {
-    "command": "grep"
+    "command": "grep",
+    "description": "search text using patterns"
   },
   {
-    "command": "find"
+    "command": "find",
+    "description": "search for files in a directory hierarchy"
   },
   {
-    "command": "chmod"
+    "command": "chmod",
+    "description": "change file permissions"
   },
   {
-    "command": "chown"
+    "command": "chown",
+    "description": "change file owner and group"
   },
   {
-    "command": "ps"
+    "command": "ps",
+    "description": "report process status"
   },
   {
-    "command": "top"
+    "command": "top",
+    "description": "display real-time system summary and processes"
   },
   {
-    "command": "echo"
+    "command": "echo",
+    "description": "display a line of text"
   },
   {
-    "command": "ssh"
+    "command": "ssh",
+    "description": "secure shell for remote login"
   },
   {
-    "command": "psql"
+    "command": "psql",
+    "description": "PostgreSQL interactive terminal"
   },
   {
-    "command": "subl"
+    "command": "subl",
+    "description": "launch Sublime Text editor"
   },
   {
-    "command": "ai"
+    "command": "ai",
+    "description": "invoke AI assistant or related tooling"
   },
   {
-    "command": "wget"
+    "command": "wget",
+    "description": "download files from the web"
   },
   {
-    "command": "curl"
+    "command": "curl",
+    "description": "transfer data from or to a server"
   },
   {
-    "command": "vi"
+    "command": "vi",
+    "description": "text editor (vi)"
   },
   {
-    "command": "vim"
+    "command": "vim",
+    "description": "improved vi text editor"
   },
   {
-    "command": "python"
+    "command": "python",
+    "description": "run the Python interpreter"
   },
   {
     "command": "pip",
@@ -104,109 +134,140 @@
   },
   {
     "command": "conda",
-    "expansion": "function _conda() { conda $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _conda"
+    "expansion": "function _conda() { conda $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _conda",
+    "description": "package and environment manager for Python (conda)"
   },
   {
-    "command": "jobs"
+    "command": "jobs",
+    "description": "list active jobs in the current shell"
   },
   {
-    "command": "emacs"
+    "command": "emacs",
+    "description": "Emacs text editor"
   },
   {
     "command": "ping",
-    "expansion": "function _ping() { ping -c 5 $1; }; _ping"
+    "expansion": "function _ping() { ping -c 5 $1; }; _ping",
+    "description": "send ICMP ECHO_REQUEST to a host (defaults to 5 pings)"
   },
   {
-    "command": "zsh"
+    "command": "zsh",
+    "description": "Z shell (interactive shell)"
   },
   {
-    "command": "gitx"
+    "command": "gitx",
+    "description": "graphical Git client (gitx)"
   },
   {
-    "command": "bin/rails"
+    "command": "bin/rails",
+    "description": "Rails application executable in project bin"
   },
   {
-    "command": "bin/rake"
+    "command": "bin/rake",
+    "description": "Rake task runner executable in project bin"
   },
   {
-    "command": "rake"
+    "command": "rake",
+    "description": "Ruby build automation and task runner"
   },
   {
-    "command": "gem"
+    "command": "gem",
+    "description": "RubyGems package manager"
   },
   {
-    "command": "bundle"
+    "command": "bundle",
+    "description": "Bundler for managing Ruby dependencies"
   },
   {
-    "command": "rails"
+    "command": "rails",
+    "description": "Ruby on Rails command-line tool"
   },
   {
-    "command": "foreman"
+    "command": "foreman",
+    "description": "manage Procfile-based applications and processes"
   },
   {
-    "command": "reset"
+    "command": "reset",
+    "description": "reset terminal settings"
   },
   {
     "command": "git-log-tree",
-    "expansion": "git log --graph --oneline --all"
+    "expansion": "git log --graph --oneline --all",
+    "description": "show git log as a graph for all branches"
   },
   {
     "command": "glt",
-    "expansion": "git log --graph --oneline --all"
+    "expansion": "git log --graph --oneline --all",
+    "description": "alias for git-log-tree (graphical condensed git log)"
   },
   {
     "command": "doccomment",
-    "expansion": "fabric --pattern doc_comment -s"
+    "expansion": "fabric --pattern doc_comment -s",
+    "description": "run fabric task to process documentation comments"
   },
   {
     "command": "doccomment2code",
-    "expansion": "fabric --pattern doc_comment2code -s"
+    "expansion": "fabric --pattern doc_comment2code -s",
+    "description": "run fabric task to convert documentation comments into code"
   },
   {
     "command": "doccomment2spec",
-    "expansion": "fabric --pattern doc_comment2spec -s"
+    "expansion": "fabric --pattern doc_comment2spec -s",
+    "description": "run fabric task to convert documentation comments into specs"
   },
   {
     "command": "spec2code",
-    "expansion": "fabric --pattern spec2code -s"
+    "expansion": "fabric --pattern spec2code -s",
+    "description": "run fabric task to convert specs into code"
   },
   {
     "command": "diff-code-review",
-    "expansion": "~/bin/code-review-latest.sh"
+    "expansion": "~/bin/code-review-latest.sh",
+    "description": "run the local code-review helper script"
   },
   {
     "command": "git-log",
-    "expansion": "git log --oneline --decorate"
+    "expansion": "git log --oneline --decorate",
+    "description": "show condensed git log with branch and tag decorations"
   },
   {
     "command": "git-diff",
-    "expansion": "git diff --color HEAD"
+    "expansion": "git diff --color HEAD",
+    "description": "show colored diff of working tree against HEAD"
   },
   {
     "command": "git-stash-diff",
-    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff"
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff",
+    "description": "show the patch for a specified stash entry"
   },
   {
     "command": "gsd",
-    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff"
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff",
+    "description": "alias for git-stash-diff"
   },
   {
-    "command": "heroku"
+    "command": "heroku",
+    "description": "Heroku command-line interface"
   },
   {
-    "command": "wc"
+    "command": "wc",
+    "description": "print newline, word, and byte counts for files"
   },
   {
-    "command": "patch"
+    "command": "patch",
+    "description": "apply a diff patch to files"
   },
   {
-    "command": "monitor"
+    "command": "monitor",
+    "description": "helper for monitoring system or application status"
   },
   {
-    "command": "scp"
+    "command": "scp",
+    "description": "securely copy files over SSH"
   },
   {
-    "command": "rsync"
+    "command": "rsync",
+    "description": "fast, versatile file copying and synchronization tool"
   },
   {
     "command": "rsync-server",
@@ -215,44 +276,54 @@
   },
   {
     "command": "scp-server",
-    "expansion": "function _scp_server() { [ -z \"$1\" ] && return; scp -r ./ rdegraci@192.168.0.250:GIT_REPOS/$1; }; _scp_server"
+    "expansion": "function _scp_server() { [ -z \"$1\" ] && return; scp -r ./ rdegraci@192.168.0.250:GIT_REPOS/$1; }; _scp_server",
+    "description": "expansion: shell function to SCP current directory to a server location"
   },
   {
     "command": "shell",
-    "expansion": "zsh"
+    "expansion": "zsh",
+    "description": "start an interactive zsh shell"
   },
   {
-    "command": "ollama"
+    "command": "ollama",
+    "description": "OLLAMA CLI for local AI model interaction"
   },
   {
-    "command": "crontab"
+    "command": "crontab",
+    "description": "schedule and manage periodic jobs"
   },
   {
-    "command": "redis-cli"
+    "command": "redis-cli",
+    "description": "Redis command-line interface"
   },
   {
     "command": "which",
     "expansion": "function _which() { which $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _which",
-    "description": "expansion: shell function - multiple positional"
+    "description": "expansion: shell function - multiple positional arguments"
   },
   {
-    "command": "ifconfig"
+    "command": "ifconfig",
+    "description": "configure or display network interface parameters"
   },
   {
-    "command": "netstat"
+    "command": "netstat",
+    "description": "display network connections, routing tables, and interface stats"
   },
   {
     "command": "screen",
     "expansion": "function _screen() { screen $1 $2; }; _screen",
-    "description": "expansion: shell function - 2 positional"
+    "description": "expansion: shell function - supports up to 2 positional arguments"
   },
   {
-    "command": "ruby"
+    "command": "ruby",
+    "description": "run the Ruby interpreter"
   },
   {
-    "command": "uptime"
+    "command": "uptime",
+    "description": "show how long the system has been running"
   },
   {
-    "command": "diff"
+    "command": "diff",
+    "description": "compare files line by line"
   }
 ]
