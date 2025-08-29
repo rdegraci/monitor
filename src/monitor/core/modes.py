@@ -65,7 +65,7 @@ def design_mode_command(seed_question=None):
     logger.info("Design mode ended.")
     print("Design mode ended.")
 
-def dev_mode_command():
+def dev_mode_command(arg=None):
     """Stop the design interaction and hand over requirements for execution."""
     from monitor.core.conversation import query
 

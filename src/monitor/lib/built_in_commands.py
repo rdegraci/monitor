@@ -173,7 +173,7 @@ def linkedin_summary_command(arg=None):
         logger.error(f"Failed to summarize conversation for LinkedIn: {e}", exc_info=True)
 
 
-def open_preferences_command():
+def open_preferences_command(arg=None):
     result = open_preferences_editor(config.PREFERENCE_PROMPT_FILE)
     print(result)
 
@@ -245,7 +245,7 @@ def reload_macros_command(arg: Any = None) -> None:
         logger.error(f"Failed to reload macros: {e}", exc_info=True)
 
 
-def print_tools_command():
+def print_tools_command(arg=None):
     from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, TOOL_STATE
 
     # Debug logging: log types and (truncated) contents of TOOL_DESCRIPTIONS and TOOL_STATE.

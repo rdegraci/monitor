@@ -2,6 +2,9 @@ from monitor import config
 import logging
 
 from typing import Any, Callable, Dict, List
+import inspect
+
+from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE
 
 from monitor.lib.macros import print_macros, configure_macros, MACRO_VALUES
 from monitor.core.conversation import adjust_history_size, conversation_history_command
@@ -51,6 +54,90 @@ from monitor.lib.colors import COLOR_WARNING_FUNCS
 logger = logging.getLogger(__name__)
 
 
+def _make_callable(func: Callable[..., Any]) -> Callable[[Any], Any]:
+    """Create a single-argument-compatible callable wrapper for func.
+
+    This adapter uses inspect.signature to inspect the underlying function's
+    parameters and only adapts functions that accept zero or one positional
+    argument (or accept a varargs parameter). If the function requires more
+    than one positional parameter, the returned wrapper will raise a
+    TypeError instructing the caller to register an explicit adapter.
+
+    Behavior:
+        - If the function accepts no positional parameters, the wrapper will
+          call func() regardless of whether an argument is provided.
+        - If the function accepts exactly one positional parameter, the wrapper
+          will attempt to call func(arg) when an argument is provided and
+          fall back to func() when called with no argument (preserving prior
+          lenient behavior).
+        - If the function has a *args parameter, the wrapper will attempt to
+          call func(arg) or func() as above.
+        - If the function requires more than one positional parameter, the
+          wrapper will raise a TypeError explaining that an explicit adapter
+          (e.g., a lambda) should be registered.
+
+    Args:
+        func: The original function to adapt.
+
+    Returns:
+        A callable that accepts one optional argument and either invokes `func`
+        appropriately or raises a clear TypeError when adaptation is unsafe.
+
+    Note:
+        This is intentionally conservative: functions that require more than
+        one positional argument must be wrapped by the caller with an explicit
+        adapter so their parameter needs are made explicit at registration time.
+    """
+    sig = inspect.signature(func)
+    params = list(sig.parameters.values())
+
+    # Identify positional parameters and varargs
+    positional_params = [
+        p for p in params
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    has_var_positional = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+
+    # If the function accepts varargs, treat it as acceptable.
+    if has_var_positional:
+        def _wrapper(arg: Any = None) -> Any:
+            try:
+                if arg is None:
+                    return func()
+                return func(arg)
+            except TypeError:
+                # Fallback for callables that still error when given the argument
+                return func()
+        return _wrapper
+
+    # If the function accepts no positional parameters
+    if len(positional_params) == 0:
+        def _wrapper(arg: Any = None) -> Any:
+            return func()
+        return _wrapper
+
+    # If the function accepts exactly one positional parameter
+    if len(positional_params) == 1:
+        def _wrapper(arg: Any = None) -> Any:
+            try:
+                if arg is None:
+                    return func()
+                return func(arg)
+            except TypeError:
+                # Preserve forgiving behavior in case the underlying function
+                # chooses to raise when called with an argument.
+                return func()
+        return _wrapper
+
+    # Function requires more than one positional parameter; require explicit adapter.
+    def _wrapper(arg: Any = None) -> Any:
+        raise TypeError(
+            f"Function '{getattr(func, '__name__', str(func))}' requires more than one positional "
+            "argument. Register an explicit adapter (e.g., a lambda) when adding to built-ins."
+        )
+
+    return _wrapper
+
 
 def _safe_register(mapping: Dict[str, Callable[..., Any]]) -> None:
     """
@@ -89,27 +176,35 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": "commands",
-                    "function": print_interactive_commands,
+                    "function": _make_callable(print_interactive_commands),
                     "description": "Print the list of interactive commands.",
                 },
                 {
                     "command": "history",
-                    "function": conversation_history_command,
+                    "function": lambda arg=None: conversation_history_command(arg, 10),
                     "description": "Show conversation history.",
                 },
                 {
                     "command": ":history_size",
-                    "function": adjust_history_size,
+                    "function": lambda arg=None: adjust_history_size(
+                        int(arg) if arg and str(arg).strip() else None,
+                        config.CONVERSATION_HISTORY,
+                        config.CONVERSATION_MAX_SIZE,
+                        print,
+                        COLOR_WARNING_FUNCS,
+                        logger,
+                        config
+                    ),
                     "description": "Adjust max conversation history size.",
                 },
                 {
                     "command": ":reset_history",
-                    "function": reset_conversation_history_command,
+                    "function": _make_callable(reset_conversation_history_command),
                     "description": "Reset the conversation history.",
                 },
                 {
                     "command": ":trim_history",
-                    "function": trim_history_command,
+                    "function": _make_callable(trim_history_command),
                     "description": "Trim last N items from conversation history.",
                 },
                 {
@@ -127,42 +222,42 @@ def configure_built_ins() -> None:
                 },
                 {
                     "command": ":llm",
-                    "function": llm_command,
+                    "function": _make_callable(llm_command),
                     "description": "Change the active LLM model at runtime. Usage: :llm <model> or :llm help for available models.",
                 },
                 {
                     "command": ":reasoning",
-                    "function": reasoning_command,
+                    "function": _make_callable(reasoning_command),
                     "description": "Change reasoning effort (minimal/low/medium/high). Usage: :reasoning <level> or :reasoning help.",
                 },
                 {
                     "command": "macros",
-                    "function": print_macros,
+                    "function": _make_callable(print_macros),
                     "description": "Print available macros.",
                 },
                 {
                     "command": ":edit_macros",
-                    "function": edit_macros_command,
+                    "function": _make_callable(edit_macros_command),
                     "description": "Edit global macros file (persistent across sessions). Uses your $EDITOR.",
                 },
                 {
                     "command": ":reload_macros",
-                    "function": reload_macros_command,
+                    "function": _make_callable(reload_macros_command),
                     "description": "Reload global macros from file and summarize changes.",
                 },
                 {
                     "command": "tools",
-                    "function": lambda *_: print_tools_command(),
+                    "function": _make_callable(print_tools_command),
                     "description": "Print currently loaded tools.",
                 },
                 {
                     "command": ":preferences",
-                    "function": lambda arg=None: open_preferences_command(),
+                    "function": _make_callable(open_preferences_command),
                     "description": "Open user preferences for editing.",
                 },
                 {
                     "command": ":next_steps",
-                    "function": next_steps,
+                    "function": _make_callable(next_steps),
                     "description": "Suggest next steps based on commit analysis.",
                 },
             ],
@@ -172,12 +267,12 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": ":clean_csv",
-                    "function": clean_missing_values_command,
+                    "function": _make_callable(clean_missing_values_command),
                     "description": "Clean missing values in a CSV file.",
                 },
                 {
                     "command": ":normalize_csv",
-                    "function": normalize_data_command,
+                    "function": _make_callable(normalize_data_command),
                     "description": "Normalize numerical data in a CSV file.",
                 },
             ],
@@ -187,22 +282,22 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": ":add_db_tools",
-                    "function": add_db_tools,
+                    "function": lambda arg=None: add_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Add database related tools.",
                 },
                 {
                     "command": ":remove_db_tools",
-                    "function": remove_db_tools,
+                    "function": lambda arg=None: remove_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Remove database related tools.",
                 },
                 {
                     "command": ":add_modelling_tools",
-                    "function": add_modelling_tools,
+                    "function": lambda arg=None: add_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Add machine learning modelling tools.",
                 },
                 {
                     "command": ":remove_modelling_tools",
-                    "function": remove_modelling_tools,
+                    "function": lambda arg=None: remove_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Remove machine learning modelling tools.",
                 },
             ],
@@ -212,22 +307,22 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": ":embed",
-                    "function": send_file_to_indexing_service,
+                    "function": _make_callable(send_file_to_indexing_service),
                     "description": "Embed a file via the indexing service.",
                 },
                 {
                     "command": ":query",
-                    "function": query_using_rag,
+                    "function": _make_callable(query_using_rag),
                     "description": "Query the knowledge base using RAG.",
                 },
                 {
                     "command": ":index",
-                    "function": send_directory_to_indexing_service,
+                    "function": _make_callable(send_directory_to_indexing_service),
                     "description": "Index an entire directory.",
                 },
                 {
                     "command": ":semstore",
-                    "function": semantic_store_command,
+                    "function": _make_callable(semantic_store_command),
                     "description": "Interact with the semantic store.",
                 },
             ],
@@ -237,32 +332,32 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": ":power_user",
-                    "function": stream_code,
+                    "function": _make_callable(stream_code),
                     "description": "Enable power-user streaming mode.",
                 },
                 {
                     "command": ":design_mode",
-                    "function": lambda arg=None: design_mode_command(),
+                    "function": _make_callable(design_mode_command),
                     "description": "Switch to design mode.",
                 },
                 {
                     "command": ":dev_mode",
-                    "function": lambda arg=None: dev_mode_command(),
+                    "function": _make_callable(dev_mode_command),
                     "description": "Switch to development mode.",
                 },
                 {
                     "command": ":make_commit",
-                    "function": make_commit_command,
+                    "function": _make_callable(make_commit_command),
                     "description": "Create a git commit with staged changes.",
                 },
                 {
                     "command": ":rg",
-                    "function": rip_grep_command,
+                    "function": _make_callable(rip_grep_command),
                     "description": "Search project files using ripgrep.",
                 },
                 {
                     "command": ":screen",
-                    "function": run_command_in_screen,
+                    "function": _make_callable(run_command_in_screen),
                     "description": "Run a shell command in a detached screen session.",
                 },
             ],
@@ -272,27 +367,27 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": ":twitch",
-                    "function": send_twitch_message_command,
+                    "function": _make_callable(send_twitch_message_command),
                     "description": "Send a message to Twitch chat.",
                 },
                 {
                     "command": ":joke",
-                    "function": joke_for_twitch,
+                    "function": _make_callable(joke_for_twitch),
                     "description": "Tell a programming joke for Twitch.",
                 },
                 {
                     "command": ":tweet",
-                    "function": send_twitter_message,
+                    "function": _make_callable(send_twitter_message),
                     "description": "Send a tweet via Twitter API.",
                 },
                 {
                     "command": ":twitch_summary",
-                    "function": twitch_summary_command,
+                    "function": _make_callable(twitch_summary_command),
                     "description": "Summarize Twitch chat activity.",
                 },
                 {
                     "command": ":linkedin_summary",
-                    "function": linkedin_summary_command,
+                    "function": _make_callable(linkedin_summary_command),
                     "description": "Generate a LinkedIn post summary.",
                 },
             ],

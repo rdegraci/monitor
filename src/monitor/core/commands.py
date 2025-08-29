@@ -194,7 +194,7 @@ def execute_interactive_command(command: str):
             display=True,
         )
 
-def print_interactive_commands(arg):
+def print_interactive_commands(arg=None):
     """
     Print all public interactive command names as a comma-separated list.
     """
