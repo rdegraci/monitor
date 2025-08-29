@@ -33,12 +33,6 @@ from monitor.lib.server import create_flask_server  # Import create_flask_server
 
 logger = logging.getLogger(__name__)
 
-# Register clean SIGINT handler early to ensure graceful shutdown on interrupt signals.
-setup_sigint_handler()
-
-# Load configuration
-logger.info("Loading configuration...")
-
 def _reset_config():
     """
     Implements --reset-config as follows:
@@ -107,6 +101,15 @@ def _reset_config():
     sys.exit(0)
 
 def main():
+    """Main entry point.
+
+    Parses CLI arguments, loads configuration and environment, initializes logging
+    and signal handlers, configures subsystems, and runs either the interactive
+    chat loop or the Flask server.
+
+    Returns:
+        None
+    """
     parser = argparse.ArgumentParser(description="Monitor")
     parser.add_argument(
         "--server",
@@ -139,6 +142,11 @@ def main():
     load_model_config()
     load_environment_globals()
     start_logging()
+
+    # Register clean SIGINT handler after logging is configured to ensure
+    # any logging performed by the handler works as expected.
+    setup_sigint_handler()
+    logger.info("Loading configuration...")
 
     # Apply --model CLI override as early as possible before dependency components are initialized.
     if hasattr(args, "model") and args.model is not None:
