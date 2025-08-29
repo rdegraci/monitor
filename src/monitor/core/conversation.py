@@ -424,12 +424,20 @@ def chat():
     """
     Main loop for interactive chatting with the system.
 
+    This function enforces that interactive chat is disabled in server mode.
+    If config.SERVER_MODE is True, this function will log an error and raise RuntimeError.
+
     Uses config.last_summary_time for managing conversation summaries.
     All token counting/usage must use canonical helpers from monitor.lib.token_management.
 
     Returns:
         ConversationResult: Use ConversationResult Enum for result statuses.
     """
+    # Enforce server-mode restriction at the very start of the interactive chat.
+    if getattr(config, "SERVER_MODE", False):
+        logger.error("Attempted to start interactive chat while SERVER_MODE is enabled.")
+        raise RuntimeError("Interactive chat is disabled in server mode.")
+
     logger.info("Starting chat loop...")
     logger.info(
         f"Configured with config.MODEL: {config.MODEL}, CONTEXT_WINDOW: {config.MODEL_CONTEXT_WINDOW}"
