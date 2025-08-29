@@ -36,6 +36,7 @@ setup(
         "anthropic==0.54.0",
         "flask==3.1.1",
         "coqui-tts==0.27.0",
+        "openai==1.101.0",
     ],
     package_data={"monitor": ["app.yaml", "macros.json", "model_config.json", "preferences.prompt", "public_commands.json"]},
 )
