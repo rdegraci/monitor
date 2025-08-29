@@ -9,6 +9,7 @@ import pytest
 import os
 import tempfile
 import json
+import io
 from unittest.mock import patch, MagicMock
 import logging
 
@@ -234,6 +235,59 @@ class TestConfigLoading:
             
             # Cache should be populated
             assert config._MODEL_CONFIG_CACHE is not None
+
+    def test_missing_model_config_copies_default(self, tmp_path, monkeypatch):
+        """Test that missing model_config.json is copied from packaged default.
+
+        This test uses tmp_path and monkeypatch to simulate the absence of a user
+        config file and to provide a packaged default model_config.json via
+        importlib.resources.open_binary.
+        """
+        minimal_model_config = {
+            "model_mapping": {"gpt4": "gpt-4"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {},
+            "anthropic_model_tpm_tier": {},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {}
+        }
+
+        json_bytes = json.dumps(minimal_model_config).encode('utf-8')
+
+        # Simulate find_config_file raising FileNotFoundError
+        def _raise_file_not_found(*args, **kwargs):
+            raise FileNotFoundError()
+
+        monkeypatch.setattr(config, 'find_config_file', _raise_file_not_found)
+
+        # Ensure user_config_dir returns our tmp_path
+        monkeypatch.setattr('appdirs.user_config_dir', lambda *a, **k: str(tmp_path))
+
+        # Provide packaged default via importlib.resources.open_binary
+        monkeypatch.setattr('monitor.config.importlib.resources.open_binary',
+                            lambda package, resource: io.BytesIO(json_bytes))
+
+        # Patch logger to verify informational message
+        mock_logger = MagicMock()
+        monkeypatch.setattr(config, 'logger', mock_logger)
+
+        # Call the loader and validate behavior
+        result = config._load_and_validate_model_config()
+
+        assert result == minimal_model_config
+
+        # The file should have been written to the user config dir
+        target_file = tmp_path / 'model_config.json'
+        assert target_file.exists()
+        assert target_file.read_bytes() == json_bytes
+
+        # Logger info should have been called indicating the copy
+        mock_logger.info.assert_called()
+        info_args, _ = mock_logger.info.call_args
+        assert 'Copied default model_config.json to' in info_args[0]
 
 
 class TestModelValidation:

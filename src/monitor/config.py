@@ -14,6 +14,7 @@ import json
 import appdirs
 import importlib.resources
 import uuid
+import shutil
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -100,10 +101,56 @@ def _load_and_validate_model_config():
     # Build the path to the model_config.json (look in user config, then site config)
     config_filename = "model_config.json"
     try:
-        config_path = find_config_file(config_filename)
+        try:
+            config_path = find_config_file(config_filename)
+        except FileNotFoundError as fnf:
+            # Attempt to copy the packaged default into the user config dir
+            try:
+                user_config_dir = appdirs.user_config_dir("monitor")
+            except Exception as e:
+                logger.error(f"Failed to determine user config dir for monitor: {e}", exc_info=True)
+                raise RuntimeError("Cannot determine user config dir for monitor") from e
+
+            try:
+                os.makedirs(user_config_dir, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Failed to create user config directory {user_config_dir}: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to create user config directory: {user_config_dir}") from e
+
+            dest_path = os.path.join(user_config_dir, config_filename)
+            try:
+                # Attempt to open the packaged default resource and copy it to dest_path
+                try:
+                    with importlib.resources.open_binary('monitor', config_filename) as src:
+                        try:
+                            with open(dest_path, 'wb') as dst:
+                                try:
+                                    shutil.copyfileobj(src, dst)
+                                except Exception as e:
+                                    logger.error(f"Failed to write default {config_filename} to {dest_path}: {e}", exc_info=True)
+                                    raise RuntimeError(f"Failed to write default model config to {dest_path}") from e
+                        except Exception as e:
+                            logger.error(f"Failed to open destination file {dest_path} for writing: {e}", exc_info=True)
+                            raise RuntimeError(f"Failed to open destination model config file: {dest_path}") from e
+                except FileNotFoundError as e:
+                    logger.error(f"Packaged default {config_filename} not found in package resources: {e}", exc_info=True)
+                    raise RuntimeError(f"Packaged default model_config.json not found in package resources") from e
+                except Exception as e:
+                    logger.error(f"Failed to access packaged default {config_filename}: {e}", exc_info=True)
+                    raise RuntimeError("Failed to access packaged default model_config.json") from e
+            except Exception:
+                # Errors already logged and wrapped above; re-raise to outer handler
+                raise
+
+            logger.info(f"Copied default model_config.json to {dest_path}")
+            config_path = dest_path
+        except Exception as e:
+            logger.error(f"Unable to locate {config_filename}: {e}", exc_info=True)
+            raise RuntimeError(f"Cannot find model config: {config_filename}") from e
+
     except Exception as e:
-        logger.error(f"Unable to locate {config_filename}: {e}", exc_info=True)
-        raise RuntimeError(f"Cannot find model config: {config_filename}") from e
+        logger.error(f"Error preparing model config path for {config_filename}: {e}", exc_info=True)
+        raise
 
     # Attempt reading and parsing JSON
     try:
