@@ -33,15 +33,29 @@ from monitor.lib.server import create_flask_server  # Import create_flask_server
 
 logger = logging.getLogger(__name__)
 
-def _reset_config():
+def _reset_config(force: bool = False):
     """
     Implements --reset-config as follows:
+
+    Behavior:
+    - Supports a 'force' parameter to skip interactive prompting. When force is True,
+      existing user config files will be backed up and replaced without prompting.
+    - When force is False and the process is non-interactive (stdin is not a TTY),
+      the function will exit with an error instructing the caller to use --force to
+      run in non-interactive environments.
+
+    Procedure:
     - For each config file (app.yaml, macros.json, preferences.prompt):
-      - If the file exists in the user config dir, prompt user for confirmation.
-      - If confirmed, move to .bak_<timestamp>; else, skip.
-      - Copy default resource to user dir.
-      - Print success for each file or skip message.
+      - If the file exists in the user config dir:
+        - If force is True: backup and overwrite without prompting.
+        - Else if stdin is not a TTY: print an explanatory error and exit.
+        - Else: prompt user for confirmation; if confirmed, back up and overwrite; else skip.
+      - If the file does not exist: copy default resource to user dir.
+      - Report success or errors for each file.
     - At end: print summary & exit immediately.
+
+    Args:
+        force (bool): If True, do not prompt and overwrite existing files after backing up.
     """
     user_config_dir = appdirs.user_config_dir('monitor')
     files_to_reset = [
@@ -57,16 +71,30 @@ def _reset_config():
         exists = os.path.isfile(user_path)
         user_input = "y"
         if exists:
-            # Prompt user for confirmation
-            prompt_msg = (
-                f"The config file '{filename}' exists in your config directory ({user_config_dir}).\n"
-                f"Do you want to back up and overwrite it with the default? [y/N]: "
-            )
-            try:
-                user_input = input(prompt_msg).strip().lower()
-            except (KeyboardInterrupt, EOFError):
-                print("\nOperation aborted by user.")
-                sys.exit(1)
+            if force:
+                # Non-interactive forced overwrite
+                user_input = "y"
+            else:
+                # If not interactive, refuse to proceed and instruct about --force
+                if not sys.stdin.isatty():
+                    print(
+                        f"ERROR: Config file '{filename}' exists in your config directory ({user_config_dir}).\n"
+                        "Cannot prompt for confirmation in a non-interactive session.\n"
+                        "If you intend to overwrite existing config files in a non-interactive\n"
+                        "environment, re-run with the --force flag to back up and replace files.\n"
+                        "Aborting reset-config operation."
+                    )
+                    sys.exit(1)
+                # Interactive prompt user for confirmation
+                prompt_msg = (
+                    f"The config file '{filename}' exists in your config directory ({user_config_dir}).\n"
+                    f"Do you want to back up and overwrite it with the default? [y/N]: "
+                )
+                try:
+                    user_input = input(prompt_msg).strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    print("\nOperation aborted by user.")
+                    sys.exit(1)
         if not exists or user_input in ("y", "yes"):
             # Backup existing file if present
             backup_path = None
@@ -133,11 +161,16 @@ def main():
         action="store_true",
         help="Reset per-user config files to package defaults (with optional backup). Exits after completion.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reset without prompting (useful in non-interactive shells).",
+    )
 
     args, unknown = parser.parse_known_args()
 
     if getattr(args, "reset_config", False):
-        _reset_config()
+        _reset_config(getattr(args, "force", False))
 
     load_model_config()
     load_environment_globals()
