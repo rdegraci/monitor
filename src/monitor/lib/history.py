@@ -243,84 +243,190 @@ def append_conversation_history(
                 logger.info("[SUMMARIZATION] Posted to external social summaries.")
             except Exception as e:
                 logger.error(f"[SUMMARIZATION] Error posting social media summaries: {str(e)}", exc_info=True)
+
+        # New policy: Skip summarization when Responses API adapter is active and specific model prefix + response id present.
+        skip_summary = False
         try:
-            logger.info(
-                f"[SUMMARIZATION] Beginning to generate summary. Conversation messages: {len(conversation_history)}, total_token_count: {config.TOTAL_TOKEN_COUNT}."
-            )
-            response = generate_summary_func(
-                system_prompt,
-                conversation_history,
-                config.SUMMARIZATION_CONFIG,
-                config.MODEL,
-                litellm.completion,
-                count_message_tokens,  # canonical token counting from monitor.lib/token_management.py
-                rate_limiter.RATE_LIMITER,
-                logger,
-                config,  # pass config now for live token count usage
-            )
-            summary_content = None
-            summary_token_count = None
-            if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
-                summary_content = response.choices[0].message.content  # Fixed: extract .content
-                summary_token_count = count_message_tokens({"role": "system", "content": summary_content})
-            logger.info(
-                f"[SUMMARIZATION] Summary generated. Length: {len(summary_content) if summary_content else 'n/a'} chars, Estimated tokens: {summary_token_count}. Snippet: '{summary_content[:200] if summary_content else 'n/a'}...'"
-            )
-            if not summary_content:
-                raise ValueError("[SUMMARIZATION] Empty summary generated; cannot reset conversation.")
-            if summary_token_count and summary_token_count > config.MAX_TOKEN_COUNT * 0.6:
-                logger.warning(
-                    f"[SUMMARIZATION] WARNING: Generated summary itself is large ({summary_token_count} tokens, limit {config.MAX_TOKEN_COUNT}). Efficiency shortfall."
-                )
+            responses_api_flag = getattr(config, "RESPONSES_API", False)
+            reasoning_prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
+            model_name = getattr(config, "MODEL", "") or ""
+            response_id_present = getattr(config, "RESPONSE_ID", None) is not None
+            if responses_api_flag and reasoning_prefix and isinstance(model_name, str) and model_name.lower().startswith(reasoning_prefix.lower()) and response_id_present:
+                skip_summary = True
+            logger.debug(f"[SUMMARIZATION] skip_summary evaluation: RESPONSES_API={responses_api_flag}, REASONING_MODEL_PREFIX='{reasoning_prefix}', MODEL='{model_name}', RESPONSE_ID present={response_id_present} -> skip_summary={skip_summary}")
+        except Exception as e:
+            logger.error(f"[SUMMARIZATION] Error evaluating skip_summary policy: {str(e)}", exc_info=True)
+            skip_summary = False
+
+        if skip_summary:
             try:
-                # Replace conversation history with system, summary, and user input
-                logger.debug(
-                    f"[SUMMARIZATION] Resetting conversation history. Pre-reset: len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
+                # Truncate conversation to system prompt + last 20 non-system messages
+                system_message = next((msg for msg in conversation_history if msg.get('role') == 'system'), None)
+                non_system_msgs = [msg for msg in conversation_history if msg.get('role') != 'system']
+                keep_last_n = 20
+                kept = non_system_msgs[-keep_last_n:] if len(non_system_msgs) > keep_last_n else non_system_msgs[:]
+                new_history = []
+                if system_message:
+                    new_history.append(system_message)
+                new_history.extend(kept)
+                conversation_history[:] = new_history
+                # Update live total token count
+                try:
+                    config.TOTAL_TOKEN_COUNT = count_message_tokens(conversation_history)
+                except Exception:
+                    # If config doesn't support attribute or counting fails, log and continue
+                    logger.error("[SUMMARIZATION] Failed to update config.TOTAL_TOKEN_COUNT after skip-based truncation.", exc_info=True)
+                logger.info(
+                    f"[SUMMARIZATION] Skipped summarization due to Responses API adapter. Truncated history to system + last {keep_last_n} non-system messages. New len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
                 )
-                reset_with_summary_func(
-                    summary_content,
+            except Exception as e:
+                logger.error(f"[SUMMARIZATION] Error while truncating history when skipping summary: {str(e)}", exc_info=True)
+            # Do not call generate_summary_func; return early from summarization flow.
+        else:
+            # Token-based pre-check truncation fallback for non-Responses cases
+            try:
+                # Determine model window (prefer explicit MODEL_CONTEXT_WINDOW, else MAX_TOKEN_COUNT)
+                model_window = getattr(config, "MODEL_CONTEXT_WINDOW", None) or getattr(config, "MAX_TOKEN_COUNT", None)
+                try:
+                    model_window_val = int(model_window)
+                except Exception:
+                    model_window_val = int(getattr(config, "MAX_TOKEN_COUNT", 0))
+                threshold = int(model_window_val / 2)
+            except Exception as e:
+                logger.error(f"[SUMMARIZATION] Error determining model window/threshold: {str(e)}", exc_info=True)
+                try:
+                    threshold = int(getattr(config, "MAX_TOKEN_COUNT", 0) / 2)
+                except Exception:
+                    threshold = None
+
+            if threshold is not None:
+                try:
+                    # Recompute tokens_in_history to ensure accuracy
+                    tokens_in_history = count_message_tokens(conversation_history)
+                except Exception as e:
+                    logger.error(f"[SUMMARIZATION] Error recounting tokens before pre-summary truncation: {str(e)}", exc_info=True)
+                    tokens_in_history = None
+
+                try:
+                    if tokens_in_history is not None and tokens_in_history > threshold:
+                        logger.info(f"[SUMMARIZATION] Pre-summary truncation needed: tokens_in_history={tokens_in_history} > threshold={threshold}")
+                        # Preserve system prompt if present, then keep newest messages until token budget <= threshold
+                        system_message = next((msg for msg in conversation_history if msg.get('role') == 'system'), None)
+                        kept = []
+                        kept_token_sum = 0
+                        # Iterate from newest to oldest excluding system message(s)
+                        for msg in reversed(conversation_history):
+                            if system_message is not None and msg is system_message:
+                                continue
+                            try:
+                                msg_tokens = count_message_tokens(msg)
+                            except Exception:
+                                # If counting specific message fails, skip that message (safer)
+                                logger.warning("[SUMMARIZATION] Failed to count tokens for a message during truncation; skipping that message.")
+                                continue
+                            if kept_token_sum + msg_tokens > threshold:
+                                # Stop adding older messages once threshold would be exceeded
+                                break
+                            kept.insert(0, msg)  # insert at front to maintain chronological order
+                            kept_token_sum += msg_tokens
+                        new_history = []
+                        if system_message:
+                            new_history.append(system_message)
+                        new_history.extend(kept)
+                        # If truncation actually reduced history, apply it and update counts
+                        if len(new_history) < len(conversation_history):
+                            conversation_history[:] = new_history
+                            try:
+                                config.TOTAL_TOKEN_COUNT = count_message_tokens(conversation_history)
+                            except Exception:
+                                logger.error("[SUMMARIZATION] Failed to update config.TOTAL_TOKEN_COUNT after pre-summary truncation.", exc_info=True)
+                            logger.info(f"[SUMMARIZATION] Applied token-based pre-summary truncation. Kept {len(kept)} non-system messages (+system if present). New len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}")
+                        else:
+                            logger.debug("[SUMMARIZATION] Pre-summary truncation evaluated but did not reduce history size.")
+                except Exception as e:
+                    logger.error(f"[SUMMARIZATION] Error performing token-based pre-summary truncation: {str(e)}", exc_info=True)
+            else:
+                logger.debug("[SUMMARIZATION] No threshold available for pre-summary truncation; skipping truncation step.")
+
+            # Proceed to perform summarization as before
+            try:
+                logger.info(
+                    f"[SUMMARIZATION] Beginning to generate summary. Conversation messages: {len(conversation_history)}, total_token_count: {config.TOTAL_TOKEN_COUNT}."
+                )
+                response = generate_summary_func(
                     system_prompt,
-                    user_input,
-                    conversation_history,
-                    append_to_history_with_count,
-                    logger,
-                    config,  # pass config for live token count usage
-                )
-                config.last_summary_time = time.time()
-                # Check if summarization genuinely reduced state below limits
-                post_reset_total_tokens = count_message_tokens(conversation_history)
-                log_negative_token_count(logger, config)
-                logger.debug(f"[SUMMARIZATION] After reset: len(conversation_history)={len(conversation_history)}, TOTAL_TOKEN_COUNT={post_reset_total_tokens}")
-                limits_post = check_limits_func(
-                    post_reset_total_tokens,
-                    config.MAX_TOKEN_COUNT,
-                    config.CONVERSATION_MAX_SIZE,
                     conversation_history,
                     config.SUMMARIZATION_CONFIG,
+                    config.MODEL,
+                    litellm.completion,
+                    count_message_tokens,  # canonical token counting from monitor.lib/token_management.py
+                    rate_limiter.RATE_LIMITER,
                     logger,
-                    config,
-                    0,
+                    config,  # pass config now for live token count usage
                 )
+                summary_content = None
+                summary_token_count = None
+                if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
+                    summary_content = response.choices[0].message.content  # Fixed: extract .content
+                    summary_token_count = count_message_tokens({"role": "system", "content": summary_content})
                 logger.info(
-                    f"[SUMMARIZATION] After reset: history message count={len(conversation_history)}, total tokens={post_reset_total_tokens}"
+                    f"[SUMMARIZATION] Summary generated. Length: {len(summary_content) if summary_content else 'n/a'} chars, Estimated tokens: {summary_token_count}. Snippet: '{summary_content[:200] if summary_content else 'n/a'}...'"
                 )
-                logger.info(
-                    f"[SUMMARIZATION] Post-summarization limit check: triggers={limits_post['trigger_reasons']}, metrics: {limits_post['metrics']}"
-                )
-                if limits_post["should_summarize"]:
-                    logger.error(
-                        f"[SUMMARIZATION] Summarization did not sufficiently reduce state. Still over limit! New triggers: {limits_post['trigger_reasons']}, metrics: {limits_post['metrics']}"
+                if not summary_content:
+                    raise ValueError("[SUMMARIZATION] Empty summary generated; cannot reset conversation.")
+                if summary_token_count and summary_token_count > config.MAX_TOKEN_COUNT * 0.6:
+                    logger.warning(
+                        f"[SUMMARIZATION] WARNING: Generated summary itself is large ({summary_token_count} tokens, limit {config.MAX_TOKEN_COUNT}). Efficiency shortfall."
                     )
-                if summary_token_count and summary_token_count > config.MAX_TOKEN_COUNT * 0.8:
-                    logger.error(
-                        f"[SUMMARIZATION] CRITICAL: Summary by itself is dangerously close to the max token limit ({summary_token_count} of {config.MAX_TOKEN_COUNT})."
+                try:
+                    # Replace conversation history with system, summary, and user input
+                    logger.debug(
+                        f"[SUMMARIZATION] Resetting conversation history. Pre-reset: len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
                     )
+                    reset_with_summary_func(
+                        summary_content,
+                        system_prompt,
+                        user_input,
+                        conversation_history,
+                        append_to_history_with_count,
+                        logger,
+                        config,  # pass config for live token count usage
+                    )
+                    config.last_summary_time = time.time()
+                    # Check if summarization genuinely reduced state below limits
+                    post_reset_total_tokens = count_message_tokens(conversation_history)
+                    log_negative_token_count(logger, config)
+                    logger.debug(f"[SUMMARIZATION] After reset: len(conversation_history)={len(conversation_history)}, TOTAL_TOKEN_COUNT={post_reset_total_tokens}")
+                    limits_post = check_limits_func(
+                        post_reset_total_tokens,
+                        config.MAX_TOKEN_COUNT,
+                        config.CONVERSATION_MAX_SIZE,
+                        conversation_history,
+                        config.SUMMARIZATION_CONFIG,
+                        logger,
+                        config,
+                        0,
+                    )
+                    logger.info(
+                        f"[SUMMARIZATION] After reset: history message count={len(conversation_history)}, total tokens={post_reset_total_tokens}"
+                    )
+                    logger.info(
+                        f"[SUMMARIZATION] Post-summarization limit check: triggers={limits_post['trigger_reasons']}, metrics: {limits_post['metrics']}"
+                    )
+                    if limits_post["should_summarize"]:
+                        logger.error(
+                            f"[SUMMARIZATION] Summarization did not sufficiently reduce state. Still over limit! New triggers: {limits_post['trigger_reasons']}, metrics: {limits_post['metrics']}"
+                        )
+                    if summary_token_count and summary_token_count > config.MAX_TOKEN_COUNT * 0.8:
+                        logger.error(
+                            f"[SUMMARIZATION] CRITICAL: Summary by itself is dangerously close to the max token limit ({summary_token_count} of {config.MAX_TOKEN_COUNT})."
+                        )
+                except Exception as e:
+                    logger.error(f"[SUMMARIZATION] Error resetting conversation with summary: {str(e)}", exc_info=True)
+                    logger.warning("[SUMMARIZATION] Summarization should have occurred, but conversation was not reset properly!")
             except Exception as e:
-                logger.error(f"[SUMMARIZATION] Error resetting conversation with summary: {str(e)}", exc_info=True)
-                logger.warning("[SUMMARIZATION] Summarization should have occurred, but conversation was not reset properly!")
-        except Exception as e:
-            logger.error(f"[SUMMARIZATION] Summarization failed: {str(e)}", exc_info=True)
-            logger.warning("[SUMMARIZATION] Summarization should have occurred, but failed due to error.")
+                logger.error(f"[SUMMARIZATION] Summarization failed: {str(e)}", exc_info=True)
+                logger.warning("[SUMMARIZATION] Summarization should have occurred, but failed due to error.")
     else:
         logger.debug("[SUMMARIZATION] Summarization not triggered by limit check.")
         # Extra: warn if state size is still dangerously high even if not triggered (defensive)
