@@ -1,184 +1,200 @@
-
 # How to Add a New Built-In Command
 
-This guide explains how to add a new built-in command to your application, enabling you to extend the interactive CLI with your own functionality.
+This guide explains how to add a new built-in command to the application, enabling you to extend the interactive CLI with custom functionality. It reflects the current codebase behavior and registration patterns.
 
 ---
 
-## Step 1: Define Your Command Function
+## Overview / Key concepts
 
-Create your command handler as a Python function. Place it in `core/built_ins.py` for simple commands, or in another appropriate module for more complex logic.
+- Handler location vs registration:
+  - Implement the command handler in an appropriate module (for example, `monitor/lib/built_in_commands.py` for library-style commands or a `core` module for tightly-coupled core commands).
+  - Register the handler in `monitor/core/built_ins.py` by adding an entry in `configure_built_ins()` — that file is the registration surface (it organizes command groups and calls the registration helper).
 
-**Example:**
-```python
-def hello_world_command(arg=None):
-    """Simple command that prints Hello, World!"""
-    print("Hello, World!")
-```
+- Calling contract (important):
+  - The built-in executor calls your handler with a *single string argument* that contains everything typed by the user after the command name.
+  - Prefer the signature `def my_command(arg=None):` and accept the argument as a string (it may be empty or None).
 
----
+- Return values vs printing:
+  - The built-in executor (`execute_built_in_function` in `monitor/lib/built_ins_utils.py`) invokes your function but does not capture and print its return value. Therefore, your handler should typically print its output directly.
+  - If you prefer to return values, register a wrapper that prints the returned value.
 
-## Step 2: Register the Command in `configure_built_ins()`
+- Automatic adapters and explicit adapters:
+  - `monitor/core/built_ins.py` contains `_make_callable(func)` which adapts 0- or 1-argument functions to the single-argument calling interface.
+  - If a function requires more than one positional parameter, you must register an explicit adapter lambda in `configure_built_ins()` that transforms the single string argument into the parameters the function needs.
 
-In `core/built_ins.py`, locate the `configure_built_ins()` function. Built-in commands are registered here in grouped dictionaries. Add your command to an appropriate group (such as "General utility commands") or create a new group if needed.
+- Registration API:
+  - The low-level helper that stores registrations is `append_function_to_built_ins(new_dict)` in `monitor/lib/built_ins_utils.py`.
+  - `configure_built_ins()` adds a `group_description` to each mapping before calling the append helper.
 
-**Example (Add to General utility commands):**
-```python
-command_groups: List[Dict[str, Any]] = [
-    {
-        "group_description": "General utility commands",
-        "commands": [
-            # ...existing commands...
-            {
-                "command": ":hello",
-                "function": hello_world_command,
-                "description": "Print 'Hello, World!' to the screen.",
-            },
-        ],
-    },
-    # ... other groups ...
-]
-```
+- Colon (`:`) prefix:
+  - Using `:` (e.g., `:llm`) is a common convention in built-ins to avoid name collisions, but it is not enforced. The command matching logic compares the first word to the registered `command` string, so consistency is what matters.
 
 ---
 
-## Step 3: (Re)Start the Application
+## Step 1: Define your command handler
 
-Restart your app so it loads the updated built-in command registry. Your new command will now be registered and available.
+Place the implementation in an appropriate module. Example in `monitor/lib/built_in_commands.py`:
 
----
-
-## Step 4: Use the Command
-
-At the CLI prompt, type:
-```
-:hello
-```
-You should see:
-```
-Hello, World!
-```
----
-
-## Tips
-- Handlers can accept arguments from the user by utilizing the `arg` parameter.
-- Prefix custom commands with a colon (`:`) to avoid naming collisions.
-- Include descriptive docstrings and help text for clarity.
-- Check existing code in `core/built_ins.py` for more examples (including commands with arguments, utility commands, etc).
-
----
-
-## Writing Commands That Accept Arguments
-
-Built-in command functions can accept user-supplied arguments from the CLI by using the `arg` parameter. The argument will contain everything typed by the user after the command name.
-
-**Example:**
 ```python
 def echo_command(arg=None):
-    """Echoes the provided arguments back to the user."""
+    """Echo the provided arguments back to the user."""
     if arg:
         print(arg)
     else:
         print("Nothing to echo.")
 ```
-Register as:
+
+Notes:
+- `arg` receives the remainder of the CLI command as a single string (e.g., if the user types `:echo Hello World`, `arg == "Hello World"`).
+- Use defensive input parsing and error handling inside the handler.
+
+---
+
+## Step 2: Register the command in `configure_built_ins()`
+
+In `monitor/core/built_ins.py`, locate `configure_built_ins()`. Commands are organized into groups and each command is registered by adding a mapping with keys like `"command"`, `"function"`, and `"description"`.
+
+Direct registration example (recommended for simple handlers using arg=None):
+
 ```python
 {
     "command": ":echo",
     "function": echo_command,
-    "description": "Print back user-supplied text (usage: :echo your text)",
+    "description": "Echo user-supplied text (usage: :echo your text)",
 }
 ```
-Usage at the prompt:
+
+Notes:
+- `configure_built_ins()` often calls `_make_callable(handler)` automatically for you when building entries, which adapts handlers that accept no argument or a single argument.
+- The call site will enrich each mapping with `"group_description"` before calling `append_function_to_built_ins()`.
+
+Adapter registration example (for handlers that need additional dependencies or more parameters):
+
+Suppose you have a function:
+
+```python
+def complex_handler(session, mode):
+    # requires two parameters
+    ...
+```
+
+Register via a lambda adapter that parses the single incoming string and injects dependencies:
+
+```python
+{
+    "command": ":complex",
+    "function": lambda arg=None: complex_handler(session_from_context(), parse_mode(arg)),
+    "description": "Run a complex handler that needs session and mode",
+}
+```
+
+Or if a handler needs multiple parsed values from `arg`, the lambda should parse `arg` and call the underlying function accordingly.
+
+Examples in the codebase:
+- `configure_built_ins()` uses `_make_callable(func)` for many handlers and explicit `lambda arg=None: ...` adapters for cases that need extra context (for example, adapters that inject TOOL_DESCRIPTIONS, config, logger, etc.).
+
+---
+
+## Step 3: (Re)Start the application
+
+Restart the app so it loads the updated built-in command registry. `configure_built_ins()` runs at startup to register all built-ins.
+
+---
+
+## Step 4: Use the command
+
+At the CLI prompt, type:
+
 ```
 :echo Hello World!
 ```
-This displays:
+
+With the example `echo_command` above this prints:
+
 ```
 Hello World!
 ```
 
 ---
 
-## Returning Values From Built-In Commands
+## Returning Values From Built-In Commands (corrected)
 
-A built-in command may return a value rather than (or in addition to) printing directly. The command processor will print the returned value, or make it available for piping if supported.
+- `execute_built_in_function` calls `function_to_run(arguments)` but does not examine or print its return value.
+- Best practice:
+  - Have your handler print outputs directly (recommended).
+  - Or, register a wrapper that calls the handler, captures the returned value, and prints it:
 
-**Example:**
 ```python
-def double_command(arg=None):
-    """Doubles a numeric input and returns the result."""
-    try:
-        num = float(arg)
-        return num * 2
-    except (TypeError, ValueError):
-        return "Please enter a valid number."
+def wrapper(arg=None):
+    result = maybe_returning_handler(arg)
+    if result is not None:
+        print(result)
 ```
-Register as:
+
+---
+
+## Error Handling Best Practices (practical)
+
+- Use try/except in your handlers to provide helpful feedback.
+- Validate and sanitize `arg`.
+- If a function requires more than one positional parameter, prefer making the dependency explicit with a lambda adapter at registration time; this avoids implicit runtime errors and documents the need for those parameters.
+- Registration-time safety: `configure_built_ins()` uses a helper that logs registration errors; if `append_function_to_built_ins()` raises, the registration helper reports it without crashing the entire startup.
+
+---
+
+## Examples (accurate with current codebase)
+
+Simple echo (implementation and registration):
+
+Implementation (e.g., `monitor/lib/built_in_commands.py`):
+
+```python
+def echo_command(arg=None):
+    """Echo text provided by the user."""
+    if arg:
+        print(arg)
+    else:
+        print("Nothing to echo.")
+```
+
+Registration in `configure_built_ins()` (in `monitor/core/built_ins.py`):
+
 ```python
 {
+    "command": ":echo",
+    "function": echo_command,  # configure_built_ins or _make_callable will adapt as needed
+    "description": "Echo user text",
+}
+```
+
+Handler that returns instead of printing, with wrapper to print:
+
+```python
+def double_command(arg=None):
+    try:
+        return float(arg) * 2
+    except Exception:
+        return "Please enter a valid number."
+
+# Wrapper used when registering:
+{
     "command": ":double",
-    "function": double_command,
+    "function": lambda arg=None: print(double_command(arg)),
     "description": "Double a number (usage: :double 5)",
 }
 ```
-When used as `:double 5`, the output is:
-```
-10.0
-```
 
----
+Handler needing multiple dependencies — use adapter:
 
-## Error Handling Best Practices for Built-In Commands
-
-Handle errors gracefully within your built-in command functions to provide helpful feedback and avoid crashing the app.
-
-**Guidelines:**
-- Use `try`/`except` blocks to catch potential errors.
-- Return or print clear, user-friendly error messages.
-- Validate and sanitize input received via `arg`.
-- Avoid raising uncaught exceptions.
-
-**Example:**
 ```python
-def safe_divide_command(arg=None):
-    """Divides two numbers, reporting errors for bad inputs."""
-    try:
-        parts = arg.split()
-        if len(parts) != 2:
-            return "Usage: :divide num1 num2"
-        num1, num2 = float(parts[0]), float(parts[1])
-        if num2 == 0:
-            return "Cannot divide by zero."
-        return num1 / num2
-    except (ValueError, TypeError, AttributeError):
-        return "Please provide two numeric values."
-```
+def run_query_with_client(client, query_str):
+    return client.query(query_str)
 
----
-
-## Displaying Help for Custom Commands
-
-To display help for your custom commands:
-- Add a descriptive `description` when registering the command. This will usually show when the user types `:help` or similar.
-- Make sure your handler function contains a docstring with usage information. This can be shown when help is requested for a specific command.
-
-**Example:**
-```python
-def my_command(arg=None):
-    """
-    Do something useful.
-
-    Usage: :my_command [options]
-    """
-    # implementation here
-```
-When you register:
-```python
+# Registration with adapter that extracts client and passes parsed arg:
 {
-    "command": ":my_command",
-    "function": my_command,
-    "description": "Do something useful (see :help :my_command)",
+    "command": ":qclient",
+    "function": lambda arg=None: print(run_query_with_client(get_client(), arg)),
+    "description": "Run query using a specific client",
 }
 ```
 
@@ -186,15 +202,19 @@ When you register:
 
 ## Quick Reference Table
 
-| Step | Action                                                                  |
-|------|-------------------------------------------------------------------------|
-| 1    | Define your handler function                                            |
-| 2    | Register it in `configure_built_ins()`                                 |
-| 3    | Restart the app                                                        |
-| 4    | Use the command by typing `:<your_command>` at the CLI                 |
+| Step | Action |
+|------|--------|
+| 1 | Implement handler in a module (prefer `monitor/lib/built_in_commands.py` for library commands). |
+| 2 | Register it in `configure_built_ins()` with keys `command`, `function`, `description`. |
+| 3 | If your handler prints behavior directly, prefer `def fn(arg=None)`. |
+| 4 | If your handler needs additional parameters or dependencies, register a lambda adapter. |
+| 5 | Restart the app and use the command at the CLI. |
 
 ---
 
-You're all set to extend your CLI with new custom commands!
+## Where to look in the code
 
+- Registration and adapter code: `src/monitor/core/built_ins.py` (`configure_built_ins()`, `_make_callable`, `_safe_register`).
+- Registry and execution: `src/monitor/lib/built_ins_utils.py` (`append_function_to_built_ins()`, `execute_built_in_function()`).
+- Examples of handlers: `src/monitor/lib/built_in_commands.py`.
 
