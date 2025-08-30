@@ -1,4 +1,8 @@
 import subprocess
+import logging
+from monitor import config
+
+logger = logging.getLogger(__name__)
 
 def ripgrep_search_tool(term, filetype=None, word=False):
     """
@@ -46,6 +50,33 @@ def ripgrep_search(term, filetype=None, search_path='.', word=False):
             stderr = result.stderr.strip() if result.stderr else ""
             details = stderr if stderr else "ripgrep reported a usage or option error (exit code 2)."
             return f"Error running ripgrep: {details}"
+
+        # Safe truncation for very large outputs to avoid exceeding model context windows.
+        stdout = result.stdout if result.stdout else ""
+        try:
+            # Use MODEL_CONTEXT_WINDOW if available, otherwise fall back to MAX_TOKEN_COUNT.
+            model_window = getattr(config, 'MODEL_CONTEXT_WINDOW', None)
+            if model_window:
+                base_limit = int(model_window)
+            else:
+                base_limit = int(getattr(config, 'MAX_TOKEN_COUNT', 0) or 0)
+        except Exception:
+            base_limit = int(getattr(config, 'MAX_TOKEN_COUNT', 0) or 0)
+
+        SAFE_LIMIT = int(base_limit) // 10 if base_limit else 0
+
+        if SAFE_LIMIT > 0 and stdout:
+            if len(stdout) > SAFE_LIMIT:
+                try:
+                    num_bytes_truncated = len(stdout[SAFE_LIMIT:].encode('utf-8'))
+                except Exception:
+                    num_bytes_truncated = max(0, len(stdout) - SAFE_LIMIT)
+                logger.warning(
+                    "ripgrep output size %d exceeds SAFE_LIMIT %d; truncating to %d characters.",
+                    len(stdout), SAFE_LIMIT, SAFE_LIMIT
+                )
+                return stdout[:SAFE_LIMIT] + f"\n\n[TRUNCATED {num_bytes_truncated} bytes of output]"
+
         return result.stdout if result.stdout else "No matches found."
     except FileNotFoundError:
         return "Error running ripgrep: 'rg' (ripgrep) not found. Please install ripgrep and ensure it is on your PATH."
