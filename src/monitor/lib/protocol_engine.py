@@ -437,11 +437,11 @@ class ProtocolEngine:
         logger.info(f"Chunk {expected_index} validation successful")
         return content, has_last
 
-    def _collect_chunks(self, initial_response=None, modification_request=None, start_chunk_index=1):
+    def _collect_chunks(self, initial_response=None, modification_request=None, start_chunk_index=1, print_func=print):
         logger.info(f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}")
         logger.info(f"Expected total chunks: {self.expected_total_chunks}, current chunks collected: {len(self.chunks)}")
         
-        logger.info("\nProcessing", end="", flush=True)
+        print_func("\nProcessing", end="", flush=True)
         line_ranges = getattr(self, "line_ranges", None)
         found_last_chunk = False
         iteration = 0
@@ -463,7 +463,7 @@ class ProtocolEngine:
         while not found_last_chunk and iteration < max_iterations:
             iteration += 1
             logger.info(f"_collect_chunks iteration {iteration}: processing chunk, found_last_chunk={found_last_chunk}")
-            logger.info(".", end="", flush=True)
+            print_func(".", end="", flush=True)
             
             if current_response:
                 expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
@@ -779,6 +779,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
             print_func(f"{yellow}Modifying file {source_file}{reset}")
+            print_func(f"{yellow}Please wait. Modification may take up to 180 seconds of reasoning.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."

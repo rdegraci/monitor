@@ -66,7 +66,6 @@ def perform_git_diff_file(path):
         logger.info("Successfully performed git diff on file: %s", ensured_path)
         if stdout == "":
             logger.debug("No changes detected in file: %s", ensured_path)
-            print_highlight_or_empty(stdout, DiffLexer(), f"No differences found in {ensured_path}.")
             return f"No changes detected in {ensured_path}"
 
         print_highlight_or_empty(stdout, DiffLexer(), f"No differences found in {ensured_path}.")
