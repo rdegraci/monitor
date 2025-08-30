@@ -102,8 +102,8 @@ class ProtocolEngine:
             ],
         }
         
-        print(f"Created chunk plan: {total_lines} lines, {expected} expected chunks")
-        print(f"Line ranges: {plan['line_ranges']}")
+        logger.info(f"Created chunk plan: {total_lines} lines, {expected} expected chunks")
+        logger.info(f"Line ranges: {plan['line_ranges']}")
         
         return plan
 
@@ -133,7 +133,7 @@ class ProtocolEngine:
                 error_result = None
                 break
         if attempt_successful:
-            print(f"Modification completed in {self.global_retries+1} cycles.")
+            logger.info(f"Modification completed in {self.global_retries+1} cycles.")
             self.global_retries = 0
             return result
         else:
@@ -181,7 +181,7 @@ class ProtocolEngine:
         if checkpoint:
             self.chunks = checkpoint["completed_chunks"]
             start_chunk_index = checkpoint["next_chunk_index"]
-            print(f"Resuming modification at chunk {start_chunk_index} for {source_file}")
+            logger.info(f"Resuming modification at chunk {start_chunk_index} for {source_file}")
         else:
             self.chunks = []
             start_chunk_index = 1
@@ -214,17 +214,17 @@ class ProtocolEngine:
             f"REMINDER: Output every single line literally. Do not use 'unchanged' or summary phrases."
         )
         
-        print(f"Starting modification cycle for {source_file}")
-        print(f"start_chunk_index={start_chunk_index}, is_last_expected={is_last_expected}, lines={lo}..{hi}")
-        print(f"Initial query length: {len(initial_query)} chars")
+        logger.info(f"Starting modification cycle for {source_file}")
+        logger.info(f"start_chunk_index={start_chunk_index}, is_last_expected={is_last_expected}, lines={lo}..{hi}")
+        logger.info(f"Initial query length: {len(initial_query)} chars")
 
         if not self.chunks:
-            print("No existing chunks, requesting initial chunk")
+            logger.info("No existing chunks, requesting initial chunk")
             initial_response = self._send_request_with_compliance_retry(initial_query, chunk_index=1, is_next_chunk=False)
-            print(f"Received initial response: {len(initial_response) if initial_response else 0} chars")
+            logger.info(f"Received initial response: {len(initial_response) if initial_response else 0} chars")
             ret = self._collect_chunks(initial_response, modification_request, start_chunk_index=1)
         else:
-            print(f"Resuming from existing chunks ({len(self.chunks)} chunks already collected)")
+            logger.info(f"Resuming from existing chunks ({len(self.chunks)} chunks already collected)")
             ret = self._collect_chunks(None, modification_request, start_chunk_index=start_chunk_index)
 
         if isinstance(ret, str) and ret.startswith("Non-compliant output at chunk"):
@@ -249,7 +249,7 @@ class ProtocolEngine:
             self.message_history.append({"role": "assistant", "content": content})
             return content
         except Exception as e:
-            logger.error(f"Middleware completion error: {str(e)}", exc_info=True)
+            logger.exception("Middleware completion error: %s", str(e))
             raise Exception("LLM call failed. Check logs for details.")
 
     def _send_request_with_compliance_retry(self, query, chunk_index, is_next_chunk: bool):
@@ -271,7 +271,7 @@ class ProtocolEngine:
                 logger.debug(f"Requesting chunk {chunk_index}, retry {retries+1}")
                 output = self._send_request(augmented_query)
             except Exception as e:
-                logger.error(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}", exc_info=True)
+                logger.exception("LLM call failed for chunk %s, retry %s: %s", chunk_index, retries + 1, str(e))
                 raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}")
             prohibited = self._find_prohibited_phrases_in_text(output)
             if prohibited:
@@ -376,15 +376,15 @@ class ProtocolEngine:
         return matches
 
     def _validate_and_extract_chunk(self, response: str, expected_index: int, is_last_expected: bool):
-        print(f"_validate_and_extract_chunk: expected_index={expected_index}, is_last_expected={is_last_expected}")
-        print(f"Response length: {len(response) if response else 0} chars")
+        logger.info(f"_validate_and_extract_chunk: expected_index={expected_index}, is_last_expected={is_last_expected}")
+        logger.info(f"Response length: {len(response) if response else 0} chars")
         
         if not response or not isinstance(response, str):
-            print("Invalid response type - response is None or not string")
+            logger.info("Invalid response type - response is None or not string")
             raise ValueError("Invalid response type")
 
         # Log first 200 chars of response for debugging
-        print(f"Response preview: {response[:200]}{'...' if len(response) > 200 else ''}")
+        logger.info(f"Response preview: {response[:200]}{'...' if len(response) > 200 else ''}")
 
         # Must have a matching chunk tag
         pattern = re.compile(
@@ -395,34 +395,34 @@ class ProtocolEngine:
         if not m:
             # If it tries any other index or no tags at all, reject
             if "<chunk_" not in response:
-                print(f"No chunk tags found in response for chunk {expected_index}")
+                logger.info(f"No chunk tags found in response for chunk {expected_index}")
                 raise ValueError(f"Missing chunk tags for chunk {expected_index}")
             else:
-                print(f"Wrong chunk index found. Expected <chunk_{expected_index}> only.")
+                logger.info(f"Wrong chunk index found. Expected <chunk_{expected_index}> only.")
                 # Log what chunk tags we actually found
                 chunk_matches = re.findall(r'<chunk_(\d+)(?:\s+last="true")?>', response)
-                print(f"Found chunk tags: {chunk_matches}")
+                logger.info(f"Found chunk tags: {chunk_matches}")
                 raise ValueError(f"Wrong chunk index. Expected <chunk_{expected_index}> only.")
 
         tag_text = m.group(0)
         content = m.group(1)
         has_last = 'last="true"' in tag_text
         
-        print(f"Extracted chunk {expected_index}: {len(content)} chars, {len(content.splitlines())} lines")
-        print(f"Has last flag: {has_last}")
+        logger.info(f"Extracted chunk {expected_index}: {len(content)} chars, {len(content.splitlines())} lines")
+        logger.info(f"Has last flag: {has_last}")
 
         # Early/late last flag
         if has_last and not is_last_expected:
-            print(f"Received unexpected last=\"true\" for chunk {expected_index} (expected at chunk {self.expected_total_chunks})")
+            logger.info(f"Received unexpected last=\"true\" for chunk {expected_index} (expected at chunk {self.expected_total_chunks})")
             raise ValueError(f"Received last=\"true\" before final chunk (expected at chunk {self.expected_total_chunks}).")
 
         # Size constraints
         line_count = len(content.splitlines())
         char_count = len(content)
-        print(f"Chunk {expected_index} size check: {line_count}/{self.lines_per_chunk} lines, {char_count}/{self.chars_per_chunk} chars")
+        logger.info(f"Chunk {expected_index} size check: {line_count}/{self.lines_per_chunk} lines, {char_count}/{self.chars_per_chunk} chars")
         
         if line_count > self.lines_per_chunk or char_count > self.chars_per_chunk:
-            print(f"Chunk {expected_index} exceeds size limits")
+            logger.info(f"Chunk {expected_index} exceeds size limits")
             raise ValueError(
                 f"Chunk {expected_index} too large: {line_count} lines, {char_count} chars. "
                 f"Limits: {self.lines_per_chunk} lines, {self.chars_per_chunk} chars."
@@ -431,24 +431,24 @@ class ProtocolEngine:
         # Forbidden summary markers (you already have this check; keep it)
         prohibited_phrases = self._find_prohibited_phrases_in_text(content)
         if prohibited_phrases:
-            print(f"Prohibited summary markers found in chunk {expected_index}: {list(prohibited_phrases)}")
+            logger.info(f"Prohibited summary markers found in chunk {expected_index}: {list(prohibited_phrases)}")
             raise ValueError("Prohibited summary language detected in chunk content.")
 
-        print(f"Chunk {expected_index} validation successful")
+        logger.info(f"Chunk {expected_index} validation successful")
         return content, has_last
 
     def _collect_chunks(self, initial_response=None, modification_request=None, start_chunk_index=1):
-        print(f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}")
-        print(f"Expected total chunks: {self.expected_total_chunks}, current chunks collected: {len(self.chunks)}")
+        logger.info(f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}")
+        logger.info(f"Expected total chunks: {self.expected_total_chunks}, current chunks collected: {len(self.chunks)}")
         
-        print("\nProcessing", end="", flush=True)
+        logger.info("\nProcessing", end="", flush=True)
         line_ranges = getattr(self, "line_ranges", None)
         found_last_chunk = False
         iteration = 0
         max_iterations = 50  # Increased for larger files
         
         if initial_response is None:
-            print(f"No initial response provided, requesting chunk {start_chunk_index}")
+            logger.info(f"No initial response provided, requesting chunk {start_chunk_index}")
             # For resume: Request the next chunk with specific index
             next_chunk_prompt = (
                 f"Continue from chunk {start_chunk_index}. IMPORTANT: Mark the last chunk with <chunk_n last=\"true\">. "
@@ -456,19 +456,19 @@ class ProtocolEngine:
                 "nor omit *any* lines from the file. Output every line, with no summary phrases."
             )
             current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index, is_next_chunk=True)
-            print(f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars")
+            logger.info(f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars")
         else:
-            print(f"Using provided initial response: {len(initial_response)} chars")
+            logger.info(f"Using provided initial response: {len(initial_response)} chars")
             current_response = initial_response
         while not found_last_chunk and iteration < max_iterations:
             iteration += 1
-            print(f"_collect_chunks iteration {iteration}: processing chunk, found_last_chunk={found_last_chunk}")
-            print(".", end="", flush=True)
+            logger.info(f"_collect_chunks iteration {iteration}: processing chunk, found_last_chunk={found_last_chunk}")
+            logger.info(".", end="", flush=True)
             
             if current_response:
                 expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
                 is_last_expected = (expected_index == self.expected_total_chunks)
-                print(f"Processing current response for expected chunk {expected_index} (is_last_expected: {is_last_expected})")
+                logger.info(f"Processing current response for expected chunk {expected_index} (is_last_expected: {is_last_expected})")
                 
                 try:
                     expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
@@ -479,7 +479,7 @@ class ProtocolEngine:
                         expected_index=expected_index,
                         is_last_expected=is_last_expected
                     )
-                    print(f"Successfully extracted chunk {expected_index}, is_last_chunk={is_last_chunk}")
+                    logger.info(f"Successfully extracted chunk {expected_index}, is_last_chunk={is_last_chunk}")
                 except ValueError as e:
                     logger.error(f"Chunk validation failed: {e}")
                     # Treat as non-compliant and stop with a partial save
@@ -487,30 +487,30 @@ class ProtocolEngine:
                     return f"Non-compliant output at chunk {expected_index}. Partial results saved."
 
                 self.chunks.append(new_chunk)
-                print(f"Added chunk {expected_index} to collection. Total chunks now: {len(self.chunks)}")
+                logger.info(f"Added chunk {expected_index} to collection. Total chunks now: {len(self.chunks)}")
                 
                 if modification_request:
                     self._save_checkpoint(self.chunks, len(self.chunks) + 1, modification_request)
-                    print(f"Saved checkpoint after chunk {expected_index}")
+                    logger.info(f"Saved checkpoint after chunk {expected_index}")
 
                 if is_last_chunk:
                     found_last_chunk = True
-                    print(f"Found last chunk! Finalizing modification with {len(self.chunks)} total chunks")
+                    logger.info(f"Found last chunk! Finalizing modification with {len(self.chunks)} total chunks")
                     self._assemble_and_save()
                     self._remove_checkpoint()
-                    print(f"\nModification complete. Updated {self.source_file}.")
+                    logger.info(f"\nModification complete. Updated {self.source_file}.")
                     return
             else:
                 logger.warning("current_response is None or empty - this shouldn't happen")
             
             if not found_last_chunk:
-                print(f"Need more chunks. Requesting next chunk {len(self.chunks) + 1} of {self.expected_total_chunks}")
+                logger.info(f"Need more chunks. Requesting next chunk {len(self.chunks) + 1} of {self.expected_total_chunks}")
                 try:
                     next_index = len(self.chunks) + 1
                     is_last = (next_index == self.expected_total_chunks)
                     (lo, hi) = line_ranges[next_index - 1] if line_ranges else (None, None)
                     
-                    print(f"Requesting chunk {next_index}, is_last={is_last}, lines {lo}..{hi}")
+                    logger.info(f"Requesting chunk {next_index}, is_last={is_last}, lines {lo}..{hi}")
 
                     next_chunk_prompt = (
                         f"Output ONLY chunk {next_index} of {self.expected_total_chunks} now.\n"
@@ -526,7 +526,7 @@ class ProtocolEngine:
                     current_response = self._send_request_with_compliance_retry(
                         next_chunk_prompt, chunk_index=next_index, is_next_chunk=True
                     )
-                    print(f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars")
+                    logger.info(f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars")
                 except ValueError as e:
                     if "Non-compliant output at chunk" in str(e):
                         logger.error(f"Non-compliance error: {str(e)}")
@@ -536,16 +536,16 @@ class ProtocolEngine:
                         logger.error(f"Error in chunk processing: {str(e)}")
                         if self.chunks:
                             self._assemble_and_save_partial()
-                        print(f"Code modification completed with partial results.")
+                        logger.info(f"Code modification completed with partial results.")
                         break
                 except Exception as e:
-                    logger.error(f"Error requesting next chunk: {str(e)}", exc_info=True)
+                    logger.exception("Error requesting next chunk: %s", str(e))
                     if self.chunks:
                         self._assemble_and_save_partial()
-                    print(f"Code modification completed with partial results.")
+                    logger.info(f"Code modification completed with partial results.")
                     break
         if iteration >= max_iterations and self.chunks:
-            print(f"\nReached max iterations ({max_iterations}). Using collected chunks.")
+            logger.info(f"\nReached max iterations ({max_iterations}). Using collected chunks.")
             self._assemble_and_save()
 
     def _parse_chunks(self, response):
@@ -580,7 +580,7 @@ class ProtocolEngine:
         full_script = re.sub(r'(?:[ \t]*\n)+\Z', '\n', full_script)
         with open(self.source_file, "w") as f:
             f.write(full_script)
-        print(f"Modified script saved to {self.source_file}")
+        logger.info(f"Modified script saved to {self.source_file}")
         self.message_history = [{"role": "system", "content": self.system_prompt}]
         return full_script + f"\n\nTask completed successfully. File {self.source_file} updated."
 
@@ -606,7 +606,7 @@ class ProtocolEngine:
         partial_file = f"{self.source_file}.partial"
         with open(partial_file, "w") as f:
             f.write(full_script)
-        print(f"Modified script saved to: {partial_file}")
+        logger.info(f"Modified script saved to: {partial_file}")
         return full_script + f"\n\nTask not completed successfully. Content saved to: {partial_file} file."
 
     def _get_checkpoint_path(self):
@@ -756,11 +756,11 @@ def stream_code(raw_user_input):
     logger.debug("stream_code called with user input (length: %d)", len(raw_user_input) if raw_user_input else 0)
     parts = raw_user_input.split(":", 1)
     if len(parts) == 1:
-        print(f"{red}Streaming code format: <file_name>:<prompt>{reset}")
+        logger.info(f"{red}Streaming code format: <file_name>:<prompt>{reset}")
         return
     file_name = parts[0]
     prompt = parts[1]
-    print("Streaming code for file: %s with prompt of length %d", file_name, len(prompt))
+    logger.info("Streaming code for file: %s with prompt of length %d", file_name, len(prompt))
     ENGINE.fetch_modified_script(
         script_content=STARTER_SCRIPT,
         modification_request=prompt,
@@ -768,7 +768,7 @@ def stream_code(raw_user_input):
     )
     return "Working."
 
-def modify_source_code(source_file: str, modification_request: str) -> str:
+def modify_source_code(source_file: str, modification_request: str, print_func=print) -> str:
     """
     Modifies source code in place with global retry safeguard.
     """
@@ -778,12 +778,12 @@ def modify_source_code(source_file: str, modification_request: str) -> str:
     try:
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
-            print(f"{yellow}Modifying file {source_file}{reset}")
+            print_func(f"{yellow}Modifying file {source_file}{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
     except Exception as e:
-        logger.error(f"Error reading file {source_file}: {str(e)}")
+        logger.exception("Error reading file %s: %s", source_file, str(e))
         return f"Error reading file {source_file}: {str(e)}"
     try:
         modified_script = ENGINE.fetch_modified_script(
@@ -791,10 +791,10 @@ def modify_source_code(source_file: str, modification_request: str) -> str:
             modification_request=modification_request,
             source_file=source_file
         )
-        print(f"Modified {source_file} in place")
-        print(f"{yellow}Modified {source_file}{reset}")
+        print_func(f"Modified {source_file} in place")
+        print_func(f"{yellow}Modified {source_file}{reset}")
         perform_git_diff_file(source_file)
         return modified_script
     except Exception as e:
-        logger.error(f"Error in modify_source_code: {str(e)}", exc_info=True)
+        logger.exception("Error in modify_source_code: %s", str(e))
         raise Exception(f"Failed to modify script: {str(e)}")
