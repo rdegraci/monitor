@@ -13,8 +13,6 @@ from pygments.formatters import TerminalFormatter
 
 from monitor import config 
 
-from monitor.lib.git import perform_git_diff_file
-
 logger = logging.getLogger(__name__)
 
 blue = fg('blue')
@@ -794,7 +792,6 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         )
         print_func(f"Modified {source_file} in place")
         print_func(f"{yellow}Modified {source_file}{reset}")
-        perform_git_diff_file(source_file)
         return modified_script
     except Exception as e:
         logger.exception("Error in modify_source_code: %s", str(e))
