@@ -22,26 +22,12 @@ reset = attr('reset')
 
 MESSAGE_HISTORY = []
 
-# # # ChatGpt41
-# MAX_LINES_PER_CHUNK = 1000        # Medium chunks
-# MAX_CHARS_PER_CHUNK = 100000      # ~120KB chunks  
-# TOKEN_BUDGET_PER_CHUNK = 20000    # 62% of limit
-
-# # o3
-# CHUNK_SIZE_LINES = 2000           # 2x larger chunks
-# CHUNK_SIZE_BYTES = 200000         # 200KB chunks
-# TOKEN_BUDGET_PER_CHUNK = 40000    # Still only 40% of limit
-
-# ChatGpt5/Grok4/Chatgpt5-mini
-MAX_LINES_PER_CHUNK = 15000       # Almost never chunk
-MAX_CHARS_PER_CHUNK = 2000000     # ~2MB (huge)
-TOKEN_BUDGET_PER_CHUNK = 120000   # Use almost full window
-
-def configure_protocol_engine_message_history(message_history):
+def configure_protocol_engine_message_history(message_history: list):
     global MESSAGE_HISTORY
     logger.debug("Configuring message history, count: %d", len(message_history) if message_history else 0)
-    MESSAGE_HISTORY = message_history
-
+    MESSAGE_HISTORY.clear()
+    if message_history:
+        MESSAGE_HISTORY.extend(message_history)
 
 class ProtocolEngine:
     """ProtocolEngine with global modification cycle retry logic."""
@@ -61,7 +47,7 @@ class ProtocolEngine:
     MAX_RETRIES_PER_CHUNK = 3
     MAX_GLOBAL_MODIFICATION_RETRIES = 2
 
-    def __init__(self, model, system_prompt, middleware=litellm, initial_message_history=MESSAGE_HISTORY):
+    def __init__(self, model, system_prompt, middleware=litellm, initial_message_history=None):
         logger.debug("Initializing ProtocolEngine with model: %s", model)
         self.model = model
         self.system_prompt = system_prompt
@@ -73,6 +59,8 @@ class ProtocolEngine:
         self.message_history = [{"role": "system", "content": system_prompt}]
         self._modification_script_content = None
         self.global_retries = 0
+        if initial_message_history is None:
+            initial_message_history = MESSAGE_HISTORY
         if initial_message_history:
             if not isinstance(initial_message_history, list):
                 logger.error("initial_message_history must be a list, got: %s", type(initial_message_history))
@@ -666,11 +654,31 @@ class ProtocolEngine:
         self.message_history = [{"role": "system", "content": self.system_prompt}]
         logger.debug("ProtocolEngine state has been reset.")
 
+# Default to chatgpt-4.1 capabilities
+MAX_LINES_PER_CHUNK = 1000       
+MAX_CHARS_PER_CHUNK = 100000     
+TOKEN_BUDGET_PER_CHUNK = 20000   
 
+def _configure_protocol_engine_limits():
+    global MAX_LINES_PER_CHUNK, MAX_CHARS_PER_CHUNK, TOKEN_BUDGET_PER_CHUNK
+
+    model = (config.MODEL or "").lower()
+    if model.startswith("openai/gpt-5") or model.startswith("xai/grok-4"):
+        MAX_LINES_PER_CHUNK = 15000       
+        MAX_CHARS_PER_CHUNK = 2000000     
+        TOKEN_BUDGET_PER_CHUNK = 120000   
+
+    if model.startswith("openai/o3"):
+        MAX_LINES_PER_CHUNK = 2000      
+        MAX_CHARS_PER_CHUNK = 200000    
+        TOKEN_BUDGET_PER_CHUNK = 40000
+
+# Note: configure_protocol_engine() should be invoked before code that uses ENGINE.
 ENGINE=None
 
 def configure_protocol_engine():
     global ENGINE
+    _configure_protocol_engine_limits()
     system_prompt = f"""
     You are an expert software engineer specializing in safe, in-place, large-scale source code modification.
 
@@ -777,7 +785,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
             print_func(f"{yellow}Modifying file {source_file}{reset}")
-            print_func(f"{yellow}Please wait. Modification may take up to 180 seconds of reasoning.{reset}")
+            print_func(f"{yellow}Please wait. Modifications (with retries) may take up to 180 seconds of inference/reasoning.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
@@ -790,9 +798,9 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             modification_request=modification_request,
             source_file=source_file
         )
-        print_func(f"Modified {source_file} in place")
-        print_func(f"{yellow}Modified {source_file}{reset}")
+        print_func(f"{yellow}\nModified {source_file}{reset}")
         return modified_script
     except Exception as e:
+        print_func(f"{red}Failed to implement modifications to {source_file}.\nInstructions for manual modifications will follow.{reset}")
         logger.exception("Error in modify_source_code: %s", str(e))
         raise Exception(f"Failed to modify script: {str(e)}")
