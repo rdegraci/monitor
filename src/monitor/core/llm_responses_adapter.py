@@ -58,8 +58,6 @@ OUTPUT_KEY = "output"
 OUTPUT_TEXT_ATTR = "output_text"
 ID_KEY = "id"
 USAGE_KEYS = ("total_tokens", "total_token_count", "total")
-MAX_FUNCTION_CALL_ITERATIONS = 25
-SUMMARY_MAX_OUTPUT_TOKENS = 300
 ARGUMENTS_KEY = "arguments"
 ARGS_KEY = "args"
 TOOL_NAME_KEYS = ("tool", "tool_name")
@@ -67,6 +65,11 @@ CALL_ID_KEYS = ("call_id", "id")
 SERIALIZATION_FAILED_STR = '{"error": "serialization_failed"}'
 TEXT_KEY = "text"
 MESSAGE_CONTENT_LIST_ITEM_KEYS = ("content", "text", "message")
+
+# WARNING: Larger iterations count can increase costs, runtime, and 
+# risk of runaway function-call loops, but allow the LLM to be more agentic
+MAX_FUNCTION_CALL_ITERATIONS = 32
+SUMMARY_MAX_OUTPUT_TOKENS = 2048
 
 def configure_responses_adapter():
     global client
@@ -544,8 +547,22 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                             REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                             REQUEST_PARAM_INPUT: summary_instruction,
                         }
-                        # Set a conservative max output tokens for the summary
-                        summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = SUMMARY_MAX_OUTPUT_TOKENS
+
+                        try:
+                            model_window = int(getattr(config, "MODEL_OUTPUT_WINDOW"))
+                            computed_summary_tokens = max(
+                                int(SUMMARY_MAX_OUTPUT_TOKENS // 2),
+                                min(int(model_window * 0.08), int(SUMMARY_MAX_OUTPUT_TOKENS))
+                            )
+                        except Exception:
+                            computed_summary_tokens = int(SUMMARY_MAX_OUTPUT_TOKENS)
+
+                        logger.debug(
+                            f"[SUMMARIZATION] Using SUMMARY_MAX_OUTPUT_TOKENS={computed_summary_tokens} "
+                            f"(MODEL_OUTPUT_WINDOW={getattr(config, 'MODEL_OUTPUT_WINDOW', 'n/a')})"
+                        )
+
+                        summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = computed_summary_tokens
 
                         logger.debug("Sending summarization follow-up due to function call iteration truncation")
                         summary_response = client.responses.create(**summary_params)
