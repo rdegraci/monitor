@@ -1,149 +1,224 @@
 # MACROS_README.md
 
-# Macro Programming Tutorial
+# Macro Programming Guide
 
-This document provides a step-by-step guide for writing and using macros in this app. It includes basic usage, syntax rules, and practical examples — including both simple macros and advanced TCL-enabled macros — with expected outputs.
+This document explains how macros work in this app, with concise, accurate, and runnable examples. It covers pure (string) macros and TCL-backed macros, file locations and defaults, configuration options, built-in commands for editing and reloading macros, and short troubleshooting steps.
 
 ## Table of Contents
-1. Introduction to Macros
-2. Macro Syntax
-3. Step-by-Step Setup
-4. Pure Macro Examples
-5. TCL Macro Examples
-6. Troubleshooting & Tips
+1. Overview
+2. File locations and format
+3. Delimiters and escaping
+4. Pure macros (string substitution)
+5. TCL macros (embedded TCL evaluation)
+6. Built-ins: editing, reloading, listing
+7. API hooks and tests
+8. Troubleshooting
 
 ---
 
-## 1. Introduction to Macros
-Macros in this app allow you to automate string expansion and computation. Macros can reference other macros and may include TCL scripting for advanced logic, math, conditionals, or formatting.
+## 1. Overview
+There are two macro flavors:
 
-There are two types of macros:
-- **Pure Macros**: Simple string substitution, possibly with nested expansion.
-- **TCL Macros**: Code evaluated in an embedded TCL interpreter, with output captured and used as the macro result.
-
----
-
-## 2. Macro Syntax
-
-### Pure Macro Syntax
-A macro is generally defined as a key→value pair, e.g. in your macro store or configuration:
-```
-hello_macro: "Hello, world!"
-name_macro: "(user_name)"
-greet_macro: "Hello, (name_macro)!"
-```
-
-Reference a macro by using its key (e.g., `(greet_macro)`). Macros may reference others recursively.
-
-### TCL Macro Syntax
-**Parenthesized TCL**: Surrounded by `(tcl ...)` 
-- It will be executed as TCL code. The output of any `puts` in the TCL script becomes the macro expansion result.
-
-**Examples:**
-```
-math_macro: "(tcl puts [expr {2 + 3 * 7}])"
-date_macro: "(tcl puts [clock format [clock seconds] -format \"%Y-%m-%d\"]])"
-```
+- Pure macros: simple string values that may reference other macros using the configured delimiters.
+- TCL macros: macro values whose body begins with the token `tcl` (inside the macro delimiters) and which are passed to an embedded TCL interpreter for evaluation. Important: macro references like `(other_macro)` are NOT automatically expanded inside TCL bodies by default. The macro engine only unescapes escaped delimiters inside TCL bodies; it does not perform recursive macro expansion there. If you need macro data inside TCL code, expand it before creating the TCL body or use the programmatic APIs described below.
 
 ---
 
-## 3. Step-by-Step Setup
+## 2. File locations and format
 
-### Step 1: Define Your Macros
-1. Locate or create the macro configuration/store file macros.json.
-2. Add entries following the examples below.
+- Macros are stored in JSON format in `macros.json`.
+- Default location: `~/.config/monitor/macros.json`.
+- On first run the application will copy the packaged default `macros.json` into that location; see `src/monitor/__main__.py` for the copy-on-first-run behavior.
 
-### Step 2: Reference Macros
-- In your templates, configuration, or code, use the macro names as appropriate. The macro system will expand them and include TCL results if relevant.
-
-### Step 3: Reload or Use Macros
-- If required, reload/restart the app or issue a reload command for changes to take effect.
-- You can also use the built_in command:  :reload_macros
-
----
-
-## 4. Pure Macro Examples
-
-### Example 1: Simple Substitution
+Example `macros.json` file (JSON):
 ```
-morning_macro: "Good morning!"
-```
-**Expanding `(morning_macro)` yields:**
-```
-Good morning!
+{
+  "hello_macro": "Hello, world!",
+  "name_macro": "Alex",
+  "greet_macro": "Hello, (name_macro)!",
+  "math_macro": "(tcl set a 6; set b 3; puts [expr {$a * $b + 2}])",
+  "date_macro": "(tcl puts [clock format [clock seconds] -format \"%Y-%m-%d\"])"
+}
 ```
 
-### Example 2: Macro With Substitution
-```
-user_name: "Alex"
-greet_user: "Hello, (user_name)!"
-```
-**Expanding `(greet_user)` yields:**
-```
-Hello, Alex!
-```
-
-### Example 3: Nested Macros
-```
-day: "Wednesday"
-schedule: "Your meeting is scheduled for (day)."
-```
-**Expanding `(schedule)` yields:**
-```
-Your meeting is scheduled for Wednesday.
-```
+Notes:
+- Keys and values must be valid JSON strings.
+- TCL macros are represented as strings whose value begins with `(tcl ` and ends with `)` (using the configured delimiters).
 
 ---
 
-## 5. TCL Macro Examples
+## 3. Delimiters and escaping
 
-### Example 1: Math Calculation
+- Default delimiters: `(` and `)`.
+- Default escape character: backslash `\`.
+- To write a literal delimiter inside macro text or a TCL body you can escape it with `\` (for example `\(` or `\)`).
+- Delimiters are configurable via the app configuration `app.yaml` using the `macro_delimiters` setting. Example in `app.yaml`:
 ```
-math_macro: "(tcl set a 6; set b 3; puts [expr {$a * $b + 2}])"
+macro_delimiters:
+  open: "("
+  close: ")"
+  escape: "\\"
 ```
-**Expanding `(math_macro)` yields:**
+
+Behavior summary:
+- Pure macro bodies: `(macro_name)` occurrences are expanded by the macro engine.
+- TCL macro bodies: the text within `(tcl ... )` is passed largely as-is to the embedded TCL interpreter. The macro engine does not perform macro substitutions inside TCL bodies by default; only escaped delimiters are unescaped so the TCL code can contain literal delimiter characters.
+
+---
+
+## 4. Pure macros (string substitution)
+
+Definition example (in JSON):
+```
+{
+  "morning_macro": "Good morning!",
+  "user_name": "Alex",
+  "greet_user": "Hello, (user_name)!",
+  "day": "Wednesday",
+  "schedule": "Your meeting is scheduled for (day)."
+}
+```
+
+Expansions:
+- Expanding `(morning_macro)` → `Good morning!`
+- Expanding `(greet_user)` → `Hello, Alex!`
+- Expanding `(schedule)` → `Your meeting is scheduled for Wednesday.`
+
+Notes:
+- Pure macros can nest and reference each other using the configured delimiters.
+- Watch for cycles; recursive loops will either be detected or will cause uncontrolled behavior depending on configuration.
+
+---
+
+## 5. TCL macros (embedded TCL evaluation)
+
+TCL macros are executed in an embedded TCL interpreter. The result sent back to the macro system is the output written by `puts` (standard output of the TCL code). TCL macros require the Python build to include Tcl/Tk bindings (usually provided by `tkinter`). If your environment lacks tkinter or Tcl support, TCL macros will not run.
+
+Key points:
+- Macro expansion is NOT performed inside TCL bodies by default. If you put `(other_macro)` inside the TCL body, it will be treated as literal text unless you explicitly expand it before creating the TCL macro string.
+- The macro engine will unescape escaped delimiters inside TCL bodies to allow literal delimiter characters.
+- Use valid TCL syntax. Examples below are runnable TCL code snippets.
+
+Runnable examples (as JSON entries):
+
+Math calculation:
+```
+"math_macro": "(tcl set a 6; set b 3; puts [expr {$a * $b + 2}])"
+```
+Expanding `(math_macro)` yields:
 ```
 20
 ```
 
-### Example 2: Date/Time Output
+Date / time:
 ```
-date_macro: "(tcl puts [clock format [clock seconds] -format '%Y-%m-%d'])"
+"date_macro": "(tcl puts [clock format [clock seconds] -format \"%Y-%m-%d\"])"
 ```
-**Expanding `(date_macro)` yields (example):**
+Expanding `(date_macro)` yields (example):
 ```
 2024-06-08
 ```
 
-### Example 3: Conditional Logic (using a macro variable)
+Conditional logic (demonstrates using flags from the JSON, but note: references to other macros will not be expanded automatically inside the TCL body):
 ```
-is_prod: "0"
-show_env: "(tcl if {${is_prod} == 1} {puts 'Production'} else {puts 'Development'})"
+"is_prod": "0",
+"show_env": "(tcl if {0 == 1} {puts \"Production\"} else {puts \"Development\"})"
 ```
-**Expanding `(show_env)` yields:**
+Expanding `(show_env)` yields:
 ```
 Development
 ```
 
-### Example 4: String Manipulation
+String manipulation:
+If you want to operate on a pure macro value inside TCL, do one of:
+- Expand the pure macro before the TCL macro is constructed (preferred if the value is static).
+- Or pass the data into TCL through an external path your app provides (see API hooks below).
+
+Example (expanding before creating the TCL body):
 ```
-repeated: "foo   bar   baz"
-squash_spaces: "(tcl regsub -all { +} (repeated) { } result; puts $result)"
+"repeated": "foo   bar   baz",
+"squash_spaces": "(tcl set s \"foo   bar   baz\"; regsub -all { +} $s { } result; puts $result)"
 ```
-**Expanding `(squash_spaces)` yields:**
+Expanding `(squash_spaces)` yields:
 ```
 foo bar baz
 ```
 
----
+Important: Do not rely on automatic expansion of `(repeated)` inside the TCL string; perform substitution outside the TCL body or use programmatic lookup.
 
-## 6. Troubleshooting & Tips
-- **Empty or Placeholder TCL Macros:** If the TCL code is empty or just `...`, the result will be blank and a warning will be logged.
-- **TCL Errors:** If you have scripting errors, the macro will expand to `[TCL ERROR: ...]` with more details in the log.
-- **Recursive Expansion:** Macro references like `(macro_name)` inside TCL bodies will be expanded before the TCL code runs.
-- **Unsupported Features:** Only commands supported by standard TCL and available in the embedded interpreter will work.
-- **Debugging:** Use logging (if enabled) to trace macro execution and diagnose problems.
+TCL runtime requirements:
+- The embedded TCL interpreter is provided by the host via Tcl/Tk (commonly accessible via Python's `tkinter` module). Ensure `tkinter` is available in your runtime environment to use TCL macros.
 
 ---
 
-For more examples or further guidance, refer to the code `lib/macro_utils.py` and tests in `tests/test_macro_utils.py`.
+## 6. Built-ins: editing, reloading, listing
+
+Interactive built-in commands available in the app shell:
+
+- Edit macros file:
+```
+:edit_macros
+```
+This opens the `macros.json` file in the configured editor (see app settings). On save, changes are not applied until reload.
+
+- Reload macros:
+```
+:reload_macros
+```
+This re-reads `~/.config/monitor/macros.json` and updates the runtime macro store.
+
+- List macros:
+```
+macros
+```
+(or the equivalent built-in command named `macros`) — lists known macros and their current expansion results (pure expansions shown; TCL macros may show a short indicator of being TCL-backed).
+
+Examples:
+- Run `:edit_macros` to modify your JSON file.
+- Then run `:reload_macros` to apply your changes without restarting the whole application.
+- Run `macros` to see the current macro definitions.
+
+---
+
+## 7. API hooks and tests
+
+Programmatic helpers you may use or inspect:
+- `load_additional_macros` in `src/monitor/lib/macro_utils.py`: helper to load extra macro definitions into the runtime store.
+- `update_macros` in `src/monitor/lib/macro_utils.py`: helper to replace or merge macro definitions at runtime.
+
+See the implementation and unit tests for examples and expected behaviors:
+- Implementation: `src/monitor/lib/macro_utils.py`
+- Tests: `tests/test_macro_utils.py`
+
+These show canonical usage patterns, edge cases, and how the macro engine treats TCL bodies and delimiter escaping.
+
+---
+
+## 8. Troubleshooting (short)
+
+- TCL macros produce `[TCL ERROR: ...]` in the expansion:
+  - Check your TCL syntax in the macro value.
+  - Ensure `tkinter` / Tcl bindings are available in your Python runtime.
+  - Run the TCL body in a standalone TCL interpreter to validate.
+
+- Empty or placeholder TCL bodies:
+  - `(tcl )` or `(tcl ...)` with no `puts` output will expand to an empty string. Add a `puts` to emit the desired text.
+
+- Delimiter problems:
+  - If your macro text contains delimiter characters, escape them with the configured escape character (default `\`).
+  - Verify `app.yaml` `macro_delimiters` if you have nonstandard delimiters.
+
+- JSON errors:
+  - Invalid `macros.json` (malformed JSON) will prevent the file from loading. Use a JSON validator and ensure proper quoting/escaping.
+
+- Need to use a macro value inside TCL:
+  - Expand the value before embedding it in the TCL macro string, or use the APIs in `macro_utils.py` to provide data to the TCL environment. Do not assume automatic in-TCL macro expansion.
+
+---
+
+For more advanced examples and the authoritative code for macro handling, consult:
+- `src/monitor/__main__.py` (copy-on-first-run behavior and default file location)
+- `src/monitor/lib/macro_utils.py` (loading/updating macros and helpers)
+- `tests/test_macro_utils.py` (unit tests demonstrating expected behaviors)
+
+End of guide.
