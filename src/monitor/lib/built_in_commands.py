@@ -146,12 +146,74 @@ def clean_missing_values_command(args: Any) -> Any:
         return f"Error cleaning missing values: {exc}"
 
 
-def normalize_data_command(args: Dict[str, Any]) -> Any:
-    """Normalize data in the specified file."""
-    from preprocessing import normalize_data
+def normalize_data_command(args: Any) -> Any:
+    """Normalize data in the specified file.
 
-    file_path = args.get("file_path")
-    method = args.get("method", "standard")
+    This command accepts multiple invocation styles to be flexible with the
+    command dispatcher:
+
+    - normalize_data_command(None)
+        Prints usage/help.
+
+    - normalize_data_command("path/to/file.csv")
+        Uses the given string as the file_path and a default method of 'standard'.
+
+    - normalize_data_command({"file_path": "path/to/file.csv", "method": "minmax"})
+        Uses a dict to specify the file_path and optional method.
+
+    - normalize_data_command({"help": True})
+        Prints usage/help.
+
+    Behavior:
+        - When called with None, 'help', '?', or a dict with help=True, prints usage and returns None.
+        - When called with a string, treats it as a file_path and uses method='standard'.
+        - When called with a dict, requires 'file_path' key unless help=True is provided.
+        - If file_path is missing in dict mode, prints a colored error via print_colored_error.
+        - Preserves existing logging and exception handling: errors are logged with exc_info=True
+          and an error message string is returned on failure.
+
+    Args:
+        args: Either None, a help string ('help', '?'), a file path string, or a dict
+              with keys 'file_path' (required) and optional 'method' (defaults to 'standard').
+
+    Returns:
+        The result of monitor.lib.preprocessing.normalize_data(file_path, method) on success,
+        or an error message string on failure, or None when showing help.
+    """
+    from monitor.lib.preprocessing import normalize_data
+
+    usage = (
+        "Usage: normalize_data_command(<file_path>)\n"
+        "   or normalize_data_command({'file_path': <path>, 'method': <method>})\n"
+        "If 'help' or None is provided, this message is printed."
+    )
+
+    if args is None:
+        print(usage)
+        return None
+
+    if isinstance(args, str):
+        arg_str = args.strip()
+        if not arg_str or arg_str.lower() in {"help", "?", "-h", "--help"}:
+            print(usage)
+            return None
+        file_path = arg_str
+        method = "standard"
+    elif isinstance(args, dict):
+        if args.get("help"):
+            print(usage)
+            return None
+        file_path = args.get("file_path")
+        method = args.get("method", "standard")
+        if not file_path:
+            print_colored_error("Missing required parameter: 'file_path'")
+            logger.error("Missing required parameter 'file_path' in normalize_data_command call.")
+            return None
+    else:
+        print_colored_error("Invalid argument type. Provide a file path string or a dict with 'file_path'.")
+        logger.error("Invalid argument type for normalize_data_command: %s", type(args))
+        return None
+
     try:
         result = normalize_data(file_path, method)
         return result
