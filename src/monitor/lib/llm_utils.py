@@ -7,6 +7,7 @@ of extraction; any future refactorings should update both caller sites as needed
 
 import logging
 import re
+import json
 import litellm
 
 try:
@@ -877,3 +878,280 @@ def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = 
         logger.debug("apply_usage_delta: unable to set config.CANONICAL_TOKEN_USAGE", exc_info=True)
 
     return current, delta
+
+def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = None) -> str:
+    """Truncate text to a given token limit.
+
+    This helper attempts to use tiktoken to perform token-aware truncation for
+    a provided model. If tiktoken is unavailable or encoding/decoding fails,
+    it falls back to a conservative character-based truncation using an
+    approximate average characters-per-token heuristic.
+
+    The function tries to preserve as much content as possible and appends
+    the sentinel string "...[TRUNCATED]" when truncation occurs.
+
+    Args:
+        text (str): The input text to truncate.
+        token_limit (int): Maximum allowed token count. Non-positive values
+            will result in an empty (or sentinel-only) return.
+        model (Optional[str]): Optional model name to inform tiktoken's encoding.
+            When provided and tiktoken supports encoding_for_model, that
+            encoding will be used.
+
+    Returns:
+        str: The original text when it fits within `token_limit`, or a truncated
+            version ending with "...[TRUNCATED]". The function always returns
+            a string and swallows internal errors, returning a best-effort result.
+    """
+    sentinel = "...[TRUNCATED]"
+    try:
+        if text is None:
+            return ""
+        if not isinstance(text, str):
+            try:
+                text = str(text)
+            except Exception:
+                return ""
+        try:
+            tok_limit = int(token_limit)
+        except Exception:
+            tok_limit = 0
+
+        if tok_limit <= 0:
+            # Nothing allowed; return sentinel only (or empty)
+            return sentinel
+
+        # Try to use tiktoken if available
+        try:
+            import tiktoken  # type: ignore
+            encoding = None
+            # Prefer encoding_for_model when a model is provided
+            if model and hasattr(tiktoken, "encoding_for_model"):
+                try:
+                    encoding = tiktoken.encoding_for_model(model)
+                except Exception:
+                    encoding = None
+            if encoding is None:
+                # Fall back to a common encoding name; this is safe for many models.
+                try:
+                    encoding = tiktoken.get_encoding("cl100k_base")
+                except Exception:
+                    # As a last resort, attempt to use tiktoken's fallback
+                    try:
+                        encoding = tiktoken.get_encoding("p50k_base")
+                    except Exception:
+                        encoding = None
+
+            if encoding is not None:
+                try:
+                    tokens = encoding.encode(text)
+                    if len(tokens) <= tok_limit:
+                        return text
+                    # Reserve a small number of tokens for the sentinel; use 3 as requested
+                    take = max(0, tok_limit - 3)
+                    truncated_tokens = tokens[:take]
+                    try:
+                        decoded = encoding.decode(truncated_tokens)
+                        return decoded + sentinel
+                    except Exception:
+                        # If decode fails, fall back to best-effort string conversion
+                        try:
+                            partial_text = "".join(
+                                chr(t % 0x110000) for t in truncated_tokens[:max(0, min(len(truncated_tokens), 1000))]
+                            )
+                            return partial_text + sentinel
+                        except Exception:
+                            return sentinel
+                except Exception:
+                    # Fall through to character-based fallback
+                    pass
+        except Exception:
+            # tiktoken not available or failed to import; fall back below
+            pass
+
+        # Fallback: approximate char-based truncation using an average chars-per-token heuristic
+        avg_chars_per_token = 4
+        char_limit = tok_limit * avg_chars_per_token
+        if len(text) <= char_limit:
+            return text
+        # Reserve space for sentinel
+        take_chars = max(0, char_limit - len(sentinel))
+        return text[:take_chars] + sentinel
+
+    except Exception as e:
+        logger.exception(f"truncate_to_token_limit failed: {e}")
+        try:
+            # As a final fallback, coerce to string and trim to a small size.
+            txt = "" if text is None else str(text)
+            return txt[:max(0, token_limit * 4)] + sentinel if txt else ""
+        except Exception:
+            return ""
+
+def serialize_tool_output(result_or_error) -> str:
+    """Serialize a tool function result or error into a string.
+
+    This helper attempts to create a JSON representation of the provided
+    result_or_error in a safe and portable manner. It falls back to str() or
+    repr() when JSON serialization is not possible.
+
+    Args:
+        result_or_error: The value returned by a tool/function or an Exception.
+
+    Returns:
+        str: A stable string representation suitable for embedding in messages
+             or storing alongside a function call record.
+    """
+    if result_or_error is None:
+        return ""
+
+    if isinstance(result_or_error, str):
+        return result_or_error
+
+    def _default(o):
+        try:
+            if hasattr(o, "to_dict") and callable(getattr(o, "to_dict")):
+                return o.to_dict()
+            if hasattr(o, "__dict__"):
+                return {k: v for k, v in o.__dict__.items() if not k.startswith("_")}
+            return repr(o)
+        except Exception:
+            return repr(o)
+
+    try:
+        return json.dumps(result_or_error, ensure_ascii=False, default=_default)
+    except TypeError:
+        # Try some common coercions
+        try:
+            if hasattr(result_or_error, "to_dict") and callable(getattr(result_or_error, "to_dict")):
+                return json.dumps(result_or_error.to_dict(), ensure_ascii=False, default=_default)
+            if hasattr(result_or_error, "__dict__"):
+                return json.dumps({k: v for k, v in result_or_error.__dict__.items() if not k.startswith("_")}, ensure_ascii=False, default=_default)
+        except Exception:
+            # Fall through to best-effort string coercion
+            pass
+    except Exception:
+        pass
+
+    try:
+        return str(result_or_error)
+    except Exception:
+        return repr(result_or_error)
+
+def build_function_call_output_item(call_id: str, result_or_error, serialized_output: Optional[str] = None) -> Dict[str, Any]:
+    """Build a standardized function_call_output item for a completed tool invocation.
+
+    Args:
+        call_id (str): The identifier for the function/tool call.
+        result_or_error: The value returned by the function, or an Exception
+            instance.
+        serialized_output (Optional[str]): If provided, this pre-serialized string
+            will be used as the "output" value in the returned item instead of
+            calling serialize_tool_output on result_or_error. This is useful when
+            callers already have a stable serialized representation and want to
+            avoid double-serialization or custom truncation.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing at least:
+            - "call_id": call_id (preferred)
+            - "id": call_id (legacy key, retained for compatibility)
+            - "output": serialized string of the result or error
+            - "error": optional boolean flag set to True when result_or_error
+              is an Exception
+            - "error_type": optional, the exception class name when an error
+              occurred
+            - "error_message": optional, the exception message when an error
+              occurred
+    """
+    if serialized_output is not None:
+        output_str = serialized_output
+    else:
+        output_str = serialize_tool_output(result_or_error)
+    # Include both 'call_id' (preferred) and 'id' (legacy) for compatibility.
+    item: Dict[str, Any] = {"call_id": call_id, "id": call_id, "output": output_str}
+
+    if isinstance(result_or_error, Exception):
+        try:
+            item["error"] = True
+            item["error_type"] = type(result_or_error).__name__
+            item["error_message"] = str(result_or_error)
+        except Exception:
+            # Ensure we never raise from this helper
+            logger.debug("build_function_call_output_item: failed to attach error metadata", exc_info=True)
+
+    return item
+
+def build_summarization_followup_params(
+    prev_response_id: Optional[str],
+    function_call_outputs: List[Dict[str, Any]],
+    summary_instruction: str,
+    model: str,
+    max_output_tokens: int,
+    tools: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Construct parameters for a summarization follow-up request.
+
+    This helper packages previous function call outputs and a human instruction
+    into a compact param set suitable for invoking a summarization or
+    aggregation model call. It performs light validation and ensures stable
+    shapes for downstream callers.
+
+    Args:
+        prev_response_id (Optional[str]): Identifier of the previous response to reference.
+        function_call_outputs (List[Dict[str, Any]]): List of function call output items,
+            typically created by build_function_call_output_item.
+        summary_instruction (str): Instruction text guiding the summarization.
+        model (str): The model name to use for the summarization step.
+        max_output_tokens (int): Maximum number of tokens to allow for summarization output.
+        tools (Optional[List[Dict[str, Any]]]): Optional tool descriptors that may assist the model.
+
+    Returns:
+        Dict[str, Any]: A parameter dictionary ready to be passed to a Responses/Completions API
+                        or to the internal orchestration layer.
+    """
+    # Defensive copies/coercions
+    fc_outputs = function_call_outputs or []
+    try:
+        # Ensure each output is a dict with expected keys
+        sanitized_outputs: List[Dict[str, Any]] = []
+        for idx, item in enumerate(fc_outputs):
+            if not isinstance(item, dict):
+                logger.debug(f"build_summarization_followup_params: coercing non-dict output at index {idx}")
+                # Attempt to coerce simple tuples or sequences
+                try:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        coerced = {"id": item[0], "output": serialize_tool_output(item[1])}
+                        sanitized_outputs.append(coerced)
+                        continue
+                except Exception:
+                    pass
+                # Fallback: stringify the item
+                sanitized_outputs.append({"id": getattr(item, "id", f"item_{idx}"), "output": serialize_tool_output(item)})
+                continue
+            sanitized_outputs.append(item)
+    except Exception:
+        logger.exception("build_summarization_followup_params: failed to sanitize function_call_outputs; using originals")
+        sanitized_outputs = fc_outputs
+
+    params: Dict[str, Any] = {
+        "parent_response_id": prev_response_id,
+        "summary_instruction": summary_instruction,
+        "model": model,
+        "max_output_tokens": int(max_output_tokens) if max_output_tokens is not None else None,
+        "function_call_outputs": sanitized_outputs,
+    }
+
+    if tools:
+        params["tools"] = tools
+
+    # Optionally include some lightweight metadata to aid debugging/telemetry
+    try:
+        params["_meta"] = {
+            "source": "summarization_followup",
+            "tool_count": len(sanitized_outputs),
+            "model_normalized": strip_openai_prefix(model) if isinstance(model, str) else model,
+        }
+    except Exception:
+        # Non-critical; swallow errors
+        pass
+
+    return params

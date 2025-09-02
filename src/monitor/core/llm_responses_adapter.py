@@ -15,7 +15,11 @@ from monitor.lib.llm_utils import (
     estimate_response_tokens,
     get_tools_for_model,
     convert_response_format,
-    handle_response_errors
+    handle_response_errors,
+    build_function_call_output_item,
+    serialize_tool_output,
+    build_summarization_followup_params,
+    truncate_to_token_limit,
     )
 from monitor.lib.tool_loading import function_descriptions
 
@@ -68,7 +72,7 @@ MESSAGE_CONTENT_LIST_ITEM_KEYS = ("content", "text", "message")
 
 # WARNING: Larger iterations count can increase costs, runtime, and 
 # risk of runaway function-call loops, but allow the LLM to be more agentic
-MAX_FUNCTION_CALL_ITERATIONS = 32
+MAX_FUNCTION_CALL_ITERATIONS = 256
 SUMMARY_MAX_OUTPUT_TOKENS = 2048
 
 def configure_responses_adapter():
@@ -106,6 +110,17 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
     """
     try:
         logger.debug("Calling responses API via OpenAI client")
+
+        # Lazy initialize client if not already configured
+        if client is None:
+            try:
+                configure_responses_adapter()
+                logger.debug("Configured responses adapter (OpenAI client) lazily")
+            except Exception:
+                logger.exception("Failed to configure responses adapter lazily")
+            if client is None:
+                logger.error("Responses client could not be configured. Please call configure_responses_adapter() or verify your OpenAI API credentials.")
+                raise RuntimeError("Responses client could not be configured. Please call configure_responses_adapter() or verify your OpenAI API credentials.")
 
         # Get tools for the current model
         tools, tool_choice = get_tools_for_model(tool_descriptions, gemini_tool_descriptions)
@@ -230,6 +245,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
         max_iterations = MAX_FUNCTION_CALL_ITERATIONS
         iteration = 0
         last_iteration_had_calls = False
+
+        # Collect function call outputs across iterations for potential summarization and to send aggregated follow-ups.
+        # We collect both the serialized follow-up items (all_function_call_outputs) that will be sent back to the Responses API
+        # and a summarization-friendly representation (all_summarization_outputs) built via build_function_call_output_item.
+        all_function_call_outputs = []
+
         while iteration < max_iterations:
             iteration += 1
             logger.debug(f"Function call handling iteration {iteration}")
@@ -375,22 +396,62 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     result_or_error = {"error": str(e)}
 
                 try:
-                    output_payload = json.dumps(result_or_error)
+                    output_payload = serialize_tool_output(result_or_error)
                 except Exception:
                     try:
-                        output_payload = json.dumps(
+                        output_payload = serialize_tool_output(
                             {"error": "Unable to serialize tool result"}
                         )
                     except Exception:
                         output_payload = SERIALIZATION_FAILED_STR
 
-                function_call_outputs.append(
-                    {
-                        TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE,
-                        "call_id": call_id,
-                        "output": output_payload,
-                    }
-                )
+                # Truncate serialized output to configured per-tool token limit to avoid oversized follow-ups.
+                try:
+                    token_limit = getattr(config, "TOOL_OUTPUT_TOKEN_LIMIT", 4000)
+                    try:
+                        token_limit = int(token_limit)
+                    except Exception:
+                        token_limit = 4000
+                    truncated_output = truncate_to_token_limit(
+                        output_payload, token_limit, model=strip_openai_prefix(config.MODEL)
+                    )
+                except Exception:
+                    # If truncation fails for any reason, fall back to the original serialized payload.
+                    logger.exception("Failed to truncate tool output; using full serialized output")
+                    truncated_output = output_payload
+
+                item = {
+                    TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE,
+                    "call_id": call_id,
+                    "output": truncated_output,
+                }
+
+                function_call_outputs.append(item)
+
+                # Also collect across iterations:
+                # - append the serialized follow-up item that will be sent back to the Responses API
+                # - append a summarization-friendly representation via build_function_call_output_item
+                try:
+                    try:
+                        summary_item = build_function_call_output_item(call_id, result_or_error, serialized_output=truncated_output)
+                        try:
+                            summary_item['parent_response_id'] = getattr(last_response, ID_KEY, None)
+                        except Exception:
+                            # If setting parent_response_id fails, proceed without it
+                            pass
+                        all_function_call_outputs.append(summary_item)
+                    except Exception:
+                        # If build_function_call_output_item itself fails, attempt to append a minimal structure
+                        minimal = {"id": call_id, "result": result_or_error}
+                        try:
+                            minimal['parent_response_id'] = getattr(last_response, ID_KEY, None)
+                        except Exception:
+                            pass
+                        all_function_call_outputs.append(minimal)
+                except Exception:
+                    logger.exception("Failed to append to all_function_call_outputs")
+
+                # Summarization item omitted.
 
             # If we have outputs from executing tools, send them back as a follow-up response
             if function_call_outputs:
@@ -539,15 +600,15 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     logger.debug("Skipping summarization follow-up because no config.RESPONSE_ID is present")
                 else:
                     try:
+                        # Build a summary instruction that explicitly prevents further tool usage.
+                        # NOTE: We intentionally do NOT include tools in the summarization follow-up
+                        # parameters to prevent the model from issuing additional tool/function calls.
                         summary_instruction = (
-                            "Please summarize the previous response and the results of the function/tool calls into a concise summary."
+                            "Please summarize the previous response and the results of the function/tool calls into a concise summary. "
+                            "Do NOT call any tools or request further function executions. Only provide a brief summary of the outputs."
                         )
-                        summary_params = {
-                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
-                            REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
-                            REQUEST_PARAM_INPUT: summary_instruction,
-                        }
 
+                        # Compute summary token allotment; preserve previous behavior
                         try:
                             model_window = int(getattr(config, "MODEL_OUTPUT_WINDOW"))
                             computed_summary_tokens = max(
@@ -562,9 +623,424 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                             f"(MODEL_OUTPUT_WINDOW={getattr(config, 'MODEL_OUTPUT_WINDOW', 'n/a')})"
                         )
 
-                        summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = computed_summary_tokens
+                        # Build summarization follow-up input: include all aggregated function_call outputs
+                        # collected across iterations, followed by the explicit summary instruction that tells
+                        # the model NOT to call any tools. Intentionally omit REQUEST_PARAM_TOOLS here.
+                        try:
+                            # Compute parent_response_id by scanning aggregated function outputs for the first non-empty parent_response_id
+                            parent_resp_id = None
+                            try:
+                                for fo in all_function_call_outputs:
+                                    try:
+                                        if isinstance(fo, dict):
+                                            pr = fo.get("parent_response_id")
+                                            if pr:
+                                                parent_resp_id = pr
+                                                break
+                                    except Exception:
+                                        continue
+                            except Exception:
+                                parent_resp_id = None
+                            if parent_resp_id is None:
+                                parent_resp_id = getattr(config, "RESPONSE_ID")
+
+                            # Use build_summarization_followup_params to obtain sanitized parameters and mapping
+                            sfp = build_summarization_followup_params(
+                                prev_response_id=parent_resp_id,
+                                function_call_outputs=all_function_call_outputs,
+                                summary_instruction=summary_instruction,
+                                model=strip_openai_prefix(config.MODEL),
+                                max_output_tokens=computed_summary_tokens,
+                            )
+
+                            # Map sanitized helper output into API parameter names, ensure instruction appended after outputs
+                            summary_params = {}
+
+                            # model -> REQUEST_PARAM_MODEL: use returned sfp['model'] if present, else fallback
+                            try:
+                                if isinstance(sfp, dict) and sfp.get("model"):
+                                    summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(sfp.get("model"))
+                                else:
+                                    summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(config.MODEL)
+                            except Exception:
+                                summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(config.MODEL)
+
+                            # previous_response_id -> REQUEST_PREV_RESPONSE_ID: use returned sfp field if present, else fallback
+                            try:
+                                if isinstance(sfp, dict) and (sfp.get("prev_response_id") or sfp.get("parent_response_id")):
+                                    summary_params[REQUEST_PREV_RESPONSE_ID] = sfp.get("prev_response_id") or sfp.get("parent_response_id")
+                                else:
+                                    summary_params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
+                            except Exception:
+                                summary_params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
+
+                            # function_call_outputs -> REQUEST_PARAM_INPUT (as list), then append explicit typed instruction
+                            try:
+                                func_outputs = list(sfp.get("function_call_outputs") or []) if isinstance(sfp, dict) else list(all_function_call_outputs)
+                            except Exception:
+                                func_outputs = list(all_function_call_outputs)
+
+                            # Convert aggregated function outputs into role/content assistant messages for summarization follow-up
+                            try:
+                                summary_input_messages = []
+                                # We'll also build typed function_call_output items to include in the API payload
+                                typed_function_call_items = []
+                                for fo in func_outputs:
+                                    try:
+                                        # If item is a dict, extract call id and output field robustly
+                                        if isinstance(fo, dict):
+                                            call_id = None
+                                            # Prefer 'id' then 'call_id'
+                                            try:
+                                                call_id = fo.get("id") or fo.get("call_id")
+                                            except Exception:
+                                                call_id = None
+
+                                            # Attempt to find output string in common locations
+                                            out_val = None
+                                            try:
+                                                # Preferentially use output, then serialized_output, result, text, content, else entire item
+                                                try:
+                                                    out_val = fo.get("output") or fo.get("serialized_output") or fo.get("result") or fo.get("text") or fo.get("content") or fo
+                                                except Exception:
+                                                    out_val = fo
+                                            except Exception:
+                                                out_val = fo
+
+                                            # Check parent_response_id filtering: only include items whose parent_response_id == parent_resp_id (if parent_response_id is present)
+                                            try:
+                                                fo_parent = fo.get("parent_response_id") if isinstance(fo, dict) else None
+                                            except Exception:
+                                                fo_parent = None
+                                            try:
+                                                if fo_parent is not None and parent_resp_id is not None and fo_parent != parent_resp_id:
+                                                    logger.debug(f"Skipping function output with call_id={call_id} due to parent_response_id mismatch: {fo_parent} != {parent_resp_id}")
+                                                    continue
+                                            except Exception:
+                                                # If checking fails, proceed to include item
+                                                pass
+
+                                            # Coerce out_val to string safely for assistant-facing message
+                                            if isinstance(out_val, (dict, list)):
+                                                try:
+                                                    out_str = json.dumps(out_val)
+                                                except Exception:
+                                                    out_str = str(out_val)
+                                            else:
+                                                try:
+                                                    out_str = str(out_val)
+                                                except Exception:
+                                                    out_str = ""
+
+                                            # Build typed function_call_output item to include in the API input
+                                            try:
+                                                typed_item = { TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE, "call_id": call_id, "output": out_str }
+                                                typed_function_call_items.append(typed_item)
+                                            except Exception:
+                                                # fallback to minimal typed item
+                                                try:
+                                                    typed_function_call_items.append({ TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE, "call_id": call_id, "output": out_str })
+                                                except Exception:
+                                                    pass
+
+                                            if call_id:
+                                                content = f"Function call {call_id}: {out_str}"
+                                            else:
+                                                content = out_str
+
+                                            summary_input_messages.append({ "role": "assistant", "content": content })
+                                        else:
+                                            # Non-dict items: coerce to string
+                                            s = str(fo)
+                                            # Also include typed item for non-dict as best-effort
+                                            try:
+                                                typed_function_call_items.append({ TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE, "call_id": None, "output": s })
+                                            except Exception:
+                                                pass
+                                            summary_input_messages.append({ "role": "assistant", "content": s })
+                                    except Exception:
+                                        logger.exception("Failed converting a function output item to assistant message for summarization")
+                                        raise
+
+                                # Append the explicit user instruction as the last message
+                                try:
+                                    summary_input_messages.append({"role": USER_ROLE, "content": summary_instruction})
+                                except Exception:
+                                    summary_input_messages.append({"role": "user", "content": summary_instruction})
+
+                                # Combine typed items and assistant messages into final API input payload: typed items first, then assistant messages/instruction.
+                                try:
+                                    combined_input = []
+                                    # Add typed items first
+                                    combined_input.extend(typed_function_call_items)
+                                    # Then append assistant messages
+                                    combined_input.extend(summary_input_messages)
+                                    summary_params[REQUEST_PARAM_INPUT] = combined_input
+                                except Exception:
+                                    # If combining fails, fall back to assistant messages only
+                                    summary_params[REQUEST_PARAM_INPUT] = summary_input_messages
+
+                                # Estimate tokens for the assembled input for logging: convert typed items to assistant messages for estimation
+                                try:
+                                    estimation_messages = []
+                                    # Convert typed items into assistant messages for estimation
+                                    for t in typed_function_call_items:
+                                        try:
+                                            cid = t.get("call_id")
+                                            out = t.get("output")
+                                            out_str = ""
+                                            if isinstance(out, (dict, list)):
+                                                try:
+                                                    out_str = json.dumps(out)
+                                                except Exception:
+                                                    out_str = str(out)
+                                            else:
+                                                out_str = str(out) if out is not None else ""
+                                            if cid:
+                                                estimation_messages.append({"role": "assistant", "content": f"Function call {cid}: {out_str}"})
+                                            else:
+                                                estimation_messages.append({"role": "assistant", "content": out_str})
+                                        except Exception:
+                                            continue
+                                    # Append assistant messages (including the final user instruction) to estimation messages
+                                    try:
+                                        for m in summary_input_messages:
+                                            if isinstance(m, dict) and m.get("role") and m.get("content") is not None:
+                                                estimation_messages.append(m)
+                                            else:
+                                                estimation_messages.append({"role": "assistant", "content": str(m)})
+                                    except Exception:
+                                        pass
+                                    try:
+                                        estimated_summary_tokens = estimate_response_tokens(estimation_messages)
+                                        logger.debug(f"Estimated tokens for summarization follow-up input: {estimated_summary_tokens}")
+                                    except Exception:
+                                        logger.debug("Failed to estimate tokens for summarization follow-up input")
+                                except Exception:
+                                    logger.debug("Failed to build estimation messages for summarization follow-up")
+                            except Exception:
+                                # If conversion fails, log and fall back to sending only the summary instruction
+                                logger.exception("Failed to build summary_input_messages from function outputs; falling back to instruction-only summarization")
+                                summary_params[REQUEST_PARAM_INPUT] = [{"role": USER_ROLE, "content": summary_instruction}]
+                            # max_output_tokens -> REQUEST_PARAM_MAX_OUTPUT_TOKENS
+                            try:
+                                if isinstance(sfp, dict) and sfp.get("max_output_tokens") is not None:
+                                    summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = sfp.get("max_output_tokens")
+                                else:
+                                    summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = computed_summary_tokens
+                            except Exception:
+                                summary_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = computed_summary_tokens
+
+                        except Exception:
+                            # Fallback: if building summary_inputs fails, revert to simple instruction-only summarization
+                            try:
+                                summary_inputs = list(all_function_call_outputs)
+                                # Convert fallback summary_inputs into assistant messages
+                                try:
+                                    summary_input_messages = []
+                                    typed_function_call_items = []
+                                    for fo in summary_inputs:
+                                        try:
+                                            if isinstance(fo, dict):
+                                                call_id = fo.get("id") or fo.get("call_id")
+                                                out_val = fo.get("output") if fo.get("output") is not None else fo
+                                                if isinstance(out_val, (dict, list)):
+                                                    try:
+                                                        out_str = json.dumps(out_val)
+                                                    except Exception:
+                                                        out_str = str(out_val)
+                                                else:
+                                                    out_str = str(out_val)
+                                                # Build typed item
+                                                try:
+                                                    typed_function_call_items.append({ TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE, "call_id": call_id, "output": out_str })
+                                                except Exception:
+                                                    pass
+                                                if call_id:
+                                                    content = f"Function call {call_id}: {out_str}"
+                                                else:
+                                                    content = out_str
+                                                summary_input_messages.append({"role": "assistant", "content": content})
+                                            else:
+                                                s = str(fo)
+                                                try:
+                                                    typed_function_call_items.append({ TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE, "call_id": None, "output": s })
+                                                except Exception:
+                                                    pass
+                                                summary_input_messages.append({"role": "assistant", "content": s})
+                                        except Exception:
+                                            logger.exception("Failed converting a fallback function output item to assistant message for summarization")
+                                            raise
+                                    # Append the summary instruction
+                                    summary_input_messages.append({"role": USER_ROLE, "content": summary_instruction})
+                                    # Combine typed items and assistant messages
+                                    try:
+                                        combined_input = []
+                                        combined_input.extend(typed_function_call_items)
+                                        combined_input.extend(summary_input_messages)
+                                        summary_params = {
+                                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                            REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
+                                            REQUEST_PARAM_INPUT: combined_input,
+                                            REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
+                                        }
+                                    except Exception:
+                                        summary_params = {
+                                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                            REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
+                                            REQUEST_PARAM_INPUT: summary_input_messages,
+                                            REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
+                                        }
+                                    # Estimate tokens for fallback assembled input
+                                    try:
+                                        estimation_messages = []
+                                        for t in typed_function_call_items:
+                                            try:
+                                                cid = t.get("call_id")
+                                                out = t.get("output")
+                                                out_str = ""
+                                                if isinstance(out, (dict, list)):
+                                                    try:
+                                                        out_str = json.dumps(out)
+                                                    except Exception:
+                                                        out_str = str(out)
+                                                else:
+                                                    out_str = str(out) if out is not None else ""
+                                                if cid:
+                                                    estimation_messages.append({"role": "assistant", "content": f"Function call {cid}: {out_str}"})
+                                                else:
+                                                    estimation_messages.append({"role": "assistant", "content": out_str})
+                                            except Exception:
+                                                continue
+                                        for m in summary_input_messages:
+                                            if isinstance(m, dict) and m.get("content") is not None:
+                                                estimation_messages.append(m)
+                                            else:
+                                                estimation_messages.append({"role": "assistant", "content": str(m)})
+                                        try:
+                                            estimated_summary_tokens = estimate_response_tokens(estimation_messages)
+                                            logger.debug(f"Estimated tokens for summarization follow-up input (fallback): {estimated_summary_tokens}")
+                                        except Exception:
+                                            logger.debug("Failed to estimate tokens for summarization follow-up input (fallback)")
+                                    except Exception:
+                                        logger.debug("Failed to build estimation messages for summarization follow-up (fallback)")
+                                except Exception:
+                                    logger.exception("Failed to build summary_input_messages in fallback; using instruction-only payload")
+                                    summary_params = {
+                                        REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                        REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
+                                        REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
+                                        REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
+                                    }
+                            except Exception:
+                                summary_params = {
+                                    REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                    REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
+                                    REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
+                                    REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
+                                }
+
+                        # Before sending summarization follow-up, log a visible warning with the prev_response_id to be used and call IDs included.
+                        try:
+                            try:
+                                # Determine prev_response_id to be used for logging
+                                prev_id_for_logging = None
+                                if isinstance(sfp, dict) and (sfp.get("prev_response_id") or sfp.get("parent_response_id")):
+                                    prev_id_for_logging = sfp.get("prev_response_id") or sfp.get("parent_response_id")
+                                else:
+                                    prev_id_for_logging = parent_resp_id if 'parent_resp_id' in locals() else getattr(config, "RESPONSE_ID")
+                            except Exception:
+                                prev_id_for_logging = getattr(config, "RESPONSE_ID")
+
+                            # Collect call_ids from typed_function_call_items if present, else from func_outputs
+                            call_ids = []
+                            try:
+                                if 'typed_function_call_items' in locals() and isinstance(typed_function_call_items, list) and typed_function_call_items:
+                                    for t in typed_function_call_items:
+                                        try:
+                                            if isinstance(t, dict):
+                                                cid = t.get("call_id")
+                                                call_ids.append(cid)
+                                        except Exception:
+                                            continue
+                                else:
+                                    # fallback: extract from func_outputs
+                                    if isinstance(func_outputs, list):
+                                        for fo in func_outputs:
+                                            try:
+                                                if isinstance(fo, dict):
+                                                    cid = fo.get("call_id") or fo.get("id")
+                                                    call_ids.append(cid)
+                                            except Exception:
+                                                continue
+                            except Exception:
+                                call_ids = []
+
+                            logger.info("Summarization follow-up will use previous_response_id=%s and include call_ids=%s", prev_id_for_logging, call_ids)
+                        except Exception:
+                            logger.exception("Failed to log summarization follow-up warning")
 
                         logger.debug("Sending summarization follow-up due to function call iteration truncation")
+                        # Pre-send estimation/logging step for summarization payload
+                        try:
+                            try:
+                                est_input = summary_params.get(REQUEST_PARAM_INPUT)
+                            except Exception:
+                                est_input = summary_params.get(REQUEST_PARAM_INPUT) if isinstance(summary_params, dict) else None
+                            estimation_messages = []
+                            if isinstance(est_input, list):
+                                for itm in est_input:
+                                    try:
+                                        if isinstance(itm, dict):
+                                            # Typed function_call_output item
+                                            if itm.get(TYPE_KEY) == FUNCTION_CALL_OUTPUT_TYPE:
+                                                cid = itm.get("call_id")
+                                                out_val = itm.get("output") or itm.get("serialized_output") or itm.get("result") or itm.get("text") or itm.get("content") or itm
+                                                if isinstance(out_val, (dict, list)):
+                                                    try:
+                                                        out_str = json.dumps(out_val)
+                                                    except Exception:
+                                                        out_str = str(out_val)
+                                                else:
+                                                    out_str = str(out_val) if out_val is not None else ""
+                                                if cid:
+                                                    estimation_messages.append({"role": "assistant", "content": f"Function call {cid}: {out_str}"})
+                                                else:
+                                                    estimation_messages.append({"role": "assistant", "content": out_str})
+                                            # Already structured message with role/content
+                                            elif itm.get("role") and itm.get("content") is not None:
+                                                estimation_messages.append({"role": itm.get("role"), "content": itm.get("content")})
+                                            else:
+                                                # Fallback: stringify
+                                                try:
+                                                    s = json.dumps(itm) if not isinstance(itm, str) else itm
+                                                except Exception:
+                                                    s = str(itm)
+                                                estimation_messages.append({"role": "assistant", "content": s})
+                                        else:
+                                            # Non-dict -> coerce to assistant message
+                                            estimation_messages.append({"role": "assistant", "content": str(itm)})
+                                    except Exception:
+                                        continue
+                            elif isinstance(est_input, dict):
+                                if est_input.get("role") and est_input.get("content") is not None:
+                                    estimation_messages.append({"role": est_input.get("role"), "content": est_input.get("content")})
+                                else:
+                                    try:
+                                        s = json.dumps(est_input) if not isinstance(est_input, str) else est_input
+                                    except Exception:
+                                        s = str(est_input)
+                                    estimation_messages.append({"role": "assistant", "content": s})
+                            else:
+                                # Single string or other single item
+                                estimation_messages.append({"role": "assistant", "content": str(est_input)})
+                            try:
+                                estimated_tokens = estimate_response_tokens(estimation_messages)
+                                logger.debug(f"Estimated tokens for summarization payload before sending: {estimated_tokens}")
+                            except Exception:
+                                logger.debug("Failed to estimate tokens for summarization payload before sending")
+                        except Exception:
+                            logger.exception("Failed building estimation messages for summarization payload")
                         summary_response = client.responses.create(**summary_params)
                         logger.debug("Received summarization follow-up response from OpenAI Responses API")
 
