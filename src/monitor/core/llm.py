@@ -15,6 +15,7 @@ from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.history import append_to_history_with_count, generate_conversation_summary, reset_conversation_with_summary
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib.system_prompt import SYSTEM_PROMPT
+from monitor.lib.progress import progress_dots
 
 from monitor.lib.llm_utils import (
     AttrDict,
@@ -286,7 +287,8 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
             logger.error(f"Message validation failed (pre-completion): {ve}")
             return None, str(ve)
 
-        response = call_litellm_completion(config.MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS)
+        with progress_dots():
+            response = call_litellm_completion(config.MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS)
 
         # Convert response (and possibly inner objects) to attribute-access-friendly structures
         response = dict_to_attr(response)

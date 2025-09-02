@@ -12,6 +12,7 @@ from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
 from pygments.formatters import TerminalFormatter
 
 from monitor import config 
+from monitor.lib.progress import progress_dots
 
 logger = logging.getLogger(__name__)
 
@@ -225,12 +226,13 @@ class ProtocolEngine:
         try:
             if query:
                 self.message_history.append({"role": "user", "content": query})
-            response = self.middleware.completion(
-                model=self.model,
-                messages=self.message_history,
-                max_completion_tokens=TOKEN_BUDGET_PER_CHUNK,
-                drop_params=True
-            )
+            with progress_dots():
+                response = self.middleware.completion(
+                    model=self.model,
+                    messages=self.message_history,
+                    max_completion_tokens=TOKEN_BUDGET_PER_CHUNK,
+                    drop_params=True
+                )
             content = response.choices[0].message['content']
             self.message_history.append({"role": "assistant", "content": content})
             return content

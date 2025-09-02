@@ -22,6 +22,7 @@ from monitor.lib.llm_utils import (
     truncate_to_token_limit,
     )
 from monitor.lib.tool_loading import function_descriptions
+from monitor.lib.progress import progress_dots
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
             logger.debug("No tools available for responses API call")
 
         # Call OpenAI Responses API (initial call)
-        response = client.responses.create(**params)
+        with progress_dots():
+            response = client.responses.create(**params)
 
         logger.debug("Successfully received response from OpenAI Responses API")
 
@@ -486,7 +488,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     logger.debug(
                         f"Sending follow-up responses.create with {len(function_call_outputs)} function_call_output items"
                     )
-                    followup_response = client.responses.create(**followup_params)
+                    with progress_dots():
+                        followup_response = client.responses.create(**followup_params)
 
                     logger.debug("Received follow-up response from OpenAI Responses API")
 
@@ -1041,7 +1044,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                                 logger.debug("Failed to estimate tokens for summarization payload before sending")
                         except Exception:
                             logger.exception("Failed building estimation messages for summarization payload")
-                        summary_response = client.responses.create(**summary_params)
+                        with progress_dots("Summarizing "):
+                            summary_response = client.responses.create(**summary_params)
                         logger.debug("Received summarization follow-up response from OpenAI Responses API")
 
                         # Persist summary response id
