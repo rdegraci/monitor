@@ -67,12 +67,77 @@ def print_debug(command_to_run: Any, debug: bool = True) -> None:
         logger.debug(command_to_run)
 
 
-def clean_missing_values_command(args: Dict[str, Any]) -> Any:
-    """Clean missing values in the specified file."""
-    from preprocessing import clean_missing_values
+def clean_missing_values_command(args: Any) -> Any:
+    """Clean missing values in the specified file.
 
-    file_path = args.get("file_path")
-    fill_value = args.get("fill_value", 0)
+    This command accepts multiple invocation styles to be flexible with the
+    command dispatcher:
+
+    - clean_missing_values_command(None)
+        Prints usage/help.
+
+    - clean_missing_values_command("path/to/file.csv")
+        Uses the given string as the file_path and a default fill_value of 0.
+
+    - clean_missing_values_command({"file_path": "path/to/file.csv", "fill_value": 1})
+        Uses a dict to specify the file_path and optional fill_value.
+
+    - clean_missing_values_command({"help": True})
+        Prints usage/help.
+
+    Behavior:
+        - When called with None, 'help', '?', or a dict with help=True, prints usage and returns None.
+        - When called with a string, treats it as a file_path and uses fill_value=0.
+        - When called with a dict, requires 'file_path' key unless help=True is provided.
+        - If file_path is missing in dict mode, prints a colored error via print_colored_error.
+        - Preserves existing logging and exception handling: errors are logged with exc_info=True
+          and an error message string is returned on failure.
+
+    Args:
+        args: Either None, a help string ('help', '?'), a file path string, or a dict
+              with keys 'file_path' (required) and optional 'fill_value' (defaults to 0).
+
+    Returns:
+        The result of preprocessing.clean_missing_values(file_path, fill_value) on success,
+        or an error message string on failure, or None when showing help.
+    """
+    from monitor.lib.preprocessing import clean_missing_values
+
+    # Helper: usage message
+    usage = (
+        "Usage: clean_missing_values_command(<file_path>)\n"
+        "   or clean_missing_values_command({'file_path': <path>, 'fill_value': <value>})\n"
+        "If 'help' or None is provided, this message is printed."
+    )
+
+    # Normalize None or help-like strings
+    if args is None:
+        print(usage)
+        return None
+
+    if isinstance(args, str):
+        arg_str = args.strip()
+        if not arg_str or arg_str.lower() in {"help", "?", "-h", "--help"}:
+            print(usage)
+            return None
+        file_path = arg_str
+        fill_value = 0
+    elif isinstance(args, dict):
+        # If help requested in dict form
+        if args.get("help"):
+            print(usage)
+            return None
+        file_path = args.get("file_path")
+        fill_value = args.get("fill_value", 0)
+        if not file_path:
+            print_colored_error("Missing required parameter: 'file_path'")
+            logger.error("Missing required parameter 'file_path' in clean_missing_values_command call.")
+            return None
+    else:
+        print_colored_error("Invalid argument type. Provide a file path string or a dict with 'file_path'.")
+        logger.error("Invalid argument type for clean_missing_values_command: %s", type(args))
+        return None
+
     try:
         result = clean_missing_values(file_path, fill_value)
         return result
