@@ -176,6 +176,112 @@ Redis is optional and used when configured as a persistence or registry backend 
 - Windows:
   Use WSL, Docker, or official binaries: https://redis.io/docs/install/install-redis/
 
+### DuckDB CLI (optional)
+
+Used by database helpers for running DuckDB queries (db_storage.execute_duckdb).
+
+- macOS (Homebrew):
+  ```
+  brew install duckdb
+  ```
+- Linux (apt):
+  ```
+  sudo apt install duckdb
+  ```
+- Windows:
+  Download binaries from https://duckdb.org/ or use Chocolatey/Scoop.
+
+### PostgreSQL client (psql) (optional)
+
+Used by database helpers to run SQL via psql (db_storage.execute_psql).
+
+- macOS (Homebrew):
+  ```
+  brew install postgresql
+  # or: brew install libpq && echo 'export PATH="$(brew --prefix libpq)/bin:$PATH"' >> ~/.zshrc
+  ```
+- Linux (apt):
+  ```
+  sudo apt install postgresql-client
+  ```
+- Windows:
+  Install PostgreSQL from https://www.postgresql.org/download/ (includes psql).
+
+### MinIO Client (mc) (optional)
+
+Used by storage helpers to interact with S3-compatible endpoints (db_storage.execute_mc).
+
+- macOS (Homebrew):
+  ```
+  brew install minio-mc
+  ```
+- Linux/Windows:
+  Follow official instructions: https://min.io/docs/minio/linux/reference/minio-mc.html
+
+### GNU screen (optional; Linux/Unix)
+
+Used by terminal_commands to launch commands in detached terminal sessions.
+
+- macOS (Homebrew):
+  ```
+  brew install screen
+  ```
+- Linux (apt):
+  ```
+  sudo apt install screen
+  ```
+- Windows:
+  Not available natively; consider WSL.
+
+### macOS AppleScript (osascript)
+
+Used by terminal_commands to open Terminal and run commands on macOS.
+
+- macOS: Provided by the OS ("osascript"). No installation needed.
+- Other platforms: Not applicable.
+
+### Unix utilities: diff, file, patch
+
+Used by OS helpers for file diffs, MIME/type checks, and applying patches.
+
+- macOS: Provided by the OS. Optionally:
+  ```
+  brew install diffutils file-formula gnu-tar
+  brew install patch
+  ```
+- Linux (apt):
+  ```
+  sudo apt install diffutils file patch
+  ```
+- Windows:
+  Use WSL or install via Git Bash/MSYS2 where available.
+
+### Audio playback utilities (afplay/aplay)
+
+Used by text-to-speech helper for simple WAV playback.
+
+- macOS: "afplay" is provided by the OS.
+- Linux (apt):
+  ```
+  sudo apt install alsa-utils  # provides aplay
+  ```
+- Windows: Uses winsound via Python stdlib (no extra install).
+
+### Editors (vim/nano/vi)
+
+Used by macros editor command to open the macros file when $EDITOR is not set.
+
+- macOS (Homebrew):
+  ```
+  brew install vim nano
+  ```
+- Linux (apt):
+  ```
+  sudo apt install vim nano
+  ```
+- Windows:
+  Use a terminal editor available in your environment (e.g., Vim via Git Bash) or set EDITOR to your preferred GUI editor.
+
 Note: Monitor no longer documents internal TTLs for conversation memory in the README; refer to runtime configuration in `app.yaml` for your environment's retention behavior.
 
 ## Quickstart
