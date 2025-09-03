@@ -43,6 +43,10 @@ Monitor provides a console script entry point so it can be installed as a normal
    ```
    The installation registers a `monitor` console script (via pyproject/setup) so you can launch Monitor directly from your shell.
 
+---
+**Note:** On the first run after installation, Monitor may take several minutes to initialize libraries and large dependencies. This is expected and happens only once. The app will display a warning message the first time to notify you of this.
+---
+
 ## How Monitor is run
 
 You can run Monitor in two main ways:
