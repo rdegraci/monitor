@@ -13,6 +13,7 @@ from pygments.formatters import TerminalFormatter
 
 from monitor import config 
 from monitor.lib.progress import progress_dots
+from monitor.lib.sound import ring_bell
 
 logger = logging.getLogger(__name__)
 
@@ -791,6 +792,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             logger.debug(f"Reading file {source_file}")
             print_func(f"{yellow}Modifying file {source_file}{reset}")
             print_func(f"{yellow}Please wait. Modifications (with retries) may take up to 180 seconds of inference/reasoning.{reset}")
+            print_func(f"{yellow}When the operation is complete, the BEL will ring.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
@@ -803,7 +805,9 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             modification_request=modification_request,
             source_file=source_file
         )
+        ring_bell()
         print_func(f"{yellow}\nModified {source_file}{reset}")
+
         return modified_script
     except Exception as e:
         print_func(f"{red}Failed to implement modifications to {source_file}.\nInstructions for manual modifications will follow.{reset}")
