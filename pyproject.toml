@@ -6,12 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "monitor"
 version = "1.0.0"
 description = "A modular LLM Command-line Assistant"
+license = { text = "MIT" }
+urls = { Homepage = "https://rodneydegracia.com" }
 authors = [
     { name = "Rodney Degracia", email = "rdegraci@gmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "appdirs==1.4.4",
     "pyyaml==6.0.2",
     "dotenv==0.9.9",
     "colored==2.3.0",
@@ -45,6 +48,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 monitor = [
     "app.yaml",
+    "dot_env_example",
     "preferences.prompt",
     "public_commands.json",
     "macros.json",
