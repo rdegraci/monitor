@@ -183,6 +183,7 @@ class ProtocolEngine:
         is_last_expected = (start_chunk_index == self.expected_total_chunks)
         (lo, hi) = line_ranges[start_chunk_index - 1] if line_ranges else (1, None)
 
+        last_directive = 'last="true"' if is_last_expected else ''
         initial_query = (
             f"Here is the current source file:\n\n{script_content}\n\n"
             f"Task: Modify it to {modification_request}.\n\n"
@@ -194,7 +195,7 @@ class ProtocolEngine:
             f"Respect these limits:\n"
             f"- Max lines per chunk: {self.lines_per_chunk}\n"
             f"- Max characters per chunk: {self.chars_per_chunk}\n\n"
-            f"Format: <chunk_{start_chunk_index}{' last=\"true\"' if is_last_expected else ''}>"
+            f"Format: <chunk_{start_chunk_index}{last_directive}>"
             f"<pure code only, no commentary>"
             f"</chunk_{start_chunk_index}>\n"
             f"Do not output anything else."
@@ -500,14 +501,16 @@ class ProtocolEngine:
                     
                     logger.info(f"Requesting chunk {next_index}, is_last={is_last}, lines {lo}..{hi}")
 
+                    directive_reminder = 'Mark last="true".' if is_last else 'Do NOT mark last="true".'
+                    last_directive = ' last="true"' if is_last else ''
                     next_chunk_prompt = (
                         f"Output ONLY chunk {next_index} of {self.expected_total_chunks} now.\n"
-                        f"Do NOT include any other chunks. {'Mark last=\"true\".' if is_last else 'Do NOT mark last=\"true\".'}\n"
+                        f"Do NOT include any other chunks. {directive_reminder}\n"
                         f"Chunk {next_index} should be approximately lines {lo}..{hi} of the final modified file.\n"
                         f"Limits:\n"
                         f"- Max lines per chunk: {self.lines_per_chunk}\n"
                         f"- Max characters per chunk: {self.chars_per_chunk}\n\n"
-                        f"Format: <chunk_{next_index}{' last=\"true\"' if is_last else ''}>"
+                        f"Format: <chunk_{next_index}{last_directive}>"
                         f"<pure code only, no commentary>"
                         f"</chunk_{next_index}>"
                     )
