@@ -65,18 +65,43 @@ You can run Monitor in two main ways:
   ```
   python -m monitor
   ```
-  When run as a module, Monitor copies default configuration files into the user configuration directory (~/.config/monitor) if they do not already exist. This is a one-time initialization step unless you explicitly reset the configuration.
+  When run as a module, Monitor copies default configuration files into the user config directory (see OS-specific paths below) if they do not already exist. This is a one-time initialization step unless you explicitly reset the configuration.
 
 The module start-up and CLI behavior are implemented in __main__.py and src/monitor/app.py. The CLI supports flags (described below) and the server mode starts a local Flask-based HTTP server.
 
+### User config directory paths (appdirs)
+
+Monitor uses platform-appropriate user config directories (via appdirs-style conventions):
+
+- macOS: ~/Library/Application Support/monitor
+- Linux: ~/.config/monitor
+- Windows: %APPDATA%/monitor (e.g., C:\Users\<User>\AppData\Roaming\monitor)
+
 ## Default config files copied to user config dir
 
-Running `python -m monitor` (or the console script on first run) will ensure a user config directory exists and will copy default configuration files there if they are missing:
+Running `python -m monitor` (or the console script on first run) will ensure the user config directory exists and will copy default configuration files there if they are missing:
 
-- ~/.config/monitor/app.yaml
-- ~/.config/monitor/macros.json
-- ~/.config/monitor/preferences.prompt
-- ~/.config/monitor/model_config.json
+- app.yaml
+- macros.json
+- preferences.prompt
+- model_config.json
+
+Examples:
+- (Linux example)
+  - ~/.config/monitor/app.yaml
+  - ~/.config/monitor/macros.json
+  - ~/.config/monitor/preferences.prompt
+  - ~/.config/monitor/model_config.json
+- (macOS example)
+  - ~/Library/Application Support/monitor/app.yaml
+  - ~/Library/Application Support/monitor/macros.json
+  - ~/Library/Application Support/monitor/preferences.prompt
+  - ~/Library/Application Support/monitor/model_config.json
+- (Windows example)
+  - %APPDATA%/monitor/app.yaml
+  - %APPDATA%/monitor/macros.json
+  - %APPDATA%/monitor/preferences.prompt
+  - %APPDATA%/monitor/model_config.json
 
 If you need to reset these files to defaults, see the "Reset configuration" section below.
 
@@ -95,7 +120,7 @@ Monitor supports the following command-line flags:
   - Override the configured model selection for this run. This prints the effective model selection on startup and uses it for LLM interactions during the session.
 
 - --reset-config
-  - Reset user configuration files in ~/.config/monitor back to the packaged defaults. Existing files are backed up before being replaced.
+  - Reset user configuration files in the user config directory (see OS-specific paths above) back to the packaged defaults. Existing files are backed up before being replaced.
 
 - --force
   - Non-interactive mode for operations that would normally prompt (for example, `--reset-config`). Implies yes to confirmations and will perform backups and replacements without prompting.
@@ -124,23 +149,31 @@ Behavior details:
 
 ## Logging and Conversation Storage
 
-- Application logs and conversation logs are stored under the user config directory:
-  - ~/.config/monitor/logs/
+- Application logs and conversation logs are stored under the user config directory (see OS-specific paths):
+  - (Linux example) ~/.config/monitor/logs/
+  - (macOS example) ~/Library/Application Support/monitor/logs/
+  - (Windows example) %APPDATA%/monitor/logs/
 - Logs include CLI/API invocations, LLM prompts and completions, macro executions, and other audit information.
-- Configure alternate log directories via `~/.config/monitor/app.yaml`.
+- Configure alternate log directories via `app.yaml` in your user config directory.
 
 ## Environment (.env) loading order
 
 Monitor supports loading environment variables from .env files. The order is:
 
 1. Project-level `.env` in the current working directory (if present).
-2. User-level `~/.config/monitor/.env` (if present) — values here override the project-level values.
+2. User-level `.env` in the user config directory (if present) — values here override the project-level values.
+   - (Linux example) ~/.config/monitor/.env
+   - (macOS example) ~/Library/Application Support/monitor/.env
+   - (Windows example) %APPDATA%/monitor/.env
 
 This ordering allows project-specific overrides while enabling persistent credentials or defaults in the user config directory.
 
 ## model_config.json loading and validation
 
-- Monitor loads `model_config.json` from the packaged defaults and from `~/.config/monitor/model_config.json` (user override).
+- Monitor loads `model_config.json` from the packaged defaults and from the user config directory (user override).
+  - (Linux example) ~/.config/monitor/model_config.json
+  - (macOS example) ~/Library/Application Support/monitor/model_config.json
+  - (Windows example) %APPDATA%/monitor/model_config.json
 - The file is parsed and validated at startup. The validator ensures the presence of the minimum required keys:
   - `provider` (e.g., "openai", "anthropic", "xai")
   - `model` (provider-specific model identifier)
@@ -341,9 +374,9 @@ See `src/monitor/README.md` for developer-focused examples and integration notes
 
 ## Configuration and Usage Basics
 
-Monitor loads configuration from the user config directory `~/.config/monitor` (populated on first run when using `python -m monitor` or the console script). Persistent settings are read from `app.yaml`, and secrets may be loaded from `~/.config/monitor/.env` as described in the "Environment (.env) loading order" section.
+Monitor loads configuration from the user config directory (see OS-specific paths above). This directory is populated on first run when using `python -m monitor` or the console script. Persistent settings are read from `app.yaml`, and secrets may be loaded from `.env` in the user config directory as described in the "Environment (.env) loading order" section.
 
-Example `app.yaml` snippet:
+Example `app.yaml` snippet (Linux example shown; adjust paths for your OS):
 ```yaml
 model:
   provider: openai
@@ -354,9 +387,24 @@ logs:
   path: ~/.config/monitor/logs
 ```
 
-Place your `.env` values in `~/.config/monitor/.env` for persistent secrets:
+Place your `.env` values in the user config directory `.env` for persistent secrets:
+- (Linux example)
 ```
 # ~/.config/monitor/.env
+OPENAI_API_KEY=<key>
+ANTHROPIC_API_KEY=<key>
+XAI_API_KEY=<key>
+```
+- (macOS example)
+```
+# ~/Library/Application Support/monitor/.env
+OPENAI_API_KEY=<key>
+ANTHROPIC_API_KEY=<key>
+XAI_API_KEY=<key>
+```
+- (Windows example)
+```
+# %APPDATA%/monitor/.env
 OPENAI_API_KEY=<key>
 ANTHROPIC_API_KEY=<key>
 XAI_API_KEY=<key>
@@ -373,7 +421,7 @@ See `docs/ARCHITECTURE.md` or `src/monitor/README.md` for full configuration opt
 
 ## Extending Monitor
 
-- **Custom Macros:** Write macros in YAML or JSON and place them under the macros directory or user registry (`~/.config/monitor/macros.json`). See `docs/MACROS_README.md` for more information.
+- **Custom Macros:** Write macros in YAML or JSON and place them under the macros directory or user registry (macros file resides in the user config directory). See `docs/MACROS_README.md` for more information.
 - **Tool System:** Develop and register LLM tools for custom API/data access. See `docs/ADD_LLM_TOOL.md` for more information.
 - **Command System:** Develop and register built-in commands. See `docs/ADD_BUILT_IN.md`
 
@@ -388,18 +436,31 @@ All Monitor operations are logged to the local registry (when configured) and fi
 - Shell and code executions, results, and errors
 - Macro executions and workflow traces
 
-Default logs location:
+Default logs location (under the user config directory):
+- (Linux example)
 ```
 ~/.config/monitor/logs/
 ```
-Specify alternate log directories via `~/.config/monitor/app.yaml`.
+- (macOS example)
+```
+~/Library/Application Support/monitor/logs/
+```
+- (Windows example)
+```
+%APPDATA%/monitor/logs/
+```
+
+Specify alternate log directories via `app.yaml` in your user config directory.
 
 ## Troubleshooting
 
 - **Redis connection issues:** Ensure `redis-server` is running and accessible if you have enabled Redis in your configuration.
 - **Invalid app.yaml or missing .env:** Validate your config files and environment variable values. Use `--reset-config` to restore defaults if needed.
 - **Unsupported OS / Python version:** Use Python 3.9 or later on supported platforms.
-- **LLM API errors:** Confirm API keys and correct model provider setup in `~/.config/monitor/model_config.json`, `app.yaml`, or environment variables.
+- **LLM API errors:** Confirm API keys and correct model provider setup in `model_config.json`, `app.yaml`, or environment variables located in the user config directory:
+  - (Linux example) ~/.config/monitor/
+  - (macOS example) ~/Library/Application Support/monitor/
+  - (Windows example) %APPDATA%/monitor/
 - **Permissions or sandboxing errors:** Check directory/file permissions and security configuration in `app.yaml`.
 
 For more, see `src/monitor/README.md`.
