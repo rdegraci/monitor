@@ -1,4 +1,19 @@
 {
+  "model_tpm_mapping": {
+      "sonnet4": "anthropic",
+      "sonnet35": "anthropic",
+      "sonnet37": "anthropic",
+      "4o-mini": "openai",
+      "gpt4o": "openai",
+      "o3-mini": "openai",
+      "gemini20": "google",
+      "gpt41": "openai",
+      "gpt5": "openai",
+      "o3": "openai",
+      "grok4": "xai",
+      "grok3": "xai",
+      "gpt5-mini": "openai"
+  },
   "model_mapping": {
       "sonnet4": "anthropic/claude-sonnet-4-20250514",
       "sonnet35": "anthropic/claude-3-5-sonnet-20241022",

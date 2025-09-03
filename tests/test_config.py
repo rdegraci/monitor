@@ -449,5 +449,116 @@ class TestSetModelBehavior:
         assert len(config.CONVERSATION_HISTORY) == baseline_history_len
 
 
+class TestModelTPMMappingConfig:
+    """Test the data-driven model_tpm_mapping logic."""
+    def test_model_tpm_mapping_provider_resolution(self):
+        """Test that model_tpm_mapping using string providers resolves to correct tier maps."""
+        mock_config = {
+            "model_tpm_mapping": {
+                "modelA": "anthropic",
+                "modelB": "openai"
+            },
+            "model_mapping": {"modelA": "anthropic/x", "modelB": "openai/y"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {1: 111},
+            "anthropic_model_tpm_tier": {1: 222},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {},
+        }
+        with patch('monitor.config._load_and_validate_model_config', return_value=mock_config):
+            config.load_model_config()
+
+        assert config.model_tpm_mapping["modelA"] == mock_config["anthropic_model_tpm_tier"]
+        assert config.model_tpm_mapping["modelB"] == mock_config["openai_model_tpm_tier"]
+
+    def test_model_tpm_mapping_custom_dict(self):
+        """Test that model_tpm_mapping allows custom dict per model."""
+        mock_config = {
+            "model_tpm_mapping": {
+                "modelA": {"1": 123, 2: 234}
+            },
+            "model_mapping": {"modelA": "anthropic/x"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {},
+            "anthropic_model_tpm_tier": {},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {},
+        }
+        with patch('monitor.config._load_and_validate_model_config', return_value=mock_config):
+            config.load_model_config()
+
+        # Both "1" and 2 keys should be present as in the mock (since patch bypasses loader coercion)
+        assert config.model_tpm_mapping["modelA"]["1"] == 123
+        assert config.model_tpm_mapping["modelA"][2] == 234
+
+    def test_model_tpm_mapping_invalid_provider_string(self):
+        """Test that invalid provider string in model_tpm_mapping raises RuntimeError."""
+        mock_config = {
+            "model_tpm_mapping": {
+                "modelA": "notaprovider"
+            },
+            "model_mapping": {"modelA": "anthropic/x"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {},
+            "anthropic_model_tpm_tier": {},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {},
+        }
+        with patch('monitor.config._load_and_validate_model_config', return_value=mock_config):
+            with pytest.raises(RuntimeError) as e:
+                config.load_model_config()
+            assert "Invalid provider reference" in str(e.value)
+
+    def test_model_tpm_mapping_invalid_value_type(self):
+        """Test that invalid value type in model_tpm_mapping raises RuntimeError at validation."""
+        mock_config = {
+            "model_tpm_mapping": {
+                "modelA": 12345  # not str or dict
+            },
+            "model_mapping": {"modelA": "anthropic/x"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {},
+            "anthropic_model_tpm_tier": {},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {},
+        }
+        with patch('monitor.config._load_and_validate_model_config', return_value=mock_config):
+            with pytest.raises(RuntimeError) as e:
+                config.load_model_config()
+            assert "Invalid value for model_tpm_mapping" in str(e.value)
+
+    def test_model_tpm_mapping_missing_key_fallback(self, monkeypatch):
+        """Test that missing model_tpm_mapping falls back to hardcoded mapping."""
+        mock_config = {
+            "model_mapping": {"gpt4o": "openai/y"},
+            "conversation_history_mapping": {},
+            "context_window_mapping": {},
+            "output_window_mapping": {},
+            "model_max_tpm": {},
+            "openai_model_tpm_tier": {1: 111},
+            "anthropic_model_tpm_tier": {},
+            "xai_model_tpm_tier": {},
+            "google_model_tpm_tier": {},
+        }
+        with patch('monitor.config._load_and_validate_model_config', return_value=mock_config):
+            # Patch logger to silence fallback message
+            monkeypatch.setattr(config, 'logger', MagicMock())
+            config.load_model_config()
+        # Should get hardcoded fallback
+        assert "gpt4o" in config.model_tpm_mapping
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -204,6 +204,32 @@ def _load_and_validate_model_config():
             int_val[int_key] = v
         model_config[tier_name] = int_val
 
+    # Optional: model_tpm_mapping
+    if "model_tpm_mapping" in model_config:
+        mtm = model_config["model_tpm_mapping"]
+        if not isinstance(mtm, dict):
+            logger.error(f"Key 'model_tpm_mapping' in {config_filename} must be a dictionary if present")
+            raise RuntimeError(f"model_tpm_mapping in {config_filename} must be a dict if present")
+        coerced_mtm = {}
+        for mk, mv in mtm.items():
+            if isinstance(mv, dict):
+                # Coerce numeric-like keys to int
+                int_val = {}
+                for k, v in mv.items():
+                    try:
+                        int_key = int(k)
+                    except Exception:
+                        int_key = k
+                    int_val[int_key] = v
+                coerced_mtm[mk] = int_val
+            elif isinstance(mv, str):
+                # Leave as-is; will be resolved to provider tier dict later
+                coerced_mtm[mk] = mv
+            else:
+                logger.error(f"Invalid value type for model_tpm_mapping['{mk}'] in {config_filename}: expected dict or str, got {type(mv).__name__}")
+                raise RuntimeError(f"Invalid value for model_tpm_mapping['{mk}']: must be dict or str")
+        model_config["model_tpm_mapping"] = coerced_mtm
+
     # For each mapping that is model_key -> int or str, just check they're dicts
     for k in ["conversation_history_mapping", "context_window_mapping", "output_window_mapping", "model_max_tpm", "model_mapping"]:
         if not isinstance(model_config[k], dict):
@@ -243,22 +269,51 @@ def load_model_config():
         google_model_tpm_tier = _MODEL_CONFIG_CACHE["google_model_tpm_tier"]
         MODEL_MAPPING = _MODEL_CONFIG_CACHE["model_mapping"]
 
-        # The rest of the mappings remain hardcoded
-        model_tpm_mapping = {
-            "sonnet4": anthropic_model_tpm_tier,
-            "sonnet35": anthropic_model_tpm_tier,
-            "sonnet37": anthropic_model_tpm_tier,
-            "4o-mini": openai_model_tpm_tier,
-            "gpt4o": openai_model_tpm_tier,
-            "o3-mini": openai_model_tpm_tier,
-            "gpt41": openai_model_tpm_tier,
-            "gpt5": openai_model_tpm_tier,
-            "o3": openai_model_tpm_tier,
-            "grok3": xai_model_tpm_tier,
-            "grok4": xai_model_tpm_tier,
-            "gemini20": google_model_tpm_tier,
-            "gpt5-mini": openai_model_tpm_tier,
-        }
+        # Resolve optional data-driven model_tpm_mapping if provided; otherwise, fallback to hard-coded mapping.
+        raw_model_tpm_mapping = _MODEL_CONFIG_CACHE.get("model_tpm_mapping")
+        if raw_model_tpm_mapping is not None:
+            if not isinstance(raw_model_tpm_mapping, dict):
+                logger.error(f"model_tpm_mapping in model_config.json is not a dict (type: {type(raw_model_tpm_mapping).__name__})")
+                raise RuntimeError("model_tpm_mapping must be a dict")
+            provider_map = {
+                'openai': openai_model_tpm_tier,
+                'anthropic': anthropic_model_tpm_tier,
+                'xai': xai_model_tpm_tier,
+                'google': google_model_tpm_tier,
+            }
+            resolved_mapping = {}
+            for mk, mv in raw_model_tpm_mapping.items():
+                if isinstance(mv, str):
+                    if mv not in provider_map:
+                        logger.error(f"Invalid provider reference '{mv}' for model_tpm_mapping['{mk}']; expected one of {list(provider_map.keys())}")
+                        raise RuntimeError(f"Invalid provider reference for model_tpm_mapping['{mk}']: {mv}")
+                    resolved_mapping[mk] = provider_map[mv]
+                elif isinstance(mv, dict):
+                    # Already coerced by loader; use as-is
+                    resolved_mapping[mk] = mv
+                else:
+                    logger.error(f"Invalid value type for model_tpm_mapping['{mk}']: expected str or dict, got {type(mv).__name__}")
+                    raise RuntimeError(f"Invalid value for model_tpm_mapping['{mk}']")
+            model_tpm_mapping = resolved_mapping
+            logger.info("Using data-driven model_tpm_mapping from model_config.json")
+        else:
+            # The rest of the mappings remain hardcoded (backward-compatible fallback)
+            model_tpm_mapping = {
+                "sonnet4": anthropic_model_tpm_tier,
+                "sonnet35": anthropic_model_tpm_tier,
+                "sonnet37": anthropic_model_tpm_tier,
+                "4o-mini": openai_model_tpm_tier,
+                "gpt4o": openai_model_tpm_tier,
+                "o3-mini": openai_model_tpm_tier,
+                "gpt41": openai_model_tpm_tier,
+                "gpt5": openai_model_tpm_tier,
+                "o3": openai_model_tpm_tier,
+                "grok3": xai_model_tpm_tier,
+                "grok4": xai_model_tpm_tier,
+                "gemini20": google_model_tpm_tier,
+                "gpt5-mini": openai_model_tpm_tier,
+            }
+            logger.info("Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)")
     except Exception as _model_config_e:
         # Already logged in loader, but abort import
         raise
