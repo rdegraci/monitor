@@ -11,7 +11,7 @@ class VoiceToText:
             channels (int): Number of microphone channels (default 1: mono).
             chunk (int): Audio buffer size per read (samples).
         """
-        self.model = whisper.load_model(model_name)
+        self.model_name = model_name
         self.rate = rate
         self.channels = channels
         self.chunk = chunk
@@ -50,6 +50,8 @@ class VoiceToText:
         import pyaudio
         import numpy as np
         import threading
+
+        self.model = whisper.load_model(model_name)
 
         if self._recording:
             print("Already recording.")
