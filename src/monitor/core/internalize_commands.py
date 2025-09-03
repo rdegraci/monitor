@@ -3,6 +3,8 @@ from monitor.lib.ripgrep_search import grep_command
 import logging
 from monitor import config
 
+from monitor.lib.display_output import print_colored_info
+
 logger = logging.getLogger(__name__)
 
 def rip_grep_command(arg):
@@ -19,7 +21,7 @@ def rip_grep_command(arg):
     grep_result = grep_command(arg)
 
     if grep_result == "No matches found.":
-        print(grep_result)
+        print_colored_info(f"File search {arg} no matches found.")
         return None
 
     # Determine safe truncation limit: use MODEL_CONTEXT_WINDOW // 10 if available, else fallback to MAX_TOKEN_COUNT

@@ -18,6 +18,9 @@ from monitor.lib.colors import red, yellow, blue, reset
 def print_colored_error(message):
     print(f"{red}{message}{reset}", file=sys.stderr)
 
+def print_colored_info(message):
+    print(f"{yellow}{message}{reset}", file=sys.stderr)
+
 def display_query_result(output_string, update_history_count=None):
     """Highlight and display the result of a query.
 
