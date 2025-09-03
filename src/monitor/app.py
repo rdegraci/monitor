@@ -34,48 +34,45 @@ from monitor.lib.server import create_flask_server  # Import create_flask_server
 logger = logging.getLogger(__name__)
 
 def _reset_config(force: bool = False):
-    """
-    Implements --reset-config as follows:
+    """Reset and optionally back up per-user config files to Monitor package defaults.
 
-    Behavior:
-    - Supports a 'force' parameter to skip interactive prompting. When force is True,
-      existing user config files will be backed up and replaced without prompting.
-    - When force is False and the process is non-interactive (stdin is not a TTY),
-      the function will exit with an error instructing the caller to use --force to
-      run in non-interactive environments.
-
-    Procedure:
-    - For each config file (app.yaml, macros.json, preferences.prompt):
-      - If the file exists in the user config dir:
-        - If force is True: backup and overwrite without prompting.
-        - Else if stdin is not a TTY: print an explanatory error and exit.
-        - Else: prompt user for confirmation; if confirmed, back up and overwrite; else skip.
-      - If the file does not exist: copy default resource to user dir.
-      - Report success or errors for each file.
-    - At end: print summary & exit immediately.
+    This function replaces user config files with packaged defaults from the 'monitor'
+    Python package. If a file exists, it is backed up before replacement. In interactive
+    mode, the user is prompted to confirm backup and overwrite unless 'force' is True.
+    In non-interactive shells, --force must be specified or the operation is aborted.
 
     Args:
         force (bool): If True, do not prompt and overwrite existing files after backing up.
+
+    Behavior:
+        - Backs up any existing config files in the user's config directory.
+        - Overwrites the file with the default version in the 'monitor' package.
+        - Prompts interactively to confirm for each file unless 'force' is set or stdin is non-interactive.
+        - If not 'force' and not a TTY, aborts with explanation.
+        - Summarizes the result of each file operation and exits.
+
+    Returns:
+        None. Exits the process after reset attempt.
     """
     user_config_dir = appdirs.user_config_dir('monitor')
     files_to_reset = [
-        ("app.yaml", "config", "app.yaml"),
-        ("macros.json", "lib", "macros.json"),
-        ("preferences.prompt", "config", "preferences.prompt"),
+        "app.yaml",
+        "macros.json",
+        "model_config.json",
+        "preferences.prompt",
+        "public_commands.json"
     ]
     reset_results = []
     os.makedirs(user_config_dir, exist_ok=True)
 
-    for filename, pkg, resource_name in files_to_reset:
+    for filename in files_to_reset:
         user_path = os.path.join(user_config_dir, filename)
         exists = os.path.isfile(user_path)
         user_input = "y"
         if exists:
             if force:
-                # Non-interactive forced overwrite
                 user_input = "y"
             else:
-                # If not interactive, refuse to proceed and instruct about --force
                 if not sys.stdin.isatty():
                     print(
                         f"ERROR: Config file '{filename}' exists in your config directory ({user_config_dir}).\n"
@@ -85,7 +82,6 @@ def _reset_config(force: bool = False):
                         "Aborting reset-config operation."
                     )
                     sys.exit(1)
-                # Interactive prompt user for confirmation
                 prompt_msg = (
                     f"The config file '{filename}' exists in your config directory ({user_config_dir}).\n"
                     f"Do you want to back up and overwrite it with the default? [y/N]: "
@@ -96,7 +92,6 @@ def _reset_config(force: bool = False):
                     print("\nOperation aborted by user.")
                     sys.exit(1)
         if not exists or user_input in ("y", "yes"):
-            # Backup existing file if present
             backup_path = None
             if exists:
                 dt = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -109,9 +104,8 @@ def _reset_config(force: bool = False):
                     print(f"ERROR: Failed to back up '{filename}': {e}")
                     reset_results.append(f"{filename}: ERROR during backup - {e}")
                     continue  # Do not clobber unintentionally
-            # Copy default resource from package
             try:
-                with importlib.resources.path(f"monitor.{pkg}", resource_name) as default_path:
+                with importlib.resources.path("monitor", filename) as default_path:
                     shutil.copy(default_path, user_path)
                 print(f"Reset '{filename}' with default configuration.")
                 reset_results.append(f"{filename}: reset to default")
@@ -121,7 +115,6 @@ def _reset_config(force: bool = False):
         else:
             print(f"Skipped '{filename}'.")
             reset_results.append(f"{filename}: skipped (user declined)")
-    # Print summary and exit
     print("\n-- Config Reset Summary --")
     for msg in reset_results:
         print(f"- {msg}")
