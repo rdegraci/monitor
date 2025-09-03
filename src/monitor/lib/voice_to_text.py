@@ -1,8 +1,3 @@
-import whisper
-import pyaudio
-import numpy as np
-import threading
-
 class VoiceToText:
     """Encapsulates Whisper STT and microphone recording for press-to-record workflows."""
 
@@ -49,6 +44,13 @@ class VoiceToText:
         """
         Start audio recording in a background thread. No effect if already recording.
         """
+        print("Initializing whisper/pyaudio")
+
+        import whisper
+        import pyaudio
+        import numpy as np
+        import threading
+
         if self._recording:
             print("Already recording.")
             return

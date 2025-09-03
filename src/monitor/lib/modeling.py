@@ -1,14 +1,13 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-
-
 def train_model(file_path, model_type='random_forest', target_column=''):
     """
     Train a machine learning model using specified parameters.
     """
+    import pandas as pd
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.linear_model import LinearRegression
+    from sklearn.metrics import mean_squared_error
+
     try:
         # Load dataset
         data = pd.read_csv(file_path)
@@ -46,6 +45,12 @@ def evaluate_model(model, test_data):
     Returns:
     A dictionary with Mean Squared Error and predictions if successful.
     """
+    import pandas as pd
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.linear_model import LinearRegression
+    from sklearn.metrics import mean_squared_error
+
     try:
         X_test = test_data[0]  # Get features from test_data
         y_test = test_data[1]  # Get true target values from test_data
