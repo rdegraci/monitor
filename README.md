@@ -115,6 +115,13 @@ Behavior details:
   monitor --server 0.0.0.0 --port 8080
   ```
 
+### Concurrency & Single-User Mode
+
+- Server mode is single-user and processes one request at a time. All incoming requests are serialized; no concurrent request handling is performed.
+- Even when bound to 0.0.0.0 or placed behind a reverse proxy, Monitor’s server mode will still handle only one request at a time.
+- Intended for local development, testing, and single-user workflows. Not suitable for production or multi-tenant deployments.
+- Recommendation: Prefer binding to localhost (127.0.0.1). If you choose to expose the server beyond localhost, ensure you add appropriate network security controls, authentication, TLS/HTTPS termination, rate limiting, and isolation. Use a production-grade serving stack if you require concurrency or multi-user access.
+
 ## Logging and Conversation Storage
 
 - Application logs and conversation logs are stored under the user config directory:
