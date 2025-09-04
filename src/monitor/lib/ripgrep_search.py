@@ -77,7 +77,7 @@ def ripgrep_search(term, filetype=None, search_path='.', word=False):
                 )
                 return stdout[:SAFE_LIMIT] + f"\n\n[TRUNCATED {num_bytes_truncated} bytes of output]"
 
-        return result.stdout if result.stdout else "No matches found."
+        return result.stdout if result.stdout else f"No matches found. Searched for: {term}"
     except FileNotFoundError:
         return "Error running ripgrep: 'rg' (ripgrep) not found. Please install ripgrep and ensure it is on your PATH."
     except Exception as e:
