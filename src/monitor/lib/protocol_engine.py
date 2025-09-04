@@ -228,7 +228,7 @@ class ProtocolEngine:
         try:
             if query:
                 self.message_history.append({"role": "user", "content": query})
-            with progress_dots():
+            with progress_dots("Analysis."):
                 response = self.middleware.completion(
                     model=self.model,
                     messages=self.message_history,
