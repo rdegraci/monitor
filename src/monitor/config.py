@@ -481,7 +481,7 @@ def configure_globals():
 
     public_commands_path_cfg = yaml_config.get("PUBLIC_COMMANDS_PATH")
     PUBLIC_COMMANDS_PATH = _safe_expanduser(public_commands_path_cfg)
-    REDIS_HOST = yaml_config.get("REDIS_HOST")
+    REDIS_HOST = yaml_config.get("REDIS_HOST", "localhost")
 
     PREFERENCE_PROMPT_FILE = _safe_expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
