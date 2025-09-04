@@ -313,7 +313,7 @@ def load_model_config():
                 "gemini20": google_model_tpm_tier,
                 "gpt5-mini": openai_model_tpm_tier,
             }
-            logger.info("Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)")
+            logger.warning("Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)")
     except Exception as _model_config_e:
         # Already logged in loader, but abort import
         raise
