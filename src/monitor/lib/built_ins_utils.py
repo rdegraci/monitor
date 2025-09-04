@@ -1,4 +1,3 @@
-
 import code
 import logging
 from typing import Any, Callable, Dict, List, Optional
@@ -74,6 +73,12 @@ built_in_functions: List[Dict[str, Any]] = [
         "description": "Dumps agent memories from Redis.",
         "function": dump_memories,
         "group_description": "Debugging",
+    },
+    {
+        "command": "help",
+        "description": "Displays all registered built-in commands.",
+        "function": print_built_ins,
+        "group_description": "Utilities",
     },
 ]
 
