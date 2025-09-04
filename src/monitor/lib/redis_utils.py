@@ -141,7 +141,6 @@ def save_to_memory(key: str, value: str, ttl: Optional[int] = 900) -> Union[str,
         Union[str, None]: Result message or None on failure.
     """
     logger.debug("Entering save_to_memory with key=%s, value=(omitted), ttl=%s", key, ttl)
-    logger.warning("save_to_memory is deprecated. Use update_memory instead.")
     return update_memory(user_input=value, response="", key=key)
 
 @with_redis_retry()
