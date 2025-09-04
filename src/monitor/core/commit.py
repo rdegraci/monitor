@@ -1,7 +1,5 @@
-
 import os
 import tempfile
-import sys
 import logging
 
 from monitor import config 
@@ -14,11 +12,19 @@ from monitor.lib.git import perform_git_commit, perform_git_diff_staged  # Impor
 
 logger = logging.getLogger('monitor.core.commit')
 
-def get_staged_diff():
-    """Return the staged git diff as a string. Uses centralized git wrapper perform_git_diff_staged."""
+def get_staged_diff(silent: bool = False):
+    """
+    Return the staged git diff as a string.
+
+    Parameters:
+        silent (bool): If True, suppresses user-facing output from the underlying
+            git wrapper. This value is passed through to perform_git_diff_staged.
+
+    Uses the centralized git wrapper perform_git_diff_staged(silent=silent).
+    """
     logger.debug("Entering get_staged_diff to retrieve staged git diff via perform_git_diff_staged.")
     try:
-        diff = perform_git_diff_staged()
+        diff = perform_git_diff_staged(silent=silent)
         logger.debug("Successfully retrieved staged git diff via wrapper.")
         return diff
     except Exception as e:
@@ -33,7 +39,7 @@ def make_commit_command(arg=None):
     """
     logger.info(f"Starting make_commit_command with arg={arg!r}")
     try:
-        diff_output = get_staged_diff()
+        diff_output = get_staged_diff(silent=True)
         if not diff_output.strip():
             logger.info("No staged changes found. Aborting commit flow.")
             print(f"{yellow}No staged changes to commit. Please stage changes first.{reset}")
@@ -41,7 +47,7 @@ def make_commit_command(arg=None):
 
         # Generate suggested commit message (title, body)
         logger.info("Requesting suggested commit message for staged changes.")
-        commit_message = get_suggested_commit_message()
+        commit_message = get_suggested_commit_message(diff_output)
         logger.info("Received suggested commit message.")
         print(f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n")
 
@@ -93,13 +99,14 @@ def make_commit_command(arg=None):
         logger.error(f"Error in :make_commit: {e}", exc_info=True)
         print(f"Error in :make_commit: {e}")
 
-def get_suggested_commit_message():
+def get_suggested_commit_message(diff_output):
     """
     Returns a suggested commit message based on staged git changes.
     """
     logger.debug("Entering get_suggested_commit_message to generate message from staged changes.")
     try:
         query_input = build_commit_message_query_input(
+            diff=diff_output,
             macro_values=MACRO_VALUES,
             macro_delim_open=config.MACRO_DELIMITER_OPEN,
             macro_delim_close=config.MACRO_DELIMITER_CLOSE,
@@ -112,5 +119,3 @@ def get_suggested_commit_message():
     except Exception as e:
         logger.error(f"Error generating suggested commit message: {e}", exc_info=True)
         raise
-
-

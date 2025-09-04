@@ -1,4 +1,3 @@
-
 import pytest
 from unittest.mock import patch, MagicMock
 import logging
@@ -76,13 +75,10 @@ def test_load_config_missing_or_bad_file(mock_open, mock_safe_load):
     assert result['branch_name'] == 'main'
     assert result['main_branch'] == 'main'
 
-@patch('monitor.lib.commit_analyzer.perform_git_diff_staged', return_value='sample-diff')
 @patch('monitor.lib.commit_analyzer.recursive_macro_expand', side_effect=lambda c, v, o, cl, e: c)
-def test_build_commit_message_query_input(mock_expand, mock_diff):
+def test_build_commit_message_query_input(mock_expand):
     """
     Test that build_commit_message_query_input includes diff text.
     """
-    out = commit_analyzer.build_commit_message_query_input({}, '<<', '>>', '\\')
+    out = commit_analyzer.build_commit_message_query_input('sample-diff', {}, '<<', '>>', '\\')
     assert 'sample-diff' in out
-
-

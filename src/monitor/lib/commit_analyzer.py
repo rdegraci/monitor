@@ -261,7 +261,7 @@ def analyze_branch_for_summary_and_steps(branch, logger, model, main_branch="mai
     next_steps_list = analyzer.suggest_next_steps(summary)
     return summary, diff_output, next_steps_list
 
-def build_commit_message_query_input(macro_values, macro_delim_open, macro_delim_close, macro_delim_escape):
+def build_commit_message_query_input(diff, macro_values, macro_delim_open, macro_delim_close, macro_delim_escape):
     """
     Build the macro-expanded prompt for generating a commit message from a diff.
 
@@ -275,7 +275,6 @@ def build_commit_message_query_input(macro_values, macro_delim_open, macro_delim
     Returns:
         str: The macro-expanded query input
     """
-    diff = perform_git_diff_staged()
     git_entry_macro_expanded = recursive_macro_expand(
         "(git_entry) and then only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'",
         macro_values,

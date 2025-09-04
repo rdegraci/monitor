@@ -39,7 +39,7 @@ def perform_git_diff():
     if stdout == "":
         logger.debug("No changes detected in git diff")
         print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
-        return "No changes detected."
+        return ""
 
     print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
     return stdout
@@ -93,7 +93,7 @@ def perform_git_diff_previous():
     if stdout == "":
         logger.debug("No changes detected between current and previous commit")
         print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
-        return "No changes detected."
+        return ""
 
     print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
     return stdout
@@ -131,14 +131,17 @@ def perform_git_show(ref):
         return f"Invalid ref provided: {e}"
 
 
-def perform_git_diff_staged():
+def perform_git_diff_staged(silent: bool = False):
     """
-    Perform git diff on the repository to show changes.
+    Perform git diff on the repository to show changes in staged files.
+
+    Args:
+        silent (bool): When True, do not print highlighted output; only return strings.
     
     Returns:
         str: The diff output or an error message/status
     """
-    logger.debug("Entering perform_git_diff_staged function")
+    logger.debug("Entering perform_git_diff_staged function with silent=%s", silent)
     stdout, _, error = run_git_capture(['git', '--no-pager', 'diff', '--staged'])
     if error:
         logger.error("An error occurred while executing git diff: %s", error)
@@ -147,10 +150,12 @@ def perform_git_diff_staged():
     logger.info("Successfully performed git diff")
     if stdout == "":
         logger.debug("No changes detected in git diff")
-        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
-        return "No changes detected."
+        if not silent:
+            print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+        return ""
 
-    print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+    if not silent:
+        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
     return stdout
 
 

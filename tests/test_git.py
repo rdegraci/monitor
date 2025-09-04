@@ -27,7 +27,7 @@ def test_perform_git_status_failure(mock_run):
 def test_perform_git_diff_no_changes(mock_run):
     mock_run.return_value = ('', '', None)
     output = git.perform_git_diff()
-    assert 'no changes' in output.lower()
+    assert output == ''
     assert mock_run.call_count == 1
     cmd = mock_run.call_args[0][0]
     assert cmd[:3] == ['git', '--no-pager', 'diff']
