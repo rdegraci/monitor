@@ -164,6 +164,77 @@ def _safe_register(mapping: Dict[str, Callable[..., Any]]) -> None:
         print_colored_error(f"Failed to register '{mapping.get('command')}': {exc}")
 
 
+def next_steps_command(arg: Any = None) -> None:
+    """Adapter for ':next_steps' that parses branch arguments and delegates.
+
+    Accepts a single optional string containing one or two whitespace-separated tokens:
+    the feature branch name and optionally the main branch name. When only one token
+    is provided, defaults the main branch to "master". When both are provided,
+    calls next_steps(branch, main_branch).
+
+    Args:
+      arg: Optional string of the form "<branch>" or "<branch> <main_branch>".
+
+    Returns:
+      None. Prints a usage message on invalid input.
+
+    Usage:
+      :next_steps my-feature
+      :next_steps my-feature main
+    """
+    # Help handling
+    if arg is not None:
+        try:
+            help_text = str(arg).strip()
+        except Exception:
+            help_text = ""
+        if help_text.lower() in ("help", "-h", "--help"):
+            print(
+                "Usage: :next_steps <branch> [<main_branch>]\n"
+                'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+                "Examples:\n"
+                "  :next_steps my-feature\n"
+                "  :next_steps my-feature main\n"
+                "  :next_steps bugfix/issue-123 develop"
+            )
+            return
+    if arg is None:
+        print_colored_error("Usage: :next_steps <branch> [<main_branch>]")
+        return
+    try:
+        text = str(arg).strip()
+    except Exception:
+        print_colored_error("Usage: :next_steps <branch> [<main_branch>]")
+        return
+    if not text:
+        print_colored_error(
+            "Usage: :next_steps <branch> [<main_branch>]\n"
+            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+            "Examples:\n"
+            "  :next_steps my-feature\n"
+            "  :next_steps my-feature main\n"
+            "  :next_steps bugfix/issue-123 develop"
+        )
+        return
+    parts = text.split()
+    if len(parts) == 1:
+        branch = parts[0]
+        main_branch = "master"
+    elif len(parts) == 2:
+        branch, main_branch = parts
+    else:
+        print_colored_error(
+            "Usage: :next_steps <branch> [<main_branch>]\n"
+            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+            "Examples:\n"
+            "  :next_steps my-feature\n"
+            "  :next_steps my-feature main\n"
+            "  :next_steps bugfix/issue-123 develop"
+        )
+        return
+    next_steps(branch, main_branch)
+
+
 def configure_built_ins() -> None:
     """
     Register all built-in commands required by the application.
@@ -257,7 +328,7 @@ def configure_built_ins() -> None:
                 },
                 {
                     "command": ":next_steps",
-                    "function": _make_callable(next_steps),
+                    "function": _make_callable(next_steps_command),
                     "description": "Suggest next steps based on commit analysis.",
                 },
             ],
