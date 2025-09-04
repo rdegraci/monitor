@@ -33,13 +33,13 @@ def configure_redis_utils(host, port, db, max_retries, retry_interval):
     REDIS_MAX_RETRIES = max_retries
     REDIS_RETRY_INTERVAL = retry_interval
 
-def get_redis_client() -> redis.Redis:
+def get_redis_client() -> Optional[redis.Redis]:
     """
     Get or create a Redis client instance.
     Uses thread-local storage to ensure thread safety.
 
     Returns:
-        redis.Redis: Redis client instance.
+        Optional[redis.Redis]: Redis client instance, or None when MEMORY_SERVICES is disabled.
     """
 
     if not config.MEMORY_SERVICES:
