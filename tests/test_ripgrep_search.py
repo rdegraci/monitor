@@ -28,7 +28,7 @@ def test_ripgrep_search_with_filetype(mock_run):
 def test_ripgrep_search_no_matches(mock_run):
     mock_run.return_value = make_result('', '', 1)
     result = ripgrep_search.ripgrep_search('somethingnotfound')
-    assert result == 'No matches found.'
+    assert result == 'No matches found. Searched for: somethingnotfound'
 
 @patch('monitor.lib.ripgrep_search.subprocess.run')
 def test_ripgrep_search_unknown_filetype_error(mock_run):
