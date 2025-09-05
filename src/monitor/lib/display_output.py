@@ -5,6 +5,7 @@
 import os
 import logging
 import sys
+from datetime import datetime
 
 from pygments import highlight
 from pygments.lexers import MarkdownLexer
@@ -42,8 +43,8 @@ def highlightMarkdown(query_result):
     print(f"{highlighted_output}{yellow}ETX{reset}\n")
     print("*******************")
     print("*******************")
-    print("*******************\n")
-
+    print("*******************")
+    print("Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S\n"))
 
 def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str=""):
     """Format the prompt display for the CLI.
