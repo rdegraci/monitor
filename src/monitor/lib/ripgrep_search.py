@@ -1,14 +1,37 @@
 import subprocess
 import logging
+import re
+
 from monitor import config
 
 logger = logging.getLogger(__name__)
+
+# Send up to 15% of the input token window
+SEARCH_EVALUATION_DIVISOR = 15
+
+def append_closing_paren_if_needed(text: str) -> str:
+    """Appends a closing parenthesis at the end of the regex if it starts with '(?'. 
+       Fixes a bug in the LLM which trims the trailing )
+    Args:
+        text (str): The string to check.
+
+    Returns:
+        str: The modified string with ')' added if it is a regex that starts with '(?'.
+    """
+    try:
+        re.compile(text)
+        return text
+    except re.error:
+        if text.startswith('(?'):
+            return text + ')'
+        return text
 
 def ripgrep_search_tool(term, filetype=None, word=False):
     """
     A ripgrep_search wrapper, used by LLM as a tool call
     """
-    result = ripgrep_search(term, filetype, '.', word)
+    search_term = append_closing_paren_if_needed(term)
+    result = ripgrep_search(search_term, filetype, '.', word)
     print(result)
     return result
 
@@ -63,19 +86,19 @@ def ripgrep_search(term, filetype=None, search_path='.', word=False):
         except Exception:
             base_limit = int(getattr(config, 'MAX_TOKEN_COUNT', 0) or 0)
 
-        SAFE_LIMIT = int(base_limit) // 10 if base_limit else 0
+        SAFE_LIMIT_CHARS = (int(base_limit) // SEARCH_EVALUATION_DIVISOR) * 4 if base_limit else 0
 
-        if SAFE_LIMIT > 0 and stdout:
-            if len(stdout) > SAFE_LIMIT:
+        if SAFE_LIMIT_CHARS > 0 and stdout:
+            if len(stdout) > SAFE_LIMIT_CHARS:
                 try:
-                    num_bytes_truncated = len(stdout[SAFE_LIMIT:].encode('utf-8'))
+                    num_bytes_truncated = len(stdout[SAFE_LIMIT_CHARS:].encode('utf-8'))
                 except Exception:
-                    num_bytes_truncated = max(0, len(stdout) - SAFE_LIMIT)
+                    num_bytes_truncated = max(0, len(stdout) - SAFE_LIMIT_CHARS)
                 logger.warning(
                     "ripgrep output size %d exceeds SAFE_LIMIT %d; truncating to %d characters.",
-                    len(stdout), SAFE_LIMIT, SAFE_LIMIT
+                    len(stdout), SAFE_LIMIT_CHARS, SAFE_LIMIT_CHARS
                 )
-                return stdout[:SAFE_LIMIT] + f"\n\n[TRUNCATED {num_bytes_truncated} bytes of output]"
+                return stdout[:SAFE_LIMIT_CHARS] + f"\n\n[TRUNCATED {num_bytes_truncated} bytes of output]"
 
         return result.stdout if result.stdout else f"No matches found. Searched for: {term}"
     except FileNotFoundError:

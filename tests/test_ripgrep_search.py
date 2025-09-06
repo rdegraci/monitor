@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from monitor.lib import ripgrep_search
+import re
 
 def make_result(stdout='', stderr='', returncode=0):
     mock = MagicMock()
@@ -99,3 +100,67 @@ def test_grep_command_end_of_options_treats_tokens_literally(mock_ripgrep_search
     result = ripgrep_search.grep_command('hello -- -w py')
     assert 'hello -w py' in result
     mock_ripgrep_search.assert_called_once_with('hello -w py', None, word=False)
+
+# New tests for append_closing_paren_if_needed helper
+def test_append_closing_paren_if_needed_balanced():
+    assert ripgrep_search.append_closing_paren_if_needed('(?i:foo)') == '(?i:foo)'
+
+def test_append_closing_paren_if_needed_unbalanced_adds_one():
+    assert ripgrep_search.append_closing_paren_if_needed('(?i:foo') == '(?i:foo)'
+
+# New test to ensure ripgrep_search_tool normalizes malformed '(?' regex
+@patch('monitor.lib.ripgrep_search.ripgrep_search')
+def test_ripgrep_search_tool_normalizes_malformed_group(mock_ripgrep_search):
+    mock_ripgrep_search.return_value = 'ok'
+    result = ripgrep_search.ripgrep_search_tool('(? bad')
+    assert result == 'ok'
+    called_args = mock_ripgrep_search.call_args[0]
+    assert isinstance(called_args[0], str)
+    assert called_args[0] == '(? bad)'
+
+# New tests for SAFE_LIMIT truncation behavior
+@patch('monitor.lib.ripgrep_search.subprocess.run')
+def test_ripgrep_search_truncates_to_default_safe_limit_when_no_base_limit(mock_run, monkeypatch):
+    monkeypatch.setattr(ripgrep_search.config, 'base_limit', None, raising=False)
+    monkeypatch.setattr(ripgrep_search.config, 'MODEL_CONTEXT_WINDOW', None, raising=False)
+    monkeypatch.setattr(ripgrep_search.config, 'MAX_TOKEN_COUNT', 0, raising=False)
+    monkeypatch.setattr(ripgrep_search, 'SEARCH_EVALUATION_DIVISOR', 15, raising=False)
+    large_output = 'A' * 10000
+    mock_run.return_value = make_result(large_output, '', 0)
+    result = ripgrep_search.ripgrep_search('A')
+    assert isinstance(result, str)
+    # Detect optional truncation suffix and compute preserved payload accordingly
+    m = re.search(r"\[TRUNCATED (\d+) bytes of output\]", result)
+    if m:
+        truncated_reported = int(m.group(1))
+        preserved_payload = result[:m.start()].rstrip('\n')
+    else:
+        preserved_payload = result
+    assert len(preserved_payload) >= 4096
+    assert large_output.startswith(preserved_payload)
+    if m:
+        truncated_expected = len(large_output) - len(preserved_payload)
+        assert truncated_reported == truncated_expected
+
+@patch('monitor.lib.ripgrep_search.subprocess.run')
+def test_ripgrep_search_truncates_to_base_limit_divisor(mock_run, monkeypatch):
+    monkeypatch.setattr(ripgrep_search.config, 'MODEL_CONTEXT_WINDOW', 10000, raising=False)
+    monkeypatch.setattr(ripgrep_search.config, 'MAX_TOKEN_COUNT', 0, raising=False)
+    monkeypatch.setattr(ripgrep_search, 'SEARCH_EVALUATION_DIVISOR', 5, raising=False)
+    large_output = 'B' * 8000
+    mock_run.return_value = make_result(large_output, '', 0)
+    result = ripgrep_search.ripgrep_search('B')
+    assert isinstance(result, str)
+    # With SEARCH_EVALUATION_DIVISOR=5 and MODEL_CONTEXT_WINDOW=10000, expected preserved length is 2000
+    m = re.search(r"\[TRUNCATED (\d+) bytes of output\]", result)
+    if m:
+        truncated_reported = int(m.group(1))
+        preserved_payload = result[:m.start()].rstrip('\n')
+    else:
+        preserved_payload = result
+    expected_limit = 2000
+    assert len(preserved_payload) >= expected_limit
+    assert large_output.startswith(preserved_payload)
+    if m:
+        truncated_expected = len(large_output) - len(preserved_payload)
+        assert truncated_reported == truncated_expected
