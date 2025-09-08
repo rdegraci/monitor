@@ -223,7 +223,7 @@ def _load_and_validate_model_config():
                     int_val[int_key] = v
                 coerced_mtm[mk] = int_val
             elif isinstance(mv, str):
-                # Leave as-is; will be resolved to provider tier dict later
+                # Leave as it is; will be resolved to provider tier dict later
                 coerced_mtm[mk] = mv
             else:
                 logger.error(f"Invalid value type for model_tpm_mapping['{mk}'] in {config_filename}: expected dict or str, got {type(mv).__name__}")
@@ -289,7 +289,7 @@ def load_model_config():
                         raise RuntimeError(f"Invalid provider reference for model_tpm_mapping['{mk}']: {mv}")
                     resolved_mapping[mk] = provider_map[mv]
                 elif isinstance(mv, dict):
-                    # Already coerced by loader; use as-is
+                    # Already coerced by loader
                     resolved_mapping[mk] = mv
                 else:
                     logger.error(f"Invalid value type for model_tpm_mapping['{mk}']: expected str or dict, got {type(mv).__name__}")

@@ -62,7 +62,7 @@ macro_delimiters:
 
 Behavior summary:
 - Pure macro bodies: `(macro_name)` occurrences are expanded by the macro engine.
-- TCL macro bodies: the text within `(tcl ... )` is passed largely as-is to the embedded TCL interpreter. The macro engine does not perform macro substitutions inside TCL bodies by default; only escaped delimiters are unescaped so the TCL code can contain literal delimiter characters.
+- TCL macro bodies: the text within `(tcl ... )` is passed largely as is to the embedded TCL interpreter. The macro engine does not perform macro substitutions inside TCL bodies by default; only escaped delimiters are unescaped so the TCL code can contain literal delimiter characters.
 
 ---
 

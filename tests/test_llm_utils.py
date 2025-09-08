@@ -145,7 +145,7 @@ def test_extract_tool_calls_and_append_fixed(monkeypatch):
         return result
     
     def mock_sanitize_messages(messages):
-        """Mock sanitize_messages to return input as-is"""
+        """Mock sanitize_messages to return input as is"""
         return messages
     
     def mock_count_message_tokens(msg):
