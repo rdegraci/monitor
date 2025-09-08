@@ -147,6 +147,29 @@ Behavior details:
 - Intended for local development, testing, and single-user workflows. Not suitable for production or multi-tenant deployments.
 - Recommendation: Prefer binding to localhost (127.0.0.1). If you choose to expose the server beyond localhost, ensure you add appropriate network security controls, authentication, TLS/HTTPS termination, rate limiting, and isolation. Use a production-grade serving stack if you require concurrency or multi-user access.
 
+### OpenAI-compatible API endpoints
+
+Monitor exposes a minimal, OpenAI-compatible REST surface for simple integrations.
+
+- Endpoints:
+  - GET /v1/models
+    - Returns a models list compatible with OpenAI’s schema. The configured model is included; additional metadata may be limited.
+  - POST /v1/chat/completions
+    - Accepts OpenAI Chat Completions JSON (messages[], model, stream, temperature, etc.). Unsupported fields are safely ignored.
+
+- Authentication:
+  - Set MONITOR_SERVER_API_KEY in the server environment to require a header: Authorization: Bearer <MONITOR_SERVER_API_KEY>.
+  - If MONITOR_SERVER_API_KEY is unset, no authentication is enforced (not recommended for non-local use).
+
+- Behavior and mapping:
+  - Messages are reduced to the latest user message by default and routed through Monitor’s internalize_command pipeline (not direct query()).
+  - The request’s "model" field is ignored; Monitor always uses its configured model for processing. Use the CLI flag --model at startup to change it for that process.
+  - If stream=true, Monitor simulates streaming by emitting incremental deltas in an OpenAI-compatible shape, chunking the final response into multiple partial updates. If stream=false (default), a single non-streaming response is returned.
+
+- Limitations:
+  - Single-user, one request at a time (matches Server Mode concurrency).
+  - Tool/function calling is not implemented; extra fields are ignored.
+
 ## Logging and Conversation Storage
 
 - Application logs and conversation logs are stored under the user config directory (see OS-specific paths):
