@@ -1,6 +1,5 @@
 import subprocess
 import logging
-import re
 
 from monitor import config
 
@@ -9,38 +8,24 @@ logger = logging.getLogger(__name__)
 # Send up to 15% of the input token window
 SEARCH_EVALUATION_DIVISOR = 15
 
-def append_closing_paren_if_needed(text: str) -> str:
-    """Appends a closing parenthesis at the end of the regex if it starts with '(?'. 
-       Fixes a bug in the LLM which trims the trailing )
-    Args:
-        text (str): The string to check.
-
-    Returns:
-        str: The modified string with ')' added if it is a regex that starts with '(?'.
-    """
-    try:
-        re.compile(text)
-        return text
-    except re.error:
-        if text.startswith('(?'):
-            return text + ')'
-        return text
-
 def ripgrep_search_tool(term, filetype=None, word=False):
     """
     A ripgrep_search wrapper, used by LLM as a tool call
     """
-    search_term = append_closing_paren_if_needed(term)
-    result = ripgrep_search(search_term, filetype, '.', word)
+    result = ripgrep_search(term, filetype, '.', word)
     print(result)
     return result
 
 
 def ripgrep_search(term, filetype=None, search_path='.', word=False):
     """
-    Search for the term using ripgrep ('rg').
+    Search for the term using ripgrep ('rg') with fixed-string matching (-F).
+
+    This performs a literal search: the pattern is not treated as a regular expression.
+    Regex is not supported by default; pass literal text as the search term.
+
     Args:
-        term (str): The search term (regex or plain text).
+        term (str): The search term as literal text (not a regex).
         filetype (str, optional): A file extension or language type (e.g., 'py', 'js').
         search_path (str, optional): Path to search (default=current directory).
         word (bool, optional): If True, restrict matches to word boundaries (passes '-w' to ripgrep).
@@ -49,7 +34,7 @@ def ripgrep_search(term, filetype=None, search_path='.', word=False):
     Raises:
         subprocess.CalledProcessError: For non-zero exit codes except 'no matches'.
     """
-    cmd = ['rg', '--pretty', '--context=6']
+    cmd = ['rg', '-F', '--pretty', '--context=6']
     if filetype:
         cmd.extend(['-t', filetype])
     if word:
