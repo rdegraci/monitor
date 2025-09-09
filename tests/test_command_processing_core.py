@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-import src.monitor.core.command_processing as cp
+import monitor.core.command_processing as cp
 
 @pytest.fixture(autouse=True)
 def patch_logger():
