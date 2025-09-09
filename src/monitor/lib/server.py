@@ -47,23 +47,21 @@ class SingleRequestMiddleware:
         self._logger.debug("Acquired request lock; processing request.")
         try:
             result = self.app(environ, start_response)
-
-            def releasing_iter():
+            out = []
+            try:
+                for item in result:
+                    out.append(item)
+            finally:
                 try:
-                    for item in result:
-                        yield item
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
                 finally:
-                    try:
-                        close = getattr(result, "close", None)
-                        if callable(close):
-                            close()
-                    finally:
-                        self._logger.debug(
-                            "Releasing request lock after processing."
-                        )
-                        self._lock.release()
-
-            return releasing_iter()
+                    self._logger.debug(
+                        "Releasing request lock after processing."
+                    )
+                    self._lock.release()
+            return out
         except Exception:
             self._logger.debug(
                 "Exception encountered while handling request; releasing lock."
@@ -415,21 +413,27 @@ def make_flask_app():
             # Capture the shutdown callback from the current request context.
             shutdown_callback = request.environ.get("werkzeug.server.shutdown")
 
+            if shutdown_callback is None:
+                logger.warning(
+                    "werkzeug.server.shutdown not available; unable to trigger graceful shutdown."
+                )
+                return jsonify({"message": "Server shutting down..."}), 200
+
             def _shutdown_server(cb):
-                if cb is not None:
-                    try:
-                        cb()
-                        logger.debug(
-                            "Called werkzeug.server.shutdown() successfully."
-                        )
-                    except Exception as exc:
-                        logger.error(f"Error calling werkzeug shutdown: {exc}")
-                else:
-                    logger.warning(
-                        "werkzeug.server.shutdown not available; forcing exit."
+                """
+                Attempt a graceful shutdown of the development server.
+
+                We avoid calling os._exit(0) to enable graceful teardown and
+                improve testability (e.g., letting in-flight responses finish
+                and allowing test harnesses to assert post-conditions).
+                """
+                try:
+                    cb()
+                    logger.debug(
+                        "Called werkzeug.server.shutdown() successfully."
                     )
-                time.sleep(0.2)
-                os._exit(0)
+                except Exception as exc:
+                    logger.error(f"Error calling werkzeug shutdown: {exc}")
 
             threading.Thread(
                 target=_shutdown_server,
