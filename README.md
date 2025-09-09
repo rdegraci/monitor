@@ -493,6 +493,10 @@ For more, see `src/monitor/README.md`.
 Run tests with:
 ```
 pytest
+
+or
+
+PYTHONPATH=. pytest -vv --tb=long -o console_output_style=classic
 ```
 To run all integration and system tests:
 ```
