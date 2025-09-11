@@ -14,9 +14,8 @@ Key File / Module Table
 | core/command_processing.py| Aggregates command dispatch, routing, safety checks (built-ins, |
 |                          | system shell, macros).                                          |
 | core/built_ins.py        | Source of built-in commands and system-level operations.         |
-| core/context.py          | Context, conversation history, memory and summarization logic.   |
 | lib/macros.py            | Macro registration, expansion, parameterization, automation.     |
-| lib/query_service.py     | Broker for LLM, tool, and macro queries—drives routing between   |
+| core/query_service.py    | Broker for LLM, tool, and macro queries—drives routing between   |
 |                          | CLI, LLM, macros, and core logic.                               |
 | config.py / app.yaml     | Configuration profiles: model options, limits, credentials, etc. |
 | logs/                    | Centralized, session-aware, rolling and audit logs.              |
@@ -38,7 +37,7 @@ High-Level Architecture Diagram (ASCII)
          -------------------------------------------
          |                    |                    |
 +----------------+  +-------------------+  +---------------------+
-|  core/         |  |    core/          |  |     lib/            |
+|  core/         |  |    core/          |  |     core/           |
 |  conversation  |  | command_processing|  |  query_service      |
 +----------------+  +-------------------+  +---------------------+
          |   (handles event/chat loop)   |            ^
@@ -64,7 +63,7 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 - All command registration/dispatch flows through centralized registries and handler maps: `core.built_ins`, `lib.macros`, `core.command_processing`
 - Dual-mode operation: **Interactive CLI Loop** or **HTTP API Server** (each with observability, audit, and graceful shutdown)
 - **Conversation abstraction:** `core/conversation.py` manages dynamic chat/event loop, session context, and interactivity for both CLI and server modes
-- **API Broker:** `lib/query_service.py` provides LLM and tool brokering (mediates requests in both CLI and server)
+- **API Broker:** `core/query_service.py` provides LLM and tool brokering (mediates requests in both CLI and server)
 - **Extensibility:** via server APIs, CLI/command registry, macro/hooks integration, and tool registry—all secured and auditable
 
 ## 2. Dual-Mode Operation
@@ -84,14 +83,14 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
     - Fetching conversation/context state
     - Extending backend via custom API requests (extensions/tools)
     - Health, metrics, and logging endpoints
-- All queries/requests routed via `lib.query_service.py` broker, ensuring tool/macro/core command mediation
+- All queries/requests routed via `core/query_service.py` broker, ensuring tool/macro/core command mediation
 - Server shutdowns handled with registered Flask and app signal handlers; logs persisted across sessions
 
 ## 3. Central File Roles (Expanded)
 
 - **`app.py`:**
     - Always the entry point—sets up logger, config, context/memory, CLI/server mode selection, macro/command registration, tool registry installation
-    - Encapsulates main event loop (calls into `core.conversation.py`), sets up Flask API in server mode
+    - Encapsulates main event loop (calls into `core/conversation.py`), sets up Flask API in server mode
     - Handles all signal trapping (SIGINT/SIGTERM), session teardown and persistent artifact/summary emission
 
 - **`core/conversation.py`:**
@@ -113,7 +112,7 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
     - Macro engine: macro registration, parameter parsing, scriptable/LLM-assisted expansion
     - Macro registry can be extended live via CLI or config; supports hooks into command processing
 
-- **`lib/query_service.py`:**
+- **`core/query_service.py`:**
     - Central broker for tool/integration queries and LLM activity
     - Mediates between CLI/server, macros, and integrations—ensures all actions are auditable
 
@@ -140,7 +139,7 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 - State, logs, audit, and context history are uniform across CLI and server
 - API extensibility: register new endpoints as modules under `lib/`, integrating via the command/macro registry
 
-**Query Broker (`lib/query_service.py`):**
+**Query Broker (`core/query_service.py`):**
 - Unified entry point for LLM/tool invocation, macro expansion, summarization, intent inference
 - Handles rate-limiting, error mediation, context possession, and logging for every tool/LLM action
 
