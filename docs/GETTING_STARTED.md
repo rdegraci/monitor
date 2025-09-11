@@ -149,9 +149,9 @@ Create new commands and tools by adding Python modules:
   Add or modify built-in handlers there.
 - Tools and integrations can be added under:
   ```
-  lib/
+  src/monitor/lib/
   ```
-  Place reusable helpers and modules in `lib/`.
+  Place reusable helpers and modules in `src/monitor/lib/`.
 
 Follow the existing patterns for argument parsing and help text. Test new built-ins locally and list them with `commands` to confirm their registered names.
 

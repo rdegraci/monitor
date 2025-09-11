@@ -33,7 +33,7 @@ File map (each file present in src/monitor/core)
   - Normalizes and adapts raw LLM outputs into core's message/event model.
 
 - modes.py
-  - Contains parsing and validation of run modes (single-line prompt, multiline, pipeline, voice/stream). Core uses this to adapt UI/CLI behavior and request shaping.
+  - Handles design and development mode commands and logic for toggling operational modes in sessions.
 
 - query_service.py
   - A small request/response interface that centralizes inter-module queries to break circular imports between registries, tools, and services.
@@ -53,7 +53,7 @@ Conversation / chat loop
   - HTTP API: app.py forwards REST payloads into conversation.handle_request() for stateless or session-backed conversation handling.
 - Flow:
   1. Assemble context window from history (monitor.lib.history) and session metadata.
-  2. Apply mode-specific transformations (modes.py) to shape the prompt and expected output format.
+  2. Apply mode-specific transformations (monitor.lib.input_modes) to shape the prompt and expected output format.
   3. Call llm adapter to get model output, or route to command/tool if model output indicates an action.
   4. If a tool/macro/command is invoked, pause LLM flow, run tooling/tooling.py or commands.py, persist result to history, and resume LLM if needed.
   5. Emit structured audit logs and return the combined output to caller.
@@ -128,11 +128,7 @@ Adding a macro
 
 Design and development modes
 ----------------------------
-- modes.py contains the canonical parsing/validation for different operational modes:
-  - single-line prompt: quick interactions via CLI or API.
-  - multiline: interactive sessions where user composes multi-line inputs.
-  - pipeline: non-interactive chaining of commands or tools.
-  - voice/stream: streaming inputs/outputs and partial-response handling.
+- modes.py handles design and development mode commands and logic for toggling operational modes in sessions. Note that input modes (single-line prompt, multiline, pipeline, voice/stream) are handled by monitor.lib.input_modes.
 - Use the modes layer to make changes that affect how prompts are assembled or how the UI expects data (do not embed mode-specific logic directly in conversation flows).
 
 Rate limiting and token accounting

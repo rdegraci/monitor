@@ -5,7 +5,7 @@ This document describes the monitor.lib package: the integration, utility, and e
 Key points up-front
 - monitor.lib contains focused modules that encapsulate single responsibilities (connectors, helpers, editors, memory, rate limiting, token accounting, etc.).
 - monitor.lib.token_management is the canonical token counting and update API for the platform. Other modules (notably rate_limiter.py) should use that API rather than duplicating token accounting logic.
-- rate_limiter.py provides request and token rate limiting and delegates token counting/updating to monitor.lib.token_management.
+- rate_limiter.py provides request and token rate limiting with built-in token estimation.
 - Several modules in lib are integration points with core systems (history, conversation, tooling, LLM adapters) and with external adapters (redis_utils, semantic_store, text_vector_store, tool_loading).
 - If you add a new helper module, register it with core or tool-loading when it provides tool-like behavior or needs to be exposed to macros/workflows.
 
@@ -30,10 +30,12 @@ Files in src/monitor/lib (one-line responsibilities)
 - external_services.py — Utilities for publishing artifacts and posting to social platforms (Twitter, Twitch, LinkedIn, etc.).
 - file_io.py — Filesystem reading/writing, path utilities, and safe file helpers.
 - git.py — Git command wrappers and version control helpers.
+- git_utils.py — Additional Git utilities and version control helpers.
 - history.py — Persistent or session-based history management used by core conversation/history features.
 - input_modes.py — Helpers for managing and switching interactive input modes.
 - keyboard.py — Keyboard event handling and shortcut utilities for interactive UIs.
 - lexer.py — Syntax highlighting, lexing, and prompt-toolkit integration for autocompletion and display.
+- llm_utils.py — Utilities for LLM adapters, prompts, and response handling.
 - logging.py — Robust logging, auditing, and trace utilities for platform events and actions.
 - macro_utils.py — Macro expansion helpers, validation, and utility functions for macro workflows.
 - macros.py — Persistent macro definitions, orchestration, storage, and macro lifecycle management.
@@ -42,19 +44,25 @@ Files in src/monitor/lib (one-line responsibilities)
 - os.py — OS compatibility helpers and platform bridging (legacy/compatibility shim).
 - preferences.py — User and system preference loading, saving, and management helpers.
 - preprocessing.py — Input and data preprocessing pipelines and utilities used by prompts and tools.
+- progress.py — Progress tracking and display utilities for long-running tasks.
 - protocol_engine.py — Protocol and streaming execution engine abstractions used by streaming components.
 - rag.py — Retrieval-augmented generation helpers that combine search results and context for LLMs.
-- rate_limiter.py — Rate limiting utilities and token/request throttling that rely on token_management for token bookkeeping.
+- rate_limiter.py — Rate limiting utilities and token/request throttling with built-in token estimation.
 - redis_utils.py — Redis-based persistent memory/context helpers and fast storage adapters.
 - ripgrep_search.py — High-performance project/file search wrapper around ripgrep.
 - semantic_store.py — Embedding and semantic similarity helpers, and a context store interface for retrieval.
+- server.py — HTTP server helpers and Flask integration utilities.
 - signal_handler.py — OS signal handling and graceful shutdown utilities.
+- sound.py — Audio playback and sound effect helpers.
 - summarizers.py — Text and chat summarization helpers using LLMs or heuristic approaches.
 - system_prompt.py — System prompt management and prompt editing/orchestration helpers.
 - terminal_commands.py — Shell subprocess orchestration and command launching utilities.
 - text_file_editor.py — Stateful text/buffer editor logic, undo/redo, and editor session management.
 - text_to_speech.py — Speech output utilities for LLM or system messages.
+- text_vector_store.py — Vector storage for text embeddings and similarity search.
 - token_management.py — Canonical token counting, usage tracking, and update API for LLM requests; used across platform features.
+- todo.py — Task and todo list management utilities.
+- todo_redis.py — Redis-backed persistence for todo lists.
 - tool_definitions.py — Schemas and definitions for tool/function/plugin structures exposed to workflows and LLMs.
 - tool_loading.py — Dynamic tool loading, discovery, and function definition registration utilities.
 - voice_to_text.py — Speech-to-text helpers and audio input utilities.
@@ -74,7 +82,7 @@ Key integrations and responsibilities
   - tool_loading.py is the canonical place for registering dynamically-discoverable tools that may interact with external adapters.
 - Token & rate control:
   - token_management.py is the canonical API for counting and updating token usage across LLM requests. All modules that consume or charge tokens MUST call into this API to ensure consistent accounting and telemetry.
-  - rate_limiter.py implements transport/request throttling and delegates token updating and decrementation to token_management.py to enforce consistent limits and telemetry.
+  - rate_limiter.py implements transport/request throttling with built-in token estimation to enforce limits and telemetry.
 
 Security and server note
 - server.create_flask_server (or the server module's create_flask_server helper in the project) can be used to quickly start a local HTTP server for integrations and testing.
