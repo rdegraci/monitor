@@ -288,7 +288,7 @@ TOOL_DESCRIPTIONS = [
                 "properties": {
                     "term": {
                         "type": "string",
-                        "description": "The search term to look for."
+                        "description": "The search term to look for. Note is a string search, do not treat it as a Regex."
                     },
                     "filetype": {
                         "type": "string",
@@ -525,7 +525,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
       "properties": {
         "term": {
           "type": "string",
-          "description": "The search term to look for."
+          "description": "The search term to look for. Note is a string search, do not treat it as a Regex."
         },
         "filetype": {
           "type": "string",
