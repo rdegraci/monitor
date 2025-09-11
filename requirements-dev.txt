@@ -1,4 +1,5 @@
 pytest==8.4.0
+pytest-cov
 coverage==7.8.2
 pip-audit
 safety
