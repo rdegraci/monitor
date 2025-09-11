@@ -239,7 +239,7 @@ class ProtocolEngine:
             self.message_history.append({"role": "assistant", "content": content})
             return content
         except Exception as e:
-            logger.exception("Middleware completion error: %s", str(e))
+            logger.debug("Middleware completion error: %s", str(e))
             raise Exception("LLM call failed. Check logs for details.")
 
     def _send_request_with_compliance_retry(self, query, chunk_index, is_next_chunk: bool):
@@ -261,7 +261,7 @@ class ProtocolEngine:
                 logger.debug(f"Requesting chunk {chunk_index}, retry {retries+1}")
                 output = self._send_request(augmented_query)
             except Exception as e:
-                logger.exception("LLM call failed for chunk %s, retry %s: %s", chunk_index, retries + 1, str(e))
+                logger.debug("LLM call failed for chunk %s, retry %s: %s", chunk_index, retries + 1, str(e))
                 raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}")
             prohibited = self._find_prohibited_phrases_in_text(output)
             if prohibited:
@@ -531,7 +531,7 @@ class ProtocolEngine:
                         logger.info(f"Code modification completed with partial results.")
                         break
                 except Exception as e:
-                    logger.exception("Error requesting next chunk: %s", str(e))
+                    logger.debug("Error requesting next chunk: %s", str(e))
                     if self.chunks:
                         self._assemble_and_save_partial()
                     logger.info(f"Code modification completed with partial results.")
@@ -797,7 +797,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
     except Exception as e:
-        logger.exception("Error reading file %s: %s", source_file, str(e))
+        logger.debug("Error reading file %s: %s", source_file, str(e))
         return f"Error reading file {source_file}: {str(e)}"
     try:
         modified_script = ENGINE.fetch_modified_script(
@@ -811,5 +811,18 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         return modified_script
     except Exception as e:
         print_func(f"{red}Failed to implement modifications to {source_file}.\nInstructions for manual modifications will follow.{reset}")
-        logger.exception("Error in modify_source_code: %s", str(e))
-        raise Exception(f"Failed to modify script: {str(e)}")
+        logger.debug("Error in modify_source_code: %s", str(e))
+        
+        # Return error message instead of raising exception to maintain tool contract
+        # This allows LLM to understand failure and avoid retry loops
+        error_msg = str(e)
+        if "No content collected to save" in error_msg:
+            return (
+                f"MODIFICATION FAILED: All automatic retries exhausted for {source_file}. "
+                f"The AI model consistently failed to follow required chunk formatting instructions. "
+                f"This indicates a fundamental model compliance issue that cannot be resolved through retries. "
+                f"Manual code modification is required. "
+                f"Original error: {error_msg}"
+            )
+        else:
+            return f"MODIFICATION FAILED: Unable to modify {source_file}. Error: {error_msg}"
