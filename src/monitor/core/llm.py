@@ -34,6 +34,34 @@ from monitor.core.llm_responses_adapter import response_completion, get_response
 
 TTS = TextToSpeech()           # Configure with preferred voice if needed
 
+def should_use_responses_adapter():
+    """Determine whether to use the Responses adapter.
+
+    This gating helper ensures the Responses API is only used when:
+      - RESPONSES_API is True
+      - REASONING_MODEL_PREFIX is a non-empty string
+      - MODEL is a string and starts with REASONING_MODEL_PREFIX (case-sensitive)
+
+    Returns:
+        bool: True if the Responses adapter should be used; False otherwise.
+
+    Exceptions:
+        Any exceptions are caught; the error is logged at debug level and False is returned.
+    """
+    try:
+        if getattr(config, 'RESPONSES_API', None) is not True:
+            return False
+        prefix = getattr(config, 'REASONING_MODEL_PREFIX', None)
+        if not isinstance(prefix, str) or prefix == "":
+            return False
+        model = getattr(config, 'MODEL', None)
+        if not isinstance(model, str):
+            return False
+        return model.startswith(prefix)
+    except Exception as e:
+        logger.debug(f"should_use_responses_adapter check failed: {e}", exc_info=True)
+        return False
+
 def extract_user_input_from_history():
     """Extract the most recent user input from conversation history.
     
@@ -63,7 +91,7 @@ def get_llm_completion(log_prefix='', error_message='Error during litellm comple
     Routes to responses API if config.RESPONSES_API is True, otherwise uses conversations API.
     """
     # Check if responses API should be used
-    if getattr(config, 'RESPONSES_API', None) is True:
+    if should_use_responses_adapter():
         logger.debug("Using responses API for completion")
         user_input = extract_user_input_from_history()
         if not user_input:
@@ -327,15 +355,7 @@ def get_llm_initial_completion():
     Routes to appropriate API based on config.RESPONSES_API setting.
     """
     # Check if responses API should be used
-    prefix = getattr(config, 'REASONING_MODEL_PREFIX')
-    model = getattr(config, 'MODEL')
-    if (
-        getattr(config, 'RESPONSES_API', None) is True
-        and isinstance(model, str)
-        and isinstance(prefix, str)
-        and prefix
-        and model.startswith(prefix)
-    ):
+    if should_use_responses_adapter():
         logger.debug("Getting initial responses API response...")
         user_input = extract_user_input_from_history()
         if not user_input:
