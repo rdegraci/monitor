@@ -393,8 +393,6 @@ Send a shell command for LLM-assisted explanation:
 monitor --command "explain: ls -l"
 ```
 
-See `src/monitor/README.md` for developer-focused examples and integration notes.
-
 ## Configuration and Usage Basics
 
 Monitor loads configuration from the user config directory (see OS-specific paths above). This directory is populated on first run when using `python -m monitor` or the console script. Persistent settings are read from `app.yaml`, and secrets may be loaded from `.env` in the user config directory as described in the "Environment (.env) loading order" section.
@@ -440,7 +438,7 @@ Usage modes:
 - LLM direct queries: "How do I optimize this function?" or "Review last commit" and receive in-place code modifications.
 - Macros: Compose batch automations via reusable macro scripts.
 
-See `docs/ARCHITECTURE.md` or `src/monitor/README.md` for full configuration options and advanced usage.
+See `docs/ARCHITECTURE.md` and `docs/CORE_README.md` for full configuration options and advanced usage.
 
 ## Extending Monitor
 
@@ -448,7 +446,7 @@ See `docs/ARCHITECTURE.md` or `src/monitor/README.md` for full configuration opt
 - **Tool System:** Develop and register LLM tools for custom API/data access. See `docs/ADD_LLM_TOOL.md` for more information.
 - **Command System:** Develop and register built-in commands. See `docs/ADD_BUILT_IN.md`
 
-See developer docs in `src/monitor/README.md` for examples and extension points.
+See developer docs in `docs/CORE_README.md` and `docs/ARCHITECTURE.md` for examples and extension points.
 
 ## Logging and Auditing
 
@@ -486,7 +484,7 @@ Specify alternate log directories via `app.yaml` in your user config directory.
   - (Windows example) %APPDATA%/monitor/
 - **Permissions or sandboxing errors:** Check directory/file permissions and security configuration in `app.yaml`.
 
-For more, see `src/monitor/README.md`.
+For more, see `docs/CORE_README.md` and `docs/ARCHITECTURE.md`.
 
 ## Testing
 
@@ -507,7 +505,7 @@ For local CLI/dev loop, use "editable" install:
 pip install -e .
 monitor
 ```
-See test documentation in `src/monitor/README.md`.
+See test documentation in `docs/CORE_README.md` and `docs/ARCHITECTURE.md`.
 
 ## License
 
@@ -518,4 +516,4 @@ Monitor is open source, distributed under the MIT License. See `LICENSE` for ful
 For issues or feature requests, please file an issue on GitHub:  
 https://github.com/YOUR_ORG/monitor3
 
-For architectural details and advanced extension, consult `docs/ARCHITECTURE.md` and `src/monitor/README.md`.
+For architectural details and advanced extension, consult `docs/ARCHITECTURE.md` and `docs/CORE_README.md`.
