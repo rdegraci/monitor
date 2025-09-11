@@ -31,7 +31,6 @@ from monitor import config
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.history import append_to_history_with_count
-from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib.text_to_speech import TextToSpeech
 
 logger = logging.getLogger(__name__)
@@ -139,6 +138,8 @@ def determine_response_type(response_message):
 
 def process_direct_response(response_message):
     """Process a direct (non-function-call) response from LLM"""
+    from monitor.lib.token_management import count_message_tokens, update_token_usage
+
     logger.debug("Processing direct LLM response...")
     assistant_message = normalize_message(response_message)
     assistant_content = assistant_message.get("content", "")
@@ -168,6 +169,8 @@ def process_direct_response(response_message):
 
 def extract_tool_calls(response):
     """Extract and validate tool calls from LLM response"""
+    from monitor.lib.token_management import count_message_tokens, update_token_usage
+    
     # Defensive check for choices
     if not getattr(response, "choices", None) or len(response.choices) == 0:
         raise ValueError("Malformed response: missing choices for tool extraction")
@@ -358,6 +361,23 @@ def strip_openai_prefix(model_name):
         return model_name[len(prefix) :]
     return model_name
 
+def get_model_tail(model: str) -> str:
+    """
+    Return the substring after the last '/' in a model string.
+
+    Args:
+        model: A model identifier like "aaaa/bbbb".
+
+    Returns:
+        The part after the final slash (e.g., "bbbb"). If there is no slash,
+        returns the trimmed input. Trailing slashes are ignored.
+    """
+    s = model.strip()
+    if not s:
+        return s
+    s = s.rstrip("/")
+    return s.split("/")[-1]
+
 TYPE_KEY = "type"
 NAME_KEY = "name"
 DESCRIPTION_KEY = "description"
@@ -516,6 +536,8 @@ def prepare_response_messages(user_input):
 
 def estimate_response_tokens(messages):
     """Estimate token count for responses API messages."""
+    from monitor.lib.token_management import count_message_tokens, update_token_usage
+
     try:
         estimated_tokens = 0
         for msg in messages:
@@ -853,7 +875,8 @@ def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = 
     if delta > 0:
         # Update project-level token usage helper if available
         try:
-            update_token_usage(delta)
+            from monitor.lib import token_management as token_management
+            token_management.update_token_usage(delta)
         except Exception:
             logger.exception("apply_usage_delta: update_token_usage failed")
 

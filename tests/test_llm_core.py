@@ -61,8 +61,8 @@ class TestLLMCore(unittest.TestCase):
         with patch('monitor.lib.llm_utils.config') as mock_llm_config, \
              patch('monitor.lib.llm_utils.TTS') as mock_tts, \
              patch('monitor.lib.llm_utils.append_to_history_with_count') as mock_hist, \
-             patch('monitor.lib.llm_utils.count_message_tokens'), \
-             patch('monitor.lib.llm_utils.update_token_usage'), \
+             patch('monitor.lib.token_management.count_message_tokens'), \
+             patch('monitor.lib.token_management.update_token_usage'), \
              patch('monitor.lib.llm_utils.normalize_message') as mock_normalize:
             # Set up the config mock
             mock_llm_config.LAST_INPUT_WAS_VOICE = True

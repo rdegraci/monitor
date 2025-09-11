@@ -25,11 +25,14 @@ and ensures all token handling is safely centralized, traceable, and auditable.
 
 import logging
 import sys
+
 from monitor import config
+
 from monitor.lib.rate_limiter import estimate_token_count
 
 logger = logging.getLogger(__name__)
 from monitor.lib.colors import red, reset
+
 
 def count_message_tokens(message):
     """
@@ -95,6 +98,7 @@ def count_message_tokens(message):
     except Exception as e:
         logger.error(f"Error counting message tokens: {str(e)}", exc_info=True)
         raise
+
 
 def update_token_usage(tokens_or_response):
     """
@@ -173,3 +177,178 @@ def update_token_usage(tokens_or_response):
         except Exception:
             logger.error("Complete failure accessing config, returning 0", exc_info=True)
             return 0
+
+
+def token_budgeter(params, input_window=100000, model_name=None):
+    """
+    Trims tool outputs (the 'output' key inside dicts of 'input', if present) adaptively
+    to fit under a maximum token budget for the entire input (input_window). Trimming
+    occurs only as needed and is always targeted at the largest outputs, waterfall-style,
+    until the overall budget is met or no outputs can be further truncated.
+
+    When truncating a tool's 'output', a truncation marker ("… [TRUNCATED]") will be
+    appended to the trimmed output (if space allows). The marker is also counted in the
+    token budget: content will be trimmed enough for the marker to fit, always leaving at
+    least one content token before the marker if possible. If the marker wouldn't fit
+    alongside any content, the output is replaced by only the marker. The marker is only
+    added if actual truncation has occurred (original token count > new count).
+
+    No top-level field truncation or removal is performed. Only per-tool output trimming
+    occurs. All truncations and initial/final token counts are logged for audit and trace.
+
+    Args:
+        params (dict): Parameters dict potentially containing an 'input' field (list of
+            tool invocations).
+        input_window (int): Hard token budget for the entire input, all tools included.
+        model_name (str, optional): Model type hint for tiktoken encoder if needed.
+
+    Returns:
+        dict: The modified params, with tool output fields trimmed as necessary to meet
+        the token budget. If params['input'] is missing or not a proper list of dicts
+        with 'output', returns the original params.
+    """
+    import copy
+    import tiktoken
+
+    TRUNC_MARKER = "… [TRUNCATED]"
+
+    params = copy.deepcopy(params)
+
+    try:
+        if model_name:
+            from monitor.lib.llm_utils import get_model_tail
+
+            tail = get_model_tail(str(model_name))
+            encoder = tiktoken.encoding_for_model(tail)
+        else:
+            encoder = tiktoken.get_encoding("cl100k_base")
+    except Exception as e:
+        logger.debug(
+            f"Failed to get tiktoken encoder for model: {model_name} ({e}), using fallback."
+        )
+        encoder = tiktoken.get_encoding("cl100k_base")
+
+    def tokens_of(obj):
+        try:
+            s = obj if isinstance(obj, str) else str(obj)
+            return len(encoder.encode(s))
+        except Exception as e:
+            logger.warning(
+                f"Token counting failure for object {type(obj)}: {e} - treating as 0 tokens."
+            )
+            return 0
+
+    def total_tokens(p):
+        total = 0
+        try:
+            input_list = p.get("input")
+        except Exception:
+            return 0
+        if isinstance(input_list, list):
+            for elm in input_list:
+                if isinstance(elm, dict):
+                    for key in ("output", "content", "text", "message"):
+                        if key in elm:
+                            total += tokens_of(elm.get(key))
+                            break
+                elif isinstance(elm, str):
+                    total += tokens_of(elm)
+                else:
+                    # Skip non-dict, non-str elements
+                    continue
+        return total
+
+    def truncate_with_marker(s, max_tokens):
+        encoded = encoder.encode(s)
+        if len(encoded) <= max_tokens:
+            # No truncation needed
+            return s, False
+        marker_tokens = encoder.encode(TRUNC_MARKER)
+        marker_len = len(marker_tokens)
+        # Always leave at least one token plus marker, if possible
+        if max_tokens < marker_len + 1:
+            # Not enough space for both content and marker: Only use the marker
+            logger.debug(
+                f"Truncation marker alone will fit (marker: {marker_len}, max: {max_tokens}). Content replaced by marker only."
+            )
+            result = encoder.decode(marker_tokens[:max_tokens])
+            return result, True
+        allowed_content_tokens = max_tokens - marker_len
+        truncated_content = encoder.decode(encoded[:allowed_content_tokens])
+        result = truncated_content + TRUNC_MARKER
+        # Double-check token count for result; if it exceeds, reduce by one more token and retry (edge case with marker expansion)
+        while len(encoder.encode(result)) > max_tokens and allowed_content_tokens > 1:
+            allowed_content_tokens -= 1
+            truncated_content = encoder.decode(encoded[:allowed_content_tokens])
+            result = truncated_content + TRUNC_MARKER
+        if len(encoder.encode(result)) > max_tokens:
+            # Fallback: only marker fits
+            logger.debug("After adjustments, only marker can fit for truncated output.")
+            result = encoder.decode(marker_tokens[:max_tokens])
+            return result, True
+        return result, True
+
+    # Only per-tool-output truncation inside "input" field if present and properly structured,
+    # and only iteratively as needed to reach the input_window budget.
+    if (
+        "input" not in params
+        or not isinstance(params["input"], list)
+        or not any(isinstance(elm, dict) and "output" in elm for elm in params["input"])
+    ):
+        logger.debug(
+            "Token budgeting: params['input'] missing or not a list of dicts with 'output'. Returning original params."
+        )
+        return params
+
+    input_list = params["input"]
+
+    original_tokens = total_tokens(params)
+    logger.debug(
+        f"Token budgeting: initial token count is {original_tokens}. Input window: {input_window} tokens."
+    )
+
+    # Iterative trimming of largest 'output' until under input_window token budget
+    def find_largest_output(input_list):
+        max_len = -1
+        max_i = None
+        for i, elm in enumerate(input_list):
+            if isinstance(elm, dict) and "output" in elm:
+                output_val = elm["output"]
+                toklen = tokens_of(output_val)
+                if toklen > max_len and toklen > 1:
+                    max_len = toklen
+                    max_i = i
+        return max_i, max_len
+
+    trim_iteration = 0
+    while total_tokens(params) > input_window:
+        i, largest_len = find_largest_output(input_list)
+        if i is None or largest_len <= 1:
+            logger.debug(
+                "No remaining tool outputs can be further trimmed to reduce below input_window."
+            )
+            break
+        trim_iteration += 1
+        tokentotal = total_tokens(params)
+        tokens_over = tokentotal - input_window
+        output_val = input_list[i]["output"]
+        output_str = output_val if isinstance(output_val, str) else str(output_val)
+        # Compute max allowed tokens for this output (while not going below input_window)
+        needed_cut = min(tokens_over, largest_len - 1)  # Must have at least 1 token left
+        new_len = largest_len - needed_cut
+        new_len = max(1, new_len)
+        truncated, did_truncate = truncate_with_marker(output_str, new_len)
+        if did_truncate:
+            logger.debug(
+                f"Trimming tool output in params['input'][{i}]['output'] to fit input_window on iteration {trim_iteration}: "
+                f"from {largest_len} to <= {new_len} tokens with marker applied (total tokens before: {tokentotal}, after trim will decrease by >= {largest_len - new_len})"
+            )
+            input_list[i]["output"] = truncated
+        else:
+            input_list[i]["output"] = truncated
+    final_tokens = total_tokens(params)
+    logger.info(
+        f"Token budgeting: final token count after per-tool-output trimming is {final_tokens} (input_window: {input_window})."
+    )
+
+    return params

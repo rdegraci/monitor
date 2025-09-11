@@ -107,8 +107,8 @@ def test_process_direct_response_appends_and_returns_content(monkeypatch, tmp_pa
     
     # Apply monkeypatches
     monkeypatch.setattr(llm_utils, 'normalize_message', mock_normalize_message)
-    monkeypatch.setattr(llm_utils, 'count_message_tokens', mock_count_message_tokens)
-    monkeypatch.setattr(llm_utils, 'update_token_usage', mock_update_token_usage)
+    monkeypatch.setattr('monitor.lib.token_management.count_message_tokens', mock_count_message_tokens)
+    monkeypatch.setattr('monitor.lib.token_management.update_token_usage', mock_update_token_usage)
     monkeypatch.setattr(llm_utils, 'append_to_history_with_count', _stub_append_to_history_with_count)
 
     msg = DummyMessage(content='Hello from AI')
@@ -164,8 +164,8 @@ def test_extract_tool_calls_and_append_fixed(monkeypatch):
     # Apply all monkeypatches
     monkeypatch.setattr(llm_utils, 'normalize_message', mock_normalize_message)
     monkeypatch.setattr(llm_utils, 'sanitize_messages', mock_sanitize_messages)
-    monkeypatch.setattr(llm_utils, 'count_message_tokens', mock_count_message_tokens)
-    monkeypatch.setattr(llm_utils, 'update_token_usage', mock_update_token_usage)
+    monkeypatch.setattr('monitor.lib.token_management.count_message_tokens', mock_count_message_tokens)
+    monkeypatch.setattr('monitor.lib.token_management.update_token_usage', mock_update_token_usage)
     monkeypatch.setattr(llm_utils, 'append_to_history_with_count', _stub_append_to_history_with_count)
 
     # Debug: check the input objects before calling extract_tool_calls
@@ -290,7 +290,7 @@ def test_apply_usage_delta_updates_and_rate_limiter_and_config(monkeypatch):
 
     dummy_rl = DummyRateLimiter()
 
-    monkeypatch.setattr(llm_utils, 'update_token_usage', mock_update_token_usage)
+    monkeypatch.setattr('monitor.lib.token_management.update_token_usage', mock_update_token_usage)
     monkeypatch.setattr(llm_utils, 'rate_limiter', dummy_rl)
 
     from monitor import config
@@ -324,7 +324,7 @@ def test_apply_usage_delta_no_delta_does_not_update(monkeypatch):
         def add_tokens(self, n):
             raise AssertionError("rate_limiter.add_tokens should not be called when delta is 0")
 
-    monkeypatch.setattr(llm_utils, 'update_token_usage', fail_update)
+    monkeypatch.setattr('monitor.lib.token_management.update_token_usage', fail_update)
     monkeypatch.setattr(llm_utils, 'rate_limiter', DummyRateLimiter())
 
     from monitor import config
@@ -358,8 +358,6 @@ def test_truncate_to_token_limit_basic(monkeypatch):
     of the original text.
     """
     text = "one two three four five six seven"
-    # Make token counting deterministic (words split by space)
-    monkeypatch.setattr(llm_utils, 'count_message_tokens', lambda t: len(t.split()) if isinstance(t, str) else 0)
     try:
         truncated = truncate_to_token_limit(text, 4)
     except TypeError:

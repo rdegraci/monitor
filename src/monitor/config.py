@@ -346,7 +346,8 @@ MODEL=None
 MODEL_CONTEXT_WINDOW=None 
 MODEL_OUTPUT_WINDOW=None
 MODEL_INPUT_TIER=None
-MODEL_MAX_TPM=None 
+MODEL_MAX_TPM=None
+MODEL_INPUT_WINDOW=None 
 CONVERSATION_MAX_SIZE=None
 RATE_LIMITING_CONFIG=None 
 MEMORY_SERVICES=None 
@@ -390,7 +391,7 @@ SERVER_MODE=None
 RESPONSES_API=None
 
 def configure_globals():
-    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER
+    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
     global CONVERSATION_MAX_SIZE, RATE_LIMITING_CONFIG, MEMORY_SERVICES, STARTUP_TIME
     global HISTORY_FILE, MAX_TOKEN_COUNT, OLD_MAX_TOKEN_COUNT
     global MACRO_DELIMITER_OPEN, MACRO_DELIMITER_CLOSE, MACRO_DELIMITER_ESCAPE, MACRO_FILE_PATH
@@ -409,6 +410,21 @@ def configure_globals():
     MODEL = yaml_config.get("MODEL")
     MODEL_CONTEXT_WINDOW = yaml_config.get("MODEL_CONTEXT_WINDOW")
     MODEL_OUTPUT_WINDOW = yaml_config.get("MODEL_OUTPUT_WINDOW")
+
+    # Safely compute input window
+    MODEL_INPUT_WINDOW = None
+    if isinstance(MODEL_CONTEXT_WINDOW, int) and isinstance(MODEL_OUTPUT_WINDOW, int):
+        iw = MODEL_CONTEXT_WINDOW - MODEL_OUTPUT_WINDOW
+        if iw > 0:
+            MODEL_INPUT_WINDOW = iw
+        else:
+            logger.warning(
+                f"Computed MODEL_INPUT_WINDOW <= 0 (context={MODEL_CONTEXT_WINDOW}, output={MODEL_OUTPUT_WINDOW}); disabling input budgeting"
+            )
+    else:
+        logger.debug(
+            f"Skipping MODEL_INPUT_WINDOW computation: MODEL_CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW!r}, MODEL_OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW!r}"
+        )
 
     # MODEL_MAX_TPM, if it exists, will override the MODEL_INPUT_TIER
     # otherwise, MODEL_MAX_TPM will be set via MODEL_INPUT_TIER

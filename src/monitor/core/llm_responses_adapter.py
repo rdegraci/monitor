@@ -5,7 +5,7 @@ from openai import OpenAI
 from monitor import config
 from monitor.core.tooling import execute_tool_call
 from monitor.lib.message_utils import normalize_message, sanitize_messages
-from monitor.lib.token_management import count_message_tokens, update_token_usage
+from monitor.lib.token_management import count_message_tokens, update_token_usage, token_budgeter
 from monitor.lib import rate_limiter
 from monitor.lib.llm_utils import (
     dict_to_attr, 
@@ -488,6 +488,16 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     logger.debug(
                         f"Sending follow-up responses.create with {len(function_call_outputs)} function_call_output items"
                     )
+
+                    iw = getattr(config, "MODEL_INPUT_WINDOW", None)
+                    if isinstance(iw, int) and iw > 0:
+                        followup_params = token_budgeter(
+                            followup_params, 
+                            input_window=iw,
+                            model_name=getattr(config, "MODEL", None)
+                        )
+                    else:
+                        logger.debug(f"Skipping token budgeting: invalid MODEL_INPUT_WINDOW={iw!r}")
                     with progress_dots():
                         followup_response = client.responses.create(**followup_params)
 

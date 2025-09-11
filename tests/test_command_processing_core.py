@@ -35,7 +35,7 @@ def test_evaluate_command_exit(mock_config, mock_expand, patch_config_macros):
 def test_evaluate_command_macro_expansion(patch_config_macros):
     # Macro expansion should be called during process_command
     with patch.object(cp, "recursive_macro_expand", return_value="expanded") as mexpand:
-        with patch("src.monitor.core.command_processing.readline.write_history_file"):
+        with patch("monitor.core.command_processing.readline.write_history_file"):
             cp.process_command("hello macro", "/tmp/history.txt")
         mexpand.assert_called()
 
@@ -106,7 +106,7 @@ def test_process_cd_command_non_cd():
     res = cp.process_cd_command("ls", "ls")
     assert res is False
 
-@patch("src.monitor.core.command_processing.readline.write_history_file")
+@patch("monitor.core.command_processing.readline.write_history_file")
 def test_process_command_empty(mock_write, patch_config_macros):
     # Should not raise, should return False
     assert not cp.process_command("   ", "/tmp/history.txt")
@@ -115,7 +115,7 @@ def test_process_command_empty(mock_write, patch_config_macros):
 
 @patch.object(cp, "handle_exit_command", return_value=True)
 def test_process_command_exit(mock_exit, patch_config_macros):
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         # Exit command, should return True
         assert cp.process_command("exit", "dummy_history")
         mock_exit.assert_called_once()
@@ -124,7 +124,7 @@ def test_process_command_exit(mock_exit, patch_config_macros):
 @patch.object(cp, "handle_cd_command", return_value="/mock/dir")
 @patch.object(cp, "query")
 def test_process_command_cd(mock_query, mock_handle_cd, mock_exit, patch_config_macros):
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("cd somewhere", "dummy_history")
         mock_handle_cd.assert_called_once()
         mock_query.assert_called_once()
@@ -134,7 +134,7 @@ def test_process_command_cd(mock_query, mock_handle_cd, mock_exit, patch_config_
 @patch.object(cp, "is_interactive_command", return_value=True)
 @patch.object(cp, "execute_interactive_command")
 def test_process_command_interactive(mock_exec, mock_inter, mock_cd, mock_exit, patch_config_macros):
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("inter stuff", "dummy_history")
         mock_exec.assert_called_once()
 
@@ -146,7 +146,7 @@ def test_process_command_interactive(mock_exec, mock_inter, mock_cd, mock_exit, 
 @patch.object(cp, "is_internal_command", return_value=True)
 @patch.object(cp, "execute_internal_command")
 def test_process_command_internal(mock_exec, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros):
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("internal stuff", "dummy_history")
         mock_exec.assert_called_once()
 
@@ -159,7 +159,7 @@ def test_process_command_internal(mock_exec, mock_is_internal, mock_inter, mock_
 @patch.object(cp, "is_built_in_function", return_value=True)
 @patch.object(cp, "execute_built_in_function")
 def test_process_command_built_in(mock_exec, mock_builtin, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros):
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("built in", "dummy_history")
         mock_exec.assert_called_once()
 
@@ -176,21 +176,20 @@ def test_process_command_built_in(mock_exec, mock_builtin, mock_is_internal, moc
 @patch.object(cp, "prepare_query_context")
 @patch.object(cp, "query", return_value="resp")
 def test_process_command_llm(mock_query, mock_ctx, mock_disp, mock_art, mock_eval, mock_builtin, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros):
-    from src.monitor.core.command_processing import CommandType, CommandResult
-    mock_eval.return_value = CommandResult(output="llm", command_type=CommandType.LLM)
-    with patch("src.monitor.core.command_processing.readline.write_history_file"):
+    mock_eval.return_value = cp.CommandResult(output="llm", command_type=cp.CommandType.LLM)
+    with patch("monitor.core.command_processing.readline.write_history_file"):
         assert not cp.process_command("some query", "dummy_history")
         mock_art.assert_called()
         mock_disp.assert_called()
         mock_ctx.assert_called()
 
-@patch("src.monitor.core.command_processing.signal.signal")
+@patch("monitor.core.command_processing.signal.signal")
 def test_handle_exit_command_cmd(mock_signal):
-    with patch("src.monitor.core.command_processing.yellow", "yy"), patch("src.monitor.core.command_processing.reset", "rr"):
+    with patch("monitor.core.command_processing.yellow", "yy"), patch("monitor.core.command_processing.reset", "rr"):
         with patch("builtins.print") as mprint:
             assert cp.handle_exit_command("/exit")
             mprint.assert_called()
-    with patch("src.monitor.core.command_processing.logger") as mlogger:
+    with patch("monitor.core.command_processing.logger") as mlogger:
         assert cp.handle_exit_command("exit")
         mlogger.info.assert_called()
 

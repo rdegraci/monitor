@@ -2,6 +2,7 @@ import logging
 import pytest
 
 import monitor.lib.history as history
+import monitor.lib.token_management as token_management
 
 
 class DummyConfig:
@@ -49,8 +50,8 @@ def test_prompt_warning_prefix_when_over_threshold_without_summarization(monkeyp
     # After appending user_input (+10) -> 90, which is >= threshold
 
     # Patch token counting to controlled 10 tokens per message and disable token usage updates
-    monkeypatch.setattr(history, "count_message_tokens", _count_10)
-    monkeypatch.setattr(history, "update_token_usage", _noop)
+    monkeypatch.setattr(token_management, "count_message_tokens", _count_10)
+    monkeypatch.setattr(token_management, "update_token_usage", _noop)
 
     # Stub check_limits to claim no summarization should happen
     def fake_check_limits(tokens_in_history, *_args, **_kwargs):
@@ -91,8 +92,8 @@ def test_guard_error_on_invalid_max_token_count(monkeypatch, caplog_info):
     conversation = [{"role": "system", "content": "sys"}]
 
     # Ensure token counting works and update usage is a no-op
-    monkeypatch.setattr(history, "count_message_tokens", _count_10)
-    monkeypatch.setattr(history, "update_token_usage", _noop)
+    monkeypatch.setattr(token_management, "count_message_tokens", _count_10)
+    monkeypatch.setattr(token_management, "update_token_usage", _noop)
 
     # Stub check_limits to avoid summarization (so we enter else branch with guard)
     def fake_check_limits(tokens_in_history, *_args, **_kwargs):

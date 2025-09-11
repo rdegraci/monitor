@@ -35,8 +35,9 @@ from monitor import config
 
 from monitor.lib.colors import red, blue, yellow, reset
 from monitor.lib.system_prompt import SYSTEM_PROMPT
-from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib import rate_limiter
+from monitor.lib.token_management import count_message_tokens as count_message_tokens
+from monitor.lib.token_management import update_token_usage as update_token_usage
 
 logger = logging.getLogger(__name__)  # Standardized to __name__
 
@@ -171,6 +172,8 @@ def append_conversation_history(
         post_social_summaries_func (callable): Optional posting to external systems.
         logger (object): Logger for diagnostics.
     """
+    from monitor.lib.token_management import count_message_tokens, update_token_usage
+
     logger.debug(
         f"[APPEND_CONVERSATION_HISTORY] Pre-append: len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
     )
@@ -518,6 +521,8 @@ def adjust_history_size(
     Returns:
         int: The new or existing history size limit.
     """
+    from monitor.lib.token_management import count_message_tokens
+
     red = color_warning_funcs.get('red', '')
     yellow = color_warning_funcs.get('yellow', '')
     reset = color_warning_funcs.get('reset', '')
