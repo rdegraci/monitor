@@ -187,8 +187,8 @@ def main():
             if isinstance(model_mapping, dict):
                 model_key_list = list(model_mapping.keys())
                 model_value_list = list(model_mapping.values())
-                available_keys = ', '.join(map(str, model_key_list)) if model_key_list else '(none found)'
-                available_values = ', '.join(map(str, model_value_list)) if model_value_list else '(none found)'
+                available_keys = ',\n'.join(map(str, model_key_list)) if model_key_list else '(none found)'
+                available_values = ',\n'.join(map(str, model_value_list)) if model_value_list else '(none found)'
                 warning_msg = (
                     f"Warning: Could not apply model override '{args.model}'.\n"
                     f"Available models (keys): {available_keys}\n"
@@ -199,8 +199,13 @@ def main():
                     f"Warning: Could not apply model override '{args.model}'. "
                     "MODEL_MAPPING is unavailable or invalid; cannot list available models."
                 )
-            print(warning_msg)
-            logger.warning(warning_msg)
+            user_msg = (
+                f"\nCould not apply model override '{args.model}'\n\n"
+                f"Available models:\n{available_keys}\n\n"
+                f"Defaulting to {config.MODEL}\n\n"
+            )
+            print(user_msg)
+            logger.info(warning_msg)
 
     configure_subsystems()
 

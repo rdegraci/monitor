@@ -689,7 +689,7 @@ def set_model(model_key: str) -> bool:
         model_full = model_key if mapped_key is not None else None
     else:
         available = sorted(MODEL_MAPPING.keys())
-        logger.warning(f"set_model: Unknown model key '{model_key}'. Available keys: {available}")
+        logger.info(f"set_model: Unknown model key '{model_key}'. Available keys: {available}")
         return False
 
     if mapped_key is None or model_full is None:
