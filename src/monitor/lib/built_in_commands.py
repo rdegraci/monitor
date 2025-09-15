@@ -224,7 +224,7 @@ def normalize_data_command(args: Any) -> Any:
 
 def deploy_model_command(args: Dict[str, Any]) -> Any:
     """Deploy specified model to an endpoint."""
-    from deployment import deploy_model
+    from monitor.lib.deployment import deploy_model
 
     model_path = args.get("model_path")
     endpoint_url = args.get("endpoint_url")
@@ -239,7 +239,7 @@ def deploy_model_command(args: Dict[str, Any]) -> Any:
 
 def monitor_model_performance_command(args: Dict[str, Any]) -> Any:
     """Monitor performance of deployed model."""
-    from deployment import monitor_model_performance
+    from monitor.lib.deployment import monitor_model_performance
 
     endpoint_url = args.get("endpoint_url")
     metrics_to_track = args.get("metrics_to_track", [])
