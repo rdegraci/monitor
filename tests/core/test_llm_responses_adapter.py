@@ -37,6 +37,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         Args:
             resp_id: The response identifier to assign.
             total_tokens: The total token usage to attach to usage.total_tokens.
+                If None, usage will be set to None on the response.
             output: The output list to attach (e.g., tool/function call items).
 
         Returns:
@@ -50,7 +51,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         class Resp:
             def __init__(self, rid, total, output_items):
                 self.id = rid
-                self.usage = Usage(total)
+                self.usage = None if total is None else Usage(total)
                 self.output = output_items
 
         return Resp(resp_id, total_tokens, output)
@@ -232,6 +233,280 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert kwargs["previous_response_id"] == "prev_123"
         assert isinstance(kwargs["input"], str)
         assert kwargs["input"] == "latest user input"
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=(["t"], "auto"))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_includes_tools_and_tool_choice(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        """Include tools and tool_choice from get_tools_for_model in first request."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.return_value = self._fake_response("resp_1", total_tokens=1, output=[])
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api([{"role": "user", "content": "hello"}], tool_descriptions={}, gemini_tool_descriptions={})
+
+        kwargs = fake_client.responses.create.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o-mini"
+        assert kwargs.get("tools") == ["t"]
+        assert kwargs.get("tool_choice") == "auto"
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_parses_arguments_and_executes_with_dict(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        """Parse JSON arguments to dict before execute_tool_call."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        # Capture and assert inside side effect that arguments are dict
+        def _side_effect(*args, **kwargs):
+            candidate = None
+            for a in args:
+                if isinstance(a, dict) and "arguments" in a:
+                    candidate = a
+                    break
+            if candidate is None:
+                for v in kwargs.values():
+                    if isinstance(v, dict) and "arguments" in v:
+                        candidate = v
+                        break
+            assert isinstance(candidate, dict), "execute_tool_call should receive a dict call item"
+            assert isinstance(candidate["arguments"], dict), "function.arguments must be a dict after parsing"
+            return {"ok": True}, None
+
+        mock_execute_tool_call.side_effect = _side_effect
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=2,
+            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"msg\":\"hi\"}"}],
+        )
+        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api([{"role": "user", "content": "hi"}], tool_descriptions={}, gemini_tool_descriptions={})
+
+        # Ensure two calls happened (initial + follow-up)
+        assert fake_client.responses.create.call_count == 2
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_usage_none_defaults_to_zero(
+        self,
+        mock_rate_limiter,
+        mock_update_tokens,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        """Default usage.total_tokens to 0 when usage is None."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.return_value = self._fake_response("resp_1", total_tokens=None, output=[])
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api([{"role": "user", "content": "tokenless"}], tool_descriptions={}, gemini_tool_descriptions={})
+
+        # update_token_usage should be called with 0
+        mock_update_tokens.assert_any_call(0)
+
+        # Rate limiter should receive an add_request with 0
+        calls = mock_rate_limiter.RATE_LIMITER.add_request.call_args_list
+        assert any(
+            (len(c.args) > 0 and c.args[0] == 0) or (len(c.kwargs) > 0 and next(iter(c.kwargs.values())) == 0) for c in calls
+        ), "Expected add_request to be called with 0 tokens"
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=Exception("truncate fail"))
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=Exception("serialize fail"))
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_serialize_and_truncate_error_paths(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=2,
+            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"a\":1}"}],
+        )
+        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api([{"role": "user", "content": "hi"}], tool_descriptions={}, gemini_tool_descriptions={})
+
+        # Second call is the follow-up; verify payload output is the fallback string
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert isinstance(second_kwargs["input"], list)
+        assert second_kwargs["input"][0]["output"] == adapter.SERIALIZATION_FAILED_STR
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    def test_client_lazy_configuration_failure(self, _mock_get_tools, mock_progress_dots):
+        """Raise RuntimeError when lazy client configuration fails."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        # Force lazy configuration path and make it fail
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+        )
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=2,
+            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"a\":1}"}],
+        )
+        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=False,
+        )
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg), \
+             patch.object(adapter, "execute_tool_call", return_value=({"ok": True}, None)), \
+             patch.object(adapter, "serialize_tool_output", side_effect=Exception("serialize fail")), \
+             patch.object(adapter, "truncate_to_token_limit", side_effect=Exception("truncate fail")), \
+             patch.object(adapter, "token_budgeter", side_effect=lambda params, *_args, **_kwargs: params):
+            adapter.call_responses_api([{"role": "user", "content": "x"}], tool_descriptions={}, gemini_tool_descriptions={})
+
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        payload = second_kwargs["input"]
+        assert isinstance(payload, list) and payload, "Expected non-empty follow-up input list"
+        assert payload[0]["type"] == "function_call_output"
+        assert payload[0]["output"] == adapter.SERIALIZATION_FAILED_STR
+
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    def test_client_lazy_configuration_failure(self, _mock_progress, _mock_get_tools):
+        from monitor.core import llm_responses_adapter as adapter
+        fake_client = None
+        cfg = SimpleNamespace(MODEL="openai/gpt-4o-mini", RESPONSES_API=True)
+        with patch.object(adapter, "client", None), patch.object(adapter, "config", cfg), patch.object(adapter, "configure_responses_adapter", side_effect=Exception("boom")):
+            with self.assertRaises(RuntimeError):
+                adapter.call_responses_api([{"role":"user","content":"x"}], tool_descriptions={}, gemini_tool_descriptions={})
 
 
 if __name__ == "__main__":
