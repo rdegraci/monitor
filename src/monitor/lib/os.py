@@ -50,7 +50,7 @@ def list_directory_contents(path: str = None):
         directory = path if path and path.strip() else os.getcwd()
         contents = list_directory(directory)
         if contents is None:
-            logger.error("Could not list contents of directory %s", directory)
+            logger.debug("Could not list contents of directory %s", directory)
             return json.dumps({"error": f"Could not list contents of directory '{directory}'."})
         print(f"{yellow}Listing {directory}{reset}")
         logger.debug("Listed contents of directory %s", directory)
@@ -74,7 +74,7 @@ def cat_file(path: str):
         print(f"{yellow}Reading {path}{reset}")
 
         if not os.path.lexists(path):
-            logger.error("File %s does not exist", path)
+            logger.debug("File %s does not exist", path)
             return json.dumps({"error": f"File '{path}' does not exist."})
 
         if os.path.islink(path):
