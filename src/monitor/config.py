@@ -1,6 +1,6 @@
 # CONFIG FILE IO POLICY:
 # All file and directory operations that perform IO (e.g. open, os.makedirs, os.path.exists) must be wrapped in try/except blocks.
-# Any IO failure must be logged via logger.error with exc_info=True for full stacktrace, and an exception must be raised to abort execution.
+# Any IO failure must be logged via logger.error with exc_info=True, and an exception must be raised to abort execution.
 # Failures in reading/loading config do NOT return defaults or fall back: they are fatal errors.
 # Path manipulations not touching disk (e.g. os.path.expanduser, os.path.join) may be left unwrapped unless they interact with the filesystem.
 # Environment variable assignments (os.environ, etc.) are not IO and do not need exception wrapping.
@@ -389,6 +389,9 @@ SUMMARY_LINKEDIN=None
 SUMMARY_TWITTER=None
 SERVER_MODE=None
 RESPONSES_API=None
+TWITTER_CLIENT_API=None
+TWITCH_CLIENT_API=None 
+LINKEDIN_CLIENT_API=None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
@@ -402,6 +405,7 @@ def configure_globals():
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
     global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, RESPONSES_API
+    global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -490,14 +494,22 @@ def configure_globals():
     SUMMARY_TWITTER = yaml_config.get('SUMMARY_TWITTER', False)
 
     MEMORY_SERVICES = yaml_config.get('MEMORY_SERVICES', False)
-    OLLAMA_CONFIG = yaml_config.get('ollama', {
-        'host': 'http://localhost:11434/api/generate',
-        'model': 'llama3.1:latest'
-    })
+    default_ollama = {
+        "host": "http://localhost:11434/api/generate",
+        "model": "llama3.1:latest",
+    }
+    OLLAMA_CONFIG = yaml_config.get("ollama", default_ollama)
+    if not isinstance(OLLAMA_CONFIG, dict):
+        e = ValueError("Invalid 'ollama' configuration in YAML: expected a dict.")
+        logger.error(str(e), exc_info=True)
+        raise e
+    ollama_host_env = os.getenv("OLLAMA_HOST")
+    if ollama_host_env:
+        OLLAMA_CONFIG["host"] = ollama_host_env
 
     public_commands_path_cfg = yaml_config.get("PUBLIC_COMMANDS_PATH")
     PUBLIC_COMMANDS_PATH = _safe_expanduser(public_commands_path_cfg)
-    REDIS_HOST = yaml_config.get("REDIS_HOST", "localhost")
+    REDIS_HOST = os.getenv("REDIS_HOST", yaml_config.get("REDIS_HOST", "localhost"))
 
     PREFERENCE_PROMPT_FILE = _safe_expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
@@ -506,9 +518,9 @@ def configure_globals():
     REASONING_MAX_COMPLETION_TOKENS = yaml_config.get('REASONING_MAX_COMPLETION_TOKENS', 25000)
     RESPONSES_API = yaml_config.get('RESPONSES_API')
 
-    ARTIFACT_SERVER = yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/')
-    CODE_LENS_HOST = yaml_config.get('CODE_LENS_HOST', 'localhost')
-    CODE_LENS_PORT = yaml_config.get('CODE_LENS_PORT', '5000')
+    ARTIFACT_SERVER = os.getenv('ARTIFACT_SERVER', yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/'))
+    CODE_LENS_HOST = os.getenv('CODE_LENS_HOST', yaml_config.get('CODE_LENS_HOST', 'localhost'))
+    CODE_LENS_PORT = os.getenv('CODE_LENS_PORT', yaml_config.get('CODE_LENS_PORT', '5000'))
 
     # Global list to store jokes told previously
     JOKES_FILE = _safe_expanduser(yaml_config.get('JOKES_FILE'))
@@ -517,11 +529,15 @@ def configure_globals():
     if DIRECTIVES_DIR:
         os.environ['DIRECTIVES_DIR'] = DIRECTIVES_DIR
 
-    ECS_HOST = yaml_config.get('ECS_HOST')
-    ECS_PORT = yaml_config.get('ECS_PORT')
+    ECS_HOST = os.getenv('ECS_HOST', yaml_config.get('ECS_HOST', 'localhost'))
+    ECS_PORT = os.getenv('ECS_PORT', yaml_config.get('ECS_PORT', '5000'))
     ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get('ENABLE_AUTO_SUMMARIZE_ON_LIMIT')
 
     SERVER_MODE = yaml_config.get('SERVER_MODE')
+
+    TWITTER_CLIENT_API = os.getenv('TWITTER_CLIENT_API', yaml_config.get('TWITTER_CLIENT_API', 'http://localhost:7070/twitter/tweet'))
+    TWITCH_CLIENT_API = os.getenv('TWITCH_CLIENT_API', yaml_config.get('TWITCH_CLIENT_API', 'http://localhost:5050/send_message'))
+    LINKEDIN_CLIENT_API = os.getenv('LINKEDIN_CLIENT_API', yaml_config.get('LINKEDIN_CLIENT_API', 'http://localhost:6060/linkedin/article'))
 
 LOGGING_CONFIG=None 
 LOGGING_LEVEL=None 
@@ -649,7 +665,15 @@ def configure_subsystems():
 
     # configure_external_services can fail due to various non-fatal issues; log errors and continue.
     try:
-        configure_external_services(ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE)
+        configure_external_services(
+            ARTIFACT_SERVER, 
+            CODE_LENS_HOST, 
+            CODE_LENS_PORT,
+            JOKES_FILE,
+            TWITTER_CLIENT_API,
+            TWITCH_CLIENT_API,
+            LINKEDIN_CLIENT_API
+        )
     except Exception as e:
         logger.error(f"Error configuring external services: {e}", exc_info=True)
         # Continue execution despite external services configuration failure.

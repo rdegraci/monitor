@@ -15,18 +15,62 @@ logger = logging.getLogger(__name__)
 
 from monitor import config
 
+DEFAULT_HTTP_TIMEOUT = 30
+
 ARTIFACT_SERVER=None
 CODE_LENS_HOST=None
 CODE_LENS_PORT=None 
 JOKES_FILE=None 
 JOKES = []
+TWITTER_CLIENT_API=None
+TWITCH_CLIENT_API=None 
+LINKEDIN_CLIENT_API=None
 
-def configure_external_services(artifact_server, code_lens_host, code_lens_port, jokes_file):
+def configure_external_services(
+    artifact_server, 
+    code_lens_host, 
+    code_lens_port, 
+    jokes_file,
+    twitter_client_api=None,
+    twitch_client_api=None,
+    linkedin_client_api=None
+    ):
+    """Configure external service endpoints and related settings.
+
+    This function initializes global configuration for external integrations
+    used by the application, including the artifact server, code lens server,
+    jokes file path, and social platform API endpoints. For social platform
+    endpoints, if a value is not provided (None), a sensible local default
+    will be used to maintain backward compatibility.
+
+    Args:
+        artifact_server (str): Base URL for the artifact server to which messages are sent.
+        code_lens_host (str): Hostname or IP address for the Code Lens server.
+        code_lens_port (str | int): Port number for the Code Lens server.
+        jokes_file (str): Path to the file used for storing and de-duplicating jokes.
+        twitter_client_api (str | None): Full URL for the Twitter client API endpoint.
+            If None, defaults to http://localhost:7070/twitter/tweet.
+        twitch_client_api (str | None): Full URL for the Twitch client API endpoint.
+            If None, defaults to http://localhost:5050/send_message.
+        linkedin_client_api (str | None): Full URL for the LinkedIn client API endpoint.
+            If None, defaults to http://localhost:6060/linkedin/article.
+
+    Behavior:
+        - Sets module-level globals for all provided services.
+        - Applies default local endpoints for any social platform API parameter that is None.
+        - Intended to be called once during application initialization, but can be called
+          again to update configurations at runtime.
+    """
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE
+    global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
+
     ARTIFACT_SERVER = artifact_server
     CODE_LENS_HOST = code_lens_host
     CODE_LENS_PORT = code_lens_port
     JOKES_FILE = jokes_file
+    TWITTER_CLIENT_API = twitter_client_api if twitter_client_api is not None else "http://localhost:7070/twitter/tweet"
+    TWITCH_CLIENT_API = twitch_client_api if twitch_client_api is not None else "http://localhost:5050/send_message"
+    LINKEDIN_CLIENT_API = linkedin_client_api if linkedin_client_api is not None else "http://localhost:6060/linkedin/article"
 
 def send_artifact(message: str):
     """Send a message to Artifact server."""
@@ -41,11 +85,10 @@ def send_artifact(message: str):
         return
     
     url = ARTIFACT_SERVER
-    headers = {"Content-Type": "application/json"}
     data = {"text": message}
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
+        response = requests.post(url, json=data, timeout=DEFAULT_HTTP_TIMEOUT)
         
         # Check if the request was successful
         if response.status_code == 200:
@@ -64,13 +107,15 @@ def send_twitter_message(message: str) -> None:
     if not message:
         logger.warning("Twitter message not provided - cannot send empty message")
         return
+
+    if not TWITTER_CLIENT_API:
+        logger.warning("Twitter API endpoint is not configured - cannot send message")
+        return
     
-    url = "http://localhost:7070/twitter/tweet"
-    headers = {"Content-Type": "application/json"}
     data = {"text": message}
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
+        response = requests.post(TWITTER_CLIENT_API, json=data, timeout=DEFAULT_HTTP_TIMEOUT)
         
         # Check if the request was successful
         if response.status_code == 201:
@@ -83,19 +128,21 @@ def send_twitter_message(message: str) -> None:
 
 
 def send_twitch_message_command(message: str) -> None:
-    """Send a message to a specified Twitch channel."""
+    """Send a message to a specified Twitch channel. This function logs errors and returns without raising exceptions."""
     logger.debug("Entering send_twitch_message_command function")
     
     if not message:
         logger.warning("Twitch message not provided - cannot send empty message")
         return
+
+    if not TWITCH_CLIENT_API:
+        logger.warning("Twitch API endpoint is not configured - cannot send message")
+        return
     
-    url = "http://localhost:5050/send_message"
-    headers = {"Content-Type": "application/json"}
     data = {"message": message}
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
+        response = requests.post(TWITCH_CLIENT_API, json=data, timeout=DEFAULT_HTTP_TIMEOUT)
         
         # Check if the request was successful
         if response.status_code == 200:
@@ -103,10 +150,8 @@ def send_twitch_message_command(message: str) -> None:
         else:
             logger.error("Failed to send Twitch message: status_code=%s, response=%s", 
                          response.status_code, response.text)
-            raise requests.exceptions.RequestException(f"Twitch API returned status code {response.status_code}")
     except requests.exceptions.RequestException as e:
         logger.error("Error occurred when sending Twitch message: %s", str(e), exc_info=True)
-        raise  # Re-raise the exception so the calling code can handle it
 
 
 def send_linkedin_message(message: str) -> None:
@@ -116,13 +161,15 @@ def send_linkedin_message(message: str) -> None:
     if not message:
         logger.warning("LinkedIn message not provided - cannot send empty message")
         return
+
+    if not LINKEDIN_CLIENT_API:
+        logger.warning("LinkedIn API endpoint is not configured - cannot send message")
+        return
     
-    url = "http://localhost:6060/linkedin/article"
-    headers = {"Content-Type": "application/json"}
     data = {"text": message}
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
+        response = requests.post(LINKEDIN_CLIENT_API, json=data, timeout=DEFAULT_HTTP_TIMEOUT)
         
         # Check if the request was successful
         if response.status_code == 200:

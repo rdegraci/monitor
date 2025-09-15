@@ -54,10 +54,10 @@ def test_send_artifact_success(monkeypatch):
 
     captured = {}
 
-    def fake_post(url, headers=None, data=None):
+    def fake_post(url, json=None, timeout=None):
         captured["url"] = url
-        captured["headers"] = headers
-        captured["data"] = json.loads(data)
+        captured["json"] = json
+        captured["timeout"] = timeout
         return DummyResponse(200)
 
     monkeypatch.setattr(es.requests, "post", fake_post)
@@ -65,24 +65,22 @@ def test_send_artifact_success(monkeypatch):
     es.send_artifact("hello")
 
     assert captured["url"] == "http://artifact.local/ingest"
-    assert captured["headers"]["Content-Type"] == "application/json"
-    assert captured["data"] == {"text": "hello"}
+    assert captured["json"] == {"text": "hello"}
 
 
 def test_send_twitter_message_success(monkeypatch):
     sent = {}
 
-    def fake_post(url, headers=None, data=None):
+    def fake_post(url, json=None, timeout=None):
         sent["url"] = url
-        sent["headers"] = headers
-        sent["data"] = json.loads(data)
+        sent["json"] = json
         return DummyResponse(201)
 
     monkeypatch.setattr(es.requests, "post", fake_post)
     es.send_twitter_message("tweet text")
 
     assert sent["url"].endswith("/twitter/tweet")
-    assert sent["data"]["text"] == "tweet text"
+    assert sent["json"]["text"] == "tweet text"
 
 
 def test_send_twitter_message_ignores_empty(monkeypatch):
@@ -98,25 +96,24 @@ def test_send_twitter_message_ignores_empty(monkeypatch):
 
 
 def test_send_twitch_message_command_success(monkeypatch):
-    def fake_post(url, headers=None, data=None):
+    def fake_post(url, json=None, timeout=None):
         return DummyResponse(200)
 
     monkeypatch.setattr(es.requests, "post", fake_post)
     es.send_twitch_message_command("hello twitch")  # should not raise
 
 
-def test_send_twitch_message_command_error_raises(monkeypatch):
-    def fake_post(url, headers=None, data=None):
+def test_send_twitch_message_command_error_no_raise(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
         return DummyResponse(500, text="server error")
 
     monkeypatch.setattr(es.requests, "post", fake_post)
 
-    with pytest.raises(Exception):
-        es.send_twitch_message_command("oops")
+    es.send_twitch_message_command("oops")
 
 
 def test_send_linkedin_message_success(monkeypatch):
-    def fake_post(url, headers=None, data=None):
+    def fake_post(url, json=None, timeout=None):
         return DummyResponse(200)
 
     monkeypatch.setattr(es.requests, "post", fake_post)
