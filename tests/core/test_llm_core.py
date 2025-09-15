@@ -8,7 +8,7 @@ from monitor.lib.built_in_commands import reasoning_command
 class TestLLMCore(unittest.TestCase):
     def setUp(self):
         # Patch config values so we don't need real configs
-        self.config_patcher = patch('monitor.core.llm.config', autospec=True)
+        self.config_patcher = patch('monitor.lib.llm_utils.config', autospec=True)
         self.mock_config = self.config_patcher.start()
         self.addCleanup(self.config_patcher.stop)
         # Reasonable defaults
@@ -126,6 +126,7 @@ class TestLLMCore(unittest.TestCase):
                 {'role': 'user', 'content': 'hi'},
                 {'role': 'assistant', 'content': 'AI'}
             ]
+            mock_llm_config.MODEL = 'openai/o3-test'
             resp = MagicMock()
             resp.choices = [MagicMock(finish_reason="refusal")]
             with patch('monitor.lib.llm_utils.logger'):
@@ -135,6 +136,7 @@ class TestLLMCore(unittest.TestCase):
         with patch('monitor.lib.llm_utils.config') as mock_llm_config:
             mock_llm_config.CONVERSATION_LOG_FILE = MagicMock(spec=['write', 'closed'])
             mock_llm_config.CONVERSATION_LOG_FILE.closed = False
+            mock_llm_config.MODEL = 'openai/o3-test'
             resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content="ok"))]
             with patch('monitor.lib.llm_utils.logger'):
                 res = llm.process_response_by_finish_reason(resp)
@@ -143,6 +145,7 @@ class TestLLMCore(unittest.TestCase):
         with patch('monitor.lib.llm_utils.config') as mock_llm_config:
             mock_llm_config.CONVERSATION_LOG_FILE = MagicMock(spec=['write', 'closed'])
             mock_llm_config.CONVERSATION_LOG_FILE.closed = False
+            mock_llm_config.MODEL = 'openai/o3-test'
             resp.choices = [MagicMock(finish_reason="stop", message=MagicMock(content=None))]
             with patch('monitor.lib.llm_utils.logger'):
                 res = llm.process_response_by_finish_reason(resp)

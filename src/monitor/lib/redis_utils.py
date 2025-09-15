@@ -259,9 +259,7 @@ def read_from_memory(key: str) -> Union[str, None, Dict[str, str]]:
         value = client.get(search_key) if exists else None
 
         if value is None:
-            message = f"No value found in memory for search_key: {search_key}"
             logger.warning("No value found in memory for search_key: %s", search_key)
-            logger.warning(message)
             return None
 
         try:
@@ -272,12 +270,9 @@ def read_from_memory(key: str) -> Union[str, None, Dict[str, str]]:
                 result = value
             message = f"Successfully retrieved `{result}` for search_key: {search_key} (TTL: {ttl}s)"
             logger.info("Successfully retrieved key %s (TTL: %s)", search_key, ttl)
-            logger.info(message)
             return message
         except (json.JSONDecodeError, TypeError) as e:
-            message = f"Retrieved value is not valid JSON for search_key: {search_key}: {e}"
             logger.warning("Retrieved value is not valid JSON for search_key: %s: %s", search_key, e)
-            logger.warning(message)
             return {
                 "error": "Retrieved value is not valid JSON",
                 "key": search_key,

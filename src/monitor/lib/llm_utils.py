@@ -212,7 +212,7 @@ def extract_tool_calls(response):
                     elif hasattr(tc, "__dict__"):
                         rebuilt_tool_calls.append({k: v for k, v in tc.__dict__.items() if not k.startswith("_")})
                     else:
-                        rebuilt_tool_calls.append(dict(tc))
+                        rebuilt_tool_calls.append({"id": getattr(tc, "id", None)})
                 except Exception:
                     rebuilt_tool_calls.append({"id": getattr(tc, "id", None)})
         normalized_msg["tool_calls"] = rebuilt_tool_calls
@@ -245,11 +245,11 @@ def extract_tool_calls(response):
 
 def process_response_by_finish_reason(response):
     """Process the LLM response and determine next action"""
-    # Defensive check
-    if not getattr(response, "choices", None) or len(response.choices) == 0:
+    choices = getattr(response, "choices", None)
+    if choices is None or len(choices) == 0:
         raise ValueError("Malformed response: missing choices when processing finish reason")
 
-    finish_reason = response.choices[0].finish_reason
+    finish_reason = choices[0].finish_reason
 
     if finish_reason == "refusal":
         logger.error("The request was refused due to policy violations.")
@@ -282,7 +282,7 @@ def process_response_by_finish_reason(response):
         return None  # Indicate need for another tool call
 
     if finish_reason == "stop":
-        assistant_content = response.choices[0].message.content
+        assistant_content = choices[0].message.content
         if (config.CONVERSATION_LOG_FILE and not config.CONVERSATION_LOG_FILE.closed):
             try:
                 config.CONVERSATION_LOG_FILE.write(f"AI: {assistant_content}\n")
@@ -293,12 +293,11 @@ def process_response_by_finish_reason(response):
             return "Ok."
         return assistant_content
 
-    if "xai/grok" in config.MODEL and finish_reason == "":
+    if config.MODEL and isinstance(config.MODEL, str) and "xai/grok" in config.MODEL and finish_reason == "":
         return None  # Indicate need for another tool call
 
-    logger.error(f"Unexpected finish_reason: {finish_reason} - {response.choices[0]}")
+    logger.error(f"Unexpected finish_reason: {finish_reason} - {choices[0]}")
     return f"Unexpected finish reason: {finish_reason}"
-
 
 def call_litellm_completion(model: str, messages: list, tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]]):
     """
@@ -321,12 +320,19 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
         "drop_params": True,
     }
 
-    pattern = re.compile(re.escape(config.REASONING_MODEL_PREFIX), re.IGNORECASE)
-    if pattern.search(model):
-        kwargs.update(
-            reasoning_effort=config.REASONING_EFFORT,
-            max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
-        )
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+    if isinstance(prefix, str):
+        prefix = prefix.strip()
+    if isinstance(prefix, str) and prefix:
+        try:
+            pattern = re.compile(re.escape(prefix), re.IGNORECASE)
+            if pattern.search(model):
+                kwargs.update(
+                    reasoning_effort=config.REASONING_EFFORT,
+                    max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
+                )
+        except re.error:
+            pass
 
     return litellm.completion(**kwargs)
 
@@ -959,11 +965,7 @@ def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = 
                 try:
                     encoding = tiktoken.get_encoding("cl100k_base")
                 except Exception:
-                    # As a last resort, attempt to use tiktoken's fallback
-                    try:
-                        encoding = tiktoken.get_encoding("p50k_base")
-                    except Exception:
-                        encoding = None
+                    encoding = None
 
             if encoding is not None:
                 try:
