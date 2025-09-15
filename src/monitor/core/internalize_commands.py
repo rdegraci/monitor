@@ -7,7 +7,7 @@ from monitor.lib.display_output import print_colored_info
 
 logger = logging.getLogger(__name__)
 
-def rip_grep_command(arg):
+def rip_grep_command(arg, print_func=print):
     """
     Run a ripgrep search for the given arg, print the results, and
     ask the internal command processor to explain how the search key
@@ -54,7 +54,7 @@ def rip_grep_command(arg):
             bytes_removed,
         )
 
-    print(grep_result)
+    print_func(grep_result)
 
     prompt = (
         f"Given the <search_key>{arg}</search_key>\n"
