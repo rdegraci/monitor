@@ -19,7 +19,7 @@ Monitor is ideal for software professionals who need a safe, auditable, and scri
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - pip (latest recommended)
 - Supported OS: Linux, macOS, Windows 10/11
 
@@ -29,8 +29,8 @@ Monitor provides a console script entry point so it can be installed as a normal
 
 1. Clone the repository:
    ```
-   git clone https://github.com/YOUR_ORG/monitor3.git
-   cd monitor3
+   git clone <your-repo-url>
+   cd <repo-dir>
    ```
 
 2. Install the package (regular or editable):
@@ -383,16 +383,6 @@ Reset user configuration non-interactively (backups created, no prompts):
 monitor --reset-config --force
 ```
 
-Run a saved macro:
-```
-monitor --macro deploy
-```
-
-Send a shell command for LLM-assisted explanation:
-```
-monitor --command "explain: ls -l"
-```
-
 ## Configuration and Usage Basics
 
 Monitor loads configuration from the user config directory (see OS-specific paths above). This directory is populated on first run when using `python -m monitor` or the console script. Persistent settings are read from `app.yaml`, and secrets may be loaded from `.env` in the user config directory as described in the "Environment (.env) loading order" section.
@@ -477,7 +467,7 @@ Specify alternate log directories via `app.yaml` in your user config directory.
 
 - **Redis connection issues:** Ensure `redis-server` is running and accessible if you have enabled Redis in your configuration.
 - **Invalid app.yaml or missing .env:** Validate your config files and environment variable values. Use `--reset-config` to restore defaults if needed.
-- **Unsupported OS / Python version:** Use Python 3.9 or later on supported platforms.
+- **Unsupported OS / Python version:** Use Python 3.10 or later on supported platforms.
 - **LLM API errors:** Confirm API keys and correct model provider setup in `model_config.json`, `app.yaml`, or environment variables located in the user config directory:
   - (Linux example) ~/.config/monitor/
   - (macOS example) ~/Library/Application Support/monitor/
@@ -505,6 +495,12 @@ For local CLI/dev loop, use "editable" install:
 pip install -e .
 monitor
 ```
+
+For code test coverage:
+```
+PYTHONPATH=. pytest --cov=monitor --cov-report=term-missing --cov-report=html
+```
+
 See test documentation in `docs/CORE_README.md` and `docs/ARCHITECTURE.md`.
 
 ## License
