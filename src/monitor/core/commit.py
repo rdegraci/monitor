@@ -31,7 +31,7 @@ def get_staged_diff(silent: bool = False):
         logger.error(f"Error getting staged diff via perform_git_diff_staged: {e}", exc_info=True)
         raise
 
-def make_commit_command(arg=None):
+def make_commit_command(arg=None, print_func=print):
     """
     Orchestrate the interactive commit flow for :make_commit built-in.
     Shows a diff, generates message, allows edit, and commits.
@@ -42,14 +42,14 @@ def make_commit_command(arg=None):
         diff_output = get_staged_diff(silent=True)
         if not diff_output.strip():
             logger.info("No staged changes found. Aborting commit flow.")
-            print(f"{yellow}No staged changes to commit. Please stage changes first.{reset}")
+            print_func(f"{yellow}No staged changes to commit. Please stage changes first.{reset}")
             return
 
         # Generate suggested commit message (title, body)
         logger.info("Requesting suggested commit message for staged changes.")
         commit_message = get_suggested_commit_message(diff_output)
         logger.info("Received suggested commit message.")
-        print(f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n")
+        print_func(f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n")
 
         resp = input("Use this commit message? [y/yes] to accept, [e/edit] to edit, [n/no] to abort: ").strip().lower()
         if resp in ("e", "edit"):
@@ -75,12 +75,12 @@ def make_commit_command(arg=None):
             final_message = commit_message
         else:
             logger.info("User selected 'No/Abort'. Aborting commit.")
-            print("Aborting commit.")
+            print_func("Aborting commit.")
             return
 
         if not final_message.strip():
             logger.info("Final commit message is empty after edit. Aborting.")
-            print("Commit message cannot be empty. Aborting.")
+            print_func("Commit message cannot be empty. Aborting.")
             return
 
         # Commit staged changes with the message using perform_git_commit wrapper
@@ -90,14 +90,14 @@ def make_commit_command(arg=None):
             logger.info("Git commit succeeded via perform_git_commit.")
         except Exception as e:
             logger.error(f"Git commit failed via perform_git_commit: {e}", exc_info=True)
-            print(f"Git commit failed: {e}")
+            print_func(f"Git commit failed: {e}")
             return
 
-        print(f"{yellow}✅ Commit created successfully.{reset}")
+        print_func(f"{yellow}✅ Commit created successfully.{reset}")
         logger.info("Commit created successfully.")
     except Exception as e:
         logger.error(f"Error in :make_commit: {e}", exc_info=True)
-        print(f"Error in :make_commit: {e}")
+        print_func(f"Error in :make_commit: {e}")
 
 def get_suggested_commit_message(diff_output):
     """
