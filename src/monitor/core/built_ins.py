@@ -418,7 +418,7 @@ def configure_built_ins() -> None:
                 },
                 {
                     "command": ":make_commit",
-                    "function": _make_callable(make_commit_command),
+                    "function": lambda arg=None: make_commit_command(arg, print_func=print),
                     "description": "Create a git commit with staged changes.",
                 },
                 {
