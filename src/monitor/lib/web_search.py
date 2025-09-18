@@ -1,40 +1,67 @@
-
 import os
 import logging
 from tavily import TavilyClient
-from colored import fg, attr
 
-from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
-from pygments.formatters import TerminalFormatter
-
-blue = fg('blue')
-red = fg('red')
-yellow = fg('yellow')
-reset = attr('reset')
+from monitor.lib.display_output import print_colored_info
 
 logger = logging.getLogger(__name__)
 
-def configureTavily():
-    return TavilyClient(api_key=os.getenv('TAVILY_API_KEY'))
 
-def tavily_search(query):
+def configureTavily():
+    """Create and return a TavilyClient.
+
+    Warns if the TAVILY_API_KEY environment variable is missing, but still
+    constructs the client.
+
+    Returns:
+        TavilyClient: Configured Tavily client instance.
+    """
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        logger.warning("TAVILY_API_KEY environment variable is not set.")
+    return TavilyClient(api_key=api_key)
+
+
+def tavily_search(query, print_func=print_colored_info):
+    """Perform a Tavily Q&A search for the given query.
+
+    Args:
+        query (str): The search query.
+        print_func (Callable[[str], None], optional): Function used to print informational output.
+            Defaults to print_colored_info.
+
+    Returns:
+        dict | Any | str: If the Tavily client returns a dictionary, the dictionary is returned as-is.
+        Otherwise, the raw response object is returned (and printed via print_func). On failure,
+        an error message string is returned.
+    """
     tavily = configureTavily()
     logger.debug("Starting tavily search with query: %s", query)
     logger.info("Tavily search for %s", query)
-    print(f"{yellow}Searching for: {query}{reset}")
+    print_func(f"Searching for: {query}")
     try:
-        response = tavily.qna_search(query=query, search_depth="advanced")
-        
+        response = tavily.search(query=query, search_depth="advanced")
+
         # Log successful completion with metrics
         if isinstance(response, dict):
-            result_length = len(response.get('answer', '')) if 'answer' in response else 0
-            logger.info("Search completed successfully. Answer length: %d characters", result_length)
+            results = response.get("results")
+            if isinstance(results, list):
+                logger.info(
+                    "Search completed successfully; results count: %d", len(results)
+                )
+            else:
+                logger.info("Search completed successfully with dictionary response")
+            return response
         else:
             logger.info("Search completed successfully with non-dictionary response")
-            
-        return response
+            print_func(response)
+            return response
     except Exception as e:
         error_message = f"Error performing search: {str(e)}"
-        logger.error("Failed to perform Tavily search for query: %s. Error: %s", query, str(e), exc_info=True)
+        logger.error(
+            "Failed to perform Tavily search for query: %s. Error: %s",
+            query,
+            str(e),
+            exc_info=True,
+        )
         return error_message

@@ -1,25 +1,29 @@
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 XAI_API_KEY=
+TAVILY_API_KEY=
 
-# OLLAMA configuration override
+# These URLs are configured in the app.yaml file, but for CI environments these
+# can be overridden here, if necessary.
+#
+# OLLAMA configuration
 # OLLAMA_HOST=http://localhost:11434/api/generate
-
-# Artifact server override
+#
+# Artifact server
 # ARTIFACT_SERVER=http://localhost:2323/
-
-# Code lens service override
+#
+# Code lens service
 # CODE_LENS_HOST=localhost
 # CODE_LENS_PORT=5000
-
-# Redis host override
+#
+# Redis host
 # REDIS_HOST=localhost
-
-# ECS overrides
+#
+# ECS override
 # ECS_HOST=localhost
 # ECS_PORT=5010
-
-# Social client URL overrides
+#
+# Social client URLs
 # TWITTER_CLIENT_API=http://localhost:7070/twitter/tweet
 # TWITCH_CLIENT_API=http://localhost:5050/send_message
 # LINKEDIN_CLIENT_API=http://localhost:6060/linkedin/article
