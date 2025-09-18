@@ -471,7 +471,7 @@ class ProtocolEngine:
                     )
                     logger.info(f"Successfully extracted chunk {expected_index}, is_last_chunk={is_last_chunk}")
                 except ValueError as e:
-                    logger.error(f"Chunk validation failed: {e}")
+                    logger.debug(f"Chunk validation failed: {e}")
                     # Treat as non-compliant and stop with a partial save
                     self._assemble_and_save_partial()
                     return f"Non-compliant output at chunk {expected_index}. Partial results saved."
@@ -553,7 +553,7 @@ class ProtocolEngine:
 
     def _assemble_and_save(self):
         if not self.chunks:
-            logger.error(f"No content collected to save for file: {self.source_file}")
+            logger.debug(f"No content collected to save for file: {self.source_file}")
             raise ValueError("No content collected to save")
         full_lines = []
         for i, chunk in enumerate(self.chunks):
@@ -578,7 +578,7 @@ class ProtocolEngine:
 
     def _assemble_and_save_partial(self):
         if not self.chunks:
-            logger.error(f"No content collected to save (partial) for file: {self.source_file}")
+            logger.debug(f"No content collected to save (partial) for file: {self.source_file}")
             raise ValueError("No content collected to save")
         full_lines = []
         for i, chunk in enumerate(self.chunks):
@@ -790,9 +790,9 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     try:
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
-            print_func(f"{yellow}Modifying file {source_file}{reset}")
-            print_func(f"{yellow}Please wait. Modifications (with retries) may take up to 180 seconds of inference/reasoning.{reset}")
-            print_func(f"{yellow}When the operation is complete, the BEL will ring.{reset}")
+            print_func(f"{yellow}Analyzing file {source_file}{reset}")
+            print_func(f"{yellow}Please wait. Analysis (with retries or re-modifications) may take up to 90 seconds of inference/reasoning.{reset}")
+            print_func(f"{yellow}Note: Large source files (>500 LOC) may take longer or may require multiple modifications.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
@@ -810,7 +810,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
 
         return modified_script
     except Exception as e:
-        print_func(f"{red}Failed to implement modifications to {source_file}.\nInstructions for manual modifications will follow.{reset}")
+        print_func(f"{yellow}Failed to implement modifications to {source_file}.\nAttempting to re-modify.{reset}")
         logger.debug("Error in modify_source_code: %s", str(e))
         
         # Return error message instead of raising exception to maintain tool contract
