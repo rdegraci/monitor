@@ -8,7 +8,7 @@ class TestConsult(unittest.TestCase):
     def setUp(self):
         self.logger = MagicMock()
         # Default model non-o3 to exercise temperature=0.3 by default
-        self.consult = Consult(self.logger, model="openai/gpt-4o")
+        self.consult = Consult(self.logger, model="openai/gpt-4o", allow_file_output=False, allow_browser_open=False)
 
     def test_start_stop_reset_flags(self):
         self.consult.start(seed_question="What are we building?")
@@ -96,6 +96,8 @@ Question?
         inst = MagicMock()
         inst.render.return_value = "/abs/path/consult_graph.svg"
         mock_source.return_value = inst
+        # Temporarily enable file output
+        self.consult.allow_file_output = True
         # Also patch open to allow write
         with patch("builtins.open", create=True) as mopen:
             mopen.return_value.__enter__.return_value.write.return_value = None
@@ -105,6 +107,8 @@ Question?
 
     @patch("monitor.lib.consult.Source", side_effect=Exception("render fail"))
     def test_render_dot_to_svg_failure(self, mock_source):
+        # Temporarily enable file output
+        self.consult.allow_file_output = True
         with patch("builtins.open", create=True) as mopen:
             mopen.return_value.__enter__.return_value.write.return_value = None
             path = self.consult._render_dot_to_svg("digraph G { A -> B }")
@@ -115,6 +119,8 @@ Question?
     def test_show_graphs_opens_once_then_updates(self, mock_new_tab, mock_open):
         # Force renderer to return a path
         with patch.object(self.consult, "_render_dot_to_svg", return_value="/tmp/consult_graph.svg"):
+            # Enable browser opening
+            self.consult.allow_browser_open = True
             Consult.svg_tab_shown = False
             self.consult.show_graphs({"graph": "digraph G { A -> B }"})
             mock_new_tab.assert_called_once()
@@ -134,7 +140,7 @@ Question?
     @patch("monitor.lib.consult.litellm.completion")
     def test_temperature_selection_by_model(self, mock_completion):
         # Swap model to an o3 to test temperature=1.0
-        consult_o3 = Consult(self.logger, model="OpenAI/O3-test")
+        consult_o3 = Consult(self.logger, model="OpenAI/O3-test", allow_file_output=False, allow_browser_open=False)
         llm_text = "###Prompt\nP\n```dot\ndigraph G {}\n```\nQ"
         mock_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=llm_text))]

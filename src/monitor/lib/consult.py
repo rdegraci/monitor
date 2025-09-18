@@ -11,8 +11,8 @@ from typing import List, Dict, Optional, Tuple
 import os
 import webbrowser
 import re
-import tempfile
 from graphviz import Source
+
 
 class Consult:
     """
@@ -40,7 +40,13 @@ class Consult:
     # Tracks whether the SVG diagram has been shown in the browser (avoid tab spam)
     svg_tab_shown = False
 
-    def __init__(self, logger, model: str = "openai/gpt-4o"):
+    def __init__(
+        self,
+        logger,
+        model: str = "openai/gpt-4o",
+        allow_file_output: bool = True,
+        allow_browser_open: bool = True,
+    ):
         """
         Initialize the Consult session object.
 
@@ -54,6 +60,10 @@ class Consult:
             model: The LLM model identifier to use with litellm.
             blue, red, yellow, reset: Color codes injected from the caller.
             display_query_result: Function to display query results.
+            allow_file_output: If False, do not write DOT/SVG files or render via graphviz; instead,
+                compute and return a plausible absolute SVG path (basename + '.svg').
+            allow_browser_open: If False, do not open the browser for SVG previews; rendering or
+                virtual path computation still occurs, but no tabs are opened and svg_tab_shown is not toggled.
         """
         self.logger = logger
         self.model = model  # Underlying LLM to query for all clarifications and diagrams
@@ -63,6 +73,9 @@ class Consult:
         Consult.svg_tab_shown = False
         # Injected dependencies
         self.print = print
+        # Output/UX flags
+        self.allow_file_output = allow_file_output
+        self.allow_browser_open = allow_browser_open
         self.logger.info("Consult session created. Model: %s", self.model)
 
     def start(self, seed_question: Optional[str] = None):
@@ -95,9 +108,7 @@ class Consult:
             "until the requirements are unambiguous and actionable for an AI developer."
         )
         # Initialize message history, starting with the detailed system prompt
-        self.messages = [
-            {"role": "system", "content": system_content}
-        ]
+        self.messages = [{"role": "system", "content": system_content}]
         if seed_question:
             # Add the optional initial seed question if provided
             self.messages.append({"role": "user", "content": seed_question})
@@ -141,21 +152,23 @@ class Consult:
         diagrams = {}
         # Regex: finds code blocks starting with "```dot" or "```graphviz", captures code content
         code_block_regex = re.compile(
-            r"```(?:dot|graphviz)?\s*\n(.*?)```",
-            re.DOTALL | re.IGNORECASE)
+            r"```(?:dot|graphviz)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE
+        )
         try:
             for m in code_block_regex.finditer(text):
                 diagram_code = m.group(1).strip()
                 # Infer diagram code if it starts with 'digraph' or 'graph'
-                if (diagram_code.startswith('digraph') or diagram_code.startswith('graph')):
-                    diagrams['graph'] = diagram_code
+                if diagram_code.startswith("digraph") or diagram_code.startswith("graph"):
+                    diagrams["graph"] = diagram_code
                 else:
                     # Try to find 'digraph' or 'graph' line in code block
                     lines = diagram_code.splitlines()
                     for idx, line in enumerate(lines):
-                        if line.strip().startswith("digraph") or line.strip().startswith("graph"):
+                        if line.strip().startswith("digraph") or line.strip().startswith(
+                            "graph"
+                        ):
                             inferred_code = "\n".join(lines[idx:])
-                            diagrams['graph'] = inferred_code
+                            diagrams["graph"] = inferred_code
                             break
                     else:
                         # As this is a @staticmethod, 'self' is not available
@@ -207,16 +220,16 @@ class Consult:
             "What else do you need?"
         )
         # The message sequence for the next turn: prior history plus system-level output format instructions
-        llm_messages = self.messages + [
-            {"role": "system", "content": design_instructions}
-        ]
+        llm_messages = self.messages + [{"role": "system", "content": design_instructions}]
         reply = ""
         # Determine temperature dynamically based on self.model content
         if "openai/o3" in self.model.lower():
             temperature = 1.0
         else:
             temperature = 0.3
-        self.logger.debug("Sending prompt to LLM %s with temperature: %s", self.model, temperature)
+        self.logger.debug(
+            "Sending prompt to LLM %s with temperature: %s", self.model, temperature
+        )
         try:
             response = litellm.completion(
                 model=self.model,
@@ -256,8 +269,10 @@ class Consult:
             # Extract DOT diagrams
             diagrams = self._extract_dot_diagrams(diagrams_and_q)
             # Remove DOT code blocks to reveal remaining text, presumed to be the next clarifying question
-            dot_pattern = re.compile(r"```(?:dot|graphviz)?\s*\n.*?```", re.DOTALL | re.IGNORECASE)
-            question_str = dot_pattern.sub('', diagrams_and_q).strip()
+            dot_pattern = re.compile(
+                r"```(?:dot|graphviz)?\s*\n.*?```", re.DOTALL | re.IGNORECASE
+            )
+            question_str = dot_pattern.sub("", diagrams_and_q).strip()
             clarifying_question = question_str
 
         except Exception as ex:
@@ -274,7 +289,6 @@ class Consult:
         # Visualize prompt and diagrams, with controlled browser opening
         self.print_prompt_and_graph(diagrams)
         return clarifying_question, self.current_prompt
-
 
     def get_prompt(self) -> str:
         """
@@ -333,6 +347,8 @@ class Consult:
 
         Returns:
             The absolute path to the generated SVG file if successful, else None.
+            If file output is disabled (allow_file_output=False), returns a plausible absolute SVG path
+            without writing any files.
 
         Error Handling:
             All file and rendering errors are caught and logged.
@@ -340,20 +356,33 @@ class Consult:
         """
         self.logger.debug("Entering _render_dot_to_svg() method")
         dot_path = os.path.abspath(self.DIAGRAM_FILE_BASENAME)
-        svg_path = os.path.abspath(self.SVG_FILE_BASENAME)
+        svg_stub_path = os.path.abspath(self.SVG_FILE_BASENAME)
+        svg_abs_path = f"{svg_stub_path}.svg"
+
+        if not self.allow_file_output:
+            # Do not write files or render; return the plausible path
+            self.logger.debug(
+                "File output disabled (allow_file_output=False); returning virtual SVG path: %s",
+                svg_abs_path,
+            )
+            return svg_abs_path
+
         try:
             with open(dot_path, "w", encoding="utf-8") as f:
                 f.write(dot_code)
             self.logger.debug("Wrote DOT code to file: %s", dot_path)
             # Use graphviz.Source to render the DOT file to SVG
-            src = Source(dot_code, filename=dot_path, format="svg")
-            rendered = src.render(filename=svg_path, format="svg", cleanup=True)
-            self.logger.debug("Rendered DOT to SVG: %s", svg_path)
+            src = Source(dot_code, filename=svg_stub_path, format="svg")
+            rendered = src.render(filename=svg_stub_path, format="svg", cleanup=True)
+            self.logger.debug("Rendered DOT to SVG: %s", rendered)
             return rendered
         except Exception as ex:
             self.logger.error(
                 "Unable to render DOT diagram to SVG: %r (path: %r, output: %r)",
-                ex, dot_path, svg_path, exc_info=ex
+                ex,
+                dot_path,
+                svg_stub_path,
+                exc_info=ex,
             )
             return None
 
@@ -364,8 +393,12 @@ class Consult:
         Responsibilities:
          - For each DOT diagram (only one), generate the SVG using graphviz Python package.
          - Write to deterministic filenames so browser openings are idempotent.
+         - On the first display in a session, open a new browser tab. On subsequent displays, reuse
+           the same tab by invoking webbrowser.open with the same file URL.
          - Opens new tab only once per session to avoid tab spam; updates existing tab if re-run.
          - Handles unknown diagrams gracefully with user-facing and log warnings.
+         - If browser opening is disabled via allow_browser_open, no tabs are opened and the
+           svg_tab_shown flag is not toggled.
 
         Args:
             diagrams: Dict mapping 'graph' to DOT code.
@@ -376,24 +409,47 @@ class Consult:
         """
         self.logger.debug("Entering show_graphs() method")
         for diagram_type, dot_code in diagrams.items():
-            if diagram_type != 'graph':
-                self.logger.warning("Unknown diagram type %r in show_graphs(); skipping.", diagram_type)
+            if diagram_type != "graph":
+                self.logger.warning(
+                    "Unknown diagram type %r in show_graphs(); skipping.", diagram_type
+                )
                 continue
             svg_path = self._render_dot_to_svg(dot_code)
             if svg_path is None:
                 continue
+            file_url = f"file://{svg_path}"
+            if not self.allow_browser_open:
+                self.logger.debug(
+                    "Browser opening disabled (allow_browser_open=False); would open: %s. Not toggling svg_tab_shown.",
+                    file_url,
+                )
+                # Do not toggle svg_tab_shown since no tab was opened.
+                continue
             if not Consult.svg_tab_shown:
-                file_url = f"file://{svg_path}"
                 try:
-                    # Open browser tab for SVG only once per session
                     webbrowser.open_new_tab(file_url)
                     Consult.svg_tab_shown = True
-                    self.logger.debug("Opening browser tab for DOT SVG diagram: %s", file_url)
-                    return(f"Opened browser tab for DOT SVG diagram: {file_url}")
+                    self.logger.debug(
+                        "Opened new browser tab for DOT SVG diagram: %s", file_url
+                    )
                 except Exception as ex:
                     self.logger.error(
                         "Failed to open browser tab for DOT SVG diagram: %r (file_url: %s)",
-                        ex, file_url, exc_info=ex
+                        ex,
+                        file_url,
+                        exc_info=ex,
+                    )
+                    continue
+            else:
+                try:
+                    webbrowser.open(file_url)
+                    self.logger.debug("Updated browser tab for DOT SVG diagram: %s", file_url)
+                except Exception as ex:
+                    self.logger.error(
+                        "Failed to update browser with DOT SVG diagram: %r (file_url: %s)",
+                        ex,
+                        file_url,
+                        exc_info=ex,
                     )
                     continue
 
@@ -402,7 +458,7 @@ class Consult:
         Display the current requirements prompt and, if available, open updated DOT diagram visualization.
 
         Responsibilities:
-         - Prints the requirements prompt for user review.
+         - Prints the current requirements prompt for user review using the injected print function.
          - If a diagram is given, opens it (unless already opened) and prints a brief summary.
          - If no diagram present, invokes a fallback: auto-generates and renders a minimal DOT diagram.
 
@@ -412,6 +468,10 @@ class Consult:
         Error handling:
          - All diagram generation/rendering failures are caught and logged; warnings shown to user where appropriate.
         """
+        try:
+            self.print(self.current_prompt)
+        except Exception as ex:
+            self.logger.error("Exception while printing prompt: %r", ex, exc_info=ex)
         if diagrams and diagrams:
             try:
                 self.show_graphs(diagrams)
@@ -421,4 +481,6 @@ class Consult:
             try:
                 self.show_graphs(self.generate_minimal_dot_graph())
             except Exception as ex:
-                self.logger.error("Exception during fallback (auto-generated) diagram: %r", ex, exc_info=ex)
+                self.logger.error(
+                    "Exception during fallback (auto-generated) diagram: %r", ex, exc_info=ex
+                )
