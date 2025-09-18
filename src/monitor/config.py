@@ -30,6 +30,7 @@ from monitor.lib.keyboard import configure_voice_to_text
 
 logger = logging.getLogger(__name__)
 
+
 def _safe_expanduser(path):
     """
     Safely expand user path (os.path.expanduser) only for str inputs.
@@ -52,6 +53,7 @@ def _safe_expanduser(path):
     except Exception as e:
         logger.error(f"Unexpected error in _safe_expanduser for path '{path}': {e}", exc_info=True)
         raise RuntimeError("Unexpected error in _safe_expanduser") from e
+
 
 def find_config_file(filename):
     """
@@ -91,7 +93,9 @@ def find_config_file(filename):
         logger.error(f"Error locating config file {filename}: {e}", exc_info=True)
         raise
 
+
 # ===== New helper for model_config.json loading and validation =====
+
 
 def _load_and_validate_model_config():
     """
@@ -121,22 +125,40 @@ def _load_and_validate_model_config():
             try:
                 # Attempt to open the packaged default resource and copy it to dest_path
                 try:
-                    with importlib.resources.open_binary('monitor', config_filename) as src:
+                    with importlib.resources.open_binary("monitor", config_filename) as src:
                         try:
-                            with open(dest_path, 'wb') as dst:
+                            with open(dest_path, "wb") as dst:
                                 try:
                                     shutil.copyfileobj(src, dst)
                                 except Exception as e:
-                                    logger.error(f"Failed to write default {config_filename} to {dest_path}: {e}", exc_info=True)
-                                    raise RuntimeError(f"Failed to write default model config to {dest_path}") from e
+                                    logger.error(
+                                        f"Failed to write default {config_filename} to {dest_path}: {e}",
+                                        exc_info=True,
+                                    )
+                                    raise RuntimeError(
+                                        f"Failed to write default model config to {dest_path}"
+                                    ) from e
                         except Exception as e:
-                            logger.error(f"Failed to open destination file {dest_path} for writing: {e}", exc_info=True)
-                            raise RuntimeError(f"Failed to open destination model config file: {dest_path}") from e
+                            logger.error(
+                                f"Failed to open destination file {dest_path} for writing: {e}",
+                                exc_info=True,
+                            )
+                            raise RuntimeError(
+                                f"Failed to open destination model config file: {dest_path}"
+                            ) from e
                 except FileNotFoundError as e:
-                    logger.error(f"Packaged default {config_filename} not found in package resources: {e}", exc_info=True)
-                    raise RuntimeError(f"Packaged default model_config.json not found in package resources") from e
+                    logger.error(
+                        f"Packaged default {config_filename} not found in package resources: {e}",
+                        exc_info=True,
+                    )
+                    raise RuntimeError(
+                        f"Packaged default model_config.json not found in package resources"
+                    ) from e
                 except Exception as e:
-                    logger.error(f"Failed to access packaged default {config_filename}: {e}", exc_info=True)
+                    logger.error(
+                        f"Failed to access packaged default {config_filename}: {e}",
+                        exc_info=True,
+                    )
                     raise RuntimeError("Failed to access packaged default model_config.json") from e
             except Exception:
                 # Errors already logged and wrapped above; re-raise to outer handler
@@ -226,31 +248,43 @@ def _load_and_validate_model_config():
                 # Leave as it is; will be resolved to provider tier dict later
                 coerced_mtm[mk] = mv
             else:
-                logger.error(f"Invalid value type for model_tpm_mapping['{mk}'] in {config_filename}: expected dict or str, got {type(mv).__name__}")
-                raise RuntimeError(f"Invalid value for model_tpm_mapping['{mk}']: must be dict or str")
+                logger.error(
+                    f"Invalid value type for model_tpm_mapping['{mk}'] in {config_filename}: expected dict or str, got {type(mv).__name__}"
+                )
+                raise RuntimeError(
+                    f"Invalid value for model_tpm_mapping['{mk}']: must be dict or str"
+                )
         model_config["model_tpm_mapping"] = coerced_mtm
 
     # For each mapping that is model_key -> int or str, just check they're dicts
-    for k in ["conversation_history_mapping", "context_window_mapping", "output_window_mapping", "model_max_tpm", "model_mapping"]:
+    for k in [
+        "conversation_history_mapping",
+        "context_window_mapping",
+        "output_window_mapping",
+        "model_max_tpm",
+        "model_mapping",
+    ]:
         if not isinstance(model_config[k], dict):
             logger.error(f"Key '{k}' in {config_filename} must be a dictionary")
             raise RuntimeError(f"{k} in {config_filename} must be a dict")
 
     return model_config
 
+
 # ===== Initialize (on import) model mappings using new loader =====
 
-_MODEL_CONFIG_CACHE=None
-conversation_history_mapping=None
-context_window_mapping=None
-output_window_mapping=None
-model_max_tpm=None
-openai_model_tpm_tier=None
-anthropic_model_tpm_tier=None
-xai_model_tpm_tier=None
-google_model_tpm_tier=None
-model_tpm_mapping=None
-MODEL_MAPPING=None 
+_MODEL_CONFIG_CACHE = None
+conversation_history_mapping = None
+context_window_mapping = None
+output_window_mapping = None
+model_max_tpm = None
+openai_model_tpm_tier = None
+anthropic_model_tpm_tier = None
+xai_model_tpm_tier = None
+google_model_tpm_tier = None
+model_tpm_mapping = None
+MODEL_MAPPING = None
+
 
 def load_model_config():
     global _MODEL_CONFIG_CACHE
@@ -273,26 +307,34 @@ def load_model_config():
         raw_model_tpm_mapping = _MODEL_CONFIG_CACHE.get("model_tpm_mapping")
         if raw_model_tpm_mapping is not None:
             if not isinstance(raw_model_tpm_mapping, dict):
-                logger.error(f"model_tpm_mapping in model_config.json is not a dict (type: {type(raw_model_tpm_mapping).__name__})")
+                logger.error(
+                    f"model_tpm_mapping in model_config.json is not a dict (type: {type(raw_model_tpm_mapping).__name__})"
+                )
                 raise RuntimeError("model_tpm_mapping must be a dict")
             provider_map = {
-                'openai': openai_model_tpm_tier,
-                'anthropic': anthropic_model_tpm_tier,
-                'xai': xai_model_tpm_tier,
-                'google': google_model_tpm_tier,
+                "openai": openai_model_tpm_tier,
+                "anthropic": anthropic_model_tpm_tier,
+                "xai": xai_model_tpm_tier,
+                "google": google_model_tpm_tier,
             }
             resolved_mapping = {}
             for mk, mv in raw_model_tpm_mapping.items():
                 if isinstance(mv, str):
                     if mv not in provider_map:
-                        logger.error(f"Invalid provider reference '{mv}' for model_tpm_mapping['{mk}']; expected one of {list(provider_map.keys())}")
-                        raise RuntimeError(f"Invalid provider reference for model_tpm_mapping['{mk}']: {mv}")
+                        logger.error(
+                            f"Invalid provider reference '{mv}' for model_tpm_mapping['{mk}']; expected one of {list(provider_map.keys())}"
+                        )
+                        raise RuntimeError(
+                            f"Invalid provider reference for model_tpm_mapping['{mk}']: {mv}"
+                        )
                     resolved_mapping[mk] = provider_map[mv]
                 elif isinstance(mv, dict):
                     # Already coerced by loader
                     resolved_mapping[mk] = mv
                 else:
-                    logger.error(f"Invalid value type for model_tpm_mapping['{mk}']: expected str or dict, got {type(mv).__name__}")
+                    logger.error(
+                        f"Invalid value type for model_tpm_mapping['{mk}']: expected str or dict, got {type(mv).__name__}"
+                    )
                     raise RuntimeError(f"Invalid value for model_tpm_mapping['{mk}']")
             model_tpm_mapping = resolved_mapping
             logger.info("Using data-driven model_tpm_mapping from model_config.json")
@@ -313,10 +355,13 @@ def load_model_config():
                 "gemini20": google_model_tpm_tier,
                 "gpt5-mini": openai_model_tpm_tier,
             }
-            logger.warning("Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)")
+            logger.warning(
+                "Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)"
+            )
     except Exception as _model_config_e:
         # Already logged in loader, but abort import
         raise
+
 
 def get_model_reverse_mapping():
     """
@@ -325,7 +370,9 @@ def get_model_reverse_mapping():
     Logs a warning for each duplicate (same model string for multiple keys), listing the duplicate model and conflicting shorthand keys.
     """
     if not isinstance(MODEL_MAPPING, dict):
-        logger.warning(f"MODEL_MAPPING is not a dict (type: {type(MODEL_MAPPING).__name__}); returning empty reverse mapping.")
+        logger.warning(
+            f"MODEL_MAPPING is not a dict (type: {type(MODEL_MAPPING).__name__}); returning empty reverse mapping."
+        )
         return {}
 
     reverse = {}
@@ -338,60 +385,64 @@ def get_model_reverse_mapping():
         reverse[v] = k
     for v, keys in value_to_keys.items():
         if len(keys) > 1:
-            logger.warning(f"Duplicate model alias detected: model string '{v}' is mapped to multiple shorthand keys {keys}")
+            logger.warning(
+                f"Duplicate model alias detected: model string '{v}' is mapped to multiple shorthand keys {keys}"
+            )
     return reverse
 
 
-MODEL=None
-MODEL_CONTEXT_WINDOW=None 
-MODEL_OUTPUT_WINDOW=None
-MODEL_INPUT_TIER=None
-MODEL_MAX_TPM=None
-MODEL_INPUT_WINDOW=None 
-CONVERSATION_MAX_SIZE=None
-RATE_LIMITING_CONFIG=None 
-MEMORY_SERVICES=None 
-STARTUP_TIME=None 
-HISTORY_FILE=None
-CONVERSATION_HISTORY = [] 
-MAX_TOKEN_COUNT=None 
-OLD_MAX_TOKEN_COUNT=None 
-MACRO_DELIMITER_OPEN=None 
-MACRO_DELIMITER_CLOSE=None 
-MACRO_DELIMITER_ESCAPE=None 
-MACRO_FILE_PATH=None 
-SUMMARIZATION_CONFIG=None
-EXTERNAL_SERVICES=None
-OLLAMA_CONFIG=None
-TOTAL_TOKEN_COUNT = 0 
-PUBLIC_COMMANDS_PATH=None
-REDIS_HOST=None
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_MAX_RETRIES=3
-REDIS_RETRY_INTERVAL=1
-PREFERENCE_PROMPT_FILE=None
-REASONING_MODEL_PREFIX=None
-REASONING_EFFORT=None
-REASONING_MAX_COMPLETION_TOKENS=None
+MODEL = None
+MODEL_CONTEXT_WINDOW = None
+MODEL_OUTPUT_WINDOW = None
+MODEL_INPUT_TIER = None
+MODEL_MAX_TPM = None
+MODEL_INPUT_WINDOW = None
+CONVERSATION_MAX_SIZE = None
+RATE_LIMITING_CONFIG = None
+MEMORY_SERVICES = None
+STARTUP_TIME = None
+HISTORY_FILE = None
+CONVERSATION_HISTORY = []
+MAX_TOKEN_COUNT = None
+OLD_MAX_TOKEN_COUNT = None
+MACRO_DELIMITER_OPEN = None
+MACRO_DELIMITER_CLOSE = None
+MACRO_DELIMITER_ESCAPE = None
+MACRO_FILE_PATH = None
+SUMMARIZATION_CONFIG = None
+EXTERNAL_SERVICES = None
+OLLAMA_CONFIG = None
+TOTAL_TOKEN_COUNT = 0
+PUBLIC_COMMANDS_PATH = None
+REDIS_HOST = None
+REDIS_PORT = 6379
+REDIS_DB = 0
+REDIS_MAX_RETRIES = 3
+REDIS_RETRY_INTERVAL = 1
+PREFERENCE_PROMPT_FILE = None
+REASONING_MODEL_PREFIX = None
+REASONING_EFFORT = None
+REASONING_MAX_COMPLETION_TOKENS = None
 LAST_INPUT_WAS_VOICE = False
-ARTIFACT_SERVER=None
-CODE_LENS_HOST=None
-CODE_LENS_PORT=None
-JOKES_FILE=None
-DIRECTIVES_DIR=None
-ECS_HOST=None
-ECS_PORT=None 
-ENABLE_AUTO_SUMMARIZE_ON_LIMIT=None
-SESSION_ID=None
-SUMMARY_TWITCH=None
-SUMMARY_LINKEDIN=None
-SUMMARY_TWITTER=None
-SERVER_MODE=None
-RESPONSES_API=None
-TWITTER_CLIENT_API=None
-TWITCH_CLIENT_API=None 
-LINKEDIN_CLIENT_API=None
+ARTIFACT_SERVER = None
+CODE_LENS_HOST = None
+CODE_LENS_PORT = None
+JOKES_FILE = None
+DIRECTIVES_DIR = None
+ECS_HOST = None
+ECS_PORT = None
+ECS_TIMEOUT = None
+ENABLE_AUTO_SUMMARIZE_ON_LIMIT = None
+SESSION_ID = None
+SUMMARY_TWITCH = None
+SUMMARY_LINKEDIN = None
+SUMMARY_TWITTER = None
+SERVER_MODE = None
+RESPONSES_API = None
+TWITTER_CLIENT_API = None
+TWITCH_CLIENT_API = None
+LINKEDIN_CLIENT_API = None
+
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
@@ -403,7 +454,7 @@ def configure_globals():
     global PUBLIC_COMMANDS_PATH, REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
-    global ECS_HOST, ECS_PORT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
+    global ECS_HOST, ECS_PORT, ECS_TIMEOUT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
 
@@ -457,43 +508,48 @@ def configure_globals():
             MODEL_MAX_TPM = None
 
     CONVERSATION_MAX_SIZE = yaml_config.get("CONVERSATION_MAX_SIZE")
-    RATE_LIMITING_CONFIG = yaml_config.get('rate_limiting', {
-     'safety_factor': 0.6,
-     'window_seconds': 60,
-    })
+    RATE_LIMITING_CONFIG = yaml_config.get(
+        "rate_limiting",
+        {
+            "safety_factor": 0.6,
+            "window_seconds": 60,
+        },
+    )
     STARTUP_TIME = time.strftime("%Y_%m_%d_%H_%M")
-    
 
-    history_config = yaml_config.get('history', {})
-    HISTORY_FILE = _safe_expanduser(history_config.get('file', '~/.config/monitor/chat_history'))
+    history_config = yaml_config.get("history", {})
+    HISTORY_FILE = _safe_expanduser(history_config.get("file", "~/.config/monitor/chat_history"))
     MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
     OLD_MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
 
-    macro_delims = yaml_config.get('macro_delimiters', {})
-    MACRO_DELIMITER_OPEN = macro_delims.get('open', '(')
-    MACRO_DELIMITER_CLOSE = macro_delims.get('close', ')')
-    MACRO_DELIMITER_ESCAPE = macro_delims.get('escape', '\\')
+    macro_delims = yaml_config.get("macro_delimiters", {})
+    MACRO_DELIMITER_OPEN = macro_delims.get("open", "(")
+    MACRO_DELIMITER_CLOSE = macro_delims.get("close", ")")
+    MACRO_DELIMITER_ESCAPE = macro_delims.get("escape", "\\")
     MACRO_FILE_PATH = _safe_expanduser(yaml_config.get("MACRO_FILE"))
 
-    SUMMARIZATION_CONFIG = yaml_config.get('summarization', {
-        'triggers': {
-            'token_threshold': 0.8,
-            'memory_limit_mb': 100,
-            'time_limit_seconds': 3600,
-            'token_reduction_factor': 0.5,
-            'safety_margin': 0.8
+    SUMMARIZATION_CONFIG = yaml_config.get(
+        "summarization",
+        {
+            "triggers": {
+                "token_threshold": 0.8,
+                "memory_limit_mb": 100,
+                "time_limit_seconds": 3600,
+                "token_reduction_factor": 0.5,
+                "safety_margin": 0.8,
+            },
+            "prompt": {
+                "template": "Summarize the following conversation concisely, always using file paths that start in the current directory, for example ./, when capturing the main points and context: {messages}"
+            },
         },
-        'prompt': {
-            'template': "Summarize the following conversation concisely, always using file paths that start in the current directory, for example ./, when capturing the main points and context: {messages}"
-        }
-    })
+    )
 
-    EXTERNAL_SERVICES = yaml_config.get('EXTERNAL_SERVICES', False)
-    SUMMARY_TWITCH = yaml_config.get('SUMMARY_TWITCH', False)
-    SUMMARY_LINKEDIN = yaml_config.get('SUMMARY_LINKEDIN', False)
-    SUMMARY_TWITTER = yaml_config.get('SUMMARY_TWITTER', False)
+    EXTERNAL_SERVICES = yaml_config.get("EXTERNAL_SERVICES", False)
+    SUMMARY_TWITCH = yaml_config.get("SUMMARY_TWITCH", False)
+    SUMMARY_LINKEDIN = yaml_config.get("SUMMARY_LINKEDIN", False)
+    SUMMARY_TWITTER = yaml_config.get("SUMMARY_TWITTER", False)
 
-    MEMORY_SERVICES = yaml_config.get('MEMORY_SERVICES', False)
+    MEMORY_SERVICES = yaml_config.get("MEMORY_SERVICES", False)
     default_ollama = {
         "host": "http://localhost:11434/api/generate",
         "model": "llama3.1:latest",
@@ -513,44 +569,63 @@ def configure_globals():
 
     PREFERENCE_PROMPT_FILE = _safe_expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
 
-    REASONING_MODEL_PREFIX = yaml_config.get('REASONING_MODEL_PREFIX')
-    REASONING_EFFORT = yaml_config.get('REASONING_EFFORT', "medium")
-    REASONING_MAX_COMPLETION_TOKENS = yaml_config.get('REASONING_MAX_COMPLETION_TOKENS', 25000)
-    RESPONSES_API = yaml_config.get('RESPONSES_API')
+    REASONING_MODEL_PREFIX = yaml_config.get("REASONING_MODEL_PREFIX")
+    REASONING_EFFORT = yaml_config.get("REASONING_EFFORT", "medium")
+    REASONING_MAX_COMPLETION_TOKENS = yaml_config.get("REASONING_MAX_COMPLETION_TOKENS", 25000)
+    RESPONSES_API = yaml_config.get("RESPONSES_API")
 
-    ARTIFACT_SERVER = os.getenv('ARTIFACT_SERVER', yaml_config.get('ARTIFACT_SERVER', 'http://localhost:2323/'))
-    CODE_LENS_HOST = os.getenv('CODE_LENS_HOST', yaml_config.get('CODE_LENS_HOST', 'localhost'))
-    CODE_LENS_PORT = os.getenv('CODE_LENS_PORT', yaml_config.get('CODE_LENS_PORT', '5000'))
+    ARTIFACT_SERVER = os.getenv(
+        "ARTIFACT_SERVER", yaml_config.get("ARTIFACT_SERVER", "http://localhost:2323/")
+    )
+    CODE_LENS_HOST = os.getenv("CODE_LENS_HOST", yaml_config.get("CODE_LENS_HOST", "localhost"))
+    CODE_LENS_PORT = os.getenv("CODE_LENS_PORT", yaml_config.get("CODE_LENS_PORT", "5000"))
 
     # Global list to store jokes told previously
-    JOKES_FILE = _safe_expanduser(yaml_config.get('JOKES_FILE'))
+    JOKES_FILE = _safe_expanduser(yaml_config.get("JOKES_FILE"))
 
-    DIRECTIVES_DIR = _safe_expanduser(yaml_config.get('DIRECTIVES_DIR'))
+    DIRECTIVES_DIR = _safe_expanduser(yaml_config.get("DIRECTIVES_DIR"))
     if DIRECTIVES_DIR:
-        os.environ['DIRECTIVES_DIR'] = DIRECTIVES_DIR
+        os.environ["DIRECTIVES_DIR"] = DIRECTIVES_DIR
 
-    ECS_HOST = os.getenv('ECS_HOST', yaml_config.get('ECS_HOST', 'localhost'))
-    ECS_PORT = os.getenv('ECS_PORT', yaml_config.get('ECS_PORT', '5000'))
-    ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get('ENABLE_AUTO_SUMMARIZE_ON_LIMIT')
+    ECS_HOST = os.getenv("ECS_HOST", yaml_config.get("ECS_HOST", "localhost"))
+    ECS_PORT = os.getenv("ECS_PORT", yaml_config.get("ECS_PORT", "5000"))
+    # ECS timeout (seconds)
+    raw_timeout = os.getenv("ECS_TIMEOUT", yaml_config.get("ECS_TIMEOUT", 90))
+    try:
+        ECS_TIMEOUT = int(raw_timeout)
+    except Exception:
+        logger.warning("Invalid ECS_TIMEOUT value %r; defaulting to 90", raw_timeout)
+        ECS_TIMEOUT = 90
+    ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get("ENABLE_AUTO_SUMMARIZE_ON_LIMIT")
 
-    SERVER_MODE = yaml_config.get('SERVER_MODE')
+    SERVER_MODE = yaml_config.get("SERVER_MODE")
 
-    TWITTER_CLIENT_API = os.getenv('TWITTER_CLIENT_API', yaml_config.get('TWITTER_CLIENT_API', 'http://localhost:7070/twitter/tweet'))
-    TWITCH_CLIENT_API = os.getenv('TWITCH_CLIENT_API', yaml_config.get('TWITCH_CLIENT_API', 'http://localhost:5050/send_message'))
-    LINKEDIN_CLIENT_API = os.getenv('LINKEDIN_CLIENT_API', yaml_config.get('LINKEDIN_CLIENT_API', 'http://localhost:6060/linkedin/article'))
+    TWITTER_CLIENT_API = os.getenv(
+        "TWITTER_CLIENT_API",
+        yaml_config.get("TWITTER_CLIENT_API", "http://localhost:7070/twitter/tweet"),
+    )
+    TWITCH_CLIENT_API = os.getenv(
+        "TWITCH_CLIENT_API", yaml_config.get("TWITCH_CLIENT_API", "http://localhost:5050/send_message")
+    )
+    LINKEDIN_CLIENT_API = os.getenv(
+        "LINKEDIN_CLIENT_API",
+        yaml_config.get("LINKEDIN_CLIENT_API", "http://localhost:6060/linkedin/article"),
+    )
 
-LOGGING_CONFIG=None 
-LOGGING_LEVEL=None 
-LOG_FORMAT=None 
-LOG_DATE_FORMAT=None 
-LOG_MAX_BYTES=None
-LOG_BACKUP_COUNT=None 
-CONSOLE_LOGGING_ENABLED=None 
-LOG_DIR=None
-LOG_FILE_PATH=None
-LOG_ENCODING=None
-CONVERSATION_LOG_FILENAME=None 
-CONVERSATION_LOG_FILE=None 
+
+LOGGING_CONFIG = None
+LOGGING_LEVEL = None
+LOG_FORMAT = None
+LOG_DATE_FORMAT = None
+LOG_MAX_BYTES = None
+LOG_BACKUP_COUNT = None
+CONSOLE_LOGGING_ENABLED = None
+LOG_DIR = None
+LOG_FILE_PATH = None
+LOG_ENCODING = None
+CONVERSATION_LOG_FILENAME = None
+CONVERSATION_LOG_FILE = None
+
 
 def configure_logging_globals():
     global LOGGING_CONFIG, LOGGING_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT
@@ -562,29 +637,29 @@ def configure_logging_globals():
         logger.error(f"Failed to get logging config: {e}", exc_info=True)
         raise
 
-    if not LOGGING_CONFIG['log_dir']:
+    if not LOGGING_CONFIG["log_dir"]:
         raise RuntimeError("LOG_DIR (log_dir) is missing in app.yaml and no default could be set.")
-    if not LOGGING_CONFIG['app_log_filename']:
+    if not LOGGING_CONFIG["app_log_filename"]:
         raise RuntimeError("APP_LOG_FILENAME (app_log_filename) is missing in app.yaml and no default could be set.")
-    if not LOGGING_CONFIG['format']:
+    if not LOGGING_CONFIG["format"]:
         raise RuntimeError("LOG_FORMAT (format) is missing in app.yaml and no default could be set.")
-    if not LOGGING_CONFIG['level']:
+    if not LOGGING_CONFIG["level"]:
         raise RuntimeError("LOGGING_LEVEL (level) is missing in app.yaml and no default could be set.")
-    if not LOGGING_CONFIG['encoding']:
+    if not LOGGING_CONFIG["encoding"]:
         raise RuntimeError("LOG_ENCODING (encoding) is missing in app.yaml and no default could be set.")
 
     LOG_ENCODING = LOGGING_CONFIG.get("encoding")
-    LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", LOGGING_CONFIG['level']).upper()
-    LOG_FORMAT = LOGGING_CONFIG['format']
-    LOG_DATE_FORMAT = LOGGING_CONFIG['date_format']
-    LOG_MAX_BYTES = LOGGING_CONFIG['max_bytes']
-    LOG_BACKUP_COUNT = LOGGING_CONFIG['backup_count']
+    LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", LOGGING_CONFIG["level"]).upper()
+    LOG_FORMAT = LOGGING_CONFIG["format"]
+    LOG_DATE_FORMAT = LOGGING_CONFIG["date_format"]
+    LOG_MAX_BYTES = LOGGING_CONFIG["max_bytes"]
+    LOG_BACKUP_COUNT = LOGGING_CONFIG["backup_count"]
     CONSOLE_LOGGING_ENABLED = (
-        LOGGING_CONFIG['console_logging_enabled']
-        if LOGGING_CONFIG['console_logging_enabled'] is not None
+        LOGGING_CONFIG["console_logging_enabled"]
+        if LOGGING_CONFIG["console_logging_enabled"] is not None
         else True
     )
-    LOG_DIR = LOGGING_CONFIG['log_dir']
+    LOG_DIR = LOGGING_CONFIG["log_dir"]
     try:
         if not os.path.exists(LOG_DIR):
             try:
@@ -595,7 +670,7 @@ def configure_logging_globals():
     except Exception as e:
         logger.error(f"Error checking existence of log dir {LOG_DIR}: {e}", exc_info=True)
         raise RuntimeError(f"Failed to check log dir existence: {LOG_DIR}") from e
-    LOG_FILE_PATH = LOGGING_CONFIG['file_path']
+    LOG_FILE_PATH = LOGGING_CONFIG["file_path"]
 
     # Helper to generate a filename with the current PID inserted either in place of {pid} or before file extension.
     def insert_pid_into_filename(filename, pid=None):
@@ -609,16 +684,18 @@ def configure_logging_globals():
         if pid is None:
             pid = os.getpid()
         base, ext = os.path.splitext(filename)
-        if '{pid}' in filename:
-            return filename.replace('{pid}', str(pid))
+        if "{pid}" in filename:
+            return filename.replace("{pid}", str(pid))
         else:
             return f"{base}_{pid}{ext}"
 
     # The conversation log file will always include the process PID in the filename.
-    conversation_log_filename = LOGGING_CONFIG['conversation_log_filename']
+    conversation_log_filename = LOGGING_CONFIG["conversation_log_filename"]
     pid_injected_conversation_filename = insert_pid_into_filename(conversation_log_filename, os.getpid())
     try:
-        CONVERSATION_LOG_FILENAME = os.path.join(LOG_DIR, f"{STARTUP_TIME}_{pid_injected_conversation_filename}")
+        CONVERSATION_LOG_FILENAME = os.path.join(
+            LOG_DIR, f"{STARTUP_TIME}_{pid_injected_conversation_filename}"
+        )
     except Exception as e:
         logger.error(f"Failed joining conversation log filename: {e}", exc_info=True)
         raise RuntimeError("Failed to create conversation log file name") from e
@@ -626,21 +703,31 @@ def configure_logging_globals():
         CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
     except Exception as e:
         logger.error(f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}") from e
+        raise RuntimeError(
+            f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}"
+        ) from e
+
 
 def load_environment_globals():
     load_environment_variables()
     configure_globals()
     configure_logging_globals()
-    
+
+
 def start_logging():
     configure_logging()
+
 
 def configure_subsystems():
     from monitor.core.commands import load_public_interactive_commands
     from monitor.core.modes import configure_consultant
 
-    configure_rate_limiter(logger, MODEL_MAX_TPM, RATE_LIMITING_CONFIG['window_seconds'], RATE_LIMITING_CONFIG['safety_factor'])
+    configure_rate_limiter(
+        logger,
+        MODEL_MAX_TPM,
+        RATE_LIMITING_CONFIG["window_seconds"],
+        RATE_LIMITING_CONFIG["safety_factor"],
+    )
 
     # Guarded loading of public interactive commands: skip if PUBLIC_COMMANDS_PATH is None
     if PUBLIC_COMMANDS_PATH is None:
@@ -649,7 +736,10 @@ def configure_subsystems():
         try:
             load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
         except Exception as e:
-            logger.error(f"Failed to load public interactive commands from {PUBLIC_COMMANDS_PATH}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to load public interactive commands from {PUBLIC_COMMANDS_PATH}: {e}",
+                exc_info=True,
+            )
 
     # Guarded loading of user preferences prompt: skip if PREFERENCE_PROMPT_FILE is None
     if PREFERENCE_PROMPT_FILE is None:
@@ -658,7 +748,10 @@ def configure_subsystems():
         try:
             load_user_preferences_prompt(PREFERENCE_PROMPT_FILE)
         except Exception as e:
-            logger.error(f"Failed to load user preferences prompt from {PREFERENCE_PROMPT_FILE}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to load user preferences prompt from {PREFERENCE_PROMPT_FILE}: {e}",
+                exc_info=True,
+            )
 
     configure_redis_utils(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL)
     configure_tools()
@@ -666,13 +759,13 @@ def configure_subsystems():
     # configure_external_services can fail due to various non-fatal issues; log errors and continue.
     try:
         configure_external_services(
-            ARTIFACT_SERVER, 
-            CODE_LENS_HOST, 
+            ARTIFACT_SERVER,
+            CODE_LENS_HOST,
             CODE_LENS_PORT,
             JOKES_FILE,
             TWITTER_CLIENT_API,
             TWITCH_CLIENT_API,
-            LINKEDIN_CLIENT_API
+            LINKEDIN_CLIENT_API,
         )
     except Exception as e:
         logger.error(f"Error configuring external services: {e}", exc_info=True)
@@ -682,6 +775,7 @@ def configure_subsystems():
     configure_consultant()
     configure_voice_to_text()
     configure_responses_adapter()
+
 
 def set_model(model_key: str) -> bool:
     """
@@ -728,9 +822,15 @@ def set_model(model_key: str) -> bool:
 
     max_tpm_tier = model_max_tpm.get(mapped_key) if isinstance(model_max_tpm, dict) else None
     tpm_mapping = model_tpm_mapping.get(mapped_key) if isinstance(model_tpm_mapping, dict) else None
-    MODEL_MAX_TPM = tpm_mapping.get(max_tpm_tier) if isinstance(tpm_mapping, dict) and (max_tpm_tier in tpm_mapping if isinstance(tpm_mapping, dict) else False) else None
+    MODEL_MAX_TPM = (
+        tpm_mapping.get(max_tpm_tier)
+        if isinstance(tpm_mapping, dict) and (max_tpm_tier in tpm_mapping if isinstance(tpm_mapping, dict) else False)
+        else None
+    )
 
-    CONVERSATION_MAX_SIZE = conversation_history_mapping.get(mapped_key) if isinstance(conversation_history_mapping, dict) else None
+    CONVERSATION_MAX_SIZE = (
+        conversation_history_mapping.get(mapped_key) if isinstance(conversation_history_mapping, dict) else None
+    )
 
     MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
     TOTAL_TOKEN_COUNT = 0
@@ -748,6 +848,7 @@ def set_model(model_key: str) -> bool:
     )
 
     return True
+
 
 def _load_one_dotenv(dotenv_path, description=None, verbose=False):
     """
@@ -791,6 +892,7 @@ def _load_one_dotenv(dotenv_path, description=None, verbose=False):
         logger.error(f"Exception during loading dotenv file at {dotenv_path}: {e}", exc_info=True)
         raise
 
+
 def load_environment_variables(verbose=False):
     """
     Loads environment variables from these .env files in this order (if present):
@@ -810,20 +912,27 @@ def load_environment_variables(verbose=False):
         logger.error(f"Error finding project .env via find_dotenv: {e}", exc_info=True)
         raise RuntimeError("Failed during find_dotenv for project .env") from e
     try:
-        status["cwd_env_loaded"] = _load_one_dotenv(cwd_dotenv_path, description="Project .env", verbose=verbose)
+        status["cwd_env_loaded"] = _load_one_dotenv(
+            cwd_dotenv_path, description="Project .env", verbose=verbose
+        )
     except Exception as e:
         logger.error(f"Exception loading cwd .env file: {e}", exc_info=True)
         raise
     home_dotenv_path = os.path.expanduser(os.path.join("~", ".config/monitor", ".env"))
     try:
-        status["home_env_loaded"] = _load_one_dotenv(home_dotenv_path, description="Home secrets .env", verbose=verbose)
+        status["home_env_loaded"] = _load_one_dotenv(
+            home_dotenv_path, description="Home secrets .env", verbose=verbose
+        )
     except Exception as e:
         logger.error(f"Exception loading home .env file: {e}", exc_info=True)
         raise
 
     if not status["cwd_env_loaded"] and not status["home_env_loaded"]:
-        logger.warning("No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only.")
+        logger.warning(
+            "No .env files found/loaded: neither project .env nor ~/.config/monitor/.env was found. Falling back to defaults and system environment only."
+        )
     return status
+
 
 def load_yaml_config(file_path=None):
     """
@@ -870,12 +979,15 @@ def load_yaml_config(file_path=None):
         # treat this as a fatal configuration error.
         if config is None or not isinstance(config, dict):
             logger.error(f"YAML file {yaml_path} did not produce a mapping (dict). Parsed value: {config!r}")
-            raise RuntimeError(f"YAML config {yaml_path} must contain a mapping at top level (got {type(config).__name__}).")
+            raise RuntimeError(
+                f"YAML config {yaml_path} must contain a mapping at top level (got {type(config).__name__})."
+            )
 
         return config
     except Exception as e:
         logger.error(f"Failed to load YAML config ({yaml_path}): {e}", exc_info=True)
         raise
+
 
 def get_logging_config():
     """
@@ -884,13 +996,13 @@ def get_logging_config():
     Any directory or file error is logged and aborts config loading.
     """
     try:
-        config = load_yaml_config().get('logging', {})
+        config = load_yaml_config().get("logging", {})
     except Exception as e:
         logger.error(f"Error retrieving 'logging' config from YAML: {e}", exc_info=True)
         raise
     default_log_dir = os.path.join(os.path.expanduser("~"), ".config/monitor", "logs")
     try:
-        log_dir = os.path.expanduser(config.get('log_dir', default_log_dir))
+        log_dir = os.path.expanduser(config.get("log_dir", default_log_dir))
     except Exception as e:
         logger.error(f"Path expansion failed for log_dir: {e}", exc_info=True)
         raise RuntimeError("Error expanding log_dir path in logging config") from e
@@ -900,24 +1012,24 @@ def get_logging_config():
         logger.error(f"Failed to create log directory {log_dir}: {e}", exc_info=True)
         raise RuntimeError(f"Failed to create log directory {log_dir}: {e}") from e
 
-    app_log_filename = config.get('app_log_filename', 'app.log')
-    conversation_log_filename = config.get('conversation_log_filename', 'conversation.log')
+    app_log_filename = config.get("app_log_filename", "app.log")
+    conversation_log_filename = config.get("conversation_log_filename", "conversation.log")
     try:
         file_path = os.path.join(log_dir, f"{STARTUP_TIME}_{app_log_filename}")
     except Exception as e:
         logger.error(f"Path join failed for log file: {e}", exc_info=True)
         raise RuntimeError("Failed joining file path for log file") from e
     log_config = {
-        'level': config.get('level', 'INFO'),
-        'format': config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
-        'date_format': config.get('date_format', '%Y-%m-%d %H:%M:%S'),
-        'log_dir': log_dir,
-        'app_log_filename': app_log_filename,
-        'conversation_log_filename': conversation_log_filename,
-        'console_logging_enabled': config.get('console_logging_enabled', True),
-        'max_bytes': config.get('max_bytes', 10485760),
-        'backup_count': config.get('backup_count', 5),
-        'file_path': file_path,
-        'encoding': config.get('encoding', 'utf-8')
+        "level": config.get("level", "INFO"),
+        "format": config.get("format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
+        "date_format": config.get("date_format", "%Y-%m-%d %H:%M:%S"),
+        "log_dir": log_dir,
+        "app_log_filename": app_log_filename,
+        "conversation_log_filename": conversation_log_filename,
+        "console_logging_enabled": config.get("console_logging_enabled", True),
+        "max_bytes": config.get("max_bytes", 10485760),
+        "backup_count": config.get("backup_count", 5),
+        "file_path": file_path,
+        "encoding": config.get("encoding", "utf-8"),
     }
     return log_config
