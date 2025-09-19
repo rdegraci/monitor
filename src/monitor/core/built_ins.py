@@ -423,7 +423,7 @@ def configure_built_ins() -> None:
                 },
                 {
                     "command": ":rg",
-                    "function": _make_callable(rip_grep_command),
+                    "function": lambda arg=None: rip_grep_command(arg, print_func=print),
                     "description": "Search project files using ripgrep.",
                 },
                 {
