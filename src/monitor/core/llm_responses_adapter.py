@@ -129,6 +129,17 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
         # Build request parameters, include only non-None values
         params = {REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL)}
 
+        # Determine if the current model is a reasoning model to force temperature=1
+        is_reasoning_model = False
+        try:
+            reasoning_prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+            model_name = getattr(config, "MODEL", None)
+            if isinstance(reasoning_prefix, str) and reasoning_prefix.strip() and isinstance(model_name, str):
+                if reasoning_prefix.strip().lower() in model_name.lower():
+                    is_reasoning_model = True
+        except Exception:
+            is_reasoning_model = False
+
         # Determine input: if a previous response id exists, send only the new user input
         if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
             params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
@@ -159,7 +170,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
             logger.debug("Sending prepared messages as input to OpenAI Responses API")
 
         # Add optional parameters only if present in config
-        if getattr(config, "TEMPERATURE", None) is not None:
+        if is_reasoning_model:
+            params[REQUEST_PARAM_TEMPERATURE] = 1
+        elif getattr(config, "TEMPERATURE", None) is not None:
             params[REQUEST_PARAM_TEMPERATURE] = getattr(config, "TEMPERATURE")
         if getattr(config, "TOP_P", None) is not None:
             params[REQUEST_PARAM_TOP_P] = getattr(config, "TOP_P")
@@ -465,7 +478,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     followup_params[REQUEST_PARAM_INPUT] = function_call_outputs
 
                     # Preserve optional params
-                    if getattr(config, "TEMPERATURE", None) is not None:
+                    if is_reasoning_model:
+                        followup_params[REQUEST_PARAM_TEMPERATURE] = 1
+                    elif getattr(config, "TEMPERATURE", None) is not None:
                         followup_params[REQUEST_PARAM_TEMPERATURE] = getattr(config, "TEMPERATURE")
                     if getattr(config, "TOP_P", None) is not None:
                         followup_params[REQUEST_PARAM_TOP_P] = getattr(config, "TOP_P")

@@ -305,7 +305,7 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
     model name contains the configured reasoning model prefix.
 
     Args:
-        model: The full model identifier, e.g. 'openai/o3-2025-04-16'
+        model: The full model identifier, e.g., 'openai/o3-2025-04-16'
         messages: The list of chat messages for the request.
 
     Returns:
@@ -330,6 +330,7 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                 kwargs.update(
                     reasoning_effort=config.REASONING_EFFORT,
                     max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
+                    temperature=1,
                 )
         except re.error:
             pass
