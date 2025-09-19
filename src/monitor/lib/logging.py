@@ -20,7 +20,7 @@ Legacy fallback: If logging_config is not found, individual config variables
 (LOGGING_LEVEL, LOG_FILE_PATH, etc.) will be used (DEPRECATED).
 
 Any missing required fields will result in a warning and use of safest sensible defaults.
-This file MUST NOT attempt to read app.yaml, guess configuration, or set its own hardcoded
+This file MUST NOT attempt to read config.yaml, guess configuration, or set its own hardcoded
 defaults except as specified above.
 
 No test code or run-on-main logic will be present in this file.

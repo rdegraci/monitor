@@ -1,14 +1,12 @@
-
 import os
 import logging
 
 from datetime import datetime
 import yaml
-from dotenv import load_dotenv
 import litellm
 
 from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
+from pygments.lexers import DiffLexer
 from pygments.formatters import TerminalFormatter
 
 from monitor.lib.macro_utils import recursive_macro_expand
@@ -21,32 +19,41 @@ from monitor.lib.git import (
     perform_git_show,
     perform_git_log_range,
 )
+from monitor.config import find_config_file
 
 logger = logging.getLogger(__name__)
 
+
 class CommitAnalyzer:
     """
-    Analyzes Git commits within a branch to understand branch purpose and suggest next steps.
-    
-    This class uses canonical git wrapper functions from monitor.lib.git to access commit history,
-    and LiteLLM to analyze commits and generate insights.
+    Analyze Git commits within a branch to understand branch purpose and suggest next steps.
+
+    This class uses canonical git wrapper functions from monitor.lib.git to access commit
+    history, and LiteLLM to analyze commits and generate insights.
     """
-    
-    def __init__(self, branch_name, logger, main_branch="main", llm_model="anthropic/claude-3-7-sonnet-20250219"):
-        """
-        Initialize the CommitAnalyzer with a branch name.
-        
+
+    def __init__(
+        self,
+        branch_name,
+        logger,
+        main_branch="main",
+        llm_model="anthropic/claude-3-7-sonnet-20250219",
+    ):
+        """Initialize the CommitAnalyzer with a branch name.
+
         Args:
-            branch_name (str): The name of the Git branch to analyze
-            main_branch (str): The name of the main branch to compare against (default: "main")
-            llm_model (str): The LLM model to use for analysis (default: "anthropic/claude-3-7-sonnet-20250219")
+            branch_name (str): The name of the Git branch to analyze.
+            logger (logging.Logger): Logger instance for diagnostics.
+            main_branch (str): The name of the main branch to compare against. Defaults to "main".
+            llm_model (str): The LLM model to use for analysis. Defaults to
+                "anthropic/claude-3-7-sonnet-20250219".
         """
         self.logger = logger
         self.branch_name = branch_name
         self.main_branch = main_branch
         self.llm_model = llm_model
         self.commits = []
-        
+
         self.logger.debug(f"Initializing CommitAnalyzer with branch: {branch_name}")
         self.logger.debug(f"Using main branch: {main_branch}")
         self.logger.debug(f"Using LLM model: {llm_model}")
@@ -55,65 +62,82 @@ class CommitAnalyzer:
             self._fetch_commits_from_git()
         except Exception as e:
             self.logger.error(f"Error fetching commits: {str(e)}", exc_info=True)
-    
+
     def _fetch_commits_from_git(self):
-        """
-        Fetch commits from the local Git repository from the merge base to the latest commit.
-        
-        Uses canonical git wrapper functions from monitor.lib.git to interact with the local Git repository and fetch commit data.
+        """Fetch commits from the local Git repository from merge base to the latest commit.
+
+        Uses canonical git wrapper functions from monitor.lib.git to interact with the local
+        Git repository and fetch commit data.
         """
         try:
-            self.logger.info(f"Accessing local Git repository: branch '{self.branch_name}', main branch '{self.main_branch}'")
+            self.logger.info(
+                f"Accessing local Git repository: branch '{self.branch_name}', main branch '{self.main_branch}'"
+            )
             # Retrieve the list of commits between main_branch and branch_name exclusively via canonical functions.
             # Assumes perform_git_show returns commit info and perform_git_diff returns the diff for a commit.
             # There is no subprocess/gitpython use here.
 
             commits_info = perform_git_log_range(self.main_branch, self.branch_name)
             if not commits_info or not isinstance(commits_info, list):
-                self.logger.warning("No commits returned from canonical git log range function.")
+                self.logger.warning(
+                    "No commits returned from canonical git log range function."
+                )
                 return
 
             for commit in commits_info:
-                commit_hash = commit.get('hash')
-                commit_message = commit.get('message', '').strip()
-                commit_timestamp = commit.get('timestamp')
+                commit_hash = commit.get("hash")
+                commit_message = commit.get("message", "").strip()
+                commit_timestamp = commit.get("timestamp")
                 commit_diff = perform_git_show(commit_hash)
                 timestamp_iso = ""
                 if commit_timestamp:
                     try:
-                        timestamp_iso = datetime.fromtimestamp(int(commit_timestamp)).isoformat()
+                        timestamp_iso = datetime.fromtimestamp(
+                            int(commit_timestamp)
+                        ).isoformat()
                     except Exception:
                         timestamp_iso = commit_timestamp
-                self.commits.append({
-                    'message': commit_message,
-                    'diff': commit_diff,
-                    'timestamp': timestamp_iso
-                })
+                self.commits.append(
+                    {
+                        "message": commit_message,
+                        "diff": commit_diff,
+                        "timestamp": timestamp_iso,
+                    }
+                )
 
-            self.logger.info(f"Fetched {len(self.commits)} commits from canonical git log wrapper")
+            self.logger.info(
+                f"Fetched {len(self.commits)} commits from canonical git log wrapper"
+            )
             self.commits.reverse()
         except Exception as e:
-            self.logger.error(f"Unexpected error accessing Git repository: {str(e)}", exc_info=True)
-
+            self.logger.error(
+                f"Unexpected error accessing Git repository: {str(e)}", exc_info=True
+            )
 
     def analyze_commits(self):
-        """
-        Analyze the commits to generate a summary of the branch's purpose.
-        
+        """Analyze commits to generate a summary of the branch's purpose.
+
         Uses LiteLLM to send commit data to an LLM and get a summary.
-        
+
         Returns:
-            str: A concise summary of the branch's purpose (2-3 sentences)
+            tuple[str, str]: A pair of:
+                - summary: Concise 2-3 sentence summary of the branch's purpose.
+                - diff_output: Colorized diff text suitable for terminal output.
         """
         if not self.commits:
             self.logger.warning("No commits to analyze")
-            return "No commits found for analysis. Make sure you're on a topic branch that branches off of main/master.", "No diff available."
-        
-        commit_data = "\n".join([
-            f"Commit: {commit['message']}\nTimestamp: {commit['timestamp']}\nDiff: {commit['diff']}\n"
-            for commit in self.commits
-        ])
-        
+            return (
+                "No commits found for analysis. Make sure you're on a topic branch that branches off of main/master.",
+                "No diff available.",
+            )
+
+        commit_data = "\n".join(
+            [
+                f"Commit: {commit['message']}\nTimestamp: {commit['timestamp']}\nDiff: {commit['diff']}\n"
+                for commit in self.commits
+            ]
+        )
+
         colored_output = color_diff(commit_data)
 
         prompt = f"""Summarize what this branch is doing based on these commits:
@@ -122,43 +146,44 @@ class CommitAnalyzer:
 
 Provide a 2-3 sentence summary that captures the purpose and progress of this development branch.
 """
-      
+
         try:
-            self.logger.debug(f"Sending commit data to LLM ({self.llm_model}) for analysis")
+            self.logger.debug(
+                f"Sending commit data to LLM ({self.llm_model}) for analysis"
+            )
             response = litellm.completion(
-                model=self.llm_model,
-                messages=[{"role": "user", "content": prompt}]
+                model=self.llm_model, messages=[{"role": "user", "content": prompt}]
             )
             summary = response.choices[0].message.content.strip()
             self.logger.info("Successfully generated summary using LLM")
             return summary, colored_output
-        
+
         except Exception as e:
             self.logger.error(f"Error communicating with LLM: {str(e)}", exc_info=True)
             return "None", "None"
 
-
     def suggest_next_steps(self, summary):
-        """
-        Generate suggested next steps based on the analyzed commits and summary.
-        
+        """Generate suggested next steps based on the analyzed commits and summary.
+
         Uses LiteLLM to send the summary and commit data to an LLM and get suggestions.
-        
+
         Args:
-            summary (str): The summary generated by analyze_commits
-            
+            summary (str): The summary generated by analyze_commits.
+
         Returns:
-            list: A list of suggested next actions (2-5 items)
+            list[str]: A list of suggested next actions (2-5 items).
         """
         if not self.commits:
             self.logger.warning("No commits available for suggesting next steps")
             return ["Add initial implementation", "Create documentation"]
-        
-        commit_data = "\n".join([
-            f"Commit: {commit['message']}\nTimestamp: {commit['timestamp']}\nDiff: {commit['diff']}\n"
-            for commit in self.commits
-        ])
-        
+
+        commit_data = "\n".join(
+            [
+                f"Commit: {commit['message']}\nTimestamp: {commit['timestamp']}\nDiff: {commit['diff']}\n"
+                for commit in self.commits
+            ]
+        )
+
         prompt = f"""Based on this summary:
 "{summary}"
 
@@ -172,39 +197,40 @@ Suggest 2-5 logical next steps for development. Return the suggestions as a numb
 """
 
         try:
-            self.logger.debug(f"Sending summary and commit data to LLM ({self.llm_model}) for next steps")
+            self.logger.debug(
+                f"Sending summary and commit data to LLM ({self.llm_model}) for next steps"
+            )
             response = litellm.completion(
-                model=self.llm_model,
-                messages=[{"role": "user", "content": prompt}]
+                model=self.llm_model, messages=[{"role": "user", "content": prompt}]
             )
             suggestions_text = response.choices[0].message.content.strip()
             self.logger.info("Successfully generated next steps using LLM")
-            
+
             suggestions = []
-            for line in suggestions_text.split('\n'):
+            for line in suggestions_text.split("\n"):
                 line = line.strip()
-                if line and (line[0].isdigit() and '. ' in line):
-                    suggestion = line.split('. ', 1)[1].strip()
+                if line and (line[0].isdigit() and ". " in line):
+                    suggestion = line.split(". ", 1)[1].strip()
                     suggestions.append(suggestion)
-            
+
             if not suggestions and suggestions_text:
                 self.logger.warning("Failed to parse numbered list, returning raw text")
                 return [suggestions_text]
-                
+
             return suggestions
-            
+
         except Exception as e:
             self.logger.error(f"Error communicating with LLM: {str(e)}", exc_info=True)
             return [
                 "Write unit tests for the implemented functionality",
                 "Add input validation",
                 "Update documentation to reflect recent changes",
-                "Consider refactoring for better maintainability"
+                "Consider refactoring for better maintainability",
             ]
 
+
 def color_diff(diff_text):
-    """
-    Colorize diff text for terminal output using pygments DiffLexer.
+    """Colorize diff text for terminal output using pygments DiffLexer.
 
     Args:
         diff_text (str): Unified diff text.
@@ -214,66 +240,76 @@ def color_diff(diff_text):
     """
     return highlight(diff_text, DiffLexer(), TerminalFormatter(reset=True))
 
+
 def load_config():
-    """
-    Load configuration from app.yaml file.
-    
+    """Load configuration from a config.yaml discovered by monitor.config.find_config_file.
+
+    The function attempts to locate a config.yaml using the central configuration
+    discovery helper. If the file is not found or an error occurs, it falls back
+    to a built-in default configuration.
+
     Returns:
-        dict: Configuration properties
+        dict: Configuration properties.
     """
     default_config = {
-        'branch_name': 'main',
-        'main_branch': 'main',
-        'llm_model': 'anthropic/claude-3-7-sonnet-20250219',
-        'logging_level': 'INFO'
+        "branch_name": "main",
+        "main_branch": "main",
+        "llm_model": "anthropic/claude-3-7-sonnet-20250219",
+        "logging_level": "INFO",
     }
-    
+
     try:
-        with open('app.yaml', 'r') as f:
+        config_path = find_config_file("config.yaml")
+        with open(config_path, "r") as f:
             config = yaml.safe_load(f)
-            
+
         if config:
             return {**default_config, **config}
         return default_config
-    
+
     except FileNotFoundError:
-        logger.warning("app.yaml not found, using default configuration")
+        logger.warning(
+            "config.yaml not found via find_config_file, using default configuration"
+        )
         return default_config
     except Exception as e:
         logger.error(f"Error loading configuration: {str(e)}", exc_info=True)
         return default_config
 
+
 def analyze_branch_for_summary_and_steps(branch, logger, model, main_branch="main"):
-    """
-    Run commit analysis and generate summary and next steps for a branch.
+    """Run commit analysis and generate summary and next steps for a branch.
 
     Args:
-        branch (str): Branch name to analyze
-        logger (logging.Logger): Logger instance
-        model (str): LLM model name
-        main_branch (str): Name of the main branch (default: "main")
+        branch (str): Branch name to analyze.
+        logger (logging.Logger): Logger instance.
+        model (str): LLM model name.
+        main_branch (str): Name of the main branch. Defaults to "main".
 
     Returns:
-        tuple: (summary (str), diff_output (str), next_steps (list[str]))
+        tuple[str, str, list[str]]: A tuple of
+            (summary, diff_output, next_steps).
     """
     analyzer = CommitAnalyzer(branch, logger, main_branch, model)
     summary, diff_output = analyzer.analyze_commits()
     next_steps_list = analyzer.suggest_next_steps(summary)
     return summary, diff_output, next_steps_list
 
-def build_commit_message_query_input(diff, macro_values, macro_delim_open, macro_delim_close, macro_delim_escape):
-    """
-    Build the macro-expanded prompt for generating a commit message from a diff.
+
+def build_commit_message_query_input(
+    diff, macro_values, macro_delim_open, macro_delim_close, macro_delim_escape
+):
+    """Build the macro-expanded prompt for generating a commit message from a diff.
 
     Args:
-        diff (str): The git diff string
-        macro_values (dict): Macro values to expand
-        macro_delim_open (str): Macro opening delimiter
-        macro_delim_close (str): Macro closing delimiter
-        macro_delim_escape (str): Macro escape delimiter
+        diff (str): The git diff string.
+        macro_values (dict): Macro values to expand.
+        macro_delim_open (str): Macro opening delimiter.
+        macro_delim_close (str): Macro closing delimiter.
+        macro_delim_escape (str): Macro escape delimiter.
 
     Returns:
-        str: The macro-expanded query input
+        str: The macro-expanded query input.
     """
     git_entry_macro_expanded = recursive_macro_expand(
         "(git_entry) and then only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'",
@@ -282,5 +318,8 @@ def build_commit_message_query_input(diff, macro_values, macro_delim_open, macro
         macro_delim_close,
         macro_delim_escape,
     )
-    query_input = f"Given:\n\n<git_diff_staged>{diff}</git_diff_staged>\n\n{git_entry_macro_expanded}"
+    query_input = (
+        f"Given:\n\n<git_diff_staged>{diff}</git_diff_staged>\n\n"
+        f"{git_entry_macro_expanded}"
+    )
     return query_input

@@ -56,7 +56,7 @@ def _reset_config(force: bool = False):
     """
     user_config_dir = appdirs.user_config_dir('monitor')
     files_to_reset = [
-        "app.yaml",
+        "config.yaml",
         "macros.json",
         "model_config.json",
         "preferences.prompt",

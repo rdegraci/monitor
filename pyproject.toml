@@ -49,7 +49,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 monitor = [
-    "app.yaml",
+    "config.yaml",
     "dot_env_example",
     "preferences.prompt",
     "public_commands.json",

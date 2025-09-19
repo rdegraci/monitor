@@ -62,8 +62,9 @@ def test_no_commits_path_returns_warning_and_fallback(mock_log_range, mock_show,
     assert len(steps) >= 2
 
 @patch('monitor.lib.commit_analyzer.yaml.safe_load', return_value={'branch_name': 'abc', 'main_branch': 'main'})
+@patch('monitor.lib.commit_analyzer.find_config_file', return_value='/fake/path/config.yaml')
 @patch('builtins.open')
-def test_load_config_success(mock_open, mock_safe_load):
+def test_load_config_success(mock_open, mock_find, mock_safe_load):
     result = commit_analyzer.load_config()
     assert result['branch_name'] == 'abc'
     assert result['main_branch'] == 'main'

@@ -81,24 +81,24 @@ Monitor uses platform-appropriate user config directories (via appdirs-style con
 
 Running `python -m monitor` (or the console script on first run) will ensure the user config directory exists and will copy default configuration files there if they are missing:
 
-- app.yaml
+- config.yaml
 - macros.json
 - preferences.prompt
 - model_config.json
 
 Examples:
 - (Linux example)
-  - ~/.config/monitor/app.yaml
+  - ~/.config/monitor/config.yaml
   - ~/.config/monitor/macros.json
   - ~/.config/monitor/preferences.prompt
   - ~/.config/monitor/model_config.json
 - (macOS example)
-  - ~/Library/Application Support/monitor/app.yaml
+  - ~/Library/Application Support/monitor/config.yaml
   - ~/Library/Application Support/monitor/macros.json
   - ~/Library/Application Support/monitor/preferences.prompt
   - ~/Library/Application Support/monitor/model_config.json
 - (Windows example)
-  - %APPDATA%/monitor/app.yaml
+  - %APPDATA%/monitor/config.yaml
   - %APPDATA%/monitor/macros.json
   - %APPDATA%/monitor/preferences.prompt
   - %APPDATA%/monitor/model_config.json
@@ -126,7 +126,7 @@ Monitor supports the following command-line flags:
   - Non-interactive mode for operations that would normally prompt (for example, `--reset-config`). Implies yes to confirmations and will perform backups and replacements without prompting.
 
 Behavior details:
-- When `--reset-config` is run, any existing file that would be replaced is moved to a backup file with a timestamp suffix: originalfilename.bak_YYYYmmddTHHMMSS (UTC). For example: `app.yaml.bak_20250810T153045`.
+- When `--reset-config` is run, any existing file that would be replaced is moved to a backup file with a timestamp suffix: originalfilename.bak_YYYYmmddTHHMMSS (UTC). For example: `config.yaml.bak_20250810T153045`.
 - Using `--force` will skip interactive confirmation prompts and proceed with backup and replacement.
 - `--model` overrides the model selection from configuration files for the lifetime of that process and prints the effective model selection during startup.
 
@@ -177,7 +177,7 @@ Monitor exposes a minimal, OpenAI-compatible REST surface for simple integration
   - (macOS example) ~/Library/Application Support/monitor/logs/
   - (Windows example) %APPDATA%/monitor/logs/
 - Logs include CLI/API invocations, LLM prompts and completions, macro executions, and other audit information.
-- Configure alternate log directories via `app.yaml` in your user config directory.
+- Configure alternate log directories via `config.yaml` in your user config directory.
 
 ## Environment (.env) loading order
 
@@ -345,7 +345,7 @@ Used by macros editor command to open the macros file when $EDITOR is not set.
 - Windows:
   Use a terminal editor available in your environment (e.g., Vim via Git Bash) or set EDITOR to your preferred GUI editor.
 
-Note: Monitor no longer documents internal TTLs for conversation memory in the README; refer to runtime configuration in `app.yaml` for your environment's retention behavior.
+Note: Monitor no longer documents internal TTLs for conversation memory in the README; refer to runtime configuration in `config.yaml` for your environment's retention behavior.
 
 ## Quickstart
 
@@ -385,9 +385,9 @@ monitor --reset-config --force
 
 ## Configuration and Usage Basics
 
-Monitor loads configuration from the user config directory (see OS-specific paths above). This directory is populated on first run when using `python -m monitor` or the console script. Persistent settings are read from `app.yaml`, and secrets may be loaded from `.env` in the user config directory as described in the "Environment (.env) loading order" section.
+Monitor loads configuration from the user config directory (see OS-specific paths above). This directory is populated on first run when using `python -m monitor` or the console script. Persistent settings are read from `config.yaml`, and secrets may be loaded from `.env` in the user config directory as described in the "Environment (.env) loading order" section.
 
-Example `app.yaml` snippet (Linux example shown; adjust paths for your OS):
+Example `config.yaml` snippet (Linux example shown; adjust paths for your OS):
 ```yaml
 model:
   provider: openai
@@ -461,18 +461,18 @@ Default logs location (under the user config directory):
 %APPDATA%/monitor/logs/
 ```
 
-Specify alternate log directories via `app.yaml` in your user config directory.
+Specify alternate log directories via `config.yaml` in your user config directory.
 
 ## Troubleshooting
 
 - **Redis connection issues:** Ensure `redis-server` is running and accessible if you have enabled Redis in your configuration.
-- **Invalid app.yaml or missing .env:** Validate your config files and environment variable values. Use `--reset-config` to restore defaults if needed.
+- **Invalid config.yaml or missing .env:** Validate your config files and environment variable values. Use `--reset-config` to restore defaults if needed.
 - **Unsupported OS / Python version:** Use Python 3.10 or later on supported platforms.
-- **LLM API errors:** Confirm API keys and correct model provider setup in `model_config.json`, `app.yaml`, or environment variables located in the user config directory:
+- **LLM API errors:** Confirm API keys and correct model provider setup in `model_config.json`, `config.yaml`, or environment variables located in the user config directory:
   - (Linux example) ~/.config/monitor/
   - (macOS example) ~/Library/Application Support/monitor/
   - (Windows example) %APPDATA%/monitor/
-- **Permissions or sandboxing errors:** Check directory/file permissions and security configuration in `app.yaml`.
+- **Permissions or sandboxing errors:** Check directory/file permissions and security configuration in `config.yaml`.
 
 For more, see `docs/CORE_README.md` and `docs/ARCHITECTURE.md`.
 

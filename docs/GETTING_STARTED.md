@@ -125,7 +125,7 @@ Monitor connects to powerful tools:
   - Use `:rg <pattern>` for fast code search (faster than plain `grep` in many setups).
 - Logs and History:
   - Application logs are stored at `~/.config/monitor/logs/` by default.
-  - You can change log and other configuration settings in `~/.config/monitor/app.yaml`.
+  - You can change log and other configuration settings in `~/.config/monitor/config.yaml`.
 
 ---
 
@@ -174,7 +174,7 @@ macros
 ```
 - Configuration and logs:
   - Logs: `~/.config/monitor/logs/`
-  - Configuration file: `~/.config/monitor/app.yaml`
+  - Configuration file: `~/.config/monitor/config.yaml`
 - Issues: Check logs for errors or reach out at support@monitorcli.com.
 
 ---

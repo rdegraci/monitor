@@ -638,15 +638,15 @@ def configure_logging_globals():
         raise
 
     if not LOGGING_CONFIG["log_dir"]:
-        raise RuntimeError("LOG_DIR (log_dir) is missing in app.yaml and no default could be set.")
+        raise RuntimeError("LOG_DIR (log_dir) is missing in config.yaml and no default could be set.")
     if not LOGGING_CONFIG["app_log_filename"]:
-        raise RuntimeError("APP_LOG_FILENAME (app_log_filename) is missing in app.yaml and no default could be set.")
+        raise RuntimeError("APP_LOG_FILENAME (app_log_filename) is missing in config.yaml and no default could be set.")
     if not LOGGING_CONFIG["format"]:
-        raise RuntimeError("LOG_FORMAT (format) is missing in app.yaml and no default could be set.")
+        raise RuntimeError("LOG_FORMAT (format) is missing in config.yaml and no default could be set.")
     if not LOGGING_CONFIG["level"]:
-        raise RuntimeError("LOGGING_LEVEL (level) is missing in app.yaml and no default could be set.")
+        raise RuntimeError("LOGGING_LEVEL (level) is missing in config.yaml and no default could be set.")
     if not LOGGING_CONFIG["encoding"]:
-        raise RuntimeError("LOG_ENCODING (encoding) is missing in app.yaml and no default could be set.")
+        raise RuntimeError("LOG_ENCODING (encoding) is missing in config.yaml and no default could be set.")
 
     LOG_ENCODING = LOGGING_CONFIG.get("encoding")
     LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", LOGGING_CONFIG["level"]).upper()
@@ -939,13 +939,13 @@ def load_yaml_config(file_path=None):
     Load YAML configuration from a file.
 
     This function will load and parse a YAML configuration file. If file_path is None,
-    the function will attempt to locate 'app.yaml' using find_config_file("app.yaml").
+    the function will attempt to locate 'config.yaml' using find_config_file("config.yaml").
     All filesystem IO errors (finding, opening, reading, parsing) are logged via
     logger.error with exc_info=True and result in exceptions being raised to abort execution.
 
     Args:
         file_path (str | None): Path to the YAML file to load. If None, the function will
-            try to discover 'app.yaml' via find_config_file.
+            try to discover 'config.yaml' via find_config_file.
 
     Returns:
         dict: Parsed YAML configuration mapping.
@@ -957,10 +957,10 @@ def load_yaml_config(file_path=None):
     try:
         if yaml_path is None:
             try:
-                yaml_path = find_config_file("app.yaml")
+                yaml_path = find_config_file("config.yaml")
             except Exception as e:
-                logger.error(f"Unable to locate app.yaml: {e}", exc_info=True)
-                raise RuntimeError("Cannot find app.yaml") from e
+                logger.error(f"Unable to locate config.yaml: {e}", exc_info=True)
+                raise RuntimeError("Cannot find config.yaml") from e
         try:
             with open(yaml_path) as f:
                 try:

@@ -17,7 +17,7 @@ Key File / Module Table
 | lib/macros.py            | Macro registration, expansion, parameterization, automation.     |
 | core/query_service.py    | Broker for LLM, tool, and macro queries—drives routing between   |
 |                          | CLI, LLM, macros, and core logic.                               |
-| config.py / app.yaml     | Configuration profiles: model options, limits, credentials, etc. |
+| config.py / config.yaml     | Configuration profiles: model options, limits, credentials, etc. |
 | logs/                    | Centralized, session-aware, rolling and audit logs.              |
 ===============================================================================
 
@@ -116,7 +116,7 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
     - Central broker for tool/integration queries and LLM activity
     - Mediates between CLI/server, macros, and integrations—ensures all actions are auditable
 
-- **`config.py` / `app.yaml`:**
+- **`config.py` / `config.yaml`:**
     - Configuration for tools, LLMs, logging, limits, credentials, persistent memory, summarization
     - Hot-reloadable in CLI and server modes
 

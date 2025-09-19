@@ -52,7 +52,7 @@ Notes:
 - Default delimiters: `(` and `)`.
 - Default escape character: backslash `\`.
 - To write a literal delimiter inside macro text or a TCL body you can escape it with `\` (for example `\(` or `\)`).
-- Delimiters are configurable via the app configuration `app.yaml` using the `macro_delimiters` setting. Example in `app.yaml`:
+- Delimiters are configurable via the app configuration `config.yaml` using the `macro_delimiters` setting. Example in `config.yaml`:
 ```
 macro_delimiters:
   open: "("
@@ -206,7 +206,7 @@ These show canonical usage patterns, edge cases, and how the macro engine treats
 
 - Delimiter problems:
   - If your macro text contains delimiter characters, escape them with the configured escape character (default `\`).
-  - Verify `app.yaml` `macro_delimiters` if you have nonstandard delimiters.
+  - Verify `config.yaml` `macro_delimiters` if you have nonstandard delimiters.
 
 - JSON errors:
   - Invalid `macros.json` (malformed JSON) will prevent the file from loading. Use a JSON validator and ensure proper quoting/escaping.
