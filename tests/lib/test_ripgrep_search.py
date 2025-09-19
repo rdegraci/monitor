@@ -152,3 +152,21 @@ def test_ripgrep_search_truncates_to_base_limit_divisor(mock_run, monkeypatch):
     assert large_output.startswith(preserved_payload)
     truncated_expected = len(large_output) - len(preserved_payload)
     assert truncated_reported == truncated_expected
+
+@patch('monitor.lib.ripgrep_search.subprocess.run')
+def test_ripgrep_search_falls_back_to_grep(mock_run):
+    mock_run.side_effect = [FileNotFoundError(), make_result('grep matched', '', 0)]
+    result = ripgrep_search.ripgrep_search('foo')
+    assert 'grep matched' in result
+    assert mock_run.call_count == 2
+    second_args = mock_run.call_args_list[1][0][0]
+    assert second_args[0] == 'grep' or 'grep' in second_args
+
+@patch('monitor.lib.ripgrep_search.subprocess.run')
+def test_ripgrep_search_both_missing_reports_install(mock_run):
+    mock_run.side_effect = [FileNotFoundError(), FileNotFoundError()]
+    result = ripgrep_search.ripgrep_search('foo')
+    res_lower = str(result).lower()
+    assert 'install ripgrep' in res_lower
+    assert 'preferred' in res_lower
+    assert 'grep' in res_lower
