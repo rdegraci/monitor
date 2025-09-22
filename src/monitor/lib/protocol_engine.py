@@ -228,7 +228,7 @@ class ProtocolEngine:
         try:
             if query:
                 self.message_history.append({"role": "user", "content": query})
-            with progress_dots("Analysis."):
+            with progress_dots():
                 response = self.middleware.completion(
                     model=self.model,
                     messages=self.message_history,
@@ -790,9 +790,8 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     try:
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
-            print_func(f"{yellow}Analyzing file {source_file}{reset}")
-            print_func(f"{yellow}Please wait. Analysis (with retries or re-modifications) may take up to 90 seconds of inference/reasoning.{reset}")
-            print_func(f"{yellow}Note: Large source files (>500 LOC) may take longer or may require multiple modifications.{reset}")
+            print_func(f"{yellow}Analyzing {source_file} - Analysis may take up to 45 seconds of inference/reasoning.{reset}")
+            print_func(f"{yellow}Large/complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
@@ -806,7 +805,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             source_file=source_file
         )
         ring_bell()
-        print_func(f"{yellow}\nModified {source_file}{reset}")
+        print_func(f"{yellow}\nAnalyzing modifications. {source_file}{reset}")
 
         return modified_script
     except Exception as e:
