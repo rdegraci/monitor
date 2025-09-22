@@ -19,7 +19,11 @@ from monitor.lib.history import (
     generate_conversation_summary,
     reset_conversation_with_summary,
 )
-from monitor.lib.token_management import count_message_tokens, update_token_usage
+from monitor.lib.token_management import (
+    count_message_tokens,
+    update_token_usage,
+    token_budgeter,
+)
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.progress import progress_dots
 
@@ -32,6 +36,7 @@ from monitor.lib.llm_utils import (
     process_response_by_finish_reason,
     call_litellm_completion,
     AttrDict,
+    is_reasoning_model,
 )
 
 # Import responses API adapter
@@ -56,7 +61,7 @@ def should_use_responses_adapter():
     This gating helper ensures the Responses API is only used when:
       - RESPONSES_API is True
       - REASONING_MODEL_PREFIX is a non-empty string
-      - MODEL is a string and starts with REASONING_MODEL_PREFIX (case-sensitive)
+      - MODEL is a string and starts with REASONING_MODEL_PREFIX (case-insensitive)
 
     Returns:
         bool: True if the Responses adapter should be used; False otherwise.
@@ -73,7 +78,7 @@ def should_use_responses_adapter():
         model = getattr(_cfg(), "MODEL", None)
         if not isinstance(model, str):
             return False
-        return model.startswith(prefix)
+        return is_reasoning_model(model, prefix)
     except Exception as e:
         logger.debug(f"should_use_responses_adapter check failed: {e}", exc_info=True)
         return False
@@ -103,6 +108,100 @@ def extract_user_input_from_history():
     except Exception as e:
         logger.error(f"Error extracting user input from history: {e}", exc_info=True)
         return ""
+
+
+def _apply_tool_output_budgeting(messages, input_window_limit):
+    """Apply token budgeting to tool output messages and re-estimate request size.
+
+    Extracts tool output strings from the messages, budgets them using the configured
+    token_budgeter to fit within the given input window, maps the trimmed outputs back
+    to the corresponding tool messages, then recomputes token estimates and validates
+    message order.
+
+    Args:
+        messages (list[dict]): Conversation messages to mutate in place.
+        input_window_limit (int): The input window limit used for budgeting.
+
+    Returns:
+        tuple[int, int, str|None]:
+            - estimated_tokens: Recomputed total input tokens after budgeting.
+            - estimated_request: Input tokens plus potential reasoning completion allowance.
+            - error_message: Validation error message if any; otherwise None.
+    """
+    try:
+        tool_outputs = [
+            m.get("content")
+            for m in messages
+            if m.get("role") == "tool" and isinstance(m.get("content"), str)
+        ]
+        params = {"input": [{"output": c} for c in tool_outputs]}
+        if params["input"]:
+            budgeted = token_budgeter(
+                params,
+                input_window=input_window_limit,
+                model_name=_cfg().MODEL,
+            )
+            # Map any trimmed outputs back to corresponding tool messages (preserve order)
+            idx = 0
+            budgeted_list = (
+                budgeted.get("input", []) if isinstance(budgeted, dict) else []
+            )
+            for m in messages:
+                if m.get("role") == "tool" and isinstance(m.get("content"), str):
+                    if idx < len(budgeted_list):
+                        new_output = budgeted_list[idx].get("output", m.get("content"))
+                        if isinstance(new_output, str):
+                            m["content"] = new_output
+                    idx += 1
+
+        # Recompute estimated tokens and request after trimming and re-validate
+        estimated_tokens = 0
+        for msg in messages:
+            normalized_msg = normalize_message(msg)
+            estimated_tokens += count_message_tokens(normalized_msg)
+
+        reasoning_allowance = (
+            getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+            if is_reasoning_model(
+                getattr(_cfg(), "MODEL", None),
+                getattr(_cfg(), "REASONING_MODEL_PREFIX", None),
+            )
+            else 0
+        )
+        estimated_request = estimated_tokens + (reasoning_allowance or 0)
+
+        try:
+            validate_tool_message_order(messages)
+        except ValueError as ve:
+            logger.error(f"Message validation failed after token budgeting: {ve}", exc_info=True)
+            return (
+                estimated_tokens,
+                estimated_request,
+                "There was an issue with tool message ordering after reducing output. Please try your request again.",
+            )
+
+        return estimated_tokens, estimated_request, None
+    except Exception as be:
+        logger.error(f"Token budgeting failed: {be}", exc_info=True)
+        # Fall back to computing estimates without changes
+        estimated_tokens = 0
+        for i, msg in enumerate(messages):
+            try:
+                normalized_msg = normalize_message(msg)
+                estimated_tokens += count_message_tokens(normalized_msg)
+            except Exception:
+                logger.warning(f"Using default token estimate (100) for message at index {i} due to normalization/counting failure")
+                estimated_tokens += 100
+        reasoning_allowance = (
+            getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+            if is_reasoning_model(
+                getattr(_cfg(), "MODEL", None),
+                getattr(_cfg(), "REASONING_MODEL_PREFIX", None),
+            )
+            else 0
+        )
+        estimated_request = estimated_tokens + (reasoning_allowance or 0)
+        return estimated_tokens, estimated_request, f"Token budgeting failed: {be}"
 
 
 def get_llm_completion(log_prefix="", error_message="Error during litellm completion"):
@@ -147,6 +246,25 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         # Sanitize messages before counting, validation, and sending
         messages = sanitize_messages(messages)
 
+        # Determine input window limit (prefer MODEL_INPUT_WINDOW, then MODEL_CONTEXT_WINDOW)
+        input_window_limit = None
+        try:
+            iw = getattr(_cfg(), "MODEL_INPUT_WINDOW", None)
+            cw = getattr(_cfg(), "MODEL_CONTEXT_WINDOW", None)
+            input_window_limit = (
+                iw
+                if isinstance(iw, int) and iw > 0
+                else (cw if isinstance(cw, int) and cw > 0 else None)
+            )
+        except Exception:
+            input_window_limit = None
+
+        # Log if input window gating is disabled
+        if input_window_limit is None:
+            logger.debug(
+                "Input size gating is disabled: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured"
+            )
+
         # Estimate token count for the conversation history using canonical helper
         estimated_tokens = 0
         for msg in messages:
@@ -160,20 +278,33 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             logger.error(f"Message validation failed (pre-wait): {ve}")
             return None, str(ve)
 
-        estimated_request = estimated_tokens + (
-            _cfg().REASONING_MAX_COMPLETION_TOKENS
-            if isinstance(_cfg().REASONING_MODEL_PREFIX, str)
-            and isinstance(_cfg().MODEL, str)
-            and _cfg().REASONING_MODEL_PREFIX.lower() in _cfg().MODEL.lower()
+        reasoning_allowance = (
+            getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+            if is_reasoning_model(_cfg().MODEL, getattr(_cfg(), "REASONING_MODEL_PREFIX", None))
             else 0
         )
+        estimated_request = estimated_tokens + (reasoning_allowance or 0)
 
-        if estimated_request > _cfg().MODEL_MAX_TPM:
+        # Early token budgeting for tool outputs before auto-summarization
+        if input_window_limit is not None and estimated_tokens > input_window_limit:
+            try:
+                new_tokens, new_request, err = _apply_tool_output_budgeting(
+                    messages, input_window_limit
+                )
+                estimated_tokens = new_tokens
+                estimated_request = new_request
+                if err:
+                    return None, err
+            except Exception as be:
+                logger.error(f"Early token budgeting failed: {be}", exc_info=True)
+
+        # Input/window-size gating and auto-summarization (replaces MODEL_MAX_TPM size gating)
+        if input_window_limit is not None and estimated_tokens > input_window_limit:
             if (
                 getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False)
                 and not summarization_attempted
             ):
-                logger.info("Attempting auto-summarization due to token limit...")
+                logger.info("Attempting auto-summarization due to input window limit...")
                 try:
                     summary_response = generate_conversation_summary(
                         SYSTEM_PROMPT,
@@ -239,22 +370,38 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             f"(token limit path): {ve}"
                         )
                         return None, str(ve)
-                    estimated_request = estimated_tokens + (
-                        _cfg().REASONING_MAX_COMPLETION_TOKENS
-                        if isinstance(_cfg().REASONING_MODEL_PREFIX, str)
-                        and isinstance(_cfg().MODEL, str)
-                        and _cfg().REASONING_MODEL_PREFIX.lower()
-                        in _cfg().MODEL.lower()
+                    reasoning_allowance = (
+                        getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+                        if is_reasoning_model(
+                            _cfg().MODEL, getattr(_cfg(), "REASONING_MODEL_PREFIX", None)
+                        )
                         else 0
                     )
+                    estimated_request = estimated_tokens + (reasoning_allowance or 0)
+
+                    # Apply budgeting again after summarization before final size check
+                    try:
+                        new_tokens, new_request, err = _apply_tool_output_budgeting(
+                            messages, input_window_limit
+                        )
+                        estimated_tokens = new_tokens
+                        estimated_request = new_request
+                        if err:
+                            return None, err
+                    except Exception as be:
+                        logger.error(
+                            f"Token budgeting failed after summarization: {be}",
+                            exc_info=True,
+                        )
+
                     logger.info("Auto-summarization complete; retrying request.")
                 except Exception as se:
                     logger.error(f"Auto-summarization failed: {se}", exc_info=True)
 
-        if estimated_request > _cfg().MODEL_MAX_TPM:
+        if input_window_limit is not None and estimated_tokens > input_window_limit:
             return None, (
-                f"Input too large: {estimated_request} tokens "
-                f"vs model limit {_cfg().MODEL_MAX_TPM}. Cannot send request. "
+                f"Input too large: {estimated_tokens} tokens "
+                f"vs input window {input_window_limit}. Cannot send request. "
                 "Please reduce the size of your input (file, diff, or message) or send smaller requests."
             )
 
@@ -330,14 +477,14 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                     for msg in messages:
                         normalized_msg = normalize_message(msg)
                         estimated_tokens += count_message_tokens(normalized_msg)
-                    estimated_request = estimated_tokens + (
-                        _cfg().REASONING_MAX_COMPLETION_TOKENS
-                        if isinstance(_cfg().REASONING_MODEL_PREFIX, str)
-                        and isinstance(_cfg().MODEL, str)
-                        and _cfg().REASONING_MODEL_PREFIX.lower()
-                        in _cfg().MODEL.lower()
+                    reasoning_allowance = (
+                        getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+                        if is_reasoning_model(
+                            _cfg().MODEL, getattr(_cfg(), "REASONING_MODEL_PREFIX", None)
+                        )
                         else 0
                     )
+                    estimated_request = estimated_tokens + (reasoning_allowance or 0)
                     # Validate after rebuilding messages in rate limit summarization path
                     try:
                         validate_tool_message_order(messages)
@@ -366,9 +513,64 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
             if wait_result is None:
                 return None, (
-                    f"Input too large: {estimated_request} tokens. Model limit {_cfg().MODEL_MAX_TPM} tokens. "
-                    "Reduce the size of your request."
+                    f"Rate limit safety threshold exceeded: {estimated_request} tokens. Model TPM limit {_cfg().MODEL_MAX_TPM}. "
+                    "Reduce your request size or wait before retrying."
                 )
+
+        # Apply token budgeting to tool output messages before final completion call
+        if input_window_limit is not None and estimated_tokens >= int(0.9 * input_window_limit):
+            try:
+                tool_outputs = [
+                    m.get("content")
+                    for m in messages
+                    if m.get("role") == "tool" and isinstance(m.get("content"), str)
+                ]
+                params = {"input": [{"output": c} for c in tool_outputs]}
+                if params["input"]:
+                    budgeted = token_budgeter(
+                        params,
+                        input_window=input_window_limit,
+                        model_name=_cfg().MODEL,
+                    )
+                    # Map any trimmed outputs back to corresponding tool messages (preserve order)
+                    idx = 0
+                    budgeted_list = (
+                        budgeted.get("input", []) if isinstance(budgeted, dict) else []
+                    )
+                    for m in messages:
+                        if m.get("role") == "tool" and isinstance(
+                            m.get("content"), str
+                        ):
+                            if idx < len(budgeted_list):
+                                new_output = budgeted_list[idx].get(
+                                    "output", m.get("content")
+                                )
+                                if isinstance(new_output, str):
+                                    m["content"] = new_output
+                            idx += 1
+
+                    # Recompute estimated tokens and request after trimming and re-validate
+                    estimated_tokens = 0
+                    for msg in messages:
+                        normalized_msg = normalize_message(msg)
+                        estimated_tokens += count_message_tokens(normalized_msg)
+                    reasoning_allowance = (
+                        getattr(_cfg(), "REASONING_MAX_COMPLETION_TOKENS", 0)
+                        if is_reasoning_model(
+                            _cfg().MODEL, getattr(_cfg(), "REASONING_MODEL_PREFIX", None)
+                        )
+                        else 0
+                    )
+                    estimated_request = estimated_tokens + (reasoning_allowance or 0)
+                    try:
+                        validate_tool_message_order(messages)
+                    except ValueError as ve:
+                        logger.error(
+                            f"Message validation failed after token budgeting: {ve}"
+                        )
+                        return None, str(ve)
+            except Exception as be:
+                logger.error(f"Token budgeting failed: {be}", exc_info=True)
 
         # Final validation just before making the completion call
         try:

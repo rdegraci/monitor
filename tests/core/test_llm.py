@@ -210,6 +210,7 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.MODEL = 'gpt-4o'
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 5
+        self.mock_config.MODEL_INPUT_WINDOW = 5
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
@@ -271,7 +272,7 @@ class TestLLMCore(unittest.TestCase):
             resp, err = llm.get_llm_completion()
             self.assertIsNone(resp)
             self.assertIsNotNone(err)
-            self.assertIn('Input too large', err)
+            self.assertIn('Rate limit safety threshold exceeded', err)
             mock_gen.assert_not_called()
             mock_reset.assert_not_called()
             mock_call.assert_not_called()
@@ -304,6 +305,7 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.MODEL = 'gpt-4o'
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 3
+        self.mock_config.MODEL_INPUT_WINDOW = 3
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
@@ -343,6 +345,58 @@ class TestLLMCore(unittest.TestCase):
             self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
             reasoning_command('invalid')
             self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
+
+    def test_token_budgeting_trims_tool_outputs(self):
+        self.mock_config.MODEL = 'openai/gpt-4o'
+        # Set a larger input window so we avoid early rejection and instead
+        # trigger the final budgeting pass (>= 90% of window) that trims tool outputs
+        self.mock_config.MODEL_INPUT_WINDOW = 1000
+        with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
+             patch('monitor.core.llm.count_message_tokens') as mock_count, \
+             patch('monitor.core.llm.call_litellm_completion') as mock_call, \
+             patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl, \
+             patch('monitor.core.llm.token_budgeter') as mock_budget:
+            # Simulate token budgeter trimming tool outputs
+            def fake_budget(params, input_window=None, model_name=None):
+                result = []
+                for item in params.get('input', []):
+                    content = item.get('output', '')
+                    trimmed = (content[:50] + '… [TRUNCATED]') if isinstance(content, str) else content
+                    result.append({'output': trimmed})
+                return {'input': result}
+            mock_budget.side_effect = fake_budget
+
+            # One large tool output and a small user message
+            long_tool_output = 'A' * 5000
+            call_id = 'call_1'
+            mock_prepare.return_value = [
+                {'role': 'assistant', 'tool_calls': [
+                    {'id': call_id, 'type': 'function', 'function': {'name': 'x', 'arguments': '{}'}}
+                ]},
+                {'role': 'tool', 'tool_call_id': call_id, 'content': long_tool_output},
+                {'role': 'user', 'content': 'hi'}
+            ]
+            # Over-count tool outputs to reach ~95% of the input window and trigger the final budgeting pass.
+            def fake_count(m):
+                try:
+                    return 950 if m.get('role') == 'tool' else 1
+                except Exception:
+                    return 1
+            mock_count.side_effect = fake_count
+            mock_rl.wait_if_needed.return_value = True
+            mock_call.return_value = {'choices': [{}], 'usage': {'total_tokens': 10}}
+
+            resp, err = llm.get_llm_completion()
+            self.assertIsNone(err)
+            # Inspect messages passed to completion to ensure trimming occurred
+            called_args, called_kwargs = mock_call.call_args
+            sent_messages = called_args[1]
+            tool_msgs = [m for m in sent_messages if m.get('role') == 'tool']
+            self.assertTrue(len(tool_msgs) >= 1)
+            trimmed_content = tool_msgs[0]['content']
+            # Should be shorter than original and contain truncation marker
+            self.assertLess(len(trimmed_content), len(long_tool_output))
+            self.assertIn('… [TRUNCATED]', trimmed_content)
 
 if __name__ == "__main__":
     unittest.main()

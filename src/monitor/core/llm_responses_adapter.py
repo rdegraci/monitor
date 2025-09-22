@@ -23,6 +23,7 @@ from monitor.lib.llm_utils import (
     )
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.progress import progress_dots
+from monitor.lib.llm_utils import is_reasoning_model
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,6 @@ def configure_responses_adapter():
     global client
     client = OpenAI()
 
-
 def validate_responses_config():
     """Validate that required responses API configuration is present."""
     required_configs = ["MODEL", "RESPONSES_API"]
@@ -130,15 +130,11 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
         params = {REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL)}
 
         # Determine if the current model is a reasoning model to force temperature=1
-        is_reasoning_model = False
+        reasoning_model = False
         try:
-            reasoning_prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
-            model_name = getattr(config, "MODEL", None)
-            if isinstance(reasoning_prefix, str) and reasoning_prefix.strip() and isinstance(model_name, str):
-                if reasoning_prefix.strip().lower() in model_name.lower():
-                    is_reasoning_model = True
+            reasoning_model = is_reasoning_model(getattr(config, "MODEL", None), getattr(config, "REASONING_MODEL_PREFIX", None))
         except Exception:
-            is_reasoning_model = False
+            reasoning_model = False
 
         # Determine input: if a previous response id exists, send only the new user input
         if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
@@ -170,7 +166,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
             logger.debug("Sending prepared messages as input to OpenAI Responses API")
 
         # Add optional parameters only if present in config
-        if is_reasoning_model:
+        if reasoning_model:
             params[REQUEST_PARAM_TEMPERATURE] = 1
         elif getattr(config, "TEMPERATURE", None) is not None:
             params[REQUEST_PARAM_TEMPERATURE] = getattr(config, "TEMPERATURE")
@@ -478,7 +474,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     followup_params[REQUEST_PARAM_INPUT] = function_call_outputs
 
                     # Preserve optional params
-                    if is_reasoning_model:
+                    if reasoning_model:
                         followup_params[REQUEST_PARAM_TEMPERATURE] = 1
                     elif getattr(config, "TEMPERATURE", None) is not None:
                         followup_params[REQUEST_PARAM_TEMPERATURE] = getattr(config, "TEMPERATURE")
@@ -794,7 +790,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                                 try:
                                     summary_input_messages.append({"role": USER_ROLE, "content": summary_instruction})
                                 except Exception:
-                                    summary_input_messages.append({"role": "user", "content": summary_instruction})
+                                    summary_input_messages.append({"role": USER_ROLE, "content": summary_instruction})
 
                                 # Combine typed items and assistant messages into final API input payload: typed items first, then assistant messages/instruction.
                                 try:
@@ -1292,6 +1288,10 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
         # Estimate token count
         estimated_tokens = estimate_response_tokens(messages)
 
+        # Compute estimated request including reasoning completion budget if applicable
+        reasoning_allowance = (getattr(config, "REASONING_MAX_COMPLETION_TOKENS", 0) if is_reasoning_model(getattr(config, "MODEL", None), getattr(config, "REASONING_MODEL_PREFIX", None)) else 0)
+        estimated_request = estimated_tokens + (reasoning_allowance or 0)
+
         # Validate message order
         try:
             validate_tool_message_order(messages)
@@ -1299,24 +1299,24 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
             logger.error(f"Message validation failed for responses API: {ve}")
             return None, str(ve)
 
-        # Check if we're within token limits
-        if hasattr(config, "MODEL_MAX_TPM") and estimated_tokens > config.MODEL_MAX_TPM:
-            error_msg = (
-                f"Input too large: {estimated_tokens} tokens "
-                f"vs model limit {config.MODEL_MAX_TPM}. Cannot send request to responses API. "
-                "Please reduce the size of your input."
-            )
+        # Input window gating for responses API
+        iw = getattr(config, "MODEL_INPUT_WINDOW", None)
+        cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+        input_window_limit = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
+        if input_window_limit is None:
+            logger.debug("Input size gating is disabled: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured (responses API)")
+        elif estimated_tokens > input_window_limit:
+            error_msg = f"Input too large: {estimated_tokens} tokens vs input window {input_window_limit}. Cannot send request to responses API. Please reduce your input or send a smaller request."
             logger.error(error_msg)
             return None, error_msg
 
         # Apply rate limiting if configured
         if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
-            wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
+            wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
             if wait_result is None:
                 error_msg = (
-                    f"Rate limit safety threshold exceeded: {estimated_tokens} tokens. "
-                    f"Model limit {getattr(config, 'MODEL_MAX_TPM', 'unknown')} tokens. "
-                    "Reduce the size of your request."
+                    f"Rate limit safety threshold exceeded: {estimated_request} tokens. "
+                    f"Model TPM limit {config.MODEL_MAX_TPM}. Reduce your input or wait before retrying."
                 )
                 logger.error(error_msg)
                 return None, error_msg
