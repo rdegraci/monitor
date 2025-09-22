@@ -108,6 +108,7 @@ def write_file(path: str, contents: str, overwrite: bool = True) -> bool:
                 logger.warning(f"File already exists & overwrite=False: {write_target}")
             return False
         with open(write_target, 'w', encoding='utf-8') as f:
+            print(f"{yellow}Writing to {write_target}{reset}")
             f.write(contents)
         return True
     except Exception as e:
@@ -147,6 +148,7 @@ def delete_file(path: str) -> bool:
             os.remove(path)
             return True
         else:
+            print(f"{yellow}Removing {path}{reset}")
             os.remove(path)
             return True
     except Exception as e:

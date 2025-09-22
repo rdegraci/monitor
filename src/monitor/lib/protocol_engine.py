@@ -805,7 +805,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             source_file=source_file
         )
         ring_bell()
-        print_func(f"{yellow}\nAnalyzing modifications. {source_file}{reset}")
+        print_func(f"{yellow}\nAnalyzing modifications made to {source_file}{reset}")
 
         return modified_script
     except Exception as e:

@@ -96,7 +96,7 @@ def add_todo(session_id: str, item: str, priority: int = 0, notes: str | None = 
     # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
     save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
     logger.info(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
-    print(f"Added TODO item for session_id={session_id}: item={item}, priority={priority}, notes={notes}")
+    print(f"* Added work item: {item}\n  - {notes}")
     response = {
         "ok": True,
         "action": "add_todo",
@@ -131,7 +131,7 @@ def list_todos(session_id: str) -> str:
         if isinstance(_item, dict) and "notes" not in _item:
             _item["notes"] = ""
     logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
-    print(f"Listed TODOS for session_id={session_id}: found {len(todos)} item(s)")
+    print(f"Listed work items.")
     return json.dumps(todos)
 
 def update_todo(session_id: str, index: int, status: str = "done", notes: str | None = None) -> str:
@@ -194,7 +194,6 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
             todos[index]["notes"] = notes
         save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
         logger.info(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
-        print(f"Updated TODO for session_id={session_id}, index={index}, status={status}: update succeeded")
         resp = {
             "ok": True,
             "action": "update_todo",
@@ -227,7 +226,6 @@ def clear_todos(session_id: str) -> str:
     key = _get_todo_key(session_id)
     clear_todo_from_memory(key)
     logger.info(f"Cleared todos for session_id={session_id}")
-    print(f"Cleared TODOs for session_id={session_id}")
     response = {
         "ok": True,
         "action": "clear_todos",

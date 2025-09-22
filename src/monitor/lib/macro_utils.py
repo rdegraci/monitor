@@ -6,6 +6,8 @@ import os
 import re
 import tkinter
 
+from monitor.lib.colors import print_blue
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,9 +87,9 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
     """
     logger.debug("Entering recursive_macro_expand with macro: %s", macro)
 
-    TCL_MACRO_MAIN_REGEX = re.compile(
-        r'^\s*(?:\(tcl\s+(.+)\)|tcl\s+(.+))\s*$', re.DOTALL
-    )
+    open_escaped = re.escape(delim_open)
+    close_escaped = re.escape(delim_close)
+    TCL_MACRO_MAIN_REGEX = re.compile(rf'^\s*(?:{open_escaped}tcl\s+(.+){close_escaped}|tcl\s+(.+))\s*$', re.DOTALL)
 
     def unescape_literal_parens(text):
         """Unescape any delim-escaped parentheses and general delimiters, converting them to literal characters.
@@ -381,6 +383,9 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
 
         if any_expansions or macro_expansion != macro:
             logger.info("Macro expansion: %s", str(macro_expansion))
+
+        print_blue(macro_expansion)
+
         return macro_expansion
 
     except Exception as e:
