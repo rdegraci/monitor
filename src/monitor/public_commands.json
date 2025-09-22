@@ -325,5 +325,17 @@
   {
     "command": "diff",
     "description": "compare files line by line"
+  },
+  {
+    "command": "open",
+    "description": "Open files in MacOS"
+  },
+  {
+    "command": "sh",
+    "description": "run a shell command"
+  },
+  {
+    "command": "zsh",
+    "description": "run a z-shell command"
   }
 ]

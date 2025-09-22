@@ -7,4 +7,3 @@
 - Always add Doc Comment doc strings to every new Swift function. Prefer the /// commenting style.
 - Do not remove comments from the source code if the comments are accurate.
 - Make sure that the code changes are architectually sound and follow best practices.
-- For Swift, prefer injection of a Closure which returns a Bool value instead of adding an Object to the initializer, when calling a function of that Object to check for a Boolean value.
