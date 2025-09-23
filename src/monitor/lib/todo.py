@@ -131,7 +131,6 @@ def list_todos(session_id: str) -> str:
         if isinstance(_item, dict) and "notes" not in _item:
             _item["notes"] = ""
     logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
-    print(f"Listed work items.")
     return json.dumps(todos)
 
 def update_todo(session_id: str, index: int, status: str = "done", notes: str | None = None) -> str:
