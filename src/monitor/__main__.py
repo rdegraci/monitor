@@ -10,8 +10,10 @@ def ensure_user_config_file(src_filename, dest_filename):
     config_dir = appdirs.user_config_dir("monitor")
     os.makedirs(config_dir, exist_ok=True)
     dest = os.path.join(config_dir, dest_filename)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     if not os.path.exists(dest):
-        with importlib.resources.path("monitor", src_filename) as src:
+        resource = importlib.resources.files("monitor").joinpath(src_filename)
+        with importlib.resources.as_file(resource) as src:
             shutil.copy(str(src), dest)
         print(f"Copied default {src_filename} to {dest}")
 
