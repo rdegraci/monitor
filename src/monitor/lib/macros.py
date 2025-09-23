@@ -33,6 +33,7 @@ public_macro_values = {
     "do_diff": "Examine the files that have been modified, using the perform_git_diff tool.",
     "git_entry": """
     Provide a git commit title, with a max of 50 characters and a body that describes the changes.
+    The body should be broken up into paragraphs.
     If the changes are a fix, use "Fix <bug description>" as the title. 
     If the changes are adding a new feature, use "Add <feature>" as the title.
     If the changes are a refactor, use "Refactor <component>" as the title.
