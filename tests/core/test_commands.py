@@ -28,12 +28,12 @@ def test_is_interactive_command_not_found():
 
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': 'someexp'}], create=True)
 def test_is_internal_command_found():
-    with patch('monitor.core.commands.internal_commands', [{'command': 'bar', 'expansion': 'someexp'}]):
+    with patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': 'someexp'}]):
         cmd = commands.is_internal_command('bar')
         assert cmd['expansion'] == 'someexp'
 
 def test_is_internal_command_not_found():
-    with patch('monitor.core.commands.internal_commands', [{'command': 'baz', 'expansion': 'x'}]):
+    with patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'baz', 'expansion': 'x'}]):
         cmd = commands.is_internal_command('bar')
         assert cmd is None
 
@@ -57,20 +57,20 @@ def test_print_interactive_commands(capsys):
     assert 'h1' in out and 'h2' in out
     assert '***' in out
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'bar', 'expansion': 'exp', 'internalize': True}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': 'exp', 'internalize': True}])
 @patch('monitor.core.commands.recursive_macro_expand', lambda exp, *_: exp)
 def test_execute_internal_command_internalize():
     display = MagicMock()
     commands.execute_internal_command('bar somearg', display)
     display.assert_called_with('output')
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'bar', 'expansion': '!<echo raw', 'internalize': False}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': '!<echo raw', 'internalize': False}])
 def test_execute_internal_command_no_macro():
     display = MagicMock()
     with patch('monitor.core.commands.run_subprocess', return_value=(0, 'plain', '', None)):
         commands.execute_internal_command('bar k', display)
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'bar', 'expansion': 'exp', 'internalize': False}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': 'exp', 'internalize': False}])
 def test_execute_internal_command_exitcode_warns():
     display = MagicMock()
     # exit_code != 0, stderr returned
@@ -79,7 +79,7 @@ def test_execute_internal_command_exitcode_warns():
         commands.execute_internal_command('bar', display)
         assert mocklog.warning.called
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'notfound', 'expansion': 'exp', 'internalize': False}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'notfound', 'expansion': 'exp', 'internalize': False}])
 def test_execute_internal_command_unknown():
     display = MagicMock()
     commands.execute_internal_command('noexist foo', display)
@@ -87,14 +87,14 @@ def test_execute_internal_command_unknown():
     from monitor.core import commands as cmds
     assert cmds.handle_error.called
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'exp', 'expansion': 'bad', 'internalize': True}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'exp', 'expansion': 'bad', 'internalize': True}])
 @patch('monitor.core.commands.recursive_macro_expand', side_effect=Exception('macrofail'))
 def test_execute_internal_command_macro_error(mock_macro):
     display = MagicMock()
     # We expect handle_error to be called
     commands.execute_internal_command('exp foo', display)
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
 def test_llm_internal_command_success():
     # Arrange
     shell_code = "echo hello"
@@ -112,7 +112,7 @@ def test_llm_internal_command_success():
         assert mock_query.called, "query was not called -- ensure patch path matches actual import location in commands.py"
         display.assert_called_once_with("llm result")
 
-@patch('monitor.core.commands.internal_commands', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
+@patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
 def test_llm_internal_command_missing_shell():
     # Arrange: no shell code before >llm, should handle error
     cmd_line = "llm<   >llm why is this broken"
