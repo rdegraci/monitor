@@ -809,7 +809,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
 
         return modified_script
     except Exception as e:
-        print_func(f"{yellow}Failed to implement modifications to {source_file}.\nAttempting to re-modify.{reset}")
+        print_func(f"{red}\nFailed to implement modifications to {source_file}.{reset}\n{red}Attempting to re-modify.{reset}")
         logger.debug("Error in modify_source_code: %s", str(e))
         
         # Return error message instead of raising exception to maintain tool contract
