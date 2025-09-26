@@ -523,8 +523,8 @@ def configure_globals():
     OLD_MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
 
     macro_delims = yaml_config.get("macro_delimiters", {})
-    MACRO_DELIMITER_OPEN = macro_delims.get("open", "(")
-    MACRO_DELIMITER_CLOSE = macro_delims.get("close", ")")
+    MACRO_DELIMITER_OPEN = macro_delims.get("open", "{{")
+    MACRO_DELIMITER_CLOSE = macro_delims.get("close", "}}")
     MACRO_DELIMITER_ESCAPE = macro_delims.get("escape", "\\")
     MACRO_FILE_PATH = _safe_expanduser(yaml_config.get("MACRO_FILE"))
 

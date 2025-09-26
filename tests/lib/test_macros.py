@@ -51,7 +51,7 @@ class TestMacros(unittest.TestCase):
     def test_public_macro_values_exist(self):
         """Test that public macro values are properly defined."""
         expected_keys = [
-            'do_diff', 'git_entry', 'diff', 'diffprevious', 'xdiff', 
+            'do_diff', 'create_git_entry', 'diff', 'diffprevious', 'xdiff', 
             'rank_examine', 'plan', 'wdyt'
         ]
         
@@ -61,16 +61,28 @@ class TestMacros(unittest.TestCase):
 
     def test_macro_values_contain_nested_references(self):
         """Test that some macro values contain references to other macros."""
-        # Test that some macros reference other macros using parentheses syntax
+        # Test that some macros reference other macros using configured delimiters or legacy parentheses syntax
         nested_macros = [
             'diff'
         ]
+        # Prepare candidate delimiter pairs: configured, default '{{','}}', and legacy '(' , ')'
+        candidate_pairs = []
+        configured_open = getattr(config, 'MACRO_DELIMITER_OPEN', None)
+        configured_close = getattr(config, 'MACRO_DELIMITER_CLOSE', None)
+        if configured_open is not None and configured_close is not None:
+            candidate_pairs.append((configured_open, configured_close))
+        # Always include defaults and legacy
+        candidate_pairs.append(('{{', '}}'))
+        candidate_pairs.append(('(', ')'))
         
         for macro in nested_macros:
             if macro in macros.PUBLIC_MACRO_VALUES:
                 value = macros.PUBLIC_MACRO_VALUES[macro]
-                self.assertTrue('(' in value and ')' in value, 
-                               f"Macro '{macro}' should contain nested references")
+                contains_any = any((open_delim in value) and (close_delim in value) for open_delim, close_delim in candidate_pairs)
+                self.assertTrue(
+                    contains_any, 
+                    "Macro '{}' should contain nested references using any of the configured delimiters, defaults '{{' '}}', or legacy parentheses".format(macro)
+                )
 
     @patch('monitor.lib.macros.update_macros')
     def test_configure_macros(self, mock_update_macros):

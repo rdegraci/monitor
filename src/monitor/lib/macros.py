@@ -1,4 +1,3 @@
-
 """Handles macro orchestration, configuration, global macro state, and all CLI/user commands. Calls stateless helpers from macro_utils."""
 
 import json
@@ -26,29 +25,19 @@ PRIVATE_MACRO_VALUES = {
     "system?": "Are you awake and operational?",
     "memories?": "What are your memories?",
     "purpose?": "What is your purpose?",
-    "self_test": "what is the weather in san diego, ca in F? (purpose?) (memories?)",
+    "self_test": "what is the weather in san diego, ca in F? {{purpose?}} {{memories?}}",
 }
 
 # Useful macros, these are visible when dumping macros via the 'macros' built in command.
 PUBLIC_MACRO_VALUES = {
-    "do_diff": "Examine the files that have been modified, using the perform_git_diff tool.",
-    "git_entry": """
-    Provide a git commit title, with a max of 50 characters and a body that describes the changes.
-    The body should be broken up into paragraphs.
-    If the changes are a fix, use "Fix <bug description>" as the title. 
-    If the changes are adding a new feature, use "Add <feature>" as the title.
-    If the changes are a refactor, use "Refactor <component>" as the title.
-    Display this as plain text with no Markdown formatting. 
-    Do not prepend the title with Title: and do not prepend the body with Body: just provide the content. 
-    There should be one blank line after the title.
-    The git commit body will be read by a tool to analyze Git commits within a branch and builds a contextual understanding of what is happening in the development process, therefore the body should provide comprehensive context. 
-    """,
-    "diff": "(do_diff) (git_entry)",
+    "do_diff": "Examine the files that have been modified, using the perform_git_diff tool",
+    "create_git_entry": "Provide a git commit title, with a max of 50 characters and a body that describes the changes. The body should be broken up into paragraphs. If the changes are a fix, use \"Fix <bug description>\" as the title.  If the changes are adding a new feature, use \"Add <feature>\" as the title. If the changes are a refactor, use \"Refactor <component>\" as the title. Display this as plain text with no Markdown formatting. Do not prepend the title with Title: and do not prepend the body with Body: just provide the content. There should be one blank line after the title. The git commit body will be read by a tool to analyze Git commits within a branch and builds a contextual understanding of what is happening in the development process, therefore the body should provide comprehensive context",
+    "rank_examine": "Rank what to examine next",
+    "diff": "{{do_diff}} {{create_git_entry}}",
     "diffprevious": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
     "xdiff": "Use the git show tool to examine the source code changes for the following hash or branch name: ",
-    "rank_examine": "(rank_improvements) for: ",
-    "plan": "Give me a step by step plan.",
-    "wdyt": "Tell me what do you think.",
+    "plan": "Give me a step by step plan",
+    "wdyt": "Tell me what do you think",
 }
 
 def configure_macros():
@@ -185,4 +174,3 @@ def open_macros_editor():
         error_msg = f"{red}Failed to open macros file for editing: {exc}{reset}"
         print(error_msg)
         logger.error(error_msg, exc_info=True)
-

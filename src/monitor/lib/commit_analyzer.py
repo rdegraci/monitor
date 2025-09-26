@@ -311,8 +311,9 @@ def build_commit_message_query_input(
     Returns:
         str: The macro-expanded query input.
     """
+    macro = f"{macro_delim_open}create_git_entry{macro_delim_close} and then only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'"
     git_entry_macro_expanded = recursive_macro_expand(
-        "(git_entry) and then only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'",
+        macro,
         macro_values,
         macro_delim_open,
         macro_delim_close,
