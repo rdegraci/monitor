@@ -510,6 +510,6 @@ Monitor is open source, distributed under the MIT License. See `LICENSE` for ful
 ## Contact
 
 For issues or feature requests, please file an issue on GitHub:  
-https://github.com/YOUR_ORG/monitor3
+https://github.com/rdegraci/monitor
 
 For architectural details and advanced extension, consult `docs/ARCHITECTURE.md` and `docs/CORE_README.md`.

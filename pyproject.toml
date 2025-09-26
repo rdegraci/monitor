@@ -3,11 +3,11 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "monitor"
+name = "monitor_rdegraci2025"
 version = "1.0.0"
 description = "A modular LLM Command-line Assistant"
-license = { text = "MIT" }
-urls = { Homepage = "https://rodneydegracia.com" }
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
 authors = [
     { name = "Rodney Degracia", email = "rdegraci@gmail.com" }
 ]
@@ -40,6 +40,10 @@ dependencies = [
     "requests==2.32.3",
     "joblib==1.4.2"
 ]
+
+[project.urls]
+Homepage = "https://github.com/rdegraci/monitor"
+Issues = "https://github.com/rdegraci/monitor/issues"
 
 [project.scripts]
 monitor = "monitor.__main__:main"
