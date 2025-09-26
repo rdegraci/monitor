@@ -383,8 +383,7 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
 
         if any_expansions or macro_expansion != macro:
             logger.info("Macro expansion: %s", str(macro_expansion))
-
-        print_blue(macro_expansion)
+            print_blue(macro_expansion)
 
         return macro_expansion
 
