@@ -29,6 +29,7 @@ No test code or run-on-main logic will be present in this file.
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+import appdirs
 
 from monitor import config
 
@@ -36,14 +37,17 @@ DEFAULT_LOGGING = {
     'level': 'INFO',
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     'date_format': '%Y-%m-%d %H:%M:%S',
-    'log_dir': os.path.expanduser('~/Library/Application Support/monitor/logs'),
+    'log_dir': os.path.join(appdirs.user_config_dir('monitor'), 'logs'),
     'app_log_filename': 'app.log',
     'conversation_log_filename': 'conversation.log',
     'console_logging_enabled': True,
     'max_bytes': 5 * 1024 * 1024,  # 5 MB
     'backup_count': 3,
-    'log_encoding': 'utf-8',
+    'encoding': 'utf-8',
 }
+
+# Ensure file_path exists in DEFAULT_LOGGING to avoid KeyError in _load_logging_config.
+DEFAULT_LOGGING['file_path'] = os.path.join(DEFAULT_LOGGING['log_dir'], DEFAULT_LOGGING['app_log_filename'])
 
 def _load_logging_config():
     """
@@ -63,7 +67,7 @@ def _load_logging_config():
         'max_bytes': 'LOG_MAX_BYTES',
         'backup_count': 'LOG_BACKUP_COUNT',
         'console_logging_enabled': 'CONSOLE_LOGGING_ENABLED',
-        'log_encoding': 'LOG_ENCODING',
+        'encoding': 'LOG_ENCODING',
     }
 
     # Populate loaded_config with values from config.py globals if available, otherwise use defaults.

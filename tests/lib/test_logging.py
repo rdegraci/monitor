@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
+import appdirs
+import re
 
 import monitor.lib.logging as app_logging
 
@@ -108,6 +110,38 @@ class TestLoggingConfig(unittest.TestCase):
         # Handler count should remain stable across repeated calls
         self.assertEqual(first_count, second_count)
         self.assertGreaterEqual(mock_file_handler.call_count, 2)
+
+    @patch("monitor.lib.logging.RotatingFileHandler")
+    @patch("monitor.lib.logging.os.makedirs")
+    def test_default_log_directory_used(self, mock_makedirs, mock_file_handler):
+        # Simulate config without LOG_FILE_PATH by setting it to None
+        fake_config = SimpleNamespace(
+            LOGGING_LEVEL="INFO",
+            LOG_FILE_PATH=None,
+            LOG_FORMAT="%(message)s",
+            LOG_DATE_FORMAT="%S",
+            LOG_MAX_BYTES=1000,
+            LOG_BACKUP_COUNT=1,
+            CONSOLE_LOGGING_ENABLED=False,
+            LOG_ENCODING="utf-8",
+        )
+        with patch.object(app_logging, "config", fake_config):
+            # Clear handlers and configure
+            root = app_logging.logging.getLogger()
+            for h in root.handlers[:]:
+                root.removeHandler(h)
+            mock_file_handler.return_value.level = app_logging.logging.NOTSET
+            app_logging.configure_logging()
+
+        called_path = mock_file_handler.call_args.kwargs.get("filename") or mock_file_handler.call_args.args[0]
+        base_dir = appdirs.user_config_dir("monitor")
+        expected_logs_dir = os.path.join(base_dir, "logs")
+        # Ensure the constructed path contains the default 'logs' directory under the app config dir
+        self.assertIn(expected_logs_dir, called_path)
+        # Ensure log filename contains 'app' (default app log filename) and an injected pid (digits)
+        basename = os.path.basename(called_path)
+        self.assertIn("app", basename)
+        self.assertRegex(basename, r"_\d+")
 
     def test_get_logger_returns_named_logger(self):
         logger = app_logging.get_logger("monitor.test")

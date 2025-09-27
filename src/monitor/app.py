@@ -94,7 +94,7 @@ def _reset_config(force: bool = False):
         if not exists or user_input in ("y", "yes"):
             backup_path = None
             if exists:
-                dt = datetime.now().strftime("%Y%m%d_%H%M%S")
+                dt = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
                 backup_path = user_path + f".bak_{dt}"
                 try:
                     shutil.move(user_path, backup_path)
