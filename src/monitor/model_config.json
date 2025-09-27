@@ -86,15 +86,25 @@
     "grok4": 1,
     "grok3": 1,
     "gemini20": 1,
-    "gpt5": 4,
-    "gpt5-mini": 4
+    "gpt5": "chatgpt5-4",
+    "gpt5-mini": "chatgpt5-mini-4"
   },
   "openai_model_tpm_tier": {
     "1": 30000,
     "2": 450000,
     "3": 800000,
     "4": 2000000,
-    "5": 30000000
+    "5": 30000000,
+    "chatgpt5-1": 500000,
+    "chatgpt5-2": 1000000,
+    "chatgpt5-3": 2000000,
+    "chatgpt5-4": 4000000,
+    "chatgpt5-5": 40000000,
+    "chatgpt5-mini-1": 500000,
+    "chatgpt5-mini-2": 2000000,
+    "chatgpt5-mini-3": 4000000,
+    "chatgpt5-mini-4": 10000000,
+    "chatgpt5-mini-5": 180000000
   },
   "anthropic_model_tpm_tier": {
     "1": 20000,
