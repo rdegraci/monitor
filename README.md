@@ -21,7 +21,7 @@ Monitor is ideal for software professionals who need a safe, auditable, and scri
 
 - Python 3.10+
 - pip (latest recommended)
-- Supported OS: Linux, macOS, Windows 10/11
+- Supported OS: macOS
 
 ## Installation
 
@@ -44,8 +44,165 @@ Monitor provides a console script entry point so it can be installed as a normal
    The installation registers a `monitor` console script (via pyproject/setup) so you can launch Monitor directly from your shell.
 
 ---
-**Note:** On the first run after installation, Monitor may take several minutes to initialize libraries and large dependencies. This is expected and happens only once. The app will display a warning message the first time to notify you of this.
+**Note:** On the first run after installation, Monitor may take several minutes to initialize libraries and large dependencies. This is expected and happens only once.
 ---
+
+## Platform setup
+
+Below are explicit, copy-paste ready commands to install common system dependencies required to run Monitor and its optional helper tooling. The primary focus is macOS (Homebrew), with Debian/Ubuntu Linux instructions and two options for Windows (Chocolatey and winget). These commands cover audio support (PortAudio / PyAudio), libmagic (file type detection), ffmpeg (media processing), graphviz (graph rendering), ripgrep (fast search), redis (optional persistence), duckdb (optional DB helper), and build tools where needed.
+
+Note: Run these commands in a terminal/shell with appropriate privileges (sudo on Linux/macOS when shown). For Windows, run the terminal as Administrator for Chocolatey or winget installation actions.
+
+### macOS (Homebrew - recommended)
+
+If you do not have Homebrew installed: https://brew.sh/
+```
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install developer tools, libraries, and utilities:
+```
+# Xcode command line tools (build tools)
+xcode-select --install
+
+# Update Homebrew
+brew update
+
+# Install runtime and build dependencies:
+brew install pkg-config portaudio libmagic ffmpeg graphviz ripgrep redis duckdb
+
+# Optionally install other useful tools:
+brew install git
+
+# Start Redis (if you want a local Redis for memory)
+brew services start redis
+```
+
+Python/PyAudio on macOS:
+```
+# Upgrade packaging tools
+python3 -m pip install --upgrade pip setuptools wheel
+
+# Install PyAudio (PortAudio is provided by Homebrew)
+python3 -m pip install pyaudio
+```
+
+### Debian / Ubuntu (Linux)
+
+Update and install core build tools and libraries:
+```
+# Update package lists
+sudo apt update
+
+# Install build tools, Python dev headers, and common libraries
+sudo apt install -y build-essential pkg-config python3-dev python3-venv python3-pip \
+                    libffi-dev libssl-dev libsndfile1 ffmpeg graphviz ripgrep \
+                    redis-server duckdb libmagic1 libmagic-dev portaudio19-dev
+```
+
+Start Redis if you installed it:
+```
+sudo systemctl enable --now redis-server
+```
+
+Python / PyAudio on Debian/Ubuntu:
+```
+# Upgrade packaging tools and install package
+python -m pip install --upgrade pip setuptools wheel
+pip install pyaudio
+```
+
+Notes:
+- libmagic: libmagic1 provides runtime; libmagic-dev provides headers for building python-magic where needed.
+- portaudio19-dev is required to build PyAudio from source.
+- If your distribution provides 'duckdb' in apt, the package above will install it; otherwise install DuckDB via pip (`pip install duckdb`) or download the binary.
+
+### Windows (Chocolatey)
+
+Install Chocolatey (if not already installed). Open an Administrator PowerShell and run:
+```
+Set-ExecutionPolicy Bypass -Scope Process -Force; `
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
+iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+```
+
+Install tooling and dependencies via Chocolatey:
+```
+# Install core tools and libraries
+choco install -y python git ffmpeg graphviz ripgrep duckdb
+
+# Redis (Windows port; for local testing)
+choco install -y redis-64
+
+# Visual Studio Build Tools (for compiling Python wheels)
+choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+# Optional: install pkg-config-lite for some native builds
+choco install -y pkgconfiglite
+```
+
+Python / PyAudio on Windows (pipwin recommended for prebuilt wheels):
+```
+# Ensure pip is upgraded
+python -m pip install --upgrade pip setuptools wheel
+
+# Install pipwin (helps install PyAudio binary wheels on Windows)
+python -m pip install pipwin
+python -m pipwin install pyaudio
+```
+
+If you prefer to install PyAudio from a wheel manually, visit Christoph Gohlke's Windows binaries (https://www.lfd.uci.edu/~gohlke/pythonlibs/) and download the appropriate PyAudio wheel for your Python version and architecture, then install with:
+```
+python -m pip install path\to\PyAudio‑<version>.whl
+```
+
+If you installed Redis via Chocolatey, start the service (run as Administrator):
+```
+# Redis installed via chocolatey often installs as a service; start it:
+net start Redis
+```
+
+### Windows (winget)
+
+If you prefer winget (Windows Package Manager), open an elevated Command Prompt or PowerShell:
+
+Install core tools:
+```
+# Install Python (if needed)
+winget install -e --id Python.Python.3
+
+# Install Git
+winget install -e --id Git.Git
+
+# FFmpeg
+winget install -e --id ffmpeg.ffmpeg
+
+# Graphviz
+winget install -e --id Graphviz.Graphviz
+
+# ripgrep
+winget install -e --id BurntSushi.ripgrep
+
+# DuckDB (community package if available)
+winget install -e --id DuckDB.DuckDB
+
+# Visual Studio Build Tools 2022
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools
+```
+
+For Redis on Windows via winget, there may not be an official package; prefer Chocolatey for Redis on Windows, or run Redis in WSL/Docker for development.
+
+After tool installation, use pip/pipwin for PyAudio as shown in the Chocolatey section.
+
+### Notes and recommendations
+
+- Prefer native package managers (Homebrew on macOS, apt on Debian/Ubuntu) for system libraries and long-running services like Redis.
+- On Windows, pipwin simplifies installing PyAudio; Visual Studio Build Tools are required if you must compile wheels from source.
+- If you encounter issues with libmagic on Windows, use the `python-magic-bin` or `python-magic` packages that include Windows-compatible binaries, or install the file utility via MSYS2/WSL.
+- DuckDB is available both as a system package and a Python package (`pip install duckdb`). Use the Python package if you do not need the system CLI.
+- If you use Docker/WSL on Windows, you can prefer installing Linux versions of these dependencies inside your Linux container/VM for parity.
+
+If you need help tailoring these commands to your exact OS version or environment (e.g., corporate Windows images, Apple Silicon macs, or minimal Linux containers), consult your platform package manager documentation or ask for platform-specific adjustments.
 
 ## How Monitor is run
 
@@ -172,12 +329,17 @@ Monitor exposes a minimal, OpenAI-compatible REST surface for simple integration
 
 ## Logging and Conversation Storage
 
-- Application logs and conversation logs are stored under the user config directory (see OS-specific paths):
+- Application logs and conversation logs are stored under the user config directory (see OS-specific paths above):
   - (Linux example) ~/.config/monitor/logs/
   - (macOS example) ~/Library/Application Support/monitor/logs/
   - (Windows example) %APPDATA%/monitor/logs/
 - Logs include CLI/API invocations, LLM prompts and completions, macro executions, and other audit information.
 - Configure alternate log directories via `config.yaml` in your user config directory.
+
+Defaults and naming conventions:
+- Default log directory: appdirs.user_config_dir('monitor')/logs — Monitor uses the platform-appropriate user config directory plus "logs" by default (see examples above).
+- Default app log filename: app.log. The logging system may inject the process id (PID) into the filename when needed (for example: app.log or app-12345.log) to avoid collisions when multiple instances run.
+- Config backup filenames: backups use UTC timestamps with a 'T' separator and a trailing 'Z' in the suffix. Example backup name: originalfilename.bak_20250810T153045Z (UTC).
 
 ## Environment (.env) loading order
 
@@ -233,7 +395,7 @@ Redis is optional and used when configured as a persistence or registry backend 
   ```
 - Linux (apt):
   ```
-  sudo apt install redis
+  sudo apt install redis-server
   redis-server
   ```
 - Windows:
