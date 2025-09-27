@@ -1,5 +1,7 @@
 import logging
 import json
+import threading
+import signal
 from openai import OpenAI
 
 from monitor import config
@@ -78,6 +80,7 @@ MAX_FUNCTION_CALL_ITERATIONS = 256
 SUMMARY_MAX_OUTPUT_TOKENS = 2048
 
 def configure_responses_adapter():
+    """Configure the OpenAI client for Responses API usage."""
     global client
     client = OpenAI()
 
@@ -97,17 +100,82 @@ def validate_responses_config():
 
     logger.debug("Responses API configuration validated successfully")
 
+def _cancellable_responses_create(create_callable, params, progress_label=None):
+    """Execute OpenAI Responses API call in a background thread, allowing Ctrl-C to cancel.
+
+    This helper starts the provided create_callable(**params) in a daemon thread and
+    temporarily sets the SIGINT handler to the default KeyboardInterrupt-raising handler
+    while waiting. If the user presses Ctrl-C, a KeyboardInterrupt will be raised,
+    allowing callers to handle cancellation (e.g., return control to the caller).
+
+    Args:
+        create_callable: Callable to invoke (typically client.responses.create).
+        params (dict): Parameters to pass to the callable.
+        progress_label (str | None): Optional label to display with progress_dots.
+
+    Returns:
+        Any: The result returned by the callable on success.
+
+    Raises:
+        KeyboardInterrupt: If the user cancels with Ctrl-C during the wait.
+        Exception: Any error raised by the callable is propagated.
+    """
+    result_container = {"result": None, "error": None}
+
+    def target():
+        try:
+            result_container["result"] = create_callable(**params)
+        except Exception as e:
+            result_container["error"] = e
+
+    thread = threading.Thread(target=target, name="OpenAIResponsesCreate", daemon=True)
+
+    # Save and set SIGINT handler to default to ensure Ctrl-C raises KeyboardInterrupt
+    prev_handler = None
+    try:
+        try:
+            prev_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+        except Exception:
+            # If not in the main thread or setting signal fails, continue without changing handler
+            prev_handler = None
+
+        # Start the worker thread only after setting the temporary SIGINT handler
+        thread.start()
+
+        # Use progress dots while waiting
+        ctx = progress_dots(progress_label) if progress_label is not None else progress_dots()
+        with ctx:
+            while thread.is_alive():
+                thread.join(0.1)
+        if result_container["error"] is not None:
+            raise result_container["error"]
+        return result_container["result"]
+    finally:
+        # Restore original SIGINT handler
+        if prev_handler is not None:
+            try:
+                signal.signal(signal.SIGINT, prev_handler)
+            except Exception:
+                pass
+
 def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
-    """Make the actual call to the responses API via OpenAI Responses API.
+    """Make the actual call to the OpenAI Responses API.
+
+    This method supports cancellable behavior: pressing Ctrl-C during any Responses API call
+    will raise KeyboardInterrupt, allowing the caller to handle cancellation (e.g., by returning
+    (None, "Cancelled by user")).
 
     Args:
         messages (list): Prepared messages for the API
+        tool_descriptions (list): Available tool specifications for the current model
+        gemini_tool_descriptions (list): Alternative tool specifications (for Gemini models)
 
     Returns:
         dict: Normalized response wrapper suitable for convert_response_format
 
     Raises:
-        Exception: Any API-related errors
+        Exception: Any API-related errors (KeyboardInterrupt will propagate for cancellation)
     """
     try:
         logger.debug("Calling responses API via OpenAI client")
@@ -191,9 +259,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
         else:
             logger.debug("No tools available for responses API call")
 
-        # Call OpenAI Responses API (initial call)
-        with progress_dots():
-            response = client.responses.create(**params)
+        # Call OpenAI Responses API (initial call) with cancellable helper
+        response = _cancellable_responses_create(client.responses.create, params)
 
         logger.debug("Successfully received response from OpenAI Responses API")
 
@@ -509,8 +576,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                         )
                     else:
                         logger.debug(f"Skipping token budgeting: invalid MODEL_INPUT_WINDOW={iw!r}")
-                    with progress_dots():
-                        followup_response = client.responses.create(**followup_params)
+
+                    # Follow-up call with cancellable helper
+                    followup_response = _cancellable_responses_create(client.responses.create, followup_params)
 
                     logger.debug("Received follow-up response from OpenAI Responses API")
 
@@ -1065,8 +1133,10 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                                 logger.debug("Failed to estimate tokens for summarization payload before sending")
                         except Exception:
                             logger.exception("Failed building estimation messages for summarization payload")
-                        with progress_dots("Summarizing "):
-                            summary_response = client.responses.create(**summary_params)
+
+                        # Summarization call with cancellable helper and label
+                        summary_response = _cancellable_responses_create(client.responses.create, summary_params, progress_label="Summarizing ")
+
                         logger.debug("Received summarization follow-up response from OpenAI Responses API")
 
                         # Persist summary response id
@@ -1264,17 +1334,21 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
     2. Prepares messages
     3. Estimates tokens
     4. Validates messages
-    5. Calls responses API
+    5. Calls responses API (cancellable via Ctrl-C)
     6. Processes response
     7. Updates token usage
 
+    Ctrl-C will cancel an in-flight API wait and return (None, "Cancelled by user").
+
     Args:
         user_input (str): The user's input/query
+        tool_descriptions (list): Tool specifications for the current model
+        gemini_tool_descriptions (list): Alternative tool specifications (for Gemini models)
         log_prefix (str): Prefix for log messages
         error_message (str): Default error message
 
     Returns:
-        tuple: (response, error_message) where response is None on error
+        tuple: (response, error_message) where response is None on error or cancellation
     """
     try:
         logger.debug(f"{log_prefix} Starting responses API completion")
@@ -1322,7 +1396,23 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
                 return None, error_msg
 
         # Call responses API
-        api_response = call_responses_api(messages, tool_descriptions, gemini_tool_descriptions)
+        try:
+            api_response = call_responses_api(messages, tool_descriptions, gemini_tool_descriptions)
+        except KeyboardInterrupt:
+            logger.info("Responses API call cancelled by user via Ctrl-C")
+            # Conservative token accounting on cancellation
+            try:
+                update_token_usage(estimated_request)
+                logger.debug(f"Conservatively updated token usage with {estimated_request} tokens on cancellation")
+            except Exception:
+                logger.exception("Failed to conservatively update token usage on cancellation")
+            try:
+                if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
+                    rate_limiter.RATE_LIMITER.add_request(estimated_request)
+                    logger.debug(f"Conservatively added cancellation request of {estimated_request} tokens to rate limiter")
+            except Exception:
+                logger.exception("Failed to conservatively add cancellation request to rate limiter")
+            return None, "Cancelled by user"
 
         # Convert response format
         response = convert_response_format(api_response)
@@ -1339,6 +1429,8 @@ def get_response_initial_completion(user_input, tool_descriptions, gemini_tool_d
 
     Args:
         user_input (str): The user's input/query
+        tool_descriptions (list): Tool specifications for the current model
+        gemini_tool_descriptions (list): Alternative tool specifications (for Gemini models)
 
     Returns:
         tuple: (response, error_message) where response is None on error

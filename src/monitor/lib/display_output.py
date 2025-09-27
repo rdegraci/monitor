@@ -1,4 +1,3 @@
-
 # NOTE: No direct or legacy token counting or usage estimation logic exists in this file. 
 # If token logic is required in the future, use count_message_tokens and update_token_usage from monitor.lib/token_management.py. 
 
@@ -30,6 +29,8 @@ def display_query_result(output_string, update_history_count=None):
         update_history_count (callable, optional): If provided, will be called to update history count.
     """
     logger.debug("Displaying query result for input...")
+    if output_string is not None and not isinstance(output_string, str):
+        logger.warning(f"display_query_result received non-string output: {type(output_string).__name__}")
     highlightMarkdown(output_string)
     if update_history_count is not None:
         update_history_count()
@@ -37,6 +38,12 @@ def display_query_result(output_string, update_history_count=None):
 def highlightMarkdown(query_result):
     if query_result is None:
         print(f"\n{red}No query result.{reset}")
+        return
+    if not isinstance(query_result, str):
+        try:
+            logger.debug(f"highlightMarkdown received non-string output: {type(query_result).__name__}")
+        except Exception:
+            pass
         return
     highlighted_output = highlight(query_result, MarkdownLexer(), TerminalFormatter(reset=True))
     print(f"\n{yellow}STX{reset}")
@@ -94,6 +101,3 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     reasoning_str = effort if isinstance(model, str) and prefix and (prefix in model) else ""
 
     return f"\n{cwd}\nT:{tt_count} H:{tch_count}{extra_history_str} {model_str} {reasoning_str} ] "
-
-
-

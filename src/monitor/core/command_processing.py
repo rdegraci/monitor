@@ -194,38 +194,48 @@ def execute_command(command_result: CommandResult, original_command: str, histor
                 print(f"{yellow}{command_result.error}{reset}")
             return command_result
 
-        # Handle LLM queries: execute the query(), send artifact, display results,
-        # and prepare query context (all side-effects).
+        # Handle LLM queries: execute the query(), and only perform follow-up side-effects
+        # if the result is a non-empty string. When cancellations or control-flow outcomes
+        # are returned (e.g., a ConversationResult enum or other non-string types), we skip
+        # send_artifact, display, and context preparation to avoid errors.
         if command_result.command_type == CommandType.LLM:
             try:
                 # Execute the LLM query
                 query_result = query(original_command)
                 command_result.output = query_result
 
-                # Send artifact (side-effect)
-                try:
-                    send_artifact(query_result)
-                except Exception:
-                    logger.exception("Failed to send artifact for query result.")
+                # Only proceed with side-effects if we received a non-empty string.
+                # Non-string results may indicate cancellation or control signals.
+                if isinstance(query_result, str) and query_result.strip():
+                    # Send artifact (side-effect)
+                    try:
+                        send_artifact(query_result)
+                    except Exception:
+                        logger.exception("Failed to send artifact for query result.")
 
-                # Display result and update conversation history count
-                try:
-                    display_query_result(
-                        query_result,
-                        update_history_count=lambda: setattr(
-                            monitor.core.conversation,
-                            "TOTAL_CONVERSATION_HISTORY_COUNT",
-                            monitor.core.conversation.TOTAL_CONVERSATION_HISTORY_COUNT + 2,
-                        ),
-                    )
-                except Exception:
-                    logger.exception("Failed to display query result.")
+                    # Display result and update conversation history count
+                    try:
+                        display_query_result(
+                            query_result,
+                            update_history_count=lambda: setattr(
+                                monitor.core.conversation,
+                                "TOTAL_CONVERSATION_HISTORY_COUNT",
+                                monitor.core.conversation.TOTAL_CONVERSATION_HISTORY_COUNT + 2,
+                            ),
+                        )
+                    except Exception:
+                        logger.exception("Failed to display query result.")
 
-                # Prepare query context for future interactions
-                try:
-                    prepare_query_context(original_command)
-                except Exception:
-                    logger.exception("Failed to prepare query context.")
+                    # Prepare query context for future interactions
+                    try:
+                        prepare_query_context(original_command)
+                    except Exception:
+                        logger.exception("Failed to prepare query context.")
+                else:
+                    # For non-string or empty outputs, skip side-effects silently to keep Ctrl-C behavior clean.
+                    logger.debug("Query returned no displayable text; skipping side-effects without printing.")
+                # If the result is not a non-empty string (e.g., cancellation/enum),
+                # we intentionally skip the above side-effects and simply return.
 
             except Exception as exc:
                 logger.exception("Error while executing LLM query.")

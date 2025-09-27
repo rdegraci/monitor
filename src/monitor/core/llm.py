@@ -1,6 +1,8 @@
 import logging
 import litellm
 import monitor.lib.llm_utils as llm_utils
+import signal
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +206,71 @@ def _apply_tool_output_budgeting(messages, input_window_limit):
         return estimated_tokens, estimated_request, f"Token budgeting failed: {be}"
 
 
+def cancellable_call_litellm_completion(model, messages, tool_descriptions, gemini_tool_descriptions):
+    """Run the blocking LLM completion in a background thread and allow Ctrl-C to cancel waiting.
+
+    Behavior:
+      - Temporarily sets SIGINT handler to the default to raise KeyboardInterrupt on Ctrl-C.
+      - Starts the LLM call in a daemon background thread.
+      - Displays a progress indicator while waiting.
+      - Polls the thread with short timeouts, so KeyboardInterrupt can be handled promptly.
+      - If interrupted, stops waiting and returns (None, True).
+      - On success, returns (response, False).
+      - Any exception from the background call is re-raised here.
+
+    Args:
+        model (str): Model name to pass to the completion call.
+        messages (list[dict]): Messages payload.
+        tool_descriptions (Any): Tool descriptions to pass through.
+        gemini_tool_descriptions (Any): Gemini tool descriptions to pass through.
+
+    Returns:
+        tuple[Any|None, bool]: (response, was_cancelled)
+    """
+    prev_sigint = None
+    # Container to communicate results/exceptions from background thread
+    result = {"response": None, "exception": None}
+
+    def target():
+        try:
+            result["response"] = call_litellm_completion(
+                model, messages, tool_descriptions, gemini_tool_descriptions
+            )
+        except Exception as e:
+            result["exception"] = e
+
+    t = threading.Thread(target=target, daemon=True)
+
+    with progress_dots():
+        try:
+            # Ensure Ctrl-C raises KeyboardInterrupt in this scope
+            prev_sigint = signal.getsignal(signal.SIGINT)
+            try:
+                signal.signal(signal.SIGINT, signal.default_int_handler)
+            except Exception:
+                # If setting signal handler fails (e.g., non-main thread environment), continue safely
+                prev_sigint = None
+            t.start()
+            while t.is_alive():
+                t.join(timeout=0.1)
+        except KeyboardInterrupt:
+            # Cancel waiting and return control to caller
+            return None, True
+        finally:
+            # Restore previous SIGINT handler if we changed it
+            if prev_sigint is not None:
+                try:
+                    signal.signal(signal.SIGINT, prev_sigint)
+                except Exception:
+                    pass
+
+    if result["exception"] is not None:
+        # Propagate exception to existing error handling logic
+        raise result["exception"]
+
+    return result["response"], False
+
+
 def get_llm_completion(log_prefix="", error_message="Error during litellm completion"):
     """Common logic for getting completion from LLM with error handling and rate limiting.
     Token counting and updates use canonical helpers from monitor.lib/token_management.py.
@@ -214,6 +281,9 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
       - MODEL is a string that starts with REASONING_MODEL_PREFIX
 
     If the adapter is not used, falls back to the conversations API.
+
+    This call is cancellable: pressing Ctrl-C while waiting for the model response will
+    cancel the wait, stop the progress indicator, and return (None, "Cancelled by user").
     """
     # Check if responses API should be used
     if should_use_responses_adapter():
@@ -579,10 +649,20 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             logger.error(f"Message validation failed (pre-completion): {ve}")
             return None, str(ve)
 
-        with progress_dots():
-            response = call_litellm_completion(
-                _cfg().MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
-            )
+        response, was_cancelled = cancellable_call_litellm_completion(
+            _cfg().MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
+        )
+        if was_cancelled:
+            try:
+                update_token_usage(estimated_request)
+            except Exception:
+                pass
+            try:
+                if hasattr(rate_limiter, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
+                    rate_limiter.RATE_LIMITER.add_request(estimated_request)
+            except Exception:
+                pass
+            return None, "Cancelled by user"
 
         # Convert response (and possibly inner objects) to attribute-access-friendly structures
         response = dict_to_attr(response)
