@@ -36,7 +36,7 @@ class ProtocolEngine:
     # Prohibited summary phrases (case-insensitive)
     PROHIBITED_SUMMARY_MARKERS = [
         'file is unchanged', 'script is unchanged', 'remains the same', 'no change', 'no changes', 'no modification',
-        'unmodified', 'identical', 'as-is', 'rest of the file is unchanged', 'everything else is unchanged',
+        'unmodified', 'identical', 'rest of the file is unchanged', 'everything else is unchanged',
         'nothing was changed', 'not modified', 'unchanged', 'nothing changed', 'has not changed',
         'output is the same', 'no update', 'unchanged from previous', 'no adjustment',
         '# unchanged', '// unchanged', '<!-- unchanged -->', '# (rest of the file is unchanged)',
@@ -746,7 +746,7 @@ def configure_protocol_engine():
 
     CRITICAL FINAL REMINDERS:
     - You MUST output every single line of code, character by character
-    - NEVER EVER use phrases like: "unchanged", "as-is", "remains the same", "no change", "rest of file unchanged"
+    - NEVER EVER use phrases like: "unchanged", "remains the same", "no change", "rest of file unchanged"
     - If a line doesn't need modification, output it EXACTLY as it appears in the original
     - Think: "Copy every line literally" not "summarize unchanged sections"
     - The system will REJECT your response if you use ANY summary language
@@ -790,8 +790,8 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     try:
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
-            print_func(f"{yellow}Analyzing {source_file} - Analysis may take up to 45 seconds of inference/reasoning.{reset}")
-            print_func(f"{yellow}Large/complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
+            print_func(f"{yellow}Analyzing {source_file} for modification - Analysis may take up to 45 seconds of inference/reasoning.{reset}")
+            print_func(f"{yellow}Large or complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
             source_content = file.read()
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
