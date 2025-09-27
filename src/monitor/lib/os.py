@@ -25,6 +25,26 @@ import os
 import tempfile
 from datetime import datetime
 import shutil
+import difflib
+import mimetypes
+from pathlib import Path
+
+# Optional python-magic integration:
+# Try to import the 'magic' module which is provided by the python-magic or
+# python-magic-bin packages. python-magic binds to libmagic and typically
+# provides more accurate MIME-type detection than the stdlib mimetypes module.
+# If the import fails, HAVE_MAGIC will be False and the code will fall back to
+# the existing mimetypes behavior.
+try:
+    import magic  # type: ignore
+    HAVE_MAGIC = True
+    MAGIC_MODULE = magic
+except Exception:
+    # Some environments may not have python-magic installed. In that case,
+    # we gracefully disable this enhanced detection and continue to use
+    # mimetypes as a portable fallback.
+    HAVE_MAGIC = False
+    MAGIC_MODULE = None
 
 from monitor.lib.colors import print_yellow, print_blue, print_red, yellow, blue, red, reset
 
@@ -159,35 +179,87 @@ def run_diff(file1: str, file2: str):
     file2 = os.path.expanduser(file2)
     logger.debug("Running diff between %s and %s", file1, file2)
     try:
-        diff = subprocess.run(['diff', '-u', file1, file2],
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE,
-                              text=True)
-        logger.debug("Diff completed with returncode %d", diff.returncode)
-        if diff.returncode == 0:
-            result = {
-                "success": True,
-                "stdout": diff.stdout,
-                "stderr": diff.stderr,
-                "returncode": diff.returncode
-            }
-            return json.dumps(result)
-        elif diff.returncode == 1:
-            # 1 means differences found, so not an error
-            result = {
-                "success": False,
-                "stdout": diff.stdout,
-                "stderr": diff.stderr,
-                "returncode": diff.returncode
-            }
-            return json.dumps(result)
+        # If external 'diff' command is available, prefer it for fidelity to system diff.
+        if shutil.which('diff'):
+            diff = subprocess.run(['diff', '-u', file1, file2],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE,
+                                  text=True)
+            logger.debug("Diff completed with returncode %d", diff.returncode)
+            if diff.returncode == 0:
+                result = {
+                    "success": True,
+                    "stdout": diff.stdout,
+                    "stderr": diff.stderr,
+                    "returncode": diff.returncode
+                }
+                return json.dumps(result)
+            elif diff.returncode == 1:
+                # 1 means differences found, so not an error
+                result = {
+                    "success": False,
+                    "stdout": diff.stdout,
+                    "stderr": diff.stderr,
+                    "returncode": diff.returncode
+                }
+                return json.dumps(result)
+            else:
+                logger.error("Diff command failed with returncode %d: %s", diff.returncode, diff.stderr.strip())
+                return json.dumps({
+                    "error": f"Diff command failed with return code {diff.returncode}: {diff.stderr.strip()}",
+                    "stderr": diff.stderr,
+                    "returncode": diff.returncode
+                })
         else:
-            logger.error("Diff command failed with returncode %d: %s", diff.returncode, diff.stderr.strip())
-            return json.dumps({
-                "error": f"Diff command failed with return code {diff.returncode}: {diff.stderr.strip()}",
-                "stderr": diff.stderr,
-                "returncode": diff.returncode
-            })
+            # Fallback: use Python's difflib to produce a unified diff if 'diff' is not available.
+            # This ensures portability on Windows/macOS/Linux without requiring external tools.
+            # Read and validate files first.
+            if not os.path.exists(file1):
+                logger.error("File not found: %s", file1)
+                return json.dumps({"error": f"File '{file1}' does not exist."})
+            if not os.path.exists(file2):
+                logger.error("File not found: %s", file2)
+                return json.dumps({"error": f"File '{file2}' does not exist."})
+            try:
+                content1 = read_file(file1)
+            except Exception as e:
+                logger.error("Error reading file %s for diff fallback: %s", file1, str(e))
+                return json.dumps({"error": f"Error reading file '{file1}': {str(e)}"})
+            try:
+                content2 = read_file(file2)
+            except Exception as e:
+                logger.error("Error reading file %s for diff fallback: %s", file2, str(e))
+                return json.dumps({"error": f"Error reading file '{file2}': {str(e)}"})
+            if content1 is None:
+                logger.error("File %s could not be read", file1)
+                return json.dumps({"error": f"File '{file1}' could not be read."})
+            if content2 is None:
+                logger.error("File %s could not be read", file2)
+                return json.dumps({"error": f"File '{file2}' could not be read."})
+            # Use splitlines(True) to keep line endings similar to external diff.
+            lines1 = content1.splitlines(True)
+            lines2 = content2.splitlines(True)
+            # Generate unified diff using difflib.
+            # lineterm='' prevents difflib from adding additional line terminators.
+            diff_lines = list(difflib.unified_diff(lines1, lines2, fromfile=file1, tofile=file2, lineterm=''))
+            diff_text = ''.join(diff_lines)
+            logger.debug("Python difflib produced %d diff lines", len(diff_lines))
+            if not diff_lines:
+                # No differences: mimic diff returncode 0
+                return json.dumps({
+                    "success": True,
+                    "stdout": "",
+                    "stderr": "",
+                    "returncode": 0
+                })
+            else:
+                # Differences found: mimic diff returncode 1
+                return json.dumps({
+                    "success": False,
+                    "stdout": diff_text,
+                    "stderr": "",
+                    "returncode": 1
+                })
     except Exception as e:
         print(f"{red}{str(e)}{reset}")
         logger.error("Exception running diff: %s", str(e))
@@ -208,30 +280,86 @@ def run_file_type(path: str):
     path = os.path.expanduser(path)
     logger.debug("Running file type check for %s", path)
     try:
-        result = subprocess.run(['file', '--brief', '--mime-type', path],
-                               text=True, capture_output=True)
-        logger.debug("Checked file type. Return code: %d", result.returncode)
-        stdout = result.stdout.strip() if result.stdout else ""
-        stderr = result.stderr.strip() if result.stderr else ""
-        error_terms = ["cannot open", "no such file", "not found"]
-        found_in_stdout = any(term in stdout.lower() for term in error_terms)
-        found_in_stderr = any(term in stderr.lower() for term in error_terms)
-        if result.returncode != 0 or found_in_stdout or found_in_stderr:
-            err_message = stderr or stdout or "Unknown error"
-            logger.error("File type command failed for %s: %s", path, err_message)
-            return json.dumps({
-                "error": f"File type command failed with return code {result.returncode}: {err_message}",
-                "stderr": result.stderr,
-                "stdout": result.stdout,
-                "returncode": result.returncode
-            })
+        # If external 'file' command is available, use it for more accurate results.
+        if shutil.which('file'):
+            result = subprocess.run(['file', '--brief', '--mime-type', path],
+                                    text=True, capture_output=True)
+            logger.debug("Checked file type. Return code: %d", result.returncode)
+            stdout = result.stdout.strip() if result.stdout else ""
+            stderr = result.stderr.strip() if result.stderr else ""
+            error_terms = ["cannot open", "no such file", "not found"]
+            found_in_stdout = any(term in stdout.lower() for term in error_terms)
+            found_in_stderr = any(term in stderr.lower() for term in error_terms)
+            if result.returncode != 0 or found_in_stdout or found_in_stderr:
+                err_message = stderr or stdout or "Unknown error"
+                logger.error("File type command failed for %s: %s", path, err_message)
+                return json.dumps({
+                    "error": f"File type command failed with return code {result.returncode}: {err_message}",
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                    "returncode": result.returncode
+                })
+            else:
+                return json.dumps({
+                    "success": True,
+                    "stdout": stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode
+                })
         else:
-            return json.dumps({
-                "success": True,
-                "stdout": stdout,
-                "stderr": result.stderr,
-                "returncode": result.returncode
-            })
+            # Fallback: try to use python-magic (libmagic bindings) if available.
+            # python-magic (or python-magic-bin) typically provides a better
+            # heuristic and binary inspection-based detection than mimetypes.
+            # If HAVE_MAGIC is True, we use magic.Magic(mime=True).from_file(path).
+            if not os.path.exists(path):
+                logger.error("File not found for file type check: %s", path)
+                return json.dumps({"error": f"File '{path}' does not exist."})
+            if HAVE_MAGIC and MAGIC_MODULE is not None:
+                try:
+                    # Use python-magic to determine the MIME type from file contents.
+                    mime_type = MAGIC_MODULE.Magic(mime=True).from_file(path)
+                    # If magic returns bytes for some builds, decode if necessary
+                    if isinstance(mime_type, bytes):
+                        try:
+                            mime_type = mime_type.decode('utf-8', errors='ignore')
+                        except Exception:
+                            mime_type = str(mime_type)
+                    if not mime_type:
+                        # Ensure we have a sensible default
+                        mime_type = "application/octet-stream"
+                    logger.debug("python-magic guessed mime type for %s: %s", path, mime_type)
+                    return json.dumps({
+                        "success": True,
+                        "stdout": mime_type,
+                        "stderr": "",
+                        "returncode": 0
+                    })
+                except Exception as e:
+                    # If python-magic fails for some reason, log and fall back to mimetypes below.
+                    logger.error("Error using python-magic for %s: %s", path, str(e))
+                    # Continue to the mimetypes fallback to provide a result.
+            # Fallback: use Python's mimetypes and pathlib to guess the mime type.
+            # This is less accurate than 'file' or python-magic, but portable across platforms.
+            try:
+                mime_type, encoding = mimetypes.guess_type(path)
+                if not mime_type:
+                    # Attempt to infer from extension or default to binary stream
+                    ext = Path(path).suffix.lower()
+                    if ext:
+                        # Let mimetypes try registry again; otherwise default
+                        mime_type = mimetypes.types_map.get(ext, None)
+                    if not mime_type:
+                        mime_type = "application/octet-stream"
+                logger.debug("Guessed mime type for %s: %s (encoding: %s)", path, mime_type, encoding)
+                return json.dumps({
+                    "success": True,
+                    "stdout": mime_type,
+                    "stderr": "",
+                    "returncode": 0
+                })
+            except Exception as e:
+                logger.error("Error determining file type via mimetypes for %s: %s", path, str(e))
+                return json.dumps({"error": f"Error determining file type: {str(e)}"})
     except subprocess.CalledProcessError as e:
         logger.error("Error determining file type: %s", str(e))
         return json.dumps({"error": f"Error determining file type: {str(e)}"})
@@ -255,23 +383,37 @@ def run_patch(patch_file_path: str):
     patch_file_path = os.path.expanduser(patch_file_path)
     logger.debug("Running patch with patch file %s", patch_file_path)
     try:
-        command = f'patch -p0 < {patch_file_path}'
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
-            logger.debug("Patch command succeeded")
-            return json.dumps({
-                "success": True,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "returncode": result.returncode
-            })
+        # If external 'patch' command is available, use it.
+        if shutil.which('patch'):
+            command = f'patch -p0 < {patch_file_path}'
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.debug("Patch command succeeded")
+                return json.dumps({
+                    "success": True,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode
+                })
+            else:
+                logger.error("Patch command failed with returncode %d: %s", result.returncode, result.stderr.strip())
+                return json.dumps({
+                    "error": f"Patch command failed with return code {result.returncode}: {result.stderr.strip()}",
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                    "returncode": result.returncode
+                })
         else:
-            logger.error("Patch command failed with returncode %d: %s", result.returncode, result.stderr.strip())
+            # Fallback: inform the user that 'patch' is not available and provide actionable guidance.
+            msg = (
+                "Patch utility 'patch' is not available on this system. "
+                "Install 'patch' (e.g., on Windows use GnuWin32, Cygwin, or Windows Subsystem for Linux, "
+                "or use 'git apply' as an alternative)."
+            )
+            logger.error(msg + " Patch file: %s", patch_file_path)
             return json.dumps({
-                "error": f"Patch command failed with return code {result.returncode}: {result.stderr.strip()}",
-                "stderr": result.stderr,
-                "stdout": result.stdout,
-                "returncode": result.returncode
+                "error": msg,
+                "patch_file": patch_file_path
             })
     except subprocess.CalledProcessError as e:
         logger.error("Patch failed: %s", e.stderr)

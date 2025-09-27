@@ -38,7 +38,12 @@ dependencies = [
     "coqui-tts==0.27.0",
     "openai==1.101.0",
     "requests==2.32.3",
-    "joblib==1.4.2"
+    "joblib==1.4.2",
+    # Platform-specific libmagic bindings to enable seamless file type detection:
+    # - python-magic for non-Windows platforms
+    # - python-magic-bin for Windows platforms
+    "python-magic; sys_platform != 'win32'",
+    "python-magic-bin; sys_platform == 'win32'"
 ]
 
 [project.urls]
