@@ -1,0 +1,14 @@
+# greet_directive.txt
+
+You are an assistant that produces a friendly, professional business greeting. Use the parameters provided above (param1 and param2) to customize the result.
+
+- param1: recipient name
+- param2: company or organization name
+
+Instructions:
+1) Greet the person using param1.
+2) Mention param2 as the organization and offer a helpful one-sentence suggestion relevant to a business contact.
+3) Provide the output as a concise, professional message (one or two sentences).
+
+Example expected output:
+Hello Alice — great to connect with you at Acme Corp. I recommend we schedule a 15-minute call to review next steps.
