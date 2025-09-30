@@ -25,6 +25,178 @@ REDIS_DB=0
 REDIS_MAX_RETRIES=3 
 REDIS_RETRY_INTERVAL=1
 
+class _DummyPipeline:
+    """A no-op pipeline implementation that mimics the subset of redis-py pipeline used here.
+
+    This pipeline supports context manager usage and the set/expire/execute methods.
+    It performs no network activity and returns sensible no-op values.
+    """
+
+    def __init__(self) -> None:
+        self._commands = []
+
+    def __enter__(self) -> "_DummyPipeline":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        # No resources to clean up.
+        return None
+
+    def set(self, key: str, value: str):
+        """Record a set command in the no-op pipeline.
+
+        Args:
+            key: The key to set.
+            value: The value to set.
+        """
+        self._commands.append(("set", key, value))
+        return self
+
+    def expire(self, key: str, ttl: int):
+        """Record an expire command in the no-op pipeline.
+
+        Args:
+            key: The key to set TTL for.
+            ttl: TTL in seconds.
+        """
+        self._commands.append(("expire", key, ttl))
+        return self
+
+    def execute(self) -> List[Union[bool, int, None]]:
+        """Execute the recorded commands (no-op).
+
+        Returns:
+            A list of sensible no-op return values corresponding to commands.
+        """
+        results = []
+        for cmd in self._commands:
+            if cmd[0] == "set":
+                results.append(True)
+            elif cmd[0] == "expire":
+                results.append(True)
+            else:
+                results.append(None)
+        self._commands.clear()
+        return results
+
+
+class DummyRedis:
+    """A no-op, in-process stand-in for a Redis client used when MEMORY_SERVICES is disabled.
+
+    This class implements a minimal subset of methods expected by this module:
+    exists, ttl, get, keys, pipeline, set, expire, delete.
+
+    All methods perform no network activity and return sensible defaults:
+    - exists: always 0 (False)
+    - ttl: always -2 (key does not exist)
+    - get: always None
+    - keys: always an empty list
+    - pipeline: returns a _DummyPipeline instance
+    - set/expire: return True
+    - delete: return 0
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        # Accepts the same initialization signature as redis.Redis but ignores parameters.
+        self._store = {}  # optional in-memory store if future functionality is desired
+        logger.debug("Initialized DummyRedis (no-op Redis client). Args: %s, Kwargs: %s", args, kwargs)
+
+    def exists(self, key: str) -> int:
+        """Check existence of a key. Always returns 0 to indicate non-existence.
+
+        Args:
+            key: The key to check.
+
+        Returns:
+            int: 0 indicating the key does not exist.
+        """
+        return 0
+
+    def ttl(self, key: str) -> int:
+        """Return time-to-live for a key. Always returns -2 to indicate the key does not exist.
+
+        Args:
+            key: The key to check.
+
+        Returns:
+            int: -2 indicating the key does not exist.
+        """
+        return -2
+
+    def get(self, key: str) -> Optional[str]:
+        """Get a key's value. Always returns None.
+
+        Args:
+            key: The key to retrieve.
+
+        Returns:
+            Optional[str]: None as no values are stored.
+        """
+        return None
+
+    def keys(self, pattern: str = "*") -> List[str]:
+        """Return a list of keys matching pattern. Always returns an empty list.
+
+        Args:
+            pattern: The pattern to match keys against.
+
+        Returns:
+            List[str]: Empty list.
+        """
+        return []
+
+    def pipeline(self):
+        """Return a no-op pipeline instance.
+
+        Returns:
+            _DummyPipeline: A pipeline context manager.
+        """
+        return _DummyPipeline()
+
+    def set(self, key: str, value: str) -> bool:
+        """Set a key's value. No-op; returns True.
+
+        Args:
+            key: The key to set.
+            value: The value to set.
+
+        Returns:
+            bool: True indicating success.
+        """
+        return True
+
+    def expire(self, key: str, ttl: int) -> bool:
+        """Set a key's TTL. No-op; returns True.
+
+        Args:
+            key: The key to set TTL for.
+            ttl: TTL in seconds.
+
+        Returns:
+            bool: True indicating success.
+        """
+        return True
+
+    def delete(self, key: str) -> int:
+        """Delete a key. No-op; returns 0 indicating nothing deleted.
+
+        Args:
+            key: The key to delete.
+
+        Returns:
+            int: 0 indicating no keys were deleted.
+        """
+        return 0
+
+
+# If MEMORY_SERVICES is disabled at import time, replace redis.Redis with DummyRedis
+if not getattr(config, "MEMORY_SERVICES", False):
+    try:
+        redis.Redis = DummyRedis  # type: ignore[attr-defined]
+        logger.info("MEMORY_SERVICES is disabled; using DummyRedis as a no-op Redis client.")
+    except Exception as e:
+        logger.error("Failed to assign DummyRedis to redis.Redis: %s", e)
+
 def configure_redis_utils(host, port, db, max_retries, retry_interval):
     global REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL
     REDIS_HOST = host
@@ -79,6 +251,25 @@ def with_redis_retry(max_retries=None, retry_interval=None):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Short-circuit when MEMORY_SERVICES is disabled to avoid unnecessary retries
+            if not config.MEMORY_SERVICES:
+                logger.info("MEMORY_SERVICES disabled; short-circuiting function %s", func.__name__)
+                # Provide sensible defaults for commonly decorated functions
+                if func.__name__ == "verify_ttl":
+                    return False, -2
+                if func.__name__ == "fetch_memory_for_context":
+                    return []
+                if func.__name__ == "fetch_memory_keys_as_json":
+                    try:
+                        return json.dumps([])
+                    except Exception:
+                        return "[]"
+                if func.__name__ == "read_from_memory":
+                    return None
+                if func.__name__ in ("save_to_memory", "update_memory"):
+                    return "MEMORY_SERVICES disabled. Skipping save to memory."
+                # Generic fallback
+                return {"error": "MEMORY_SERVICES disabled"}
             resolved_max_retries = max_retries if max_retries is not None else REDIS_MAX_RETRIES
             resolved_retry_interval = retry_interval if retry_interval is not None else REDIS_RETRY_INTERVAL
             logger.debug("Calling %s with retry logic: args=%s, kwargs=%s", func.__name__, args, kwargs)
