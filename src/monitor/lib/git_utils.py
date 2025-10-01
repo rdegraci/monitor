@@ -41,7 +41,7 @@ def run_git_capture(cmd_args: List[str]) -> Tuple[Optional[str], Optional[str], 
         logger.info("Git command succeeded: %s", ' '.join(cmd_args))
         return result.stdout, result.stderr, None
     except subprocess.CalledProcessError as e:
-        logger.error("Git command failed: %s; error: %s", ' '.join(cmd_args), e, exc_info=True)
+        logger.debug("Git command failed: %s; error: %s", ' '.join(cmd_args), e, exc_info=True)
         return None, None, f"An error occurred while executing {' '.join(cmd_args)}: {e}"
 
 
