@@ -171,13 +171,13 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "cat_file",
-            "description": "Display the contents of a file at the given path. Use this function when you need to know or examine the contents of a file.",
+            "description": "Display the full contents of a file at the given filepath. Use this function when you need to know or examine the full contents of a file. Note: Does not support partial reading of the file.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The path to the file to display"
+                        "description": "The path to the file to display. (e.g. 'path/to/some/file')"
                     }
                 },
                 "required": ["path"]
@@ -288,11 +288,11 @@ TOOL_DESCRIPTIONS = [
                 "properties": {
                     "term": {
                         "type": "string",
-                        "description": "The search term to look for. Note is a string search, do not treat it as a Regex."
+                        "description": "The search term to look for. Note: this is a string search, do not treat it as a Regex. (e.g. 'SomeStruct' or '\"struct SomeStruct\"' or '\"def function_name()\"')"
                     },
                     "filetype": {
                         "type": "string",
-                        "description": "Optional ripgrep type (e.g., 'py', 'js') to limit the search scope."
+                        "description": "Optional ripgrep type (e.g., 'py', 'js', 'rb', 'swift') to limit the search scope."
                     },
                     "word": {
                         "type": "boolean",
@@ -431,12 +431,12 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Display the contents of a file at the given path. Use this function when you need to know or examine the contents of a file.",
+    "description": "Display the full contents of a file at the given path. Use this function when you need to know or examine the full contents of a file. Note: Does not support partial reading of the file.",
     "name": "cat_file",
     "parameters": {
       "properties": {
         "path": {
-          "description": "The path to the file to display",
+          "description": "The path to the file to display. (e.g. 'path/to/some/file')",
           "type": "string"
         }
       },
@@ -525,11 +525,11 @@ GEMINI_TOOL_DESCRIPTIONS = [
       "properties": {
         "term": {
           "type": "string",
-          "description": "The search term to look for. Note is a string search, do not treat it as a Regex."
+          "description": "The search term to look for. Note: this is a string search, do not treat it as a Regex. (e.g. 'SomeStruct' or '\"struct SomeStruct\"' or '\"def function_name()\"')"
         },
         "filetype": {
           "type": "string",
-          "description": "Optional ripgrep type (e.g., 'py', 'js') to limit the search scope."
+          "description": "Optional ripgrep type (e.g., 'py', 'js', 'rb', 'swift') to limit the search scope."
         },
         "word": {
           "type": "boolean",
