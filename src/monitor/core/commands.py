@@ -20,29 +20,51 @@ from monitor.core.query_service import query
 
 logger = logging.getLogger(__name__)
 
-ALL_TERMINAL_COMMANDS=[]
-INTERACTIVE_COMMANDS=[]
+ALL_TERMINAL_COMMANDS = []
+NON_INTERACTIVE_COMMANDS = []
+INTERACTIVE_COMMANDS = []
 
-def load_terminal_commands(commands_path):
-    global ALL_TERMINAL_COMMANDS, INTERACTIVE_COMMANDS
+def load_terminal_commands(interactive_commands_path, non_interactive_commands_path, ):
+    global ALL_TERMINAL_COMMANDS
     _load_private_internal_commands()
+    _load_non_interactive_commands(non_interactive_commands_path)
+    _load_interactive_commands(interactive_commands_path)
+    ALL_TERMINAL_COMMANDS = PRIVATE_COMMANDS + INTERNAL_COMMANDS + INTERACTIVE_COMMANDS + NON_INTERACTIVE_COMMANDS
+
+NON_INTERACTIVE_COMMANDS = []
+def _load_non_interactive_commands(non_interactive_commands_path):
+    global NON_INTERACTIVE_COMMANDS
+    NON_INTERACTIVE_COMMANDS = []
     try:
-        with open(commands_path, "r", encoding="utf-8") as f:
+        with open(non_interactive_commands_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list) or not all(isinstance(cmd, dict) and "command" in cmd for cmd in data):
-            logger.error(f"Public commands file {commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
-            print(f"[WARN] Invalid public commands file format at {commands_path}; falling back to empty list.")
-            ALL_TERMINAL_COMMANDS = []
-            INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
-            return []
-        ALL_TERMINAL_COMMANDS=data
-        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS + ALL_TERMINAL_COMMANDS
+            logger.error(f"Non-interactive-commands file {non_interactive_commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
+            print(f"[WARN] Invalid Non-interactive-commands format at {non_interactive_commands_path}; falling back to empty list.")
+            return
+        NON_INTERACTIVE_COMMANDS = data
+        return
     except Exception as e:
-        logger.error(f"Could not load public interactive commands from {commands_path}: {e}")
-        print(f"[WARN] Could not load public interactive commands from {commands_path}: {e} - falling back to empty list.")
-        ALL_TERMINAL_COMMANDS = []
-        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
-        return []
+        logger.error(f"Could not load non-interactive-commands from {non_interactive_commands_path}: {e}")
+        print(f"[WARN] Could not load non-interactive-commands from {non_interactive_commands_path}: {e} - falling back to empty list.")
+        return
+
+def _load_interactive_commands(interactive_commands_path):
+    global INTERACTIVE_COMMANDS
+    try:
+        INTERACTIVE_COMMANDS = []
+        with open(interactive_commands_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list) or not all(isinstance(cmd, dict) and "command" in cmd for cmd in data):
+            logger.error(f"Interactive commands file {interactive_commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
+            print(f"[WARN] Invalid interactive commands file format at {interactive_commands_path}; falling back to empty list.")
+            return
+        INTERACTIVE_COMMANDS=data
+        return
+    except Exception as e:
+        logger.error(f"Could not load interactive commands from {interactive_commands_path}: {e}")
+        print(f"[WARN] Could not load interactive commands from {interactive_commands_path}: {e} - falling back to empty list.")
+        return
 
 PRIVATE_COMMANDS = []
 INTERNAL_COMMANDS = []
@@ -142,7 +164,60 @@ def is_interactive_command(command: str):
     first_word = get_first_word(command)
     return next((cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
+def is_non_interactive_command(command: str):
+    first_word = get_first_word(command)
+    return next((cmd for cmd in NON_INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
+def execute_non_interactive_command(command: str):
+    """
+    Execute a non-interactive command as defined in NON_INTERACTIVE_COMMANDS.
+
+    - If an 'expansion' is matched for the first word in the command in INTERACTIVE_COMMANDS, 
+      the expansion string is executed directly (with additional arguments appended) 
+      in an subshell.
+    - If no expansion is found for the matched command, the command itself is executed
+      directly in an subshell.
+    - The output is 
+    """
+    first_word = get_first_word(command)
+    matching_command = next(
+        (cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
+    )
+    command_to_run = None
+
+    try:
+        if matching_command is not None:
+            command_to_run = matching_command.get("expansion")
+            if command_to_run:
+                command_to_run += f" {' '.join(command.split()[1:])}"
+            else:
+                command_to_run = (
+                    f"{first_word} {' '.join(command.split()[1:])}"
+                )
+        else:
+            command_to_run = (
+                f"{first_word} {' '.join(command.split()[1:])}"
+            )
+
+        logger.info(f"Executing interactive command '{first_word}' without macro expansion.")
+        logger.debug(f"Executing command in subprocess: {command_to_run}")
+        exit_code, stdout, stderr, process = run_subprocess(
+            command_to_run,
+            interactive=False,
+            shell=True,
+            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+            text=True,
+            fetch_output=False,
+        )
+        print(stdout, end="")
+    except Exception as ex_outer:
+        handle_error(
+            f"Failed to handle interactive command: '{command}'",
+            exception=ex_outer,
+            error_type="Error",
+            log_level="error",
+            display=True,
+        )
 
 def execute_interactive_command(command: str):
     """
@@ -228,7 +303,7 @@ def execute_interactive_command(command: str):
             display=True,
         )
 
-def print_interactive_commands(arg=None):
+def print_terminal_commands(arg=None):
     """
     Print all public interactive command names as a comma-separated list.
     """

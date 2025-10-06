@@ -8,7 +8,7 @@ from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPT
 
 from monitor.lib.macros import print_macros, configure_macros, MACRO_VALUES
 from monitor.core.conversation import adjust_history_size, conversation_history_command
-from monitor.core.commands import print_interactive_commands
+from monitor.core.commands import print_terminal_commands
 from monitor.core.commit import make_commit_command
 from monitor.core.internalize_commands import rip_grep_command
 from monitor.core.modes import design_mode_command, dev_mode_command
@@ -247,7 +247,7 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": "commands",
-                    "function": _make_callable(print_interactive_commands),
+                    "function": _make_callable(print_terminal_commands),
                     "description": "Print the list of interactive commands.",
                 },
                 {

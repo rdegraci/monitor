@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 from monitor.core.commands import (
     is_interactive_command,
+    is_non_interactive_command,
+    execute_non_interactive_command,
     execute_interactive_command,
     is_internal_command,
     execute_internal_command
@@ -39,6 +41,7 @@ class CommandType(Enum):
     BUILT_IN = "built_in"
     INTERNAL = "internal"
     INTERACTIVE = "interactive"
+    NON_INTERACTIVE = "non_interactive"
     ERROR = "error"
     EXIT = "exit"
     UNSUPPORTED = "unsupported"
@@ -108,7 +111,9 @@ def evaluate_command(command: str) -> CommandResult:
                 command_type=CommandType.UNSUPPORTED,
             )
 
-        if is_interactive_command(command):
+        if is_non_interactive_command(command):
+            return CommandResult(command_type=CommandType.NON_INTERACTIVE)
+        elif is_interactive_command(command):
             return CommandResult(command_type=CommandType.INTERACTIVE)
         elif is_internal_command(command):
             return CommandResult(command_type=CommandType.INTERNAL)
@@ -172,7 +177,9 @@ def execute_command(command_result: CommandResult, original_command: str, histor
                 print(command_result.output)
             return command_result
 
-        if command_result.command_type == CommandType.INTERACTIVE:
+        if command_result.command_type == CommandType.NON_INTERACTIVE:
+            execute_non_interactive_command(original_command)
+        elif command_result.command_type == CommandType.INTERACTIVE:
             execute_interactive_command(original_command)
             return command_result
         elif command_result.command_type == CommandType.INTERNAL:

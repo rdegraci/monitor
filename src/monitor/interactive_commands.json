@@ -1,0 +1,90 @@
+[
+  {
+    "command": "less",
+    "description": "view files one page at a time"
+  },
+  {
+    "command": "tail",
+    "description": "output the last part of files"
+  },
+  {
+    "command": "man",
+    "description": "display manual pages"
+  },
+  {
+    "command": "top",
+    "description": "display real-time system summary and processes"
+  },
+  {
+    "command": "ssh",
+    "description": "secure shell for remote login"
+  },
+  {
+    "command": "psql",
+    "description": "PostgreSQL interactive terminal"
+  },
+  {
+    "command": "subl",
+    "description": "launch Sublime Text editor"
+  },
+  {
+    "command": "vi",
+    "description": "text editor (vi)"
+  },
+  {
+    "command": "vim",
+    "description": "improved vi text editor"
+  },
+  {
+    "command": "python",
+    "description": "run the Python interpreter"
+  },
+  {
+    "command": "pip",
+    "expansion": "function _pip() { pip $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _pip",
+    "description": "expansion: shell function - passes through up to 9 positional"
+  },
+  {
+    "command": "conda",
+    "expansion": "function _conda() { conda $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _conda",
+    "description": "package and environment manager for Python (conda)"
+  },
+  {
+    "command": "emacs",
+    "description": "Emacs text editor"
+  },
+  {
+    "command": "zsh",
+    "description": "Z shell (interactive shell)"
+  },
+  {
+    "command": "gitx",
+    "description": "graphical Git client (gitx)"
+  },
+  {
+    "command": "bin/rails",
+    "description": "Rails application executable in project bin"
+  },
+  {
+    "command": "screen",
+    "expansion": "function _screen() { screen $1 $2; }; _screen",
+    "description": "expansion: shell function - supports up to 2 positional arguments"
+  },
+  {
+    "command": "redis-cli",
+    "description": "Redis command-line interface"
+  },
+  {
+    "command": "sh",
+    "description": "run a shell command"
+  },
+  {
+    "command": "shell",
+    "expansion": "zsh",
+    "description": "start an interactive zsh shell"
+  },
+  {
+    "command": "open",
+    "description": "Open files in MacOS"
+  }
+]

@@ -51,8 +51,8 @@ def test_execute_interactive_command_fail(mock_run, mock_err):
     mock_err.assert_called()
 
 @patch('monitor.core.commands.ALL_TERMINAL_COMMANDS', [ {'command': 'h1'}, {'command': 'h2'} ])
-def test_print_interactive_commands(capsys):
-    commands.print_interactive_commands(None)
+def test_print_terminal_commands(capsys):
+    commands.print_terminal_commands(None)
     out = capsys.readouterr().out
     assert 'h1' in out and 'h2' in out
     assert '***' in out

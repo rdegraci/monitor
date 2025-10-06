@@ -413,7 +413,8 @@ SUMMARIZATION_CONFIG = None
 EXTERNAL_SERVICES = None
 OLLAMA_CONFIG = None
 TOTAL_TOKEN_COUNT = 0
-ALL_TERMINAL_COMMANDS_PATH = None
+NON_INTERACTIVE_COMMANDS_PATH = None
+INTERACTIVE_COMMANDS_PATH = None
 REDIS_HOST = None
 REDIS_PORT = 6379
 REDIS_DB = 0
@@ -451,7 +452,8 @@ def configure_globals():
     global MACRO_DELIMITER_OPEN, MACRO_DELIMITER_CLOSE, MACRO_DELIMITER_ESCAPE, MACRO_FILE_PATH
     global SUMMARIZATION_CONFIG
     global EXTERNAL_SERVICES, MEMORY_SERVICES, OLLAMA_CONFIG
-    global ALL_TERMINAL_COMMANDS_PATH, REDIS_HOST, PREFERENCE_PROMPT_FILE
+    global INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH
+    global REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
     global ECS_HOST, ECS_PORT, ECS_TIMEOUT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -563,8 +565,14 @@ def configure_globals():
     if ollama_host_env:
         OLLAMA_CONFIG["host"] = ollama_host_env
 
-    public_commands_path_cfg = yaml_config.get("ALL_TERMINAL_COMMANDS_PATH")
-    ALL_TERMINAL_COMMANDS_PATH = _safe_expanduser(public_commands_path_cfg)
+    interactive_commands_path_cfg = yaml_config.get("INTERACTIVE_COMMANDS_PATH")
+    INTERACTIVE_COMMANDS_PATH = _safe_expanduser(interactive_commands_path_cfg)
+
+    non_interactive_commands_path_cfg = yaml_config.get("NON_INTERACTIVE_COMMANDS_PATH")
+    NON_INTERACTIVE_COMMANDS_PATH = _safe_expanduser(non_interactive_commands_path_cfg)
+
+    
+
     REDIS_HOST = os.getenv("REDIS_HOST", yaml_config.get("REDIS_HOST", "localhost"))
 
     PREFERENCE_PROMPT_FILE = _safe_expanduser(yaml_config.get("PREFERENCE_PROMPT_FILE"))
@@ -729,15 +737,15 @@ def configure_subsystems():
         RATE_LIMITING_CONFIG["safety_factor"],
     )
 
-    # Guarded loading of public interactive commands: skip if ALL_TERMINAL_COMMANDS_PATH is None
-    if ALL_TERMINAL_COMMANDS_PATH is None:
-        logger.warning("ALL_TERMINAL_COMMANDS_PATH is None; skipping load_terminal_commands.")
+    # Guarded loading of commands: skip if NON_INTERACTIVE_COMMANDS_PATH is None
+    if NON_INTERACTIVE_COMMANDS_PATH is None:
+        logger.warning("NON_INTERACTIVE_COMMANDS_PATH is None; skipping load_terminal_commands.")
     else:
         try:
-            load_terminal_commands(ALL_TERMINAL_COMMANDS_PATH)
+            load_terminal_commands(INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH)
         except Exception as e:
             logger.error(
-                f"Failed to load public interactive commands from {ALL_TERMINAL_COMMANDS_PATH}: {e}",
+                f"Failed to load public interactive commands from {NON_INTERACTIVE_COMMANDS_PATH}: {e}",
                 exc_info=True,
             )
 
