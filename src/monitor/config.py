@@ -719,7 +719,7 @@ def start_logging():
 
 
 def configure_subsystems():
-    from monitor.core.commands import load_public_interactive_commands
+    from monitor.core.commands import load_public_commands
     from monitor.core.modes import configure_consultant
 
     configure_rate_limiter(
@@ -731,10 +731,10 @@ def configure_subsystems():
 
     # Guarded loading of public interactive commands: skip if PUBLIC_COMMANDS_PATH is None
     if PUBLIC_COMMANDS_PATH is None:
-        logger.warning("PUBLIC_COMMANDS_PATH is None; skipping load_public_interactive_commands.")
+        logger.warning("PUBLIC_COMMANDS_PATH is None; skipping load_public_commands.")
     else:
         try:
-            load_public_interactive_commands(PUBLIC_COMMANDS_PATH)
+            load_public_commands(PUBLIC_COMMANDS_PATH)
         except Exception as e:
             logger.error(
                 f"Failed to load public interactive commands from {PUBLIC_COMMANDS_PATH}: {e}",

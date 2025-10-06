@@ -20,11 +20,11 @@ from monitor.core.query_service import query
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_INTERACTIVE_COMMANDS=[]
+PUBLIC_COMMANDS=[]
 INTERACTIVE_COMMANDS=[]
 
-def load_public_interactive_commands(commands_path):
-    global PUBLIC_INTERACTIVE_COMMANDS, INTERACTIVE_COMMANDS
+def load_public_commands(commands_path):
+    global PUBLIC_COMMANDS, INTERACTIVE_COMMANDS
     _load_private_internal_commands()
     try:
         with open(commands_path, "r", encoding="utf-8") as f:
@@ -32,29 +32,29 @@ def load_public_interactive_commands(commands_path):
         if not isinstance(data, list) or not all(isinstance(cmd, dict) and "command" in cmd for cmd in data):
             logger.error(f"Public commands file {commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
             print(f"[WARN] Invalid public commands file format at {commands_path}; falling back to empty list.")
-            PUBLIC_INTERACTIVE_COMMANDS = []
-            INTERACTIVE_COMMANDS = PRIVATE_INTERACTIVE_COMMANDS
+            PUBLIC_COMMANDS = []
+            INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
             return []
-        PUBLIC_INTERACTIVE_COMMANDS=data
-        INTERACTIVE_COMMANDS = PRIVATE_INTERACTIVE_COMMANDS + PUBLIC_INTERACTIVE_COMMANDS
+        PUBLIC_COMMANDS=data
+        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS + PUBLIC_COMMANDS
     except Exception as e:
         logger.error(f"Could not load public interactive commands from {commands_path}: {e}")
         print(f"[WARN] Could not load public interactive commands from {commands_path}: {e} - falling back to empty list.")
-        PUBLIC_INTERACTIVE_COMMANDS = []
-        INTERACTIVE_COMMANDS = PRIVATE_INTERACTIVE_COMMANDS
+        PUBLIC_COMMANDS = []
+        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
         return []
 
-PRIVATE_INTERACTIVE_COMMANDS = []
+PRIVATE_COMMANDS = []
 INTERNAL_COMMANDS = []
 
 def _load_private_internal_commands():
-    global PRIVATE_INTERACTIVE_COMMANDS, INTERNAL_COMMANDS
+    global PRIVATE_COMMANDS, INTERNAL_COMMANDS
     # List of private interactive commands each represented as a dictionary with properties "command" and "expansion"
     # The "expansion" field may be:
     #   - an executable file path
     #   - a shell command string
     #   - a shell function definition (run immediately, e.g., 'function _x() {...}; _x')
-    PRIVATE_INTERACTIVE_COMMANDS = [
+    PRIVATE_COMMANDS = [
         {
             "command": "git-init",
             "expansion": """
@@ -232,7 +232,7 @@ def print_interactive_commands(arg=None):
     """
     Print all public interactive command names as a comma-separated list.
     """
-    commands = [item["command"] for item in PUBLIC_INTERACTIVE_COMMANDS if "command" in item]
+    commands = [item["command"] for item in PUBLIC_COMMANDS if "command" in item]
     command_string = ", ".join(commands)
     print(command_string)
     print("***")

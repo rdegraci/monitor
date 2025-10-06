@@ -50,7 +50,7 @@ def test_execute_interactive_command_fail(mock_run, mock_err):
     commands.execute_interactive_command('failme argz')
     mock_err.assert_called()
 
-@patch('monitor.core.commands.PUBLIC_INTERACTIVE_COMMANDS', [ {'command': 'h1'}, {'command': 'h2'} ])
+@patch('monitor.core.commands.PUBLIC_COMMANDS', [ {'command': 'h1'}, {'command': 'h2'} ])
 def test_print_interactive_commands(capsys):
     commands.print_interactive_commands(None)
     out = capsys.readouterr().out
