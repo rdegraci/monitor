@@ -431,7 +431,7 @@ class ProtocolEngine:
         logger.info(f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}")
         logger.info(f"Expected total chunks: {self.expected_total_chunks}, current chunks collected: {len(self.chunks)}")
         
-        print_func("\nProcessing", end="", flush=True)
+        print_func("\nModifications complete.", end="", flush=True)
         line_ranges = getattr(self, "line_ranges", None)
         found_last_chunk = False
         iteration = 0
@@ -453,7 +453,6 @@ class ProtocolEngine:
         while not found_last_chunk and iteration < max_iterations:
             iteration += 1
             logger.info(f"_collect_chunks iteration {iteration}: processing chunk, found_last_chunk={found_last_chunk}")
-            print_func(".", end="", flush=True)
             
             if current_response:
                 expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
