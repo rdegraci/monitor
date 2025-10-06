@@ -20,11 +20,11 @@ from monitor.core.query_service import query
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_COMMANDS=[]
+ALL_TERMINAL_COMMANDS=[]
 INTERACTIVE_COMMANDS=[]
 
-def load_public_commands(commands_path):
-    global PUBLIC_COMMANDS, INTERACTIVE_COMMANDS
+def load_terminal_commands(commands_path):
+    global ALL_TERMINAL_COMMANDS, INTERACTIVE_COMMANDS
     _load_private_internal_commands()
     try:
         with open(commands_path, "r", encoding="utf-8") as f:
@@ -32,15 +32,15 @@ def load_public_commands(commands_path):
         if not isinstance(data, list) or not all(isinstance(cmd, dict) and "command" in cmd for cmd in data):
             logger.error(f"Public commands file {commands_path} must be a list of dicts with 'command' fields. Falling back to empty list.")
             print(f"[WARN] Invalid public commands file format at {commands_path}; falling back to empty list.")
-            PUBLIC_COMMANDS = []
+            ALL_TERMINAL_COMMANDS = []
             INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
             return []
-        PUBLIC_COMMANDS=data
-        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS + PUBLIC_COMMANDS
+        ALL_TERMINAL_COMMANDS=data
+        INTERACTIVE_COMMANDS = PRIVATE_COMMANDS + ALL_TERMINAL_COMMANDS
     except Exception as e:
         logger.error(f"Could not load public interactive commands from {commands_path}: {e}")
         print(f"[WARN] Could not load public interactive commands from {commands_path}: {e} - falling back to empty list.")
-        PUBLIC_COMMANDS = []
+        ALL_TERMINAL_COMMANDS = []
         INTERACTIVE_COMMANDS = PRIVATE_COMMANDS
         return []
 
@@ -232,7 +232,7 @@ def print_interactive_commands(arg=None):
     """
     Print all public interactive command names as a comma-separated list.
     """
-    commands = [item["command"] for item in PUBLIC_COMMANDS if "command" in item]
+    commands = [item["command"] for item in ALL_TERMINAL_COMMANDS if "command" in item]
     command_string = ", ".join(commands)
     print(command_string)
     print("***")
