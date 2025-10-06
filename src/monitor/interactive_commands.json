@@ -40,16 +40,6 @@
     "description": "run the Python interpreter"
   },
   {
-    "command": "pip",
-    "expansion": "function _pip() { pip $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _pip",
-    "description": "expansion: shell function - passes through up to 9 positional"
-  },
-  {
-    "command": "conda",
-    "expansion": "function _conda() { conda $1 $2 $3 $4 $5 $6 $7 $8 $9; }; _conda",
-    "description": "package and environment manager for Python (conda)"
-  },
-  {
     "command": "emacs",
     "description": "Emacs text editor"
   },
@@ -67,8 +57,8 @@
   },
   {
     "command": "screen",
-    "expansion": "function _screen() { screen $1 $2; }; _screen",
-    "description": "expansion: shell function - supports up to 2 positional arguments"
+    "expansion": "function _screen() { screen \"$@\"; }; _screen",
+    "description": "expansion: shell function - forwards all positional arguments to screen"
   },
   {
     "command": "redis-cli",
@@ -86,5 +76,97 @@
   {
     "command": "open",
     "description": "Open files in MacOS"
+  },
+  {
+    "command": "ollama",
+    "description": "OLLAMA CLI for local AI model interaction"
+  },
+  {
+    "command": "crontab",
+    "description": "schedule and manage periodic jobs"
+  },
+  {
+    "command": "rsync-server",
+    "expansion": "function _rsync_server() { [ -z \"$1\" ] && return; rsync -avz ./ \"${RSYNC_SERVER_TARGET:?RSYNC_SERVER_TARGET not set}/$1\"; }; _rsync_server",
+    "description": "expansion: shell function; requires RSYNC_SERVER_TARGET environment variable (e.g. user@host:base_path)"
+  },
+  {
+    "command": "scp-server",
+    "expansion": "function _scp_server() { [ -z \"$1\" ] && return; scp -r ./ \"${SCP_SERVER_TARGET:?SCP_SERVER_TARGET not set}/$1\"; }; _scp_server",
+    "description": "expansion: shell function to SCP current directory to a server location; requires SCP_SERVER_TARGET env var"
+  },
+  {
+    "command": "monitor",
+    "description": "helper for monitoring system or application status"
+  },
+  {
+    "command": "git-log",
+    "expansion": "git log --oneline --decorate",
+    "description": "show condensed git log with branch and tag decorations"
+  },
+  {
+    "command": "git-diff",
+    "expansion": "git diff --color HEAD",
+    "description": "show colored diff of working tree against HEAD"
+  },
+  {
+    "command": "git-log-tree",
+    "expansion": "git log --graph --oneline --all",
+    "description": "show git log as a graph for all branches"
+  },
+  {
+    "command": "glt",
+    "expansion": "git log --graph --oneline --all",
+    "description": "alias for git-log-tree (graphical condensed git log)"
+  },
+  {
+    "command": "doccomment",
+    "expansion": "fabric --pattern doc_comment -s",
+    "description": "run fabric task to process documentation comments"
+  },
+  {
+    "command": "doccomment2code",
+    "expansion": "fabric --pattern doc_comment2code -s",
+    "description": "run fabric task to convert documentation comments into code"
+  },
+  {
+    "command": "doccomment2spec",
+    "expansion": "fabric --pattern doc_comment2spec -s",
+    "description": "run fabric task to convert documentation comments into specs"
+  },
+  {
+    "command": "spec2code",
+    "expansion": "fabric --pattern spec2code -s",
+    "description": "run fabric task to convert specs into code"
+  },
+  {
+    "command": "diff-code-review",
+    "expansion": "~/bin/code-review-latest.sh",
+    "description": "run the local code-review helper script"
+  },
+  {
+    "command": "jobs",
+    "description": "list active jobs in the current shell"
+  },
+  {
+    "command": "ping",
+    "expansion": "function _ping() { ping \"$@\"; }; _ping",
+    "description": "send ICMP ECHO_REQUEST to a host (forwards all args)"
+  },
+  {
+    "command": "ai",
+    "description": "invoke AI assistant or related tooling"
+  },
+  {
+    "command": "head",
+    "description": "output the first part of files"
+  },
+  {
+    "command": "git",
+    "description": "distributed version control system"
+  },
+  {
+    "command": "cat",
+    "description": "concatenate and display files"
   }
 ]

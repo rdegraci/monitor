@@ -1,0 +1,170 @@
+[
+  {
+    "command": "ls",
+    "description": "list directory contents"
+  },
+  {
+    "command": "rm",
+    "description": "remove files or directories"
+  },
+  {
+    "command": "touch",
+    "description": "create empty files or update file timestamps"
+  },
+  {
+    "command": "cd",
+    "description": "change the current directory"
+  },
+  {
+    "command": "clear",
+    "description": "clear the terminal screen"
+  },
+  {
+    "command": "pwd",
+    "description": "print the current working directory"
+  },
+  {
+    "command": "cp",
+    "description": "copy files and directories"
+  },
+  {
+    "command": "mv",
+    "description": "move or rename files and directories"
+  },
+  {
+    "command": "mkdir",
+    "description": "create directories"
+  },
+  {
+    "command": "rmdir",
+    "description": "remove empty directories"
+  },
+  {
+    "command": "grep",
+    "description": "search text using patterns"
+  },
+  {
+    "command": "find",
+    "description": "search for files in a directory hierarchy"
+  },
+  {
+    "command": "chmod",
+    "description": "change file permissions"
+  },
+  {
+    "command": "chown",
+    "description": "change file owner and group"
+  },
+  {
+    "command": "ps",
+    "description": "report process status"
+  },
+  {
+    "command": "echo",
+    "description": "display a line of text"
+  },
+  {
+    "command": "wget",
+    "description": "download files from the web"
+  },
+  {
+    "command": "curl",
+    "description": "transfer data from or to a server"
+  },
+  {
+    "command": "pip",
+    "expansion": "function _pip() { pip \"$@\"; }; _pip",
+    "description": "expansion: shell function - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "conda",
+    "expansion": "function _conda() { conda \"$@\"; }; _conda",
+    "description": "package and environment manager for Python (conda); expansion forwards all positional parameters ($@)"
+  },
+  {
+    "command": "bin/rails",
+    "description": "Rails application executable in project bin"
+  },
+  {
+    "command": "bin/rake",
+    "description": "Rake task runner executable in project bin"
+  },
+  {
+    "command": "rake",
+    "description": "Ruby build automation and task runner"
+  },
+  {
+    "command": "gem",
+    "description": "RubyGems package manager"
+  },
+  {
+    "command": "bundle",
+    "description": "Bundler for managing Ruby dependencies"
+  },
+  {
+    "command": "rails",
+    "description": "Ruby on Rails command-line tool"
+  },
+  {
+    "command": "foreman",
+    "description": "manage Procfile-based applications and processes"
+  },
+  {
+    "command": "reset",
+    "description": "reset terminal settings"
+  },
+  {
+    "command": "git-stash-diff",
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff",
+    "description": "show the patch for a specified stash entry"
+  },
+  {
+    "command": "gsd",
+    "expansion": "function _stash_diff() { git stash show -p stash@{$1}; }; _stash_diff",
+    "description": "alias for git-stash-diff"
+  },
+  {
+    "command": "heroku",
+    "description": "Heroku command-line interface"
+  },
+  {
+    "command": "wc",
+    "description": "print newline, word, and byte counts for files"
+  },
+  {
+    "command": "patch",
+    "description": "apply a diff patch to files"
+  },
+  {
+    "command": "scp",
+    "description": "securely copy files over SSH"
+  },
+  {
+    "command": "rsync",
+    "description": "fast, versatile file copying and synchronization tool"
+  },
+  {
+    "command": "ifconfig",
+    "description": "configure or display network interface parameters"
+  },
+  {
+    "command": "netstat",
+    "description": "display network connections, routing tables, and interface stats"
+  },
+  {
+    "command": "ruby",
+    "description": "run the Ruby interpreter"
+  },
+  {
+    "command": "uptime",
+    "description": "show how long the system has been running"
+  },
+  {
+    "command": "diff",
+    "description": "compare files line by line"
+  },
+  {
+    "command": "open",
+    "description": "Open files in MacOS"
+  }
+]

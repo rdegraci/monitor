@@ -61,7 +61,8 @@ monitor = [
     "config.yaml",
     "dot_env_example",
     "preferences.prompt",
-    "public_commands.json",
+    "non_interactive_commands.json",
+    "interactive_commands.json",
     "macros.json",
     "model_config.json"
 ]

@@ -22,7 +22,7 @@ def main():
     ensure_user_config_file("macros.json","macros.json")
     ensure_user_config_file("preferences.prompt","preferences.prompt")
     ensure_user_config_file("model_config.json", "model_config.json")
-    ensure_user_config_file("public_commands.json", "public_commands.json")
+    ensure_user_config_file("non_interactive_commands.json", "non_interactive_commands.json")
     ensure_user_config_file("interactive_commands.json", "interactive_commands.json")
     app_main()
 
