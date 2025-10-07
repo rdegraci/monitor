@@ -184,6 +184,11 @@ def main():
             print(f"Effective model: {resolved_model}")
         else:
             model_mapping = getattr(config, "MODEL_MAPPING", None)
+            # Ensure available_keys and available_values are always defined to avoid a NameError
+            # when MODEL_MAPPING is not a dict. This preserves existing behavior while preventing
+            # an exception when constructing the user-facing message below.
+            available_keys = '(none found)'
+            available_values = '(none found)'
             if isinstance(model_mapping, dict):
                 model_key_list = list(model_mapping.keys())
                 model_value_list = list(model_mapping.values())
