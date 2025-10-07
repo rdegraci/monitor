@@ -42,32 +42,48 @@ class SingleRequestMiddleware:
         self._logger = logger or logging.getLogger(__name__)
 
     def __call__(self, environ, start_response):
-        self._logger.debug("Awaiting request lock for serialized processing.")
+        self._logger.debug("Waiting to acquire request lock for serialized processing.")
         self._lock.acquire()
-        self._logger.debug("Acquired request lock; processing request.")
+        self._logger.debug("Request lock acquired; processing request.")
         try:
             result = self.app(environ, start_response)
-            out = []
+        except Exception:
+            # If an exception occurs before we obtain the response iterable,
+            # ensure the lock is released and re-raise so upstream handlers can deal with it.
+            self._logger.debug(
+                "Exception before response iterable created; releasing request lock."
+            )
+            self._lock.release()
+            raise
+
+        def _wrapped_response() -> Generator[Any, None, None]:
+            """
+            Generator that yields the response iterable's items and ensures
+            the request lock is released exactly once in a finally block.
+
+            This avoids accumulating the whole response in memory and prevents
+            double-release of the lock in the face of exceptions.
+            """
             try:
                 for item in result:
-                    out.append(item)
+                    yield item
             finally:
                 try:
                     close = getattr(result, "close", None)
                     if callable(close):
-                        close()
+                        try:
+                            close()
+                        except Exception:
+                            self._logger.exception(
+                                "Exception while closing the response iterable."
+                            )
                 finally:
                     self._logger.debug(
-                        "Releasing request lock after processing."
+                        "Releasing request lock after response iteration."
                     )
                     self._lock.release()
-            return out
-        except Exception:
-            self._logger.debug(
-                "Exception encountered while handling request; releasing lock."
-            )
-            self._lock.release()
-            raise
+
+        return _wrapped_response()
 
 
 def convert_messages_to_command(
