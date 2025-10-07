@@ -166,5 +166,10 @@
   {
     "command": "open",
     "description": "Open files in MacOS"
+  },
+  {
+    "command": "kill",
+    "expansion": "function _kill() { kill \"$@\"; }; _kill",
+    "description": "expansion: shell function - forwards all positional parameters ($@)"
   }
 ]
