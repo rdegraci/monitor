@@ -34,10 +34,10 @@ PUBLIC_MACRO_VALUES = {
     "create_git_entry": "Provide a git commit title, with a max of 50 characters and a body that describes the changes. The body should be broken up into paragraphs. If the changes are a fix, use \"Fix <bug description>\" as the title.  If the changes are adding a new feature, use \"Add <feature>\" as the title. If the changes are a refactor, use \"Refactor <component>\" as the title. Display this as plain text with no Markdown formatting. Do not prepend the title with Title: and do not prepend the body with Body: just provide the content. There should be one blank line after the title. The git commit body will be read by a tool to analyze Git commits within a branch and builds a contextual understanding of what is happening in the development process, therefore the body should provide comprehensive context",
     "rank_examine": "Rank what to examine next",
     "diff": "{{do_diff}} {{create_git_entry}}",
-    "diffprevious": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
+    "diff_previous": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
     "xdiff": "Use the git show tool to examine the source code changes for the following hash or branch name: ",
     "plan": "Give me a step by step plan",
-    "wdyt": "Tell me what do you think",
+    "wdyt": "Don't change any code. Tell me what do you think",
 }
 
 def configure_macros():

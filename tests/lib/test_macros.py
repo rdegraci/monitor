@@ -51,7 +51,7 @@ class TestMacros(unittest.TestCase):
     def test_public_macro_values_exist(self):
         """Test that public macro values are properly defined."""
         expected_keys = [
-            'do_diff', 'create_git_entry', 'diff', 'diffprevious', 'xdiff', 
+            'do_diff', 'create_git_entry', 'diff', 'diff_previous', 'xdiff', 
             'rank_examine', 'plan', 'wdyt'
         ]
         
