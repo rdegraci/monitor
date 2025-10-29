@@ -1,6 +1,8 @@
 import logging
 import signal
 import json
+import shlex
+import os
 
 from monitor import config
 from monitor.lib.macros import MACRO_VALUES
@@ -12,7 +14,7 @@ except ImportError:
     def colored(text, color):
         return text
 
-from monitor.lib.command_utils import get_first_word, handle_error, run_subprocess
+from monitor.lib.command_utils import handle_error, run_subprocess
 
 from monitor.lib.macro_utils import recursive_macro_expand
 
@@ -172,12 +174,42 @@ def _load_private_internal_commands():
         },
     ]
 
+def parse_command(command: str) -> tuple[str, list[str], str]:
+    """Parse a command string into its first word and remaining tokens.
+
+    This helper attempts to safely parse the provided command using shlex.split
+    (POSIX mode). If shlex.split raises a ValueError (e.g., due to malformed
+    quoting), the function falls back to a simple whitespace split.
+
+    Args:
+        command: The command string to parse.
+
+    Returns:
+        A tuple (first_word, rest_tokens, rest_joined) where:
+        - first_word is the first token of the parsed command (or an empty string).
+        - rest_tokens is a list of the remaining tokens.
+        - rest_joined is a string of the remaining tokens joined with proper quoting
+          using shlex.join when possible, otherwise a simple space-joined string.
+    """
+    try:
+        tokens = shlex.split(command, posix=True)
+        first_word = tokens[0] if tokens else ''
+        rest_tokens = tokens[1:] if len(tokens) > 1 else []
+        rest_joined = shlex.join(rest_tokens) if rest_tokens else ''
+    except ValueError:
+        # Fallback: naive split on whitespace if shlex fails
+        tokens = command.split()
+        first_word = tokens[0] if tokens else ''
+        rest_tokens = tokens[1:] if len(tokens) > 1 else []
+        rest_joined = " ".join(rest_tokens) if rest_tokens else ''
+    return first_word, rest_tokens, rest_joined
+
 def is_interactive_command(command: str):
-    first_word = get_first_word(command)
+    first_word, _, _ = parse_command(command)
     return next((cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
 def is_non_interactive_command(command: str):
-    first_word = get_first_word(command)
+    first_word, _, _ = parse_command(command)
     return next((cmd for cmd in NON_INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
 def execute_non_interactive_command(command: str):
@@ -190,7 +222,8 @@ def execute_non_interactive_command(command: str):
     - If no expansion is found for the matched command, the command itself is executed
       directly in a non-interactive subshell.
     """
-    first_word = get_first_word(command)
+    first_word, _, rest_joined = parse_command(command)
+    # Using shlex for safe argument joining to handle quotes and escapes.
     matching_command = next(
         (cmd for cmd in NON_INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
     )
@@ -200,28 +233,23 @@ def execute_non_interactive_command(command: str):
         if matching_command is not None:
             command_to_run = matching_command.get("expansion")
             if command_to_run:
-                command_to_run += f" {' '.join(command.split()[1:])}"
+                command_to_run += f" {rest_joined}"
             else:
-                command_to_run = (
-                    f"{first_word} {' '.join(command.split()[1:])}"
-                )
+                command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
         else:
-            command_to_run = (
-                f"{first_word} {' '.join(command.split()[1:])}"
-            )
+            command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
 
         logger.info(f"Executing non-interactive command '{first_word}' without macro expansion.")
         logger.debug(f"Executing non-interactive command in subprocess: {command_to_run}")
+        preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
         exit_code, stdout, stderr, process = run_subprocess(
             command_to_run,
             interactive=False,
             shell=True,
-            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+            preexec_fn=preexec,
             text=True,
             fetch_output=False,
         )
-        if stdout is not None:
-            print(stdout, end="")
     except Exception as ex_outer:
         handle_error(
             f"Failed to handle non-interactive command: '{command}'",
@@ -243,7 +271,8 @@ def execute_interactive_command(command: str):
 
     All executions use run_subprocess(). Errors are surfaced to the user via handle_error with display=True.
     """
-    first_word = get_first_word(command)
+    first_word, _, rest_joined = parse_command(command)
+    # Using shlex for safe argument joining to handle quotes and escapes.
     matching_command = next(
         (cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
     )
@@ -253,59 +282,23 @@ def execute_interactive_command(command: str):
         if matching_command is not None:
             command_to_run = matching_command.get("expansion")
             if command_to_run:
-                command_to_run += f" {' '.join(command.split()[1:])}"
+                command_to_run += f" {rest_joined}"
             else:
-                command_to_run = (
-                    f"{first_word} {' '.join(command.split()[1:])}"
-                )
+                command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
         else:
-            command_to_run = (
-                f"{first_word} {' '.join(command.split()[1:])}"
-            )
+            command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
 
         logger.info(f"Executing interactive command '{first_word}' without macro expansion.")
         logger.debug(f"Executing command in subprocess: {command_to_run}")
+        preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
         exit_code, stdout, stderr, process = run_subprocess(
             command_to_run,
             interactive=True,
             shell=True,
-            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+            preexec_fn=preexec,
             text=True,
             fetch_output=False,
         )
-        # Wait for process to finish for interactivity
-        if process is not None:
-            try:
-                process.wait()
-                try:
-                    out, err = process.communicate()
-                except Exception as cex:
-                    handle_error(
-                        f"Failed to retrieve command output for '{command}'",
-                        exception=cex,
-                        error_type="Error",
-                        log_level="error",
-                    )
-                    out, err = None, None
-
-                if out:
-                    print(out, end="")
-                if err:
-                    handle_error(
-                        f"Command error output",
-                        exception=err,
-                        error_type="Command Error",
-                        log_level="error",
-                        display=True,
-                    )
-            except Exception as ex:
-                handle_error(
-                    "An unexpected error occurred during command execution",
-                    exception=ex,
-                    error_type="Error",
-                    log_level="error",
-                    display=True,
-                )
     except Exception as ex_outer:
         handle_error(
             f"Failed to handle interactive command: '{command}'",
@@ -325,13 +318,13 @@ def print_terminal_commands(arg=None):
     print("***")
 
 def is_internal_command(command: str):
-    first_word = get_first_word(command)
+    first_word, _, _ = parse_command(command)
     return next((cmd for cmd in INTERNAL_COMMANDS if cmd["command"] == first_word), None)
 
 def internalize_to_llm(command: str, display_query_result_call):
-    first_word = get_first_word(command)
-    rest_of_command = command[len(first_word):].lstrip()
-    if not rest_of_command:
+    first_word, rest_tokens, rest_joined = parse_command(command)
+    # shlex.join ensures rest_of_command is properly quoted if needed, but split on delimiter assumes >llm is not quoted.
+    if not rest_tokens:
         handle_error(
             f"No command string provided after 'llm<'",
             error_type="Error",
@@ -340,27 +333,29 @@ def internalize_to_llm(command: str, display_query_result_call):
         )
         return
 
-    shell_code = None
-    user_prompt = None
-    if '>llm' in rest_of_command:
-        try:
-            shell_code, user_prompt = rest_of_command.split('>llm', 1)
-            shell_code = shell_code.strip()
-            user_prompt = user_prompt.strip()
-        except Exception as parse_ex:
-            handle_error(
-                f"Error parsing llm< ... >llm syntax in command: '{command}'",
-                exception=parse_ex,
-                error_type="Parse Error",
-                log_level="error",
-                display=True,
-            )
-            return
-    else:
-        shell_code = rest_of_command
-        user_prompt = None
+    shell_code_str = ""
+    user_prompt_str = None
 
-    if not shell_code:
+    # Primary path: token-based split on a standalone >llm token
+    if ">llm" in rest_tokens:
+        index = rest_tokens.index(">llm")
+        shell_tokens = rest_tokens[:index]
+        prompt_tokens = rest_tokens[index + 1 :]
+        shell_code_str = shlex.join(shell_tokens) if shell_tokens else ""
+        user_prompt_str = " ".join(prompt_tokens) if prompt_tokens else None
+    else:
+        # Fallback: substring-based split on literal '>llm' from the original command string after the first word
+        idx = command.find(first_word)
+        remainder = command[idx + len(first_word) :].lstrip() if idx != -1 else command
+        if ">llm" in remainder:
+            before, after = remainder.split(">llm", 1)
+            shell_code_str = before.strip()
+            user_prompt_str = after.strip() if after.strip() else None
+        else:
+            shell_code_str = remainder.strip()
+            user_prompt_str = None
+
+    if not shell_code_str.strip():
         handle_error(
             f"No shell code segment provided after 'llm<' in command: '{command}'",
             error_type="Error",
@@ -369,11 +364,12 @@ def internalize_to_llm(command: str, display_query_result_call):
         )
         return
 
+    preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
     exit_code, stdout, stderr, process = run_subprocess(
-        shell_code,
+        shell_code_str,
         interactive=False,
         shell=True,
-        preexec_fn=None,
+        preexec_fn=preexec,
         text=True,
         fetch_output=True,
     )
@@ -387,15 +383,15 @@ def internalize_to_llm(command: str, display_query_result_call):
     if exit_code == 0:
         try:
             llm_input = None
-            if user_prompt is not None:
-                if '${result}' in user_prompt:
-                    llm_input = user_prompt.replace('${result}', result)
+            if user_prompt_str is not None:
+                if '${result}' in user_prompt_str:
+                    llm_input = user_prompt_str.replace('${result}', result)
                 else:
-                    if user_prompt:
+                    if user_prompt_str:
                         if result:
-                            llm_input = user_prompt.rstrip() + "\n" + result
+                            llm_input = user_prompt_str.rstrip() + "\n" + result
                         else:
-                            llm_input = user_prompt.rstrip()
+                            llm_input = user_prompt_str.rstrip()
                     else:
                         llm_input = result
             else:
@@ -416,7 +412,7 @@ def internalize_to_llm(command: str, display_query_result_call):
             display_query_result_call(query_result)
         except Exception as ex:
             handle_error(
-                f"Error in query() after successful execution of llm_eval command: {rest_of_command}",
+                f"Error in query() after successful execution of llm_eval command: {rest_joined}",
                 exception=ex,
                 error_type="Error",
                 log_level="error",
@@ -434,7 +430,20 @@ def internalize_to_llm(command: str, display_query_result_call):
         return
 
 def execute_internal_command(command: str, display_query_result):
-    first_word = get_first_word(command)
+    try:
+        first_word, _, rest_joined = parse_command(command)
+    except Exception:
+        # parse_command should not raise, but keep original fallback behavior
+        try:
+            tokens = shlex.split(command, posix=True)
+            first_word = tokens[0] if tokens else ''
+            rest_joined = shlex.join(tokens[1:]) if len(tokens) > 1 else ''
+        except ValueError:
+            parts = command.split()
+            first_word = parts[0] if parts else ''
+            rest_joined = " ".join(parts[1:]) if len(parts) > 1 else ''
+
+    # Using shlex for safe argument joining to handle quotes and escapes.
     matching_internal_command = None
 
     try:
@@ -485,14 +494,19 @@ def execute_internal_command(command: str, display_query_result):
             )
             expansion = ""
 
-        command_to_run = (
-            f"{expansion} {' '.join(command.split()[1:])}" if expansion else " ".join(command.split()[1:])
-        )
+        command_to_run = f"{expansion} {rest_joined}" if expansion else rest_joined
+        preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
+
+        payload = "source ~/.zshrc"
+        if command_to_run and command_to_run.strip():
+            payload = f"{payload} && {command_to_run}"
+        zsh_args = ["zsh", "-c", payload]
+
         exit_code, stdout, stderr, process = run_subprocess(
-            f"zsh -c 'source ~/.zshrc && {command_to_run}'",
+            zsh_args,
             interactive=False,
-            shell=True,
-            preexec_fn=None,
+            shell=False,
+            preexec_fn=preexec,
             text=True,
             fetch_output=True,
         )

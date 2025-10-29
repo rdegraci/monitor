@@ -2,20 +2,6 @@ import pytest
 from unittest.mock import patch, MagicMock
 from monitor.core import commands
 
-# Mock get_first_word, handle_error, run_subprocess globally for test safety
-def setup_module(module):
-    module._get_first_word_patcher = patch('monitor.core.commands.get_first_word', lambda c: c.split()[0] if c.split() else "")
-    module._get_first_word_patcher.start()
-    module._handle_error_patcher = patch('monitor.core.commands.handle_error')
-    module._mock_handle_error = module._handle_error_patcher.start()
-    module._run_subprocess_patcher = patch('monitor.core.commands.run_subprocess', return_value=(0, 'output', '', MagicMock(communicate=lambda: ("proc-out", ""), wait=lambda: None)))
-    module._run_subprocess_patcher.start()
-
-def teardown_module(module):
-    module._get_first_word_patcher.stop()
-    module._handle_error_patcher.stop()
-    module._run_subprocess_patcher.stop()
-
 @patch('monitor.core.commands.INTERACTIVE_COMMANDS', [ {'command': 'foo', 'expansion': 'expandme'} ])
 def test_is_interactive_command_found():
     cmd = commands.is_interactive_command('foo')
@@ -40,7 +26,8 @@ def test_is_internal_command_not_found():
 @patch('monitor.core.commands.INTERACTIVE_COMMANDS', [ {'command': 'foo', 'expansion': 'echo work'} ])
 def test_execute_interactive_command_success():
     # No crash, runs subprocess, can be called
-    commands.execute_interactive_command('foo hi')
+    with patch('monitor.core.commands.run_subprocess', return_value=(0, 'output', '', None)):
+        commands.execute_interactive_command('foo hi')
 
 @patch('monitor.core.commands.handle_error')
 @patch('monitor.core.commands.run_subprocess', side_effect=Exception('fail-eic'))
@@ -61,14 +48,19 @@ def test_print_terminal_commands(capsys):
 @patch('monitor.core.commands.recursive_macro_expand', lambda exp, *_: exp)
 def test_execute_internal_command_internalize():
     display = MagicMock()
-    commands.execute_internal_command('bar somearg', display)
+    with patch('monitor.core.commands.run_subprocess', return_value=(0, 'output', '', None)):
+        commands.execute_internal_command('bar somearg', display)
     display.assert_called_with('output')
 
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': '!<echo raw', 'internalize': False}])
 def test_execute_internal_command_no_macro():
     display = MagicMock()
-    with patch('monitor.core.commands.run_subprocess', return_value=(0, 'plain', '', None)):
+    with patch('monitor.core.commands.run_subprocess', return_value=(0, 'plain', '', None)) as mock_run:
         commands.execute_internal_command('bar k', display)
+        # Ensure run_subprocess was called with args list for zsh (shell=False)
+        assert isinstance(mock_run.call_args[0][0], list)
+        payload = mock_run.call_args[0][0][2]
+        assert 'echo raw' in payload and 'k' in payload
 
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'bar', 'expansion': 'exp', 'internalize': False}])
 def test_execute_internal_command_exitcode_warns():
@@ -82,17 +74,17 @@ def test_execute_internal_command_exitcode_warns():
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'notfound', 'expansion': 'exp', 'internalize': False}])
 def test_execute_internal_command_unknown():
     display = MagicMock()
-    commands.execute_internal_command('noexist foo', display)
-    # handle_error should have been called for unknown internal
-    from monitor.core import commands as cmds
-    assert cmds.handle_error.called
+    with patch('monitor.core.commands.handle_error') as mock_handle_error:
+        commands.execute_internal_command('noexist foo', display)
+        mock_handle_error.assert_called()
 
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'exp', 'expansion': 'bad', 'internalize': True}])
 @patch('monitor.core.commands.recursive_macro_expand', side_effect=Exception('macrofail'))
 def test_execute_internal_command_macro_error(mock_macro):
     display = MagicMock()
-    # We expect handle_error to be called
-    commands.execute_internal_command('exp foo', display)
+    with patch('monitor.core.commands.handle_error') as mock_handle_error:
+        commands.execute_internal_command('exp foo', display)
+        assert mock_handle_error.called
 
 @patch('monitor.core.commands.INTERNAL_COMMANDS', [{'command': 'llm<', 'expansion': '', 'llm_eval': True}])
 def test_llm_internal_command_success():
