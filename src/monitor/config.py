@@ -415,7 +415,7 @@ OLLAMA_CONFIG = None
 TOTAL_TOKEN_COUNT = 0
 NON_INTERACTIVE_COMMANDS_PATH = None
 INTERACTIVE_COMMANDS_PATH = None
-REDIS_HOST = None
+REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_DB = 0
 REDIS_MAX_RETRIES = 3
@@ -737,17 +737,13 @@ def configure_subsystems():
         RATE_LIMITING_CONFIG["safety_factor"],
     )
 
-    # Guarded loading of commands: skip if NON_INTERACTIVE_COMMANDS_PATH is None
-    if NON_INTERACTIVE_COMMANDS_PATH is None:
-        logger.warning("NON_INTERACTIVE_COMMANDS_PATH is None; skipping load_terminal_commands.")
-    else:
-        try:
-            load_terminal_commands(INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH)
-        except Exception as e:
-            logger.error(
-                f"Failed to load public interactive commands from {NON_INTERACTIVE_COMMANDS_PATH}: {e}",
-                exc_info=True,
-            )
+    try:
+        load_terminal_commands(INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH)
+    except Exception as e:
+        logger.error(
+            f"Failed to load public interactive commands from {NON_INTERACTIVE_COMMANDS_PATH}: {e}",
+            exc_info=True,
+        )
 
     # Guarded loading of user preferences prompt: skip if PREFERENCE_PROMPT_FILE is None
     if PREFERENCE_PROMPT_FILE is None:

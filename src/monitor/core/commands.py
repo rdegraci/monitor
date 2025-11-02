@@ -205,8 +205,13 @@ def parse_command(command: str) -> tuple[str, list[str], str]:
     return first_word, rest_tokens, rest_joined
 
 def is_interactive_command(command: str):
+    """
+    Determine if the given command matches a public or private interactive command.
+
+    Searches both PRIVATE_COMMANDS and INTERACTIVE_COMMANDS for a matching 'command' key.
+    """
     first_word, _, _ = parse_command(command)
-    return next((cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
+    return next((cmd for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS) if cmd["command"] == first_word), None)
 
 def is_non_interactive_command(command: str):
     first_word, _, _ = parse_command(command)
@@ -261,9 +266,9 @@ def execute_non_interactive_command(command: str):
 
 def execute_interactive_command(command: str):
     """
-    Execute an interactive command as defined in INTERACTIVE_COMMANDS.
+    Execute an interactive command as defined in PRIVATE_COMMANDS and INTERACTIVE_COMMANDS.
 
-    - If an 'expansion' is matched for the first word in the command in INTERACTIVE_COMMANDS, 
+    - If an 'expansion' is matched for the first word in the command in PRIVATE_COMMANDS or INTERACTIVE_COMMANDS, 
       the expansion string is executed directly (with additional arguments appended) 
       in an interactive subshell.
     - If no expansion is found for the matched command, the command itself is executed
@@ -274,7 +279,7 @@ def execute_interactive_command(command: str):
     first_word, _, rest_joined = parse_command(command)
     # Using shlex for safe argument joining to handle quotes and escapes.
     matching_command = next(
-        (cmd for cmd in INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
+        (cmd for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS) if cmd["command"] == first_word), None
     )
     command_to_run = None
 

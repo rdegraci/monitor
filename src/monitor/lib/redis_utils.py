@@ -1,16 +1,27 @@
 import logging
 import json
-import redis
 import time
 import threading
 from functools import wraps
-from typing import Dict, Optional, Union, Tuple, List
+from typing import Optional, Union, Tuple, List
 
-from redis.exceptions import ConnectionError, TimeoutError, RedisError
+try:
+    import redis  # type: ignore
+    from redis.exceptions import ConnectionError, TimeoutError, RedisError  # type: ignore
+except Exception:
+    redis = None
 
-from monitor import config 
+    class RedisError(Exception):
+        pass
 
-from monitor.lib.colors import red, blue, yellow, reset 
+    class ConnectionError(RedisError):
+        pass
+
+    class TimeoutError(RedisError):
+        pass
+
+from monitor import config
+
 from monitor.lib.token_management import count_message_tokens, update_token_usage
 from monitor.lib.history import append_to_history_with_count
 
@@ -19,16 +30,17 @@ logger = logging.getLogger(__name__)
 # Thread-local storage for Redis client
 _redis_client = threading.local()
 
-REDIS_HOST=None 
-REDIS_PORT=6379 
-REDIS_DB=0 
-REDIS_MAX_RETRIES=3 
-REDIS_RETRY_INTERVAL=1
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+REDIS_DB = 0
+REDIS_MAX_RETRIES = 3
+REDIS_RETRY_INTERVAL = 1
+
 
 class _DummyPipeline:
     """A no-op pipeline implementation that mimics the subset of redis-py pipeline used here.
 
-    This pipeline supports context manager usage and the set/expire/execute methods.
+    This pipeline supports context manager usage and the set/expire/setex/execute methods.
     It performs no network activity and returns sensible no-op values.
     """
 
@@ -62,11 +74,25 @@ class _DummyPipeline:
         self._commands.append(("expire", key, ttl))
         return self
 
+    def setex(self, key: str, ttl: int, value: str):
+        """Record a setex command (set + expire) in the no-op pipeline.
+
+        Args:
+            key: The key to set.
+            ttl: TTL in seconds.
+            value: The value to set.
+        """
+        self._commands.append(("set", key, value))
+        self._commands.append(("expire", key, ttl))
+        return self
+
     def execute(self) -> List[Union[bool, int, None]]:
         """Execute the recorded commands (no-op).
 
         Returns:
             A list of sensible no-op return values corresponding to commands.
+            Note: Return values are placeholders for testing only and may differ
+            from the real Redis pipeline's return values.
         """
         results = []
         for cmd in self._commands:
@@ -81,10 +107,10 @@ class _DummyPipeline:
 
 
 class DummyRedis:
-    """A no-op, in-process stand-in for a Redis client used when MEMORY_SERVICES is disabled.
+    """A no-op, in-process stand-in for a Redis client for testing or manual substitution.
 
     This class implements a minimal subset of methods expected by this module:
-    exists, ttl, get, keys, pipeline, set, expire, delete.
+    exists, ttl, get, keys, pipeline, set, expire, setex, delete.
 
     All methods perform no network activity and return sensible defaults:
     - exists: always 0 (False)
@@ -92,14 +118,31 @@ class DummyRedis:
     - get: always None
     - keys: always an empty list
     - pipeline: returns a _DummyPipeline instance
-    - set/expire: return True
+    - set/expire/setex: return True
     - delete: return 0
+
+    This client does not persist any data in memory; it is a pure no-op implementation with no in-process storage.
+
+    Note:
+        This module does not automatically replace redis.Redis with DummyRedis.
+        When MEMORY_SERVICES is disabled, get_redis_client() returns None and
+        the with_redis_retry decorator short-circuits operations. Use DummyRedis
+        only in tests or if you explicitly substitute it yourself.
     """
 
     def __init__(self, *args, **kwargs) -> None:
-        # Accepts the same initialization signature as redis.Redis but ignores parameters.
-        self._store = {}  # optional in-memory store if future functionality is desired
-        logger.debug("Initialized DummyRedis (no-op Redis client). Args: %s, Kwargs: %s", args, kwargs)
+        """Initialize the DummyRedis client.
+
+        Accepts the same initialization signature as redis.Redis but ignores all parameters.
+        This implementation intentionally does not create or maintain any in-memory store or persistence.
+        It only logs its initialization for debugging purposes.
+        """
+        # No in-memory store is kept; DummyRedis is a pure no-op.
+        logger.debug(
+            "Initialized DummyRedis (pure no-op Redis client with no persistence). Args: %s, Kwargs: %s",
+            args,
+            kwargs,
+        )
 
     def exists(self, key: str) -> int:
         """Check existence of a key. Always returns 0 to indicate non-existence.
@@ -177,6 +220,21 @@ class DummyRedis:
         """
         return True
 
+    def setex(self, key: str, ttl: int, value: str) -> bool:
+        """Set the value of a key and its expiration time, emulating redis.Redis.setex.
+
+        Args:
+            key (str): The key to set.
+            ttl (int): Time-to-live in seconds.
+            value (str): The value to store.
+
+        Returns:
+            bool: True indicating the operation is considered successful.
+        """
+        self.set(key, value)
+        self.expire(key, ttl)
+        return True
+
     def delete(self, key: str) -> int:
         """Delete a key. No-op; returns 0 indicating nothing deleted.
 
@@ -189,13 +247,9 @@ class DummyRedis:
         return 0
 
 
-# If MEMORY_SERVICES is disabled at import time, replace redis.Redis with DummyRedis
-if not getattr(config, "MEMORY_SERVICES", False):
-    try:
-        redis.Redis = DummyRedis  # type: ignore[attr-defined]
-        logger.info("MEMORY_SERVICES is disabled; using DummyRedis as a no-op Redis client.")
-    except Exception as e:
-        logger.error("Failed to assign DummyRedis to redis.Redis: %s", e)
+# Note: No import-time monkey-patching of redis.Redis occurs in this module.
+# get_redis_client() and with_redis_retry() handle MEMORY_SERVICES-disabled behavior.
+
 
 def configure_redis_utils(host, port, db, max_retries, retry_interval):
     global REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL
@@ -205,37 +259,94 @@ def configure_redis_utils(host, port, db, max_retries, retry_interval):
     REDIS_MAX_RETRIES = max_retries
     REDIS_RETRY_INTERVAL = retry_interval
 
-def get_redis_client() -> Optional[redis.Redis]:
+
+def normalize_conversation_key(key: str) -> str:
+    """Normalize a key to ensure it has the 'conversation:' prefix.
+
+    Args:
+        key (str): The key to normalize.
+
+    Returns:
+        str: The original key if it already starts with 'conversation:', otherwise
+            the key prefixed with 'conversation:'.
+    """
+    if key.startswith("conversation:"):
+        return key
+    return f"conversation:{key}"
+
+
+def get_redis_client() -> Optional[object]:
     """
     Get or create a Redis client instance.
     Uses thread-local storage to ensure thread safety.
 
     Returns:
-        Optional[redis.Redis]: Redis client instance, or None when MEMORY_SERVICES is disabled.
+        Optional[object]: Redis client instance, or None when MEMORY_SERVICES is disabled.
     """
 
     if not config.MEMORY_SERVICES:
-        logger.info("Redis server not available. No MEMORY_SERVICES.")
+        logger.debug("MEMORY_SERVICES disabled; Redis client not created.")
         return None
 
     logger.debug("Entering get_redis_client")
-    if not hasattr(_redis_client, 'instance'):
+    if not hasattr(_redis_client, "instance"):
+        # Lazy import if redis was not importable at module load
+        global redis, ConnectionError, TimeoutError, RedisError
+        if redis is None:
+            try:
+                import importlib
+
+                _redis_mod = importlib.import_module("redis")
+                redis = _redis_mod  # type: ignore[assignment]
+                try:
+                    from redis.exceptions import (  # type: ignore
+                        ConnectionError as _ConnErr,
+                        TimeoutError as _TimeoutErr,
+                        RedisError as _RedisErr,
+                    )
+
+                    ConnectionError = _ConnErr
+                    TimeoutError = _TimeoutErr
+                    RedisError = _RedisErr
+                except Exception:
+                    # Fallback if exceptions submodule is not accessible as expected
+                    if hasattr(_redis_mod, "exceptions"):
+                        ConnectionError = getattr(
+                            _redis_mod.exceptions, "ConnectionError", RedisError
+                        )
+                        TimeoutError = getattr(
+                            _redis_mod.exceptions, "TimeoutError", RedisError
+                        )
+                        RedisError = getattr(
+                            _redis_mod.exceptions, "RedisError", Exception
+                        )
+            except Exception as e:
+                raise ImportError(
+                    "Redis client requested but the 'redis' package is not installed. "
+                    "Install it with: pip install redis"
+                ) from e
         try:
-            _redis_client.instance = redis.Redis(
-                host=REDIS_HOST,
+            _redis_client.instance = redis.Redis(  # type: ignore[union-attr]
+                host=(REDIS_HOST or "localhost"),
                 port=REDIS_PORT,
                 db=REDIS_DB,
                 decode_responses=True,  # Automatically decode response bytes to str
                 socket_timeout=5,  # 5 seconds socket timeout
                 socket_connect_timeout=5,  # 5 seconds connection timeout
                 retry_on_timeout=True,
-                health_check_interval=30  # Check connection health every 30 seconds
+                health_check_interval=30,  # Check connection health every 30 seconds
             )
-            logger.debug("Created new Redis client with host=%s, port=%s, db=%s", REDIS_HOST, REDIS_PORT, REDIS_DB)
+            logger.debug(
+                "Created new Redis client with host=%s, port=%s, db=%s",
+                (REDIS_HOST or "localhost"),
+                REDIS_PORT,
+                REDIS_DB,
+            )
         except RedisError as e:
             logger.error("Failed to create Redis client: %s", e)
             raise
     return _redis_client.instance
+
 
 def with_redis_retry(max_retries=None, retry_interval=None):
     """
@@ -248,12 +359,16 @@ def with_redis_retry(max_retries=None, retry_interval=None):
     Returns:
         callable: Decorated function with retry logic.
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # Short-circuit when MEMORY_SERVICES is disabled to avoid unnecessary retries
             if not config.MEMORY_SERVICES:
-                logger.info("MEMORY_SERVICES disabled; short-circuiting function %s", func.__name__)
+                logger.debug(
+                    "MEMORY_SERVICES disabled; short-circuiting function %s",
+                    func.__name__,
+                )
                 # Provide sensible defaults for commonly decorated functions
                 if func.__name__ == "verify_ttl":
                     return False, -2
@@ -270,9 +385,18 @@ def with_redis_retry(max_retries=None, retry_interval=None):
                     return "MEMORY_SERVICES disabled. Skipping save to memory."
                 # Generic fallback
                 return {"error": "MEMORY_SERVICES disabled"}
-            resolved_max_retries = max_retries if max_retries is not None else REDIS_MAX_RETRIES
-            resolved_retry_interval = retry_interval if retry_interval is not None else REDIS_RETRY_INTERVAL
-            logger.debug("Calling %s with retry logic: args=%s, kwargs=%s", func.__name__, args, kwargs)
+            resolved_max_retries = (
+                max_retries if max_retries is not None else REDIS_MAX_RETRIES
+            )
+            resolved_retry_interval = (
+                retry_interval if retry_interval is not None else REDIS_RETRY_INTERVAL
+            )
+            logger.debug(
+                "Calling %s with retry logic: args=%s, kwargs=%s",
+                func.__name__,
+                args,
+                kwargs,
+            )
             last_exception = None
             for attempt in range(resolved_max_retries):
                 try:
@@ -280,16 +404,47 @@ def with_redis_retry(max_retries=None, retry_interval=None):
                 except (ConnectionError, TimeoutError, RedisError) as e:
                     last_exception = e
                     if attempt < resolved_max_retries - 1:  # Don't sleep on the last attempt
-                        logger.warning("Redis operation failed (attempt %d/%d): %s", attempt + 1, resolved_max_retries, e)
+                        logger.warning(
+                            "Redis operation failed (attempt %d/%d): %s",
+                            attempt + 1,
+                            resolved_max_retries,
+                            e,
+                        )
                         time.sleep(resolved_retry_interval)
                         # Reset client connection
-                        if hasattr(_redis_client, 'instance'):
-                            delattr(_redis_client, 'instance')
-            logger.error("Redis operation failed after %d attempts: %s", resolved_max_retries, last_exception)
-            # Don't propagate further, but return reasonable error structure or None:
-            return {"error": f"Redis operation failed after {resolved_max_retries} attempts: {last_exception}"}
+                        if hasattr(_redis_client, "instance"):
+                            delattr(_redis_client, "instance")
+            logger.error(
+                "Redis operation failed after %d attempts: %s",
+                resolved_max_retries,
+                last_exception,
+            )
+            # Return function-appropriate failure values to avoid type mismatches
+            fname = func.__name__
+            if fname == "verify_ttl":
+                return False, -2
+            if fname == "fetch_memory_for_context":
+                return []
+            if fname == "fetch_memory_keys_as_json":
+                try:
+                    return json.dumps([])
+                except Exception:
+                    return "[]"
+            if fname == "read_from_memory":
+                return None
+            if fname in ("save_to_memory", "update_memory"):
+                return (
+                    f"Redis operation failed after {resolved_max_retries} attempts: {last_exception}"
+                )
+            if fname == "delete_from_memory":
+                return False
+            # Default case: re-raise the last exception
+            raise last_exception  # type: ignore[misc]
+
         return wrapper
+
     return decorator
+
 
 @with_redis_retry()
 def verify_ttl(key: str) -> Tuple[bool, int]:
@@ -300,7 +455,7 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
         key (str): The Redis key to check.
 
     Returns:
-        Tuple[bool, int]: 
+        Tuple[bool, int]:
             - Boolean indicating if key exists.
             - Integer TTL in seconds (-2 if key doesn't exist, -1 if no TTL).
     """
@@ -308,7 +463,7 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
     try:
         client = get_redis_client()
         if client is None:
-            logger.warning("verify_ttl short-circuit: MEMORY_SERVICES disabled.")
+            logger.debug("verify_ttl short-circuit: MEMORY_SERVICES disabled.")
             return False, -2
         exists = client.exists(key)
         ttl = client.ttl(key) if exists else -2
@@ -318,8 +473,11 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
         logger.error("Redis error in verify_ttl for key %s: %s", key, e)
         return False, -2
 
+
 @with_redis_retry()
-def save_to_memory(key: str, value: str, ttl: Optional[int] = 900) -> Union[str, None]:
+def save_to_memory(
+    key: str, value: str, ttl: Optional[int] = 900
+) -> Union[str, None]:
     """
     Deprecated: Use update_memory instead.
 
@@ -331,11 +489,19 @@ def save_to_memory(key: str, value: str, ttl: Optional[int] = 900) -> Union[str,
     Returns:
         Union[str, None]: Result message or None on failure.
     """
-    logger.debug("Entering save_to_memory with key=%s, value=(omitted), ttl=%s", key, ttl)
-    return update_memory(user_input=value, response="", key=key)
+    logger.debug(
+        "Entering save_to_memory with key=%s, value=(omitted), ttl=%s", key, ttl
+    )
+    return update_memory(user_input=value, response="", key=key, ttl=ttl)
+
 
 @with_redis_retry()
-def update_memory(user_input: str, response: str = "", key: Optional[str] = None, ttl: Optional[int] = 1800) -> Union[str, None]:
+def update_memory(
+    user_input: str,
+    response: str = "",
+    key: Optional[str] = None,
+    ttl: Optional[int] = 1800,
+) -> Union[str, None]:
     """
     Save a value in Redis under the specified key.
     Optionally applies a Time-To-Live (TTL) to the key-value pair.
@@ -353,7 +519,8 @@ def update_memory(user_input: str, response: str = "", key: Optional[str] = None
         "Entering update_memory with user_input=%s, response=%s, key=%s, ttl=%s",
         (user_input[:40] + "...") if user_input and len(user_input) > 40 else user_input,
         (response[:40] + "...") if response and len(response) > 40 else response,
-        key, ttl
+        key,
+        ttl,
     )
     try:
         client = get_redis_client()
@@ -364,27 +531,33 @@ def update_memory(user_input: str, response: str = "", key: Optional[str] = None
         if key is None:
             prefix = f"conversation:{time.time()}"
         else:
-            prefix = f"conversation:{key}"
+            prefix = normalize_conversation_key(key)
 
-        logger.debug("Saving to memory: %s with user_input=(omitted), response=(omitted), ttl=%s", prefix, ttl)
+        logger.debug(
+            "Saving to memory: %s with user_input=(omitted), response=(omitted), ttl=%s",
+            prefix,
+            ttl,
+        )
 
         # Store data in a structured format using JSON
         data = {
             "user_input": user_input,
             "response": response,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
         try:
             json_data = json.dumps(data)
         except (TypeError, ValueError) as e:
-            logger.error("Could not serialize data to JSON for key %s: %s", prefix, e)
+            logger.error(
+                "Could not serialize data to JSON for key %s: %s", prefix, e
+            )
             return f"Could not serialize data to JSON: {e}"
 
         # Use pipeline for atomic operations
         try:
             with client.pipeline() as pipe:
                 pipe.set(prefix, json_data)
-                if ttl:
+                if ttl is not None:
                     pipe.expire(prefix, ttl)
                 pipe.execute()
         except RedisError as e:
@@ -395,17 +568,32 @@ def update_memory(user_input: str, response: str = "", key: Optional[str] = None
         if not exists:
             logger.error("Key %s was not saved successfully", prefix)
             return "Key was not saved successfully"
-        if ttl and (actual_ttl == -1 or actual_ttl <= 0):
+        if ttl is not None and (actual_ttl == -1 or actual_ttl <= 0):
             try:
                 client.delete(prefix)
             except RedisError as e:
-                logger.error("Failed to cleanup after TTL verification for key %s: %s", prefix, e)
-            logger.error("TTL verification failed for key %s. Expected ~%s, got %s", prefix, ttl, actual_ttl)
+                logger.error(
+                    "Failed to cleanup after TTL verification for key %s: %s",
+                    prefix,
+                    e,
+                )
+            logger.error(
+                "TTL verification failed for key %s. Expected ~%s, got %s",
+                prefix,
+                ttl,
+                actual_ttl,
+            )
             return f"TTL verification failed. Expected ~{ttl}, got {actual_ttl}"
 
         data["ttl"] = actual_ttl
-        result_message = f"Successfully saved '{user_input}' under key: {prefix} with TTL: {actual_ttl}s"
-        logger.info("Successfully saved user_input under key %s with TTL %s", prefix, actual_ttl)
+        result_message = (
+            f"Successfully saved '{user_input}' under key: {prefix} with TTL: {actual_ttl}s"
+        )
+        logger.info(
+            "Successfully saved user_input under key %s with TTL %s",
+            prefix,
+            actual_ttl,
+        )
         logger.info(result_message)
         return result_message
 
@@ -414,66 +602,69 @@ def update_memory(user_input: str, response: str = "", key: Optional[str] = None
             "error": str(e),
             "key": key,
             "timestamp": time.time(),
-            "ttl": None
+            "ttl": None,
         }
         error_message = f"Failed to save to Redis: {str(e)}"
         logger.error("Failed to save to Redis for key %s: %s", key, e)
         return error_message
 
+
 @with_redis_retry()
-def read_from_memory(key: str) -> Union[str, None, Dict[str, str]]:
+def read_from_memory(key: str) -> Union[str, None]:
     """
     Retrieve a value from Redis based on the specified key.
-    If the key starts with 'conversation:', it will be used as is;
-    otherwise, returns None.
+    The key is normalized using normalize_conversation_key to ensure the 'conversation:' prefix.
 
     Args:
         key (str): The Redis key from which to retrieve the value.
 
     Returns:
-        Union[str, None, Dict[str, str]]: Result message, None if not found, or structured error info if decoding fails.
+        Union[str, None]: A success message string on retrieval, or None if not found or on error.
     """
     logger.debug("Entering read_from_memory with key=%s", key)
     try:
         client = get_redis_client()
         if client is None:
-            logger.warning("read_from_memory short-circuit: MEMORY_SERVICES disabled.")
+            logger.debug("read_from_memory short-circuit: MEMORY_SERVICES disabled.")
             return None
         logger.debug("Reading from memory: %s", key)
 
-        if key.startswith('conversation:'):
-            search_key = key
-        else:
-            search_key = f"conversation:{key}"
+        search_key = normalize_conversation_key(key)
 
         exists, ttl = verify_ttl(search_key)
         value = client.get(search_key) if exists else None
 
         if value is None:
-            logger.warning("No value found in memory for search_key: %s", search_key)
+            logger.warning(
+                "No value found in memory for search_key: %s", search_key
+            )
             return None
 
         try:
             if isinstance(value, str):
                 parsed_value = json.loads(value)
-                result = parsed_value.get('response')
+                result = parsed_value.get("response")
             else:
                 result = value
-            message = f"Successfully retrieved `{result}` for search_key: {search_key} (TTL: {ttl}s)"
-            logger.info("Successfully retrieved key %s (TTL: %s)", search_key, ttl)
+            message = (
+                f"Successfully retrieved `{result}` for search_key: {search_key} (TTL: {ttl}s)"
+            )
+            logger.info(
+                "Successfully retrieved key %s (TTL: %s)", search_key, ttl
+            )
             return message
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning("Retrieved value is not valid JSON for search_key: %s: %s", search_key, e)
-            return {
-                "error": "Retrieved value is not valid JSON",
-                "key": search_key,
-                "raw_value": value,
-                "exception": str(e)
-            }
+            logger.warning(
+                "Retrieved value is not valid JSON for search_key: %s: %s",
+                search_key,
+                e,
+            )
+            return None
     except RedisError as e:
         error_message = f"Failed to read from Redis: {str(e)}"
         logger.error("Failed to read from Redis for key %s: %s", key, e)
-        return {"error": error_message, "key": key}
+        return None
+
 
 @with_redis_retry()
 def fetch_memory_for_context() -> List[str]:
@@ -489,7 +680,9 @@ def fetch_memory_for_context() -> List[str]:
     try:
         client = get_redis_client()
         if client is None:
-            logger.warning("fetch_memory_for_context short-circuit: MEMORY_SERVICES disabled.")
+            logger.debug(
+                "fetch_memory_for_context short-circuit: MEMORY_SERVICES disabled."
+            )
             return keys
         # Get all conversation keys
         all_keys = client.keys(pattern="conversation:*")
@@ -505,12 +698,16 @@ def fetch_memory_for_context() -> List[str]:
                         try:
                             parsed_data = json.loads(data)
                         except (json.JSONDecodeError, TypeError) as e:
-                            logger.warning("Could not parse data for key %s: %s", key, e)
+                            logger.warning(
+                                "Could not parse data for key %s: %s", key, e
+                            )
                             continue
-                        timestamp = parsed_data.get('timestamp', 0)
+                        timestamp = parsed_data.get("timestamp", 0)
                         valid_keys.append((key, timestamp))
                 except RedisError as e:
-                    logger.warning("Error getting value for key %s: %s", key, e)
+                    logger.warning(
+                        "Error getting value for key %s: %s", key, e
+                    )
                     continue
 
         # Sort keys by timestamp (newest first)
@@ -522,6 +719,7 @@ def fetch_memory_for_context() -> List[str]:
     except RedisError as e:
         logger.error("Failed to fetch memory keys: %s", e)
         return keys
+
 
 @with_redis_retry()
 def fetch_memory_keys_as_json() -> str:
@@ -536,7 +734,9 @@ def fetch_memory_keys_as_json() -> str:
     try:
         client = get_redis_client()
         if client is None:
-            logger.warning("fetch_memory_keys_as_json short-circuit: MEMORY_SERVICES disabled.")
+            logger.debug(
+                "fetch_memory_keys_as_json short-circuit: MEMORY_SERVICES disabled."
+            )
             try:
                 return json.dumps([])
             except Exception:
@@ -548,10 +748,14 @@ def fetch_memory_keys_as_json() -> str:
             return json_keys
         except (TypeError, ValueError) as e:
             logger.error("Error serializing memory keys to JSON: %s", e)
-            return json.dumps({"error": "Serialization error", "exception": str(e)})
+            return json.dumps(
+                {"error": "Serialization error", "exception": str(e)}
+            )
     except RedisError as e:
         logger.error("Failed to fetch memory keys as JSON: %s", e)
-        return json.dumps({"error": "RedisError on fetch_memory_keys_as_json", "exception": str(e)})
+        return json.dumps(
+            {"error": "RedisError on fetch_memory_keys_as_json", "exception": str(e)}
+        )
 
 
 def prepend_memory_to_history() -> None:
@@ -563,15 +767,22 @@ def prepend_memory_to_history() -> None:
         None, but updates config.CONVERSATION_HISTORY list in place.
     """
     logger.debug(
-        "Entering prepend_memory_to_history with config.CONVERSATION_HISTORY(len)=%d", 
-        len(config.CONVERSATION_HISTORY) if config.CONVERSATION_HISTORY is not None else 0)
+        "Entering prepend_memory_to_history with config.CONVERSATION_HISTORY(len)=%d",
+        len(config.CONVERSATION_HISTORY)
+        if config.CONVERSATION_HISTORY is not None
+        else 0,
+    )
     try:
         if not config.MEMORY_SERVICES:
-            logger.warning("Unable to prepend memory to history. No MEMORY_SERVICES.")
+            logger.warning(
+                "Unable to prepend memory to history. No MEMORY_SERVICES."
+            )
             return
         client = get_redis_client()
         if client is None:
-            logger.warning("prepend_memory_to_history short-circuit: MEMORY_SERVICES disabled.")
+            logger.debug(
+                "prepend_memory_to_history short-circuit: MEMORY_SERVICES disabled."
+            )
             return
         logger.debug("Prepending memory to history")
         keys = fetch_memory_for_context()
@@ -583,31 +794,48 @@ def prepend_memory_to_history() -> None:
                 try:
                     value = client.get(key)
                 except RedisError as e:
-                    logger.warning("Error retrieving value for key %s: %s", key, e)
+                    logger.warning(
+                        "Error retrieving value for key %s: %s", key, e
+                    )
                     continue
                 if value:
                     try:
                         data = json.loads(value)
-                        if isinstance(data, dict) and 'user_input' in data and 'response' in data:
-                            entry = f"User: {data['user_input']}\nResponse: {data['response']}"
+                        if (
+                            isinstance(data, dict)
+                            and "user_input" in data
+                            and "response" in data
+                        ):
+                            entry = (
+                                f"User: {data['user_input']}\nResponse: {data['response']}"
+                            )
                             memory_entries.append(entry)
                     except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning("Failed to decode JSON for key %s: %s", key, e)
+                        logger.warning(
+                            "Failed to decode JSON for key %s: %s", key, e
+                        )
                         memory_entries.append(str(value))
 
         if memory_entries:
             memory_dict = {
                 "role": "system",
-                "content": "Previous conversation context:\n" + "\n\n".join(memory_entries)
+                "content": "Previous conversation context:\n"
+                + "\n\n".join(memory_entries),
             }
             if not config.CONVERSATION_HISTORY:
                 config.CONVERSATION_HISTORY.insert(0, memory_dict)
             else:
                 config.CONVERSATION_HISTORY[0] = memory_dict
-            logger.info("Prepended memory to history with %d memory entries", len(memory_entries))
+            logger.info(
+                "Prepended memory to history with %d memory entries",
+                len(memory_entries),
+            )
     except Exception as e:
-        logger.error("Error while prepending memory to history: %s", e, exc_info=True)
+        logger.error(
+            "Error while prepending memory to history: %s", e, exc_info=True
+        )
         # Don't raise the exception as this is a non-critical operation
+
 
 def prepare_model_input(user_input: str) -> None:
     """
@@ -623,16 +851,19 @@ def prepare_model_input(user_input: str) -> None:
     logger.debug(
         "Entering prepare_model_input with user_input=%s, config.CONVERSATION_HISTORY(len)=%d",
         (user_input[:40] + "...") if user_input and len(user_input) > 40 else user_input,
-        len(config.CONVERSATION_HISTORY) if config.CONVERSATION_HISTORY is not None else 0
+        len(config.CONVERSATION_HISTORY)
+        if config.CONVERSATION_HISTORY is not None
+        else 0,
     )
     prepend_memory_to_history()
     append_to_history_with_count(
         {"role": "user", "content": user_input},
         config.CONVERSATION_HISTORY,
         count_message_tokens,
-        update_token_usage
+        update_token_usage,
     )
     logger.info("Model input prepared and appended for user_input")
+
 
 @with_redis_retry()
 def delete_from_memory(key: str) -> bool:
@@ -649,12 +880,9 @@ def delete_from_memory(key: str) -> bool:
     logger.debug("Entering delete_from_memory with key=%s", key)
     client = get_redis_client()
     if client is None:
-        logger.warning("delete_from_memory short-circuit: MEMORY_SERVICES disabled.")
+        logger.debug("delete_from_memory short-circuit: MEMORY_SERVICES disabled.")
         return False
-    if not key.startswith('conversation:'):
-        redis_key = f"conversation:{key}"
-    else:
-        redis_key = key
+    redis_key = normalize_conversation_key(key)
     try:
         deleted = client.delete(redis_key)
         if deleted:
@@ -666,6 +894,7 @@ def delete_from_memory(key: str) -> bool:
     except RedisError as e:
         logger.error("Error deleting key %s: %s", redis_key, e)
         return False
+
 
 def dump_memories(arg):
     """
