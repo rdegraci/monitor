@@ -468,16 +468,15 @@ def create_patch_for_file(path: str, contents: str):
 
 def create_file(path, contents):
     """
-    Creates a new file with the given content if the file does NOT already exist.
+    Create a new file with the given content, creating parent directories first if needed.
 
-    If the file exists:
-      - Do NOT overwrite it; instead, log and print a warning or error.
-      - Return JSON string with {'error': <msg>}.
-
-    If the file does not exist:
-      - Create the file with the given content.
-      - Log and print success.
-      - Return JSON string with a result message.
+    - Expands '~' in the path.
+    - Automatically creates parent directories (mkdir -p behavior) before file creation.
+    - If the path already exists as a file, do NOT overwrite; return an error JSON.
+    - If the path exists and is a directory, return an error JSON.
+    - Uses the underlying fileio_create_file() to write the file; if it returns False,
+      return an error JSON.
+    - On success, returns a JSON string with a 'result' message.
 
     :param path: The file path to create.
     :param contents: The contents to write in the new file.
@@ -486,19 +485,43 @@ def create_file(path, contents):
     """
     path = os.path.expanduser(path)
     logger.debug("Entering create_file function with path=%s", path)
+
+    # Ensure parent directory exists before attempting creation
+    parent_dir = os.path.dirname(path)
+    if parent_dir and not os.path.exists(parent_dir):
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+            logger.debug("Created parent directories for %s", path)
+        except Exception as e:
+            logger.error("Error creating parent directories for %s: %s", path, str(e), exc_info=True)
+            print_red(f"Error creating parent directories for {path}: {str(e)}")
+            return json.dumps({"error": f"Error creating parent directories for {path}: {str(e)}"})
+
+    # Validate path state
+    if os.path.isdir(path):
+        logger.error("Path exists and is a directory: %s", path)
+        print_red(f"Path exists and is a directory: {path}")
+        return json.dumps({"error": f"Path exists and is a directory: {path}"})
     if file_exists(path):
         logger.warning("File already exists at %s; will not overwrite", path)
         return json.dumps({"error": f"File already exists at {path}; not overwritten."})
-    else:
-        try:
-            fileio_create_file(path, contents)
-            logger.info("Created new file at %s", path)
-            print_yellow(f"Created new file at {path}.")
-            return json.dumps({"result": f"Created new file at {path}."})
-        except Exception as e:
-            logger.error("Error creating file: %s", str(e), exc_info=True)
-            print_red(f"Error creating file: {str(e)}")
-            return json.dumps({"error": f"Error creating file: {str(e)}"})
+
+    # Attempt file creation using underlying IO helper
+    try:
+        creation_ok = fileio_create_file(path, contents)
+    except Exception as e:
+        logger.error("Exception during file creation at %s: %s", path, str(e), exc_info=True)
+        print_red(f"Error creating file at {path}: {str(e)}")
+        return json.dumps({"error": f"Error creating file at {path}: {str(e)}"})
+
+    if not creation_ok:
+        logger.error("Underlying file creation function reported failure for %s", path)
+        print_red(f"Failed to create file at {path}.")
+        return json.dumps({"error": f"Failed to create file at {path}."})
+
+    logger.info("Created new file at %s", path)
+    print_yellow(f"Created new file at {path}.")
+    return json.dumps({"result": f"Created new file at {path}."})
 
 def make_directory(path: str):
     """
