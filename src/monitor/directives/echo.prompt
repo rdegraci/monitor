@@ -1,0 +1,21 @@
+Echo the parameters provided via param lines.
+
+Context
+- You will receive up to five lines before this directive content in the exact form:
+  param1=<value>
+  param2=<value>
+  param3=<value>
+  param4=<value>
+  param5=<value>
+- Some parameters may be missing or empty. Treat missing values as empty strings.
+
+Task
+- Output exactly five lines in this order, echoing the parameter values:
+  param1: <value of param1>
+  param2: <value of param2>
+  param3: <value of param3>
+  param4: <value of param4>
+  param5: <value of param5>
+- Always include all five lines even if some values are empty.
+- Do not include any additional commentary, headers, code fences, or explanations.
+- The output must be only those five lines.

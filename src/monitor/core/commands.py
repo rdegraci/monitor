@@ -152,7 +152,6 @@ def _load_private_internal_commands():
                 echo "$parameter3"
                 echo "$parameter4"
                 echo "$parameter5"
-                echo "Directives are located in '{config.DIRECTIVES_DIR}'"
                 cat "$full_path" 2>/dev/null || echo "Error: File not found or inaccessible: $full_path"
             }}; _directive_cat""",
             "internalize_to_llm": True,  # Evaluates the contents as LLM instructions
