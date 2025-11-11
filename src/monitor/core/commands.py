@@ -152,7 +152,10 @@ def _load_private_internal_commands():
                 echo "$parameter3"
                 echo "$parameter4"
                 echo "$parameter5"
-                cat "$full_path" 2>/dev/null || echo "Error: File not found or inaccessible: $full_path"
+                if ! cat "$full_path" 2>/dev/null; then
+                    echo "Error: File not found or inaccessible: $full_path" >&2
+                    return 1
+                fi
             }}; _directive_cat""",
             "internalize_to_llm": True,  # Evaluates the contents as LLM instructions
             "help": f"""
@@ -516,18 +519,33 @@ def execute_internal_command(command: str, display_query_result):
         )
         output_string = stdout if stdout is not None else ""
 
+        # If the internal command requests that output be internalized to the LLM,
+        # we must avoid sending error output to the model. Specifically, if the
+        # subprocess exited with a non-zero status and produced stderr, surface
+        # that stderr to the user and DO NOT send the output to the LLM.
+        # Successful runs (exit_code == 0) retain the existing behavior.
         if matching_internal_command.get("internalize_to_llm"):
-            try:
-                llm_result = query(output_string if output_string is not None else "")
-                display_query_result(llm_result)
-            except Exception as ex:
+            if exit_code is not None and exit_code != 0 and stderr:
+                # Surface subprocess stderr to the user and skip sending to LLM.
                 handle_error(
-                    "Error sending command output to LLM",
-                    exception=ex,
+                    f"Internal command produced errors (exit_code {exit_code}):",
+                    exception=stderr,
                     error_type="Error",
-                    log_level="error",
+                    log_level="warning",
                     display=True,
                 )
+            else:
+                try:
+                    llm_result = query(output_string if output_string is not None else "")
+                    display_query_result(llm_result)
+                except Exception as ex:
+                    handle_error(
+                        "Error sending command output to LLM",
+                        exception=ex,
+                        error_type="Error",
+                        log_level="error",
+                        display=True,
+                    )
         elif matching_internal_command.get("internalize"):
             display_query_result(output_string)
         else:

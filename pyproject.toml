@@ -64,7 +64,9 @@ monitor = [
     "non_interactive_commands.json",
     "interactive_commands.json",
     "macros.json",
-    "model_config.json"
+    "model_config.json",
+    "directives/echo.prompt"
+    "directives/greet.prompt"
 ]
 
 [tool.pytest.ini_options]
