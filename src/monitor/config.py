@@ -708,7 +708,7 @@ def configure_logging_globals():
         logger.error(f"Failed joining conversation log filename: {e}", exc_info=True)
         raise RuntimeError("Failed to create conversation log file name") from e
     try:
-        CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a")
+        CONVERSATION_LOG_FILE = open(CONVERSATION_LOG_FILENAME, "a", encoding=LOG_ENCODING or "utf-8")
     except Exception as e:
         logger.error(f"Failed to open conversation log file: {CONVERSATION_LOG_FILENAME}: {e}", exc_info=True)
         raise RuntimeError(

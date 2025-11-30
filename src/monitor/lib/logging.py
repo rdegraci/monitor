@@ -1,25 +1,26 @@
 """
 Centralized logging configuration for the application.
 
-This module sets up logging using a unified config.logging_config dictionary provided by config.py.
-This dictionary should define all logging options, both required and optional.
+This module configures logging by reading logging-related globals defined in monitor.config
+(e.g., LOGGING_LEVEL, LOG_FILE_PATH, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES,
+LOG_BACKUP_COUNT, CONSOLE_LOGGING_ENABLED, LOG_ENCODING). These globals may be absent; in
+that case documented defaults are applied and a warning is emitted.
 
-REQUIRED FIELDS in config.logging_config:
-    - 'level': Logging level as string, e.g., 'INFO', 'DEBUG', etc.
-    - 'file_path': String path to the log file. This path may now contain '{pid}' which will be replaced with the current process PID. If not present, the PID will be injected by default before the file extension.
+REQUIRED GLOBALS in monitor.config:
+    - LOGGING_LEVEL: Logging level as string or int, e.g., 'INFO', 'DEBUG', or 20, etc.
+    - LOG_FILE_PATH: String path to the log file. This path may contain '{pid}' which will
+      be replaced with the current process PID. If not present, the PID will be injected by
+      default before the file extension.
 
-OPTIONAL FIELDS (defaults will be used if not provided):
-    - 'format': Log formatting string. Default: '%(asctime)s %(levelname)s %(name)s %(message)s'
-    - 'date_format': Format for log entry dates. Default: '%Y-%m-%d %H:%M:%S'
-    - 'max_bytes': Integer, file size before rotation in bytes. Default: 5 * 1024 * 1024 (5 MB)
-    - 'backup_count': Integer, how many rotated log files to keep. Default: 3
-    - 'console_logging_enabled': Bool, enable console logging. Default: True
-    - 'encoding': Encoding for log files. Default: 'utf-8'
+OPTIONAL GLOBALS (defaults will be used if not provided):
+    - LOG_FORMAT: '%(asctime)s %(levelname)s %(name)s %(message)s'
+    - LOG_DATE_FORMAT: '%Y-%m-%d %H:%M:%S'
+    - LOG_MAX_BYTES: 5 * 1024 * 1024 (5 MB)
+    - LOG_BACKUP_COUNT: 3
+    - CONSOLE_LOGGING_ENABLED: Bool, enable console logging. Default: True
+    - LOG_ENCODING: 'utf-8'
 
-Legacy fallback: If logging_config is not found, individual config variables
-(LOGGING_LEVEL, LOG_FILE_PATH, etc.) will be used (DEPRECATED).
-
-Any missing required fields will result in a warning and use of safest sensible defaults.
+Any missing required globals will result in a warning and use of safest sensible defaults.
 This file MUST NOT attempt to read config.yaml, guess configuration, or set its own hardcoded
 defaults except as specified above.
 
@@ -90,6 +91,41 @@ def _load_logging_config():
 
     return loaded_config
 
+def _resolve_log_level(level):
+    """
+    Resolve a logging level specification into a numeric logging level.
+
+    Args:
+        level (str | int): Logging level provided as a string name (e.g., 'INFO', 'DEBUG')
+            or an integer value.
+
+    Returns:
+        int: A valid numeric logging level constant. Defaults to logging.INFO if the input
+        is unrecognized.
+    """
+    if isinstance(level, int):
+        return level
+    if isinstance(level, str):
+        s = level.strip().upper()
+        if s.isdigit():
+            try:
+                return int(s)
+            except Exception:
+                pass
+        mapping = {
+            'CRITICAL': logging.CRITICAL,
+            'FATAL': logging.CRITICAL,
+            'ERROR': logging.ERROR,
+            'WARNING': logging.WARNING,
+            'WARN': logging.WARNING,
+            'INFO': logging.INFO,
+            'DEBUG': logging.DEBUG,
+            'NOTSET': logging.NOTSET,
+        }
+        if s in mapping:
+            return mapping[s]
+    return logging.INFO
+
 def _inject_pid_into_logfile_path(log_path, pid=None):
     """
     Inject current process PID into filename unless '{pid}' is already present.
@@ -121,8 +157,8 @@ def _inject_pid_into_logfile_path(log_path, pid=None):
 
 def configure_logging():
     """
-    Configures the root logger using unified config.logging_config dictionary.
-    Uses documented defaults for missing fields and logs warnings for any missing/legacy fields.
+    Configures the root logger using logging-related globals from monitor.config.
+    Uses documented defaults for missing fields and logs warnings for any missing globals.
 
     The log file path will include the process PID: if the file path contains '{pid}', it will be replaced.
     Otherwise, the PID will be injected between the filename and extension automatically. This avoids file
@@ -130,14 +166,11 @@ def configure_logging():
 
     This function is idempotent and safe to call more than once. It removes all existing root handlers.
 
-    Required fields for config.logging_config:
-        - 'level' (str)
-        - 'file_path' (str)
-    Optional fields:
-        - 'format', 'date_format', 'max_bytes', 'backup_count', 'console_logging_enabled', 'encoding'
-
-    DEPRECATED legacy fallback:
-        If config.logging_config is missing, will use legacy variables LOGGING_LEVEL, LOG_FILE_PATH, etc.
+    Required globals in monitor.config:
+        - LOGGING_LEVEL (str | int)
+        - LOG_FILE_PATH (str)
+    Optional globals:
+        - LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT, CONSOLE_LOGGING_ENABLED, LOG_ENCODING
     """
     log_cfg = _load_logging_config()
 
@@ -148,7 +181,7 @@ def configure_logging():
     formatter = logging.Formatter(log_cfg['format'], log_cfg['date_format'])
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_cfg['level'], logging.INFO))
+    root_logger.setLevel(_resolve_log_level(log_cfg['level']))
 
     # Remove all existing handlers
     for handler in root_logger.handlers[:]:
