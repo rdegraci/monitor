@@ -102,6 +102,7 @@ def test_models_endpoint_requires_api_key_when_enforced_and_accepts_valid_key(mo
         # Missing key should fail with 401
         resp_fail = client.get("/v1/models")
         assert resp_fail.status_code == 401
+        resp_fail.get_data()
         # Correct key should succeed
         headers = {"Authorization": "Bearer sekret"}
         resp_ok = client.get("/v1/models", headers=headers)
