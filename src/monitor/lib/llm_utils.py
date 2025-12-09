@@ -186,7 +186,7 @@ def extract_tool_calls(response):
                 ids_presence.append(bool(getattr(tc, "id", None)))
         logger.debug(f"Tool calls count: {len(tool_calls)}; all_have_ids={all(ids_presence)}")
     except Exception as e:
-        logger.debug(f"Unable to evaluate tool_call id presence: {e}")
+        logger.error(f"Unable to evaluate tool_call id presence: {e}")
     normalized_msg = normalize_message(msg)
     # Ensure we have a mutable dict to work with
     if not isinstance(normalized_msg, dict):
@@ -230,7 +230,7 @@ def extract_tool_calls(response):
     try:
         sanitized_list = sanitize_messages([normalized_msg])
     except Exception as e:
-        logger.debug(f"sanitize_messages failed in extract_tool_calls: {e}")
+        logger.error(f"sanitize_messages failed in extract_tool_calls: {e}")
         sanitized_list = [normalized_msg]
     sanitized_msg = sanitized_list[0] if isinstance(sanitized_list, list) and sanitized_list else normalized_msg
     append_to_history_with_count(

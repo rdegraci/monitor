@@ -223,7 +223,7 @@ def token_budgeter(params, input_window=100000, model_name=None):
         else:
             encoder = tiktoken.get_encoding("cl100k_base")
     except Exception as e:
-        logger.debug(
+        logger.error(
             f"Failed to get tiktoken encoder for model: {model_name} ({e}), using fallback."
         )
         encoder = tiktoken.get_encoding("cl100k_base")
@@ -233,7 +233,7 @@ def token_budgeter(params, input_window=100000, model_name=None):
             s = obj if isinstance(obj, str) else str(obj)
             return len(encoder.encode(s))
         except Exception as e:
-            logger.warning(
+            logger.error(
                 f"Token counting failure for object {type(obj)}: {e} - treating as 0 tokens."
             )
             return 0

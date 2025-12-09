@@ -39,7 +39,7 @@ def read_todo_from_memory(session_id: str) -> List[Dict]:
     try:
         return json.loads(data)
     except Exception as e:
-        logger.warning(
+        logger.error(
             "Malformed todo data for session_id=%s: %s", session_id, e
         )
         # Recovery: bad data -> reset to empty

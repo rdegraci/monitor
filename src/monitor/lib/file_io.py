@@ -183,7 +183,7 @@ def list_directory(path: str) -> Optional[list]:
         return sorted(os.listdir(list_path))
     except Exception as e:
         print(f"{red}{e}{reset}")
-        logger.debug(f"Error listing directory {path}: {e}")
+        logger.error(f"Error listing directory {path}: {e}")
         return None
 
 def is_file(path: str) -> bool:

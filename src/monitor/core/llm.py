@@ -82,7 +82,7 @@ def should_use_responses_adapter():
             return False
         return is_reasoning_model(model, prefix)
     except Exception as e:
-        logger.debug(f"should_use_responses_adapter check failed: {e}", exc_info=True)
+        logger.error(f"should_use_responses_adapter check failed: {e}", exc_info=True)
         return False
 
 

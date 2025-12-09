@@ -51,7 +51,7 @@ def normalize_message(msg):
                 logger.debug("Non-string role of type %s encountered; coercing to 'assistant'", type(role_val).__name__)
                 return 'assistant'
             except Exception as e:
-                logger.debug("Error normalizing role value %r: %s; defaulting to 'assistant'", role_val, str(e), exc_info=True)
+                logger.error("Error normalizing role value %r: %s; defaulting to 'assistant'", role_val, str(e), exc_info=True)
                 return 'assistant'
 
         if isinstance(msg, dict):
@@ -90,7 +90,7 @@ def normalize_message(msg):
                     logger.debug("Input dict role is %s; removing tool_calls from non-assistant message", out.get('role'))
                     del out['tool_calls']
             except Exception as e:
-                logger.debug("Error sanitizing tool_calls in dict input: %s", str(e), exc_info=True)
+                logger.error("Error sanitizing tool_calls in dict input: %s", str(e), exc_info=True)
             return out
 
         if hasattr(msg, 'content'):
@@ -166,7 +166,7 @@ def normalize_message(msg):
                             }
                         })
                     except Exception as e:
-                        logger.debug("Failed to normalize tool_call at index %s: %s", idx, str(e), exc_info=True)
+                        logger.error("Failed to normalize tool_call at index %s: %s", idx, str(e), exc_info=True)
                         try:
                             fallback_arguments = str(tc)
                         except Exception:
