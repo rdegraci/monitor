@@ -184,7 +184,7 @@ class ProtocolEngine:
         is_last_expected = (start_chunk_index == self.expected_total_chunks)
         (lo, hi) = line_ranges[start_chunk_index - 1] if line_ranges else (1, None)
 
-        last_directive = 'last="true"' if is_last_expected else ''
+        last_directive = ' last="true"' if is_last_expected else ''
         initial_query = (
             f"Here is the current source file:\n\n{script_content}\n\n"
             f"Task: Modify it to {modification_request}.\n\n"
@@ -702,6 +702,21 @@ def configure_protocol_engine():
          • ≤ {MAX_CHARS_PER_CHUNK} characters
          • ≤ ~{TOKEN_BUDGET_PER_CHUNK} tokens (do not exceed this response size)
        - End chunks at logical boundaries (functions/classes) when possible. If the next line would exceed a limit, STOP and continue in the next chunk—no omissions.
+       - Tag syntax (strict)
+          - Opening tag (non-final): <chunk_K>
+          - Opening tag (final only): <chunk_K last="true">
+          - Closing tag (always): </chunk_K>
+          - Here, `K` is a 1-based integer chunk index: 1, 2, 3, …  
+          - Do not output the literal letter `K`. Always substitute the actual index with no leading zeros (e.g., `<chunk_1>`, `<chunk_2>`, not `<chunk_01>`).
+          - Closing tags MUST NOT include attributes. Only the opening tag may include last="true".
+          - If last="true" is present, it MUST be preceded by a single space after the tag name (i.e., <chunk_1 last="true">). Do not concatenate attributes to the tag name.
+       - Exactly one chunk per response
+          - Output ONLY the requested <chunk_K> … </chunk_K>.
+          - No code fences, no commentary, no additional chunks or text outside the tags.
+       - Final-chunk rule
+          - Only set last="true" on the opening tag of the final chunk of the entire file.
+          - Never set last="true" on non-final chunks.
+          - Closing tag MUST be </chunk_K> even for the final chunk.
 
     2) No Summary or Omission
        - Output EVERY line of the final modified file, in order (changed and unchanged).
@@ -725,17 +740,17 @@ def configure_protocol_engine():
        - When asked for chunk K, output ONLY <chunk_K> ... </chunk_K> and nothing else. Do NOT include any other <chunk_*> tags.
        - Only set last="true" when you are outputting the final chunk of the entire file.
 
-    Example:
-    <chunk_1>
-    <all code from start of file up to a logical boundary without exceeding limits>
-    </chunk_1>
-    <chunk_2>
-    <next contiguous section of code, strictly sequential, no omissions>
-    </chunk_2>
-    ...
-    <chunk_N last="true">
-    <all remaining code, to the end of file, within limits>
-    </chunk_N>
+    Example allowed/forbidden forms:
+      - Good:
+        - <chunk_1> … </chunk_1>
+        - <chunk_1 last="true"> … </chunk_1>
+      - Bad (do not output):
+        - <chunk_1last="true"> … </chunk_1>  ← missing space before attribute
+        - </chunk_1last="true">              ← attributes on closing tag are forbidden
+        - <chunk_1 last="true"> … </chunk_1 last="true"> ← attribute on closing tag
+        - <chunk_01> … </chunk_1>            ← mismatched index
+        - <chunk_1> … </chunk_2>             ← mismatched index
+        - A response that has <chunk_K> … </chunk_K> and also additional text before or after those tags
 
     Further Notes:
     - If the modification request is ambiguous or risky, favor safety and preserve original intent.
