@@ -249,9 +249,12 @@ def process_response_by_finish_reason(response):
     if choices is None or len(choices) == 0:
         raise ValueError("Malformed response: missing choices when processing finish reason")
 
-    finish_reason = choices[0].finish_reason
+    finish_reason = (choices[0].finish_reason or '').lower()
 
-    if finish_reason == "refusal":
+    # openai uses 'refusal'
+    # grok uses 'content_filter'
+    # gemini uses 'safety'
+    if finish_reason == "refusal" or finish_reason == "content_filter" or finish_reason == "safety":
         logger.error("The request was refused due to policy violations.")
         # Remove the last turn (user input and any assistant response) from conversation history
         if len(config.CONVERSATION_HISTORY) >= 1:
@@ -270,13 +273,11 @@ def process_response_by_finish_reason(response):
 
         return "Request was refused."
 
-    if finish_reason == "length":
+    # openai uses length
+    # gemini uses max_tokens
+    if finish_reason == "length" or finish_reason == "max_tokens":
         logger.error("The conversation was too long for the context window.")
         return "Length too long."
-
-    if finish_reason == "content_filter":
-        logger.error("The content was filtered due to policy violations.")
-        return "Content filtered."
 
     if finish_reason == "tool_calls":
         return None  # Indicate need for another tool call
@@ -289,7 +290,7 @@ def process_response_by_finish_reason(response):
             except Exception:
                 logger.exception("Failed writing assistant content to conversation log file")
 
-        if assistant_content is None:
+        if assistant_content is None or assistant_content == {}:
             return "Ok."
         return assistant_content
 
