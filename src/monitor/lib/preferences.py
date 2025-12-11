@@ -65,11 +65,23 @@ def open_preferences_editor(path):
             logger.warning("No available text editor found. Set $EDITOR or configure a valid editor.")
             return
         try:
-            subprocess.call([editor, path])
+            ret = subprocess.call([editor, path])
         except Exception as e:
             logger.error(f"Failed to launch editor '{editor}': {e}", exc_info=True)
             return
-        return(f"Preferences updated at: {path}")
+        # Only reload preferences and confirm if the editor exited successfully.
+        if isinstance(ret, int) and ret == 0:
+            try:
+                load_user_preferences_prompt(path)
+            except Exception as e:
+                logger.error(f"Failed to reload preferences from '{path}': {e}", exc_info=True)
+                print(f"Preferences updated at: {path} (reload failed)")
+                return f"Preferences updated at: {path} (reload failed)"
+            print(f"Preferences updated and reloaded at: {path}")
+            return f"Preferences updated and reloaded at: {path}"
+        else:
+            logger.warning(f"Editor exited with return code {ret}. Preferences may not have been saved.")
+            return f"Editor exited with return code {ret}; preferences may not have been updated."
     except Exception as e:
         logger.error(f"Unexpected error in open_preferences_editor: {e}", exc_info=True)
 
