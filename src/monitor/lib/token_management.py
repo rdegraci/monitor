@@ -218,8 +218,14 @@ def token_budgeter(params, input_window=100000, model_name=None):
         if model_name:
             from monitor.lib.llm_utils import get_model_tail
 
-            tail = get_model_tail(str(model_name))
-            encoder = tiktoken.encoding_for_model(tail)
+            # Tiktoken model prefix to encoding
+            head = get_model_head(
+                str(model_name), 
+                {
+                    "gpt-5": "gpt-5-"
+                }
+            )
+            encoder = tiktoken.encoding_for_model(head)
         else:
             encoder = tiktoken.get_encoding("cl100k_base")
     except Exception as e:

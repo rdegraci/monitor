@@ -404,6 +404,47 @@ def get_model_tail(model: str) -> str:
     s = s.rstrip("/")
     return s.split("/")[-1]
 
+def get_model_head(model: str, mapping: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+    """Return the mapping value for the best-matching key found in the model tail.
+
+    This helper obtains the model tail via get_model_tail(model) and performs
+    a case-insensitive substring match of each string key in `mapping`
+    against the tail. When multiple keys match, the longest key is preferred
+    (to favor more specific matches). If `mapping` is None or no keys match,
+    returns None.
+
+    Args:
+        model: Model identifier string (e.g., "openai/gpt-4o-mini").
+        mapping: Optional dictionary mapping substring keys to desired values.
+
+    Returns:
+        The value from `mapping` corresponding to the longest matching key, or
+        None when no suitable key is found.
+    """
+    if not mapping:
+        return None
+
+    try:
+        tail = get_model_tail(model) if isinstance(model, str) else str(model or "")
+    except Exception:
+        try:
+            tail = str(model)
+        except Exception:
+            return None
+
+    tail_lower = tail.lower()
+    # Collect keys that are strings and whose lowercase form is a substring of tail_lower
+    candidates = [k for k in mapping.keys() if isinstance(k, str) and k.lower() in tail_lower]
+    if not candidates:
+        return None
+
+    # Prefer longer keys to match more specific entries
+    best_key = max(candidates, key=len)
+    try:
+        return mapping.get(best_key)
+    except Exception:
+        return None
+
 TYPE_KEY = "type"
 NAME_KEY = "name"
 DESCRIPTION_KEY = "description"
