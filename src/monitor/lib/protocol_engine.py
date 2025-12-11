@@ -140,7 +140,6 @@ class ProtocolEngine:
             'c': 'C',
             # Add more as needed
         }
-        language = languages.get(ext, 'source')
         # Resume from checkpoint if possible:
         checkpoint = self._load_checkpoint(modification_request)
         if checkpoint:
@@ -180,7 +179,7 @@ class ProtocolEngine:
 
         if not self.chunks:
             logger.info("No existing chunks, requesting initial chunk")
-            initial_response = self._send_request_with_compliance_retry(initial_query, chunk_index=1, is_next_chunk=False)
+            initial_response = self._send_request_with_compliance_retry(initial_query, chunk_index=1)
             logger.info(f"Received initial response: {len(initial_response) if initial_response else 0} chars")
             ret = self._collect_chunks(initial_response, modification_request, start_chunk_index=1)
         else:
@@ -213,7 +212,7 @@ class ProtocolEngine:
             logger.error("Middleware completion error: %s", str(e))
             raise Exception("LLM call failed. Check logs for details.")
 
-    def _send_request_with_compliance_retry(self, query, chunk_index, is_next_chunk: bool):
+    def _send_request_with_compliance_retry(self, query, chunk_index):
         retries = 0
         output = None
         last_noncompliant_output = None
@@ -407,7 +406,7 @@ class ProtocolEngine:
             logger.info(f"No initial response provided, requesting chunk {start_chunk_index}")
             # For resume: Request the next chunk with specific index
             next_chunk_prompt = create_resume_chunk_prompt(start_chunk_index)
-            current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index, is_next_chunk=True)
+            current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index)
             logger.info(f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars")
         else:
             logger.info(f"Using provided initial response: {len(initial_response)} chars")
@@ -473,7 +472,7 @@ class ProtocolEngine:
                         is_last=is_last
                     )
                     current_response = self._send_request_with_compliance_retry(
-                        next_chunk_prompt, chunk_index=next_index, is_next_chunk=True
+                        next_chunk_prompt, chunk_index=next_index
                     )
                     logger.info(f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars")
                 except ValueError as e:
