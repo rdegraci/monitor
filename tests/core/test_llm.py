@@ -159,7 +159,7 @@ class TestLLMCore(unittest.TestCase):
         resp.choices = [MagicMock(finish_reason="content_filter")]
         with patch('monitor.lib.llm_utils.logger'):
             res = llm.process_response_by_finish_reason(resp)
-        self.assertIn("Content filtered", res)
+        self.assertIn("Request was refused", res)
         # tool_calls
         resp.choices = [MagicMock(finish_reason="tool_calls")]
         with patch('monitor.lib.llm_utils.logger'):

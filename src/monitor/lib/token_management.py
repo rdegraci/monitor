@@ -11,7 +11,7 @@ MUST go through the helpers provided here in this module, and nowhere else.
 
 DO NOT invoke or wrap low-level token or usage helpers outside this module.
 Any attempt to count or update tokens from non-canonical sources is considered
-a violation of code maintainership, traceability, and proper auditing.
+a violation of code maintenance, traceability, and proper auditing.
 
 All other code (such as `history.py`, `conversation.py`, and all future code)
 MUST always import token counters and update helpers exclusively from this module.
@@ -24,7 +24,6 @@ and ensures all token handling is safely centralized, traceable, and auditable.
 """
 
 import logging
-import sys
 
 from monitor import config
 
@@ -216,21 +215,29 @@ def token_budgeter(params, input_window=100000, model_name=None):
 
     try:
         if model_name:
-            from monitor.lib.llm_utils import get_model_tail
+            from monitor.lib.llm_utils import get_model_head
 
             # Tiktoken model prefix to encoding
-            head = get_model_head(
+            encoding_model = get_model_head(
                 str(model_name), 
                 {
-                    "gpt-5": "gpt-5-"
+                    "gpt-5.1": "gpt-5",
+                    "gpt-5": "gpt-5",
+                    "gpt-4.1": "gpt-4.1",
+                    "gpt-4o": "gpt-4o",
+                    "gpt-4": "gpt-4",
+                    "o4-mini": "o4-mini"
                 }
             )
-            encoder = tiktoken.encoding_for_model(head)
+            if encoding_model:
+                encoder = tiktoken.encoding_for_model(encoding_model)
+            else:
+                encoder = tiktoken.get_encoding("cl100k_base")
         else:
             encoder = tiktoken.get_encoding("cl100k_base")
     except Exception as e:
         logger.error(
-            f"Failed to get tiktoken encoder for model: {model_name} ({e}), using fallback."
+            f"No tiktoken encoder for model: {model_name} ({e}), using fallback."
         )
         encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -265,34 +272,48 @@ def token_budgeter(params, input_window=100000, model_name=None):
         return total
 
     def truncate_with_marker(s, max_tokens):
-        encoded = encoder.encode(s)
-        if len(encoded) <= max_tokens:
-            # No truncation needed
-            return s, False
-        marker_tokens = encoder.encode(TRUNC_MARKER)
-        marker_len = len(marker_tokens)
-        # Always leave at least one token plus marker, if possible
-        if max_tokens < marker_len + 1:
-            # Not enough space for both content and marker: Only use the marker
-            logger.debug(
-                f"Truncation marker alone will fit (marker: {marker_len}, max: {max_tokens}). Content replaced by marker only."
+        try:
+            # Encode content and marker once each
+            content_tokens = encoder.encode(s)
+            marker_tokens = encoder.encode(TRUNC_MARKER)
+            marker_len = len(marker_tokens)
+
+            # Fits as-is
+            if len(content_tokens) <= max_tokens:
+                return s, False
+
+            # Nothing allowed
+            if max_tokens == 0:
+                return "", True
+
+            # If not enough space for at least one content token plus marker,
+            # choose deterministic fallback.
+            if max_tokens < (marker_len + 1):
+                if max_tokens >= marker_len:
+                    return TRUNC_MARKER, True
+                else:
+                    return "\u2026", True
+
+            # Reserve space for the marker and include as many content tokens as allowed
+            allowed = max_tokens - marker_len  # >= 1 by prior check
+            k = min(len(content_tokens), allowed)
+            final_tokens = content_tokens[:k] + marker_tokens
+            decoded = encoder.decode(final_tokens)
+            return decoded, True
+        except Exception as e:
+            logger.error(
+                f"Truncation failure for object {type(s)}: {e} - returning marker fallback.",
+                exc_info=True
             )
-            result = encoder.decode(marker_tokens[:max_tokens])
-            return result, True
-        allowed_content_tokens = max_tokens - marker_len
-        truncated_content = encoder.decode(encoded[:allowed_content_tokens])
-        result = truncated_content + TRUNC_MARKER
-        # Double-check token count for result; if it exceeds, reduce by one more token and retry (edge case with marker expansion)
-        while len(encoder.encode(result)) > max_tokens and allowed_content_tokens > 1:
-            allowed_content_tokens -= 1
-            truncated_content = encoder.decode(encoded[:allowed_content_tokens])
-            result = truncated_content + TRUNC_MARKER
-        if len(encoder.encode(result)) > max_tokens:
-            # Fallback: only marker fits
-            logger.debug("After adjustments, only marker can fit for truncated output.")
-            result = encoder.decode(marker_tokens[:max_tokens])
-            return result, True
-        return result, True
+            try:
+                if max_tokens == 0:
+                    return "", True
+                marker_tokens = encoder.encode(TRUNC_MARKER)
+                if max_tokens >= len(marker_tokens):
+                    return TRUNC_MARKER, True
+                return "\u2026", True
+            except Exception:
+                return "\u2026", True
 
     # Only per-tool-output truncation inside "input" field if present and properly structured,
     # and only iteratively as needed to reach the input_window budget.

@@ -1,4 +1,3 @@
-
 """
 Test cases for lib/token_management.py
 """
@@ -72,9 +71,11 @@ class TestTokenManagement(unittest.TestCase):
         """Test updating token usage with a response object without usage info."""
         config.TOTAL_TOKEN_COUNT = 300
         
-        mock_response = MagicMock()
-        if hasattr(mock_response, 'usage'):
-            del mock_response.usage
+        class NoUsageObject:
+            """Simple object that does not have a 'usage' attribute."""
+            pass
+
+        mock_response = NoUsageObject()
 
         result = update_token_usage(mock_response)
 
@@ -134,8 +135,136 @@ class TestTokenManagement(unittest.TestCase):
         self.assertEqual(result, expected_count)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, expected_count)
 
+    def test_update_token_usage_with_none_input(self):
+        """Test update_token_usage handles None input as zero.
+
+        Verifies that passing None to update_token_usage is treated as adding zero tokens
+        and does not change TOTAL_TOKEN_COUNT.
+
+        Args:
+            None: The input value is None.
+
+        Returns:
+            None
+        """
+        config.TOTAL_TOKEN_COUNT = 400
+        result = update_token_usage(None)
+        self.assertEqual(result, 400)
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, 400)
+
+    def test_update_token_usage_initializes_total_token_count_when_missing(self):
+        """Ensure TOTAL_TOKEN_COUNT is initialized when missing.
+
+        If the TOTAL_TOKEN_COUNT attribute is absent from the config module,
+        update_token_usage should initialize it (treating missing as zero) and
+        correctly add the provided token amount.
+
+        Args:
+            None: The test manipulates the config module to remove TOTAL_TOKEN_COUNT.
+
+        Returns:
+            None
+        """
+        # Remove TOTAL_TOKEN_COUNT if it exists to simulate missing attribute
+        if hasattr(config, 'TOTAL_TOKEN_COUNT'):
+            delattr(config, 'TOTAL_TOKEN_COUNT')
+
+        tokens_to_add = 25
+        result = update_token_usage(tokens_to_add)
+
+        # Expect that TOTAL_TOKEN_COUNT has been initialized to the added amount
+        self.assertEqual(result, tokens_to_add)
+        self.assertTrue(hasattr(config, 'TOTAL_TOKEN_COUNT'))
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, tokens_to_add)
+
+    def test_update_token_usage_with_response_total_tokens_none(self):
+        """Test that update_token_usage treats a response with usage.total_tokens == None as zero.
+
+        Verifies that if a response object provides a usage attribute whose
+        total_tokens value is None, update_token_usage will treat it as zero and
+        leave TOTAL_TOKEN_COUNT unchanged.
+
+        Args:
+            None: The test creates a mock response object with usage.total_tokens set to None.
+
+        Returns:
+            None
+        """
+        config.TOTAL_TOKEN_COUNT = 100
+
+        mock_response = MagicMock()
+        mock_response.usage.total_tokens = None
+
+        result = update_token_usage(mock_response)
+
+        self.assertEqual(result, 100)
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, 100)
+
+    def test_count_message_tokens_coerce_non_string_in_dict(self):
+        """Test that count_message_tokens coerces non-string 'content' values in dict to str.
+
+        Verifies that when a message dictionary contains a non-string value
+        under the 'content' key (e.g., an integer), count_message_tokens will coerce
+        the value to a string and return a positive integer token estimate.
+
+        Args:
+            None: The test uses a dict with an integer content value.
+
+        Returns:
+            None
+        """
+        message = {'content': 12345}
+        result = count_message_tokens(message)
+
+        self.assertIsInstance(result, int)
+        self.assertGreater(result, 0)
+        self.assertEqual(result, count_message_tokens({'content': str(12345)}))
+
+    def test_count_message_tokens_handles_object_with_content_attribute(self):
+        """Test that count_message_tokens handles objects with a 'content' attribute and coerces non-str.
+
+        Verifies that an object providing a 'content' attribute (not a dict)
+        will be accepted by count_message_tokens. If the attribute is non-string, it
+        should be coerced to a string and token count computed.
+
+        Args:
+            None: The test constructs a simple object with a numeric content attribute.
+
+        Returns:
+            None
+        """
+        class ContentObject:
+            def __init__(self, content):
+                self.content = content
+
+        obj = ContentObject(67890)
+        result = count_message_tokens(obj)
+
+        self.assertIsInstance(result, int)
+        self.assertGreater(result, 0)
+        self.assertEqual(result, count_message_tokens({'content': str(67890)}))
+
+    def test_count_message_tokens_sums_list_elements(self):
+        """Test that count_message_tokens coerces a list 'content' to a string and tokenizes that string.
+
+        When the 'content' of a message is a list of items, current implementation
+        coerces the list to its string representation and tokenizes that combined string.
+
+        Args:
+            None: The test uses a list of string elements as the content.
+
+        Returns:
+            None
+        """
+        parts = ['This is a sentence.', 'Another one.']
+        message = {'content': parts}
+
+        result = count_message_tokens(message)
+
+        expected = count_message_tokens({'content': str(parts)})
+        self.assertIsInstance(result, int)
+        self.assertEqual(result, expected)
+
 
 if __name__ == '__main__':
     unittest.main()
-
-
