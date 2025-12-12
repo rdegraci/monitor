@@ -159,6 +159,11 @@ def main():
         action="store_true",
         help="Force reset without prompting (useful in non-interactive shells).",
     )
+    parser.add_argument(
+        "--models",
+        action="store_true",
+        help="List available models and exit.",
+    )
 
     args, unknown = parser.parse_known_args()
 
@@ -168,6 +173,21 @@ def main():
     load_model_config()
     load_environment_globals()
     start_logging()
+
+    if getattr(args, "models", False):
+        model_mapping = getattr(config, "MODEL_MAPPING", None)
+        if isinstance(model_mapping, dict):
+            if model_mapping:
+                print("Available models:")
+                for key, value in model_mapping.items():
+                    print(f"  {key} -> {value}")
+                sys.exit(0)
+            else:
+                print("No models are currently configured in MODEL_MAPPING.")
+                sys.exit(0)
+        else:
+            print("MODEL_MAPPING is unavailable or invalid; cannot list available models.")
+            sys.exit(1)
 
     # Register clean SIGINT handler after logging is configured to ensure
     # any logging performed by the handler works as expected.
