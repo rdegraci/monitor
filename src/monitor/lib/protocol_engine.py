@@ -83,6 +83,9 @@ class ProtocolEngine:
         
         return plan
 
+    def _non_compliance_message(self, chunk_index: int) -> str:
+        return f"Non-compliant output at chunk {chunk_index} after all retries"
+
     def fetch_modified_script(self, script_content, modification_request, source_file):
         """
         Orchestrates source code modification with automatic retry after all chunk retries are exhausted.
@@ -179,7 +182,16 @@ class ProtocolEngine:
 
         if not self.chunks:
             logger.info("No existing chunks, requesting initial chunk")
-            initial_response = self._send_request_with_compliance_retry(initial_query, chunk_index=1)
+            chunk_index = 1
+            try:
+                initial_response = self._send_request_with_compliance_retry(initial_query, chunk_index=chunk_index)
+            except ValueError as e:
+                logger.warning(
+                    "Chunk %s failed after all compliance retries: %s",
+                    chunk_index,
+                    str(e),
+                )
+                return self._non_compliance_message(chunk_index)
             logger.info(f"Received initial response: {len(initial_response) if initial_response else 0} chars")
             ret = self._collect_chunks(initial_response, modification_request, start_chunk_index=1)
         else:
@@ -249,7 +261,7 @@ class ProtocolEngine:
                 return corrected_chunk
         logger.warning(f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'}")
         self._assemble_and_save_partial()
-        raise ValueError(f"Non-compliant output at chunk {chunk_index} after all retries")
+        raise ValueError(self._non_compliance_message(chunk_index))
 
     def _has_prohibited_summary_marker(self, text):
         return bool(PROHIBITED_SUMMARY_PATTERN.search(text)) if text else False
@@ -406,7 +418,15 @@ class ProtocolEngine:
             logger.info(f"No initial response provided, requesting chunk {start_chunk_index}")
             # For resume: Request the next chunk with specific index
             next_chunk_prompt = create_resume_chunk_prompt(start_chunk_index)
-            current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index)
+            try:
+                current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index)
+            except ValueError as e:
+                logger.warning(
+                    "Chunk %s failed after all compliance retries: %s",
+                    start_chunk_index,
+                    str(e),
+                )
+                return self._non_compliance_message(start_chunk_index)
             logger.info(f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars")
         else:
             logger.info(f"Using provided initial response: {len(initial_response)} chars")
@@ -471,9 +491,17 @@ class ProtocolEngine:
                         chars_per_chunk=self.chars_per_chunk,
                         is_last=is_last
                     )
-                    current_response = self._send_request_with_compliance_retry(
-                        next_chunk_prompt, chunk_index=next_index
-                    )
+                    try:
+                        current_response = self._send_request_with_compliance_retry(
+                            next_chunk_prompt, chunk_index=next_index
+                        )
+                    except ValueError as e:
+                        logger.warning(
+                            "Chunk %s failed after all compliance retries: %s",
+                            next_index,
+                            str(e),
+                        )
+                        return self._non_compliance_message(next_index)
                     logger.info(f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars")
                 except ValueError as e:
                     if "Non-compliant output at chunk" in str(e):
