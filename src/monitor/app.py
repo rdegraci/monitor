@@ -164,6 +164,11 @@ def main():
         action="store_true",
         help="List available models and exit.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging level.",
+    )
 
     args, unknown = parser.parse_known_args()
 
@@ -173,6 +178,12 @@ def main():
     load_model_config()
     load_environment_globals()
     start_logging()
+
+    if getattr(args, "debug", False):
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+        logger.info("Debug logging enabled via --debug flag.")
 
     if getattr(args, "models", False):
         model_mapping = getattr(config, "MODEL_MAPPING", None)
