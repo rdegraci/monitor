@@ -638,13 +638,39 @@ def handle_token_limit(max_token_count=None, total_token_count=None):
 
 
 def prepare_query_context(user_prompt):
-    """
-    Prepare the conversation context for a query.
-    This function mutates config.last_summary_time directly via append_conversation_history.
+    """Prepares and appends the user's prompt to the conversation context.
 
-    Uses config.last_summary_time for summary time management (updated internally by append_conversation_history).
-    All token counting/usage must use canonical helpers from monitor.lib.token_management.
+    This function updates the in-memory conversation history used for LLM calls by:
+    1) Optionally prepending any pending LLM prefixes from `config.PENDING_LLM_PREFIXES`
+       to the `user_prompt` using the `!<` directive prefix format.
+    2) Clearing `config.PENDING_LLM_PREFIXES` after applying them so they are not reused.
+    3) Prepending any persisted memory into the conversation history.
+    4) Appending the final `user_prompt` into `config.CONVERSATION_HISTORY` via
+       `append_conversation_history`, which may also trigger summarization/rotation logic.
+
+    Token counting/usage must use canonical helpers from `monitor.lib.token_management`
+    (enforced by downstream history functions).
+
+    Args:
+        user_prompt (str): The raw user prompt text to add to the conversation.
+
+    Returns:
+        None: This function mutates `config.CONVERSATION_HISTORY` and summary timing state.
     """
+    pending_prefixes = getattr(config, "PENDING_LLM_PREFIXES", None)
+    if pending_prefixes:
+        notice = "\n".join(str(p) for p in pending_prefixes if p is not None)
+        if notice.strip():
+            user_prompt = f"!<{notice}\n\n{user_prompt}"
+        elif not str(user_prompt).startswith("!<"):
+            user_prompt = f"!<{user_prompt}"
+        try:
+            pending_prefixes.clear()
+        except Exception:
+            try:
+                setattr(config, "PENDING_LLM_PREFIXES", [])
+            except Exception:
+                pass
     logger.debug("Preparing query context...")
     prepend_memory_to_history()
     append_conversation_history(

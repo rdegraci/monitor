@@ -16,7 +16,6 @@ from monitor.core.commands import (
 )
 
 from monitor.core.conversation import prepare_query_context
-from monitor.core.query_service import query
 from monitor.lib.macros import MACRO_VALUES
 from monitor.lib.external_services import send_artifact
 
@@ -166,12 +165,17 @@ def execute_command(command_result: CommandResult, original_command: str, histor
             )
             cwd = handle_cd_command(target_path)
             logger.debug("Changed directory to: {}".format(cwd))
-            # Inform the LLM of directory changes (side-effect intentionally performed here)
-            try:
-                query(f"Be aware I have changed directory to {cwd}")
-            except Exception:
-                # Query side-effect failures should not crash the REPL; log instead
-                logger.exception("Failed to notify LLM about directory change.")
+            # Enqueue a prefix for the next LLM interaction to reflect directory changes
+            cd_failure_prefixes = (
+                "Directory not found:",
+                "Not a directory:",
+                "Permission denied:",
+            )
+            if not any(str(cwd).startswith(prefix) for prefix in cd_failure_prefixes):
+                try:
+                    config.enqueue_next_llm_prefix(f"Be aware I have changed directory to {cwd}")
+                except Exception:
+                    logger.exception("Failed to enqueue LLM prefix about directory change.")
             command_result.output = cwd
             if command_result.output is not None:
                 print(command_result.output)
@@ -208,6 +212,7 @@ def execute_command(command_result: CommandResult, original_command: str, histor
         if command_result.command_type == CommandType.LLM:
             try:
                 # Execute the LLM query
+                from monitor.core.query_service import query
                 query_result = query(original_command)
                 command_result.output = query_result
 
@@ -267,7 +272,16 @@ def process_cd_command(command, first_word):
     if first_word == "cd":
         cwd = handle_cd_command(" ".join(command.split()[1:]))
         logger.debug("Changed directory to: {}".format(cwd))
-        query(f"Be aware I have changed directory to {cwd}")
+        cd_failure_prefixes = (
+            "Directory not found:",
+            "Not a directory:",
+            "Permission denied:",
+        )
+        if not any(str(cwd).startswith(prefix) for prefix in cd_failure_prefixes):
+            try:
+                config.enqueue_next_llm_prefix(f"Be aware I have changed directory to {cwd}")
+            except Exception:
+                logger.exception("Failed to enqueue LLM prefix about directory change.")
         return True
     return False
 
