@@ -27,6 +27,7 @@ from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
 from monitor.lib.logging import configure_logging
 from monitor.lib.keyboard import configure_voice_to_text
+from monitor.lib.ripgrep_search import configure_rip_grep
 
 logger = logging.getLogger(__name__)
 
@@ -482,7 +483,8 @@ RESPONSES_API = None
 TWITTER_CLIENT_API = None
 TWITCH_CLIENT_API = None
 LINKEDIN_CLIENT_API = None
-
+DEFAULT_EXCLUDE_EXTENSIONS = None
+DEFAULT_EXCLUDE_GLOBS = None
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
@@ -498,6 +500,7 @@ def configure_globals():
     global ECS_HOST, ECS_PORT, ECS_TIMEOUT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
+    global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -667,6 +670,99 @@ def configure_globals():
         yaml_config.get("LINKEDIN_CLIENT_API", "http://localhost:6060/linkedin/article"),
     )
 
+    # Parse DEFAULT_EXCLUDE_EXTENSIONS from environment variable if provided as a comma-separated string.
+    # If the environment variable is absent or empty (after trimming), fall back to the YAML config/default.
+    try:
+        env_default_exclude_ext = os.getenv("DEFAULT_EXCLUDE_EXTENSIONS")
+    except Exception as e:
+        logger.error(f"Error reading DEFAULT_EXCLUDE_EXTENSIONS environment variable: {e}", exc_info=True)
+        raise
+
+    if env_default_exclude_ext is not None and env_default_exclude_ext.strip() != "":
+        try:
+            parsed_exts = [part.strip() for part in env_default_exclude_ext.split(",") if part.strip() != ""]
+            if parsed_exts:
+                DEFAULT_EXCLUDE_EXTENSIONS = parsed_exts
+            else:
+                DEFAULT_EXCLUDE_EXTENSIONS = yaml_config.get(
+                    "DEFAULT_EXCLUDE_EXTENSIONS", 
+                    [
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "gif",
+                        "pdf",
+                        "zip",
+                        "sqlite",
+                        "db",
+                        "lock",
+                        "xcodeproj",
+                        "storyboard",
+                        "xib"
+                        "bundle"
+                    ]
+                )
+        except Exception as e:
+            logger.error(f"Failed to parse DEFAULT_EXCLUDE_EXTENSIONS environment variable: {e}", exc_info=True)
+            raise RuntimeError("Failed to parse DEFAULT_EXCLUDE_EXTENSIONS environment variable") from e
+    else:
+        DEFAULT_EXCLUDE_EXTENSIONS = yaml_config.get(
+            "DEFAULT_EXCLUDE_EXTENSIONS", 
+            [
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "pdf",
+                "zip",
+                "sqlite",
+                "db",
+                "lock",
+                "xcodeproj",
+                "storyboard",
+                "xib"
+                "bundle"
+            ]
+        )
+
+    # Parse DEFAULT_EXCLUDE_GLOBS from environment variable if provided as a comma-separated string.
+    # If the environment variable is absent or empty (after trimming), fall back to the YAML config/default.
+    try:
+        env_default_exclude_globs = os.getenv("DEFAULT_EXCLUDE_GLOBS")
+    except Exception as e:
+        logger.error(f"Error reading DEFAULT_EXCLUDE_GLOBS environment variable: {e}", exc_info=True)
+        raise
+
+    if env_default_exclude_globs is not None and env_default_exclude_globs.strip() != "":
+        try:
+            parsed_globs = [part.strip() for part in env_default_exclude_globs.split(",") if part.strip() != ""]
+            if parsed_globs:
+                DEFAULT_EXCLUDE_GLOBS = parsed_globs
+            else:
+                DEFAULT_EXCLUDE_GLOBS = yaml_config.get(
+                    "DEFAULT_EXCLUDE_GLOBS", 
+                    [
+                        "node_modules/**",
+                        ".venv/**",
+                        "dist/**",
+                        "build/**",
+                        "Pods/**"
+                    ]
+                )
+        except Exception as e:
+            logger.error(f"Failed to parse DEFAULT_EXCLUDE_GLOBS environment variable: {e}", exc_info=True)
+            raise RuntimeError("Failed to parse DEFAULT_EXCLUDE_GLOBS environment variable") from e
+    else:
+        DEFAULT_EXCLUDE_GLOBS = yaml_config.get(
+            "DEFAULT_EXCLUDE_GLOBS", 
+            [
+                "node_modules/**",
+                ".venv/**",
+                "dist/**",
+                "build/**",
+                "Pods/**"
+            ]
+        )
 
 LOGGING_CONFIG = None
 LOGGING_LEVEL = None
@@ -795,6 +891,8 @@ def start_logging():
 def configure_subsystems():
     from monitor.core.commands import load_terminal_commands
     from monitor.core.modes import configure_consultant
+
+    configure_rip_grep(DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS)
 
     configure_rate_limiter(
         logger,
