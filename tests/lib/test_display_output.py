@@ -1,10 +1,6 @@
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import os
-import sys
-
-# Add the parent directory to the path to import the module
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from monitor.lib.display_output import display_query_result, highlightMarkdown, format_prompt_display
 
@@ -21,9 +17,9 @@ class TestDisplayOutput(unittest.TestCase):
     def test_display_query_result_with_update_history(self, mock_highlight):
         """Test display_query_result calls highlight and update_history functions."""
         mock_update_history = MagicMock()
-        
+
         display_query_result(self.sample_result, mock_update_history)
-        
+
         mock_highlight.assert_called_once_with(self.sample_result)
         mock_update_history.assert_called_once()
 
@@ -31,33 +27,39 @@ class TestDisplayOutput(unittest.TestCase):
     def test_display_query_result_without_update_history(self, mock_highlight):
         """Test display_query_result works without update_history callback."""
         display_query_result(self.sample_result)
-        
+
         mock_highlight.assert_called_once_with(self.sample_result)
 
     @patch('builtins.print')
+    @patch('monitor.lib.display_output.TerminalFormatter')
+    @patch('monitor.lib.display_output.MarkdownLexer')
     @patch('monitor.lib.display_output.highlight')
-    def test_highlightMarkdown_with_valid_input(self, mock_highlight, mock_print):
+    def test_highlightMarkdown_with_valid_input(self, mock_highlight, mock_markdown_lexer, mock_terminal_formatter, mock_print):
         """Test highlightMarkdown with valid query result."""
+        lexer_instance = MagicMock(name="MarkdownLexerInstance")
+        formatter_instance = MagicMock(name="TerminalFormatterInstance")
+        mock_markdown_lexer.return_value = lexer_instance
+        mock_terminal_formatter.return_value = formatter_instance
         mock_highlight.return_value = "highlighted_text"
-        
+
         highlightMarkdown(self.sample_result)
-        
-        # Verify highlight was called with correct parameters
-        mock_highlight.assert_called_once()
-        # Verify print statements include expected content
-        print_calls = mock_print.call_args_list
-        self.assertTrue(any("STX" in str(call) for call in print_calls))
-        self.assertTrue(any("ETX" in str(call) for call in print_calls))
-        self.assertTrue(any("*******************" in str(call) for call in print_calls))
+
+        mock_markdown_lexer.assert_called_once_with()
+        mock_terminal_formatter.assert_called_once_with(reset=True)
+        mock_highlight.assert_called_once_with(self.sample_result, lexer_instance, formatter_instance)
+
+        print_calls = [args[0] if args else "" for args, _kwargs in mock_print.call_args_list]
+        self.assertTrue(any("\n" in str(c) and "STX" in str(c) for c in print_calls))
+        self.assertTrue(any("ETX" in str(c) for c in print_calls))
+        self.assertTrue(any("Generated:" in str(c) for c in print_calls))
 
     @patch('builtins.print')
     def test_highlightMarkdown_with_none_input(self, mock_print):
         """Test highlightMarkdown handles None input gracefully."""
         highlightMarkdown(None)
-        
-        # Should print "No query result" message
-        print_calls = mock_print.call_args_list
-        self.assertTrue(any("No query result" in str(call) for call in print_calls))
+
+        print_calls = [args[0] if args else "" for args, _kwargs in mock_print.call_args_list]
+        self.assertTrue(any("No query result." in str(c) for c in print_calls))
 
     def test_format_prompt_display_basic(self):
         """Test format_prompt_display with basic parameters."""
@@ -67,12 +69,12 @@ class TestDisplayOutput(unittest.TestCase):
             cwd="/test/dir",
             model="test-model"
         )
-        
+
         self.assertIn("5", result)  # conversation count
-        self.assertIn("1000", result)  # tokens remaining
+        self.assertIn("1000", result)  # context remaining derived from tokens_remaining
         self.assertIn("/test/dir", result)  # cwd
         self.assertIn("test-model", result)  # model
-        self.assertIn("T:", result)  # tokens label
+        self.assertIn("C:", result)  # context label
         self.assertIn("H:", result)  # history label
 
     def test_format_prompt_display_zero_tokens(self):
@@ -83,20 +85,22 @@ class TestDisplayOutput(unittest.TestCase):
             cwd="/test",
             model="test-model"
         )
-        
+
         self.assertIn("0", result)
         self.assertIn("3", result)
+        self.assertIn("C:", result)
+        self.assertIn("H:", result)
 
     @patch('os.getcwd')
     def test_format_prompt_display_auto_cwd(self, mock_getcwd):
         """Test format_prompt_display automatically gets current directory when cwd is None."""
         mock_getcwd.return_value = "/auto/detected/dir"
-        
+
         result = format_prompt_display(
             conversation_count=2,
             tokens_remaining=500
         )
-        
+
         mock_getcwd.assert_called_once()
         self.assertIn("/auto/detected/dir", result)
 
@@ -109,7 +113,7 @@ class TestDisplayOutput(unittest.TestCase):
             cwd="/test",
             extra_history_str=extra_str
         )
-        
+
         self.assertIn(extra_str, result)
 
     def test_format_prompt_display_no_model(self):
@@ -119,39 +123,36 @@ class TestDisplayOutput(unittest.TestCase):
             tokens_remaining=100,
             cwd="/test"
         )
-        
+
         self.assertIn("1", result)
         self.assertIn("100", result)
         self.assertIn("/test", result)
+        self.assertIn("C:", result)
+        self.assertIn("H:", result)
 
     @patch('os.getcwd')
     @patch('builtins.print')
     def test_format_prompt_display_cwd_error_handling(self, mock_print, mock_getcwd):
         """Test format_prompt_display handles os.getcwd() errors gracefully."""
         mock_getcwd.side_effect = OSError("Permission denied")
-        
+
         result = format_prompt_display(
             conversation_count=1,
             tokens_remaining=100
         )
-        
-        # Should handle the error and include error message
+
         self.assertIn("Error in getting current working directory", result)
-        # Should print error message
         mock_print.assert_called()
 
     @patch('builtins.print')
     def test_format_prompt_display_count_error_handling(self, mock_print):
         """Test format_prompt_display handles errors in count calculations."""
-        # Test with invalid conversation_count that might cause issues
-        # Note: In practice, these should be integers, but testing error handling
         result = format_prompt_display(
             conversation_count="invalid",
             tokens_remaining="also_invalid",
             cwd="/test"
         )
-        
-        # Function should still return a result even with errors
+
         self.assertIsInstance(result, str)
         self.assertIn("/test", result)
 
@@ -164,14 +165,13 @@ class TestDisplayOutput(unittest.TestCase):
             model="gpt-4",
             extra_history_str=" (modified)"
         )
-        
-        # Verify all components are present
+
         self.assertIn("10", result)
         self.assertIn("2500", result)
         self.assertIn("/home/user/project", result)
         self.assertIn("gpt-4", result)
         self.assertIn("(modified)", result)
-        self.assertIn("T:", result)
+        self.assertIn("C:", result)
         self.assertIn("H:", result)
         self.assertIn("]", result)  # End bracket of prompt
 

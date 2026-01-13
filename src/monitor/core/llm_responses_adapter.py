@@ -293,6 +293,65 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                         or getattr(usage, USAGE_KEYS[1], None)
                         or getattr(usage, USAGE_KEYS[2], None)
                     )
+            try:
+                rid = getattr(response, ID_KEY, None)
+            except Exception:
+                rid = None
+            try:
+                mname = strip_openai_prefix(getattr(config, "MODEL", None)) if getattr(config, "MODEL", None) is not None else None
+            except Exception:
+                mname = None
+            try:
+                if isinstance(usage, dict):
+                    total = usage.get("total_tokens") or usage.get("total_token_count") or usage.get("total")
+                    prompt = usage.get("prompt_tokens")
+                    completion = usage.get("completion_tokens")
+                    input_tokens = usage.get("input_tokens")
+                    output_tokens = usage.get("output_tokens")
+                    reasoning_tokens = usage.get("reasoning_tokens")
+                else:
+                    total = getattr(usage, "total_tokens", None) or getattr(usage, "total_token_count", None) or getattr(usage, "total", None)
+                    prompt = getattr(usage, "prompt_tokens", None)
+                    completion = getattr(usage, "completion_tokens", None)
+                    input_tokens = getattr(usage, "input_tokens", None)
+                    output_tokens = getattr(usage, "output_tokens", None)
+                    reasoning_tokens = getattr(usage, "reasoning_tokens", None)
+            except Exception:
+                total = prompt = completion = input_tokens = output_tokens = reasoning_tokens = None
+            try:
+                effective_prompt_tokens = prompt if prompt is not None else input_tokens
+                effective_completion_tokens = completion if completion is not None else output_tokens
+                effective_reasoning_tokens = reasoning_tokens
+                if effective_reasoning_tokens is None:
+                    details = None
+                    try:
+                        if isinstance(usage, dict):
+                            details = usage.get("output_tokens_details")
+                        else:
+                            details = getattr(usage, "output_tokens_details", None)
+                    except Exception:
+                        details = None
+                    try:
+                        if isinstance(details, dict):
+                            effective_reasoning_tokens = details.get("reasoning_tokens")
+                        else:
+                            effective_reasoning_tokens = getattr(details, "reasoning_tokens", None)
+                    except Exception:
+                        effective_reasoning_tokens = None
+                logger.info(
+                    "Responses usage model=%s id=%s total=%s prompt=%s completion=%s input=%s output=%s reasoning=%s raw=%r",
+                    mname,
+                    rid,
+                    total,
+                    effective_prompt_tokens,
+                    effective_completion_tokens,
+                    input_tokens,
+                    output_tokens,
+                    effective_reasoning_tokens,
+                    usage,
+                )
+            except Exception:
+                pass
         except Exception:
             actual_tokens = None
 

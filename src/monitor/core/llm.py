@@ -668,11 +668,34 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         response = dict_to_attr(response)
 
         # Record actual usage using canonical update
+        usage_obj = getattr(response, "usage", None)
+        has_usage = usage_obj is not None
+        fallback_estimated = not (has_usage and hasattr(usage_obj, "total_tokens"))
         actual_used = (
-            response.usage.total_tokens
-            if hasattr(response, "usage") and hasattr(response.usage, "total_tokens")
+            usage_obj.total_tokens
+            if has_usage and hasattr(usage_obj, "total_tokens")
             else estimated_tokens
         )
+        try:
+            details = {
+                "model": getattr(_cfg(), "MODEL", None),
+                "has_usage": bool(has_usage),
+                "used_estimated_tokens": bool(fallback_estimated),
+            }
+            if has_usage:
+                for k in (
+                    "total_tokens",
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "input_tokens",
+                    "output_tokens",
+                    "reasoning_tokens",
+                ):
+                    if hasattr(usage_obj, k):
+                        details[k] = getattr(usage_obj, k)
+            logger.info(f"{log_prefix} LLM token usage: {details}")
+        except Exception:
+            pass
         update_token_usage(actual_used)
         rate_limiter.RATE_LIMITER.add_request(actual_used)
 

@@ -566,9 +566,41 @@ def chat():
 
             # Use live history count for bug-free prompt display after summarization or history reset:
             tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
+            context_remaining = config.MAX_TOKEN_COUNT - tokens_in_history
+            rate_remaining = None
+            try:
+                limiter = getattr(rate_limiter, "RATE_LIMITER", None)
+                if limiter is not None:
+                    limit_value = getattr(limiter, "limit", None)
+                    current_usage = None
+                    used_get_current_usage = False
+                    if hasattr(limiter, "get_current_usage") and callable(getattr(limiter, "get_current_usage")):
+                        current_usage = limiter.get_current_usage()
+                        used_get_current_usage = True
+                    else:
+                        current_usage = getattr(limiter, "current_usage", None)
+                    if isinstance(limit_value, (int, float)) and isinstance(current_usage, (int, float)):
+                        rate_remaining = limit_value - current_usage
+                    try:
+                        logger.info(
+                            "RateLimiter introspection: limiter_type=%s limit=%r current_usage=%r current_usage_source=%s rate_remaining=%r",
+                            type(limiter),
+                            limit_value,
+                            current_usage,
+                            "get_current_usage" if used_get_current_usage else "current_usage_attr",
+                            rate_remaining,
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                rate_remaining = None
+            total_used = getattr(config, "TOTAL_TOKEN_COUNT", None)
             prompt = format_prompt_display(
                 conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
-                tokens_remaining=(config.MAX_TOKEN_COUNT - tokens_in_history),  # live calculation based on current history
+                tokens_remaining=context_remaining,  # live calculation based on current history
+                context_remaining=context_remaining,
+                rate_remaining=rate_remaining,
+                total_used=total_used,
                 cwd=os.getcwd(),
                 model=config.MODEL,  # live config.MODEL value
                 extra_history_str=f"({len(config.CONVERSATION_HISTORY) - config.CONVERSATION_MAX_SIZE})",
