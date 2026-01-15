@@ -710,9 +710,17 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     try:
         with open(source_file, 'r') as file:
             logger.debug(f"Reading file {source_file}")
-            print_func(f"{yellow}Analyzing {source_file} for modification - Analysis may take up to 45 seconds of inference/reasoning.{reset}")
-            print_func(f"{yellow}Large or complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
+            print_func(f"{yellow}Analyzing {source_file} for modification.{reset}")
             source_content = file.read()
+            # Compute line_count after reading source_content and only show extended notice for large files (>500 LOC)
+            try:
+                line_count = len(source_content.splitlines())
+            except Exception:
+                line_count = 0
+            if line_count > 500:
+                print_func(f"{yellow}{source_file} has more than 500 lines.{reset}")
+                print_func(f"{yellow}Analysis of the source code may take up to 45 seconds of inference/reasoning.{reset}")
+                print_func(f"{yellow}Large or complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
     except FileNotFoundError:
         return f"Unable to open {source_file}. Does not exist."
     except Exception as e:
