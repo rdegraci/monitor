@@ -30,6 +30,8 @@ from monitor.core.conversation import chat
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
+from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
+from monitor.core.conversation import process_input  # Import process_input to feed lines through the conversation input pipeline.
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,86 @@ def _reset_config(force: bool = False):
     print("\nReset operation complete. Exiting.")
     sys.exit(0)
 
+def run_script(script_path: str) -> int:
+    """Execute commands from a script file, one command per non-empty, non-comment line.
+
+    The script file is read line-by-line. Lines that are empty or begin with the '#'
+    character are ignored. Each remaining line is treated as a single command and is
+    passed through the conversation input pipeline to emulate interactive typing.
+
+    NOTE: This implementation emulates typing by creating a PromptSession via
+    monitor.lib.lexer.create_prompt_session and calling the conversation input
+    processor (process_input) for each line: process_input(line, history_file, session).
+
+    The function tries to be tolerant of different return shapes from process_input.
+    If process_input returns:
+      - a dict containing an 'exit' (or 'should_exit'/'quit') truthy value, processing stops;
+      - a tuple where the second element is a boolean exit flag, that flag is checked;
+      - a bare boolean, it is treated as the exit flag;
+      - an object with an 'exit' attribute, that attribute is checked.
+
+    Args:
+        script_path: Path to the script file to execute.
+
+    Returns:
+        int: Exit code. 0 on success or if a command requested application exit,
+             non-zero for read/execute errors.
+    """
+    try:
+        with open(script_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except FileNotFoundError:
+        logger.error("Script file not found: %s", script_path)
+        print(f"ERROR: Script file not found: {script_path}")
+        return 2
+    except Exception as e:
+        logger.error("Failed to read script file %s: %s", script_path, e, exc_info=True)
+        print(f"ERROR: Failed to read script file {script_path}: {e}")
+        return 3
+
+    # Create a PromptSession to emulate interactive typing for the script commands.
+    try:
+        session = create_prompt_session()
+    except Exception as e:
+        logger.error("Failed to create prompt session for script execution: %s", e, exc_info=True)
+        print(f"ERROR: Failed to initialize prompt session: {e}")
+        return 5
+
+    history_file = getattr(config, "HISTORY_FILE", None)
+
+    for lineno, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        logger.info("Executing script command (line %d): %s", lineno, line)
+        try:
+            # Feed the line through the conversation input pipeline, emulating interactive input.
+            result = process_input(line, history_file, session)
+        except Exception as e:
+            logger.error("Error executing command on line %d: %s", lineno, e, exc_info=True)
+            print(f"ERROR: Exception while executing command on line {lineno}: {e}")
+            return 4
+        # Determine whether the command indicates the application should exit.
+        exit_flag = False
+        if isinstance(result, dict):
+            exit_flag = bool(result.get("exit") or result.get("should_exit") or result.get("quit"))
+        elif isinstance(result, tuple):
+            if len(result) >= 2 and isinstance(result[1], bool):
+                exit_flag = result[1]
+            elif len(result) >= 1 and isinstance(result[0], bool):
+                exit_flag = result[0]
+        elif isinstance(result, bool):
+            exit_flag = result
+        elif hasattr(result, "exit"):
+            try:
+                exit_flag = bool(getattr(result, "exit"))
+            except Exception:
+                exit_flag = False
+        if exit_flag:
+            logger.info("Script requested exit after line %d.", lineno)
+            return 0
+    return 0
+
 def main():
     """Main entry point.
 
@@ -168,6 +250,11 @@ def main():
         "--debug",
         action="store_true",
         help="Enable debug logging level.",
+    )
+    parser.add_argument(
+        "--script",
+        type=str,
+        help="Path to a script file containing commands to execute, one per line. If present, the script is run and the program exits.",
     )
 
     args, unknown = parser.parse_known_args()
@@ -251,6 +338,24 @@ def main():
 
     # Prompt Macros - For great justice, all your base are belong to us
     configure_macros()
+
+    # If a script was provided, execute it and exit (do not start server or interactive loop).
+    if getattr(args, "script", None):
+        script_path = args.script
+        logger.info("Running script: %s", script_path)
+        # Register the conversation query function before running scripts so that any
+        # script-executed components or imported modules that rely on the query API
+        # can look it up via the query service. This mirrors the registration done
+        # for server mode.
+        _registration_doc = """Registers the conversation query function so that server endpoints
+and scripts can access the conversation query API during execution."""
+        register_query_function(conversation_query)
+        logger.info("Registered conversation query function for external use (script mode).")
+        rc = run_script(script_path)
+        if rc == 0:
+            sys.exit(0)
+        else:
+            sys.exit(rc)
 
     try:
         if args.server is not None:
