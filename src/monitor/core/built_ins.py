@@ -251,7 +251,7 @@ def configure_built_ins() -> None:
                     "description": "Print the list of interactive commands.",
                 },
                 {
-                    "command": "history",
+                    "command": ":history",
                     "function": lambda arg=None: conversation_history_command(arg, 10),
                     "description": "Show conversation history.",
                 },
@@ -302,7 +302,7 @@ def configure_built_ins() -> None:
                     "description": "Change reasoning effort (minimal/low/medium/high). Usage: :reasoning <level> or :reasoning help.",
                 },
                 {
-                    "command": "macros",
+                    "command": ":macros",
                     "function": _make_callable(print_macros),
                     "description": "Print available macros.",
                 },
@@ -317,7 +317,7 @@ def configure_built_ins() -> None:
                     "description": "Reload global macros from file and summarize changes.",
                 },
                 {
-                    "command": "tools",
+                    "command": ":tools",
                     "function": _make_callable(print_tools_command),
                     "description": "Print currently loaded tools.",
                 },

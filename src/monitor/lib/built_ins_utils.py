@@ -57,13 +57,13 @@ def start_python_repl(arg: str = "") -> None:
 # List of built-in function descriptors
 built_in_functions: List[Dict[str, Any]] = [
     {
-        "command": "repl",
+        "command": ":repl",
         "description": "Starts an interactive Python REPL session.",
         "function": start_python_repl,
         "group_description": "Utilities",
     },
     {
-        "command": "built_ins",
+        "command": ":built_ins",
         "description": "Lists all registered built-in commands.",
         "function": print_built_ins,
         "group_description": "Utilities",
@@ -75,7 +75,19 @@ built_in_functions: List[Dict[str, Any]] = [
         "group_description": "Debugging",
     },
     {
-        "command": "help",
+        "command": ":help",
+        "description": "Displays all registered built-in commands.",
+        "function": print_built_ins,
+        "group_description": "Utilities",
+    },
+    {
+        "command": "/help",
+        "description": "Displays all registered built-in commands.",
+        "function": print_built_ins,
+        "group_description": "Utilities",
+    },
+    {
+        "command": "/?",
         "description": "Displays all registered built-in commands.",
         "function": print_built_ins,
         "group_description": "Utilities",
