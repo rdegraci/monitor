@@ -167,6 +167,7 @@
   },
   {
     "command": "cat",
-    "description": "concatenate and display files"
+    "expansion": "function _cat() { cat \"$@\"; }; _cat",
+    "description": "concatenate and display files  (forwards all args)"
   }
 ]

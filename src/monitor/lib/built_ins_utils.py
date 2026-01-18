@@ -1,5 +1,6 @@
 import code
 import logging
+import inspect
 from typing import Any, Callable, Dict, List, Optional
 
 from monitor.lib.redis_utils import fetch_memory_for_context, get_redis_client, dump_memories
@@ -145,6 +146,13 @@ def execute_built_in_function(command: Optional[str]) -> None:
     """
     Execute the built-in function matching the first word of the command string.
 
+    This function performs the following:
+    - Validates that the resolved built-in entry has a callable 'function'.
+    - Normalizes empty arguments to an empty string.
+    - Inspects the callable's signature to decide whether to call it with zero
+      arguments or with a single string argument (the remainder of the command).
+    - Wraps the invocation in a try/except and logs any exception that occurs.
+
     Args:
         command: The command string entered by the user.
     """
@@ -166,7 +174,53 @@ def execute_built_in_function(command: Optional[str]) -> None:
     if not matching_command:
         return
 
+    # Prepare arguments: join remaining tokens; normalize empty input to empty string
     arguments: str = " ".join(tokens[1:])
-    logger.debug("Executing built-in function: %s with arguments: %s", first_word, arguments)
-    function_to_run: Callable[..., None] = matching_command.get("function")  # type: ignore
-    function_to_run(arguments)
+    arg_to_pass: str = arguments if arguments else ""
+
+    logger.debug(
+        "Executing built-in function: %s with arguments: %s", first_word, arguments
+    )
+
+    function_to_run = matching_command.get("function")
+    if not callable(function_to_run):
+        logger.error(
+            "Built-in command '%s' does not have a callable 'function' entry.", first_word
+        )
+        return
+
+    # Decide whether to call with zero args or one arg by inspecting the signature.
+    call_with_arg: bool = True
+    try:
+        sig = inspect.signature(function_to_run)
+    except (ValueError, TypeError):
+        # If we cannot obtain a signature (e.g., builtins or C extension functions),
+        # assume the callable accepts positional arguments and pass the argument.
+        call_with_arg = True
+    else:
+        params = sig.parameters
+        if len(params) == 0:
+            # No parameters declared; call without arguments.
+            call_with_arg = False
+        else:
+            # If any parameter can accept a positional argument (positional-only,
+            # positional-or-keyword, or var positional), prefer calling with one arg.
+            accepts_positional = any(
+                p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.VAR_POSITIONAL,
+                )
+                for p in params.values()
+            )
+            call_with_arg = bool(accepts_positional)
+
+    # Invoke the callable safely and log any exceptions.
+    try:
+        if call_with_arg:
+            function_to_run(arg_to_pass)  # type: ignore[misc]
+        else:
+            function_to_run()  # type: ignore[misc]
+    except Exception:
+        logger.exception("Exception occurred while executing built-in function: %s", first_word)
