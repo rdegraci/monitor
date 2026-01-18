@@ -49,11 +49,11 @@ Key runtime flows
 
 Conversation / chat loop
 - Entry points:
-  - CLI: app.py initializes a session and calls conversation.run_loop() which yields prompts, collects user lines, and drives responses.
-  - HTTP API: app.py forwards REST payloads into conversation.handle_request() for stateless or session-backed conversation handling.
+  - CLI: app.py initializes a session and calls conversation.chat() which yields prompts, collects user lines, and drives responses.
+  - HTTP API: app.py forwards REST payloads to server endpoints (src/monitor/lib/server.py) which call conversation.query() for stateless or session-backed conversation handling.
 - Flow:
   1. Assemble context window from history (monitor.lib.history) and session metadata.
-  2. Apply mode-specific transformations (monitor.lib.input_modes) to shape the prompt and expected output format.
+  2. Apply mode-specific transformations (monitor.lib.input_modes) to shape the prompt and expected output format, using helpers determine_input_mode/process_input_mode.
   3. Call llm adapter to get model output, or route to command/tool if model output indicates an action.
   4. If a tool/macro/command is invoked, pause LLM flow, run tooling/tooling.py or commands.py, persist result to history, and resume LLM if needed.
   5. Emit structured audit logs and return the combined output to caller.
@@ -135,8 +135,8 @@ Rate limiting and token accounting
 ----------------------------------
 - Core enforces request policies and local helpers (rate_limiting.py), but authoritative token accounting and billing enforcement live in monitor.lib.token_management.
 - All LLM calls and any code paths that consume tokens MUST call into monitor.lib.token_management to:
-  - Reserve or account for tokens before API calls.
-  - Reconcile usage after streaming or completion.
+  - Use monitor.lib.token_management.count_message_tokens to estimate and reserve tokens before API calls.
+  - Use monitor.lib.token_management.update_token_usage to reconcile usage after streaming or completion.
   - Apply per-session or per-tenant caps consistently.
 
 Testing and observability

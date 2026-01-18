@@ -18,6 +18,7 @@ What `directive<` does
 Usage notes
 
 - Up to five parameters are supported. If you pass fewer, the missing param lines will be blank.
+- Note: Monitor will still emit up to five `paramN=` lines; any unused parameters will be emitted as empty assignments (for example `param3=`).
 - The directive file is treated as plain text. The LLM will see the parameter lines followed by the file text and should interpret the parameters accordingly.
 - The command does not perform client-side variable substitution. If you rely on parameter substitution, include clear markers or ask the LLM to treat the preceding `paramN` lines as variables.
 
@@ -26,6 +27,21 @@ Security and safety
 - Files in the directives directory are read and their entire contents are sent to the LLM. Do NOT store secrets (API keys, passwords, private data) in those files.
 - Only place directives you trust into the configured `DIRECTIVES_DIR` and ensure directory permissions are appropriate for your environment.
 - Where possible prefer structured DSPy-style directives (see project docs) for safer, auditable pipelines. `directive<` is useful for ad-hoc prompts but is not a secure execution environment.
+
+What happens
+
+- The `directive<` internal command prints the parameter lines:
+
+    param1=Alice
+    param2=Acme Corp
+
+  followed by the full contents of `greet_directive.txt`.
+
+- The combined text is presented to the LLM. The LLM should read the param lines as variable bindings and generate an output that uses them.
+
+- Monitor then shows the LLM's reply via the usual display pipeline and logs the input and result to the conversation log.
+
+- If the directive file cannot be read (for example due to missing file or permission errors), Monitor will surface the underlying stderr message and skip sending the directive to the LLM.
 
 Example: create and use a directive that accepts two parameters
 
@@ -58,20 +74,11 @@ From the interactive Monitor prompt, run:
 
 (You can pass the company name in quotes if it contains spaces.)
 
-What happens
-
-- The `directive<` internal command prints the parameter lines:
-
-    param1=Alice
-    param2=Acme Corp
-
-  followed by the full contents of `greet_directive.txt`.
-
-- The combined text is presented to the LLM. The LLM should read the param lines as variable bindings and generate an output that uses them.
-
-- Monitor then shows the LLM's reply via the usual display pipeline and logs the input and result to the conversation log.
-
 Tips for authoring directives
 
 - Include a short header describing expected parameters and the required output shape. The LLM will benefit from explicit instructions.
 - Keep directives concise; large directives will increase token usage and cost.
+
+Implementation
+
+- Contributors looking for the authoritative implementation should consult src/monitor/core/commands.py and the INTERNAL_COMMANDS entry for the `directive<` internal command.

@@ -86,11 +86,21 @@ Define a macro:
 
 Macro syntax and expansion:
 - Define with `<key=value`.
-- Macro delimiters default to `(` and `)` for expansion.
+- Macro delimiters default to `{{` and `}}` for expansion (parentheses `(` and `)` are legacy/alternate).
 - Use a macro with the delimiters: for example:
 ```
-cd (proj)
+cd {{proj}}
 ```
+
+Note: Changing macro delimiters
+You can change the delimiters Monitor uses for macro expansion via your configuration file (`~/.config/monitor/config.yaml`) with the `macro_delimiters` setting. Example YAML:
+```yaml
+macro_delimiters:
+  open: '{{'    # opening delimiter
+  close: '}}'   # closing delimiter
+  escape: '\'   # optional escape character to prevent expansion
+```
+Adjust `open` and `close` to your preferred delimiter strings, and set `escape` if you need a character to escape delimiters in text.
 
 List current macros with:
 ```
@@ -124,7 +134,7 @@ Monitor connects to powerful tools:
 - Search:
   - Use `:rg <pattern>` for fast code search (faster than plain `grep` in many setups).
 - Logs and History:
-  - Application logs are stored at `~/.config/monitor/logs/` by default.
+  - Application logs directory is configurable in your configuration file (see `logging.log_dir` in `~/.config/monitor/config.yaml`). The packaged default log directory is platform-specific; for example: `~/Library/Application Support/monitor/logs`.
   - You can change log and other configuration settings in `~/.config/monitor/config.yaml`.
 
 ---
@@ -173,7 +183,7 @@ macros
 :reasoning help
 ```
 - Configuration and logs:
-  - Logs: `~/.config/monitor/logs/`
+  - Logs: Application logs directory is configurable in your configuration file (see `logging.log_dir` in `~/.config/monitor/config.yaml`). The packaged default log directory is platform-specific; for example: `~/Library/Application Support/monitor/logs`.
   - Configuration file: `~/.config/monitor/config.yaml`
 - Issues: Check logs for errors or reach out at support@monitorcli.com.
 
@@ -186,7 +196,7 @@ macros
 | Run shell command           | `ls`, `cd project`              |
 | Ask a question              | `How do I use macros?`          |
 | Define a macro              | `<src=~/myproject/src`          |
-| Use a macro                 | `cd (src)`                      |
+| Use a macro                 | `cd {{src}}`                    |
 | Run multiple commands       | `ls ;;; pwd ;;; history`        |
 | Show history                | `history`                       |
 | Change preferences          | `preferences`                   |

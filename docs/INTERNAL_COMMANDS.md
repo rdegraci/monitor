@@ -1,5 +1,7 @@
 # Internal Commands: llm< and directive<
 
+The authoritative implementation for these internal commands lives in src/monitor/core/commands.py.
+
 This document describes two internal REPL commands available in Monitor that help combine local environment data with LLM reasoning: `llm<` and `directive<`.
 
 For context on how to author and store directive files, see docs/DIRECTIVES.md (it explains the directives directory and an example directive).
@@ -26,7 +28,7 @@ Notes on quoting
 
 Execution behavior
 
-1. Monitor parses the command. If the literal `>llm` token is present the command is split into `shell_code` and `user_prompt`. Otherwise the whole remainder is treated as `shell_code`.
+1. Monitor parses the command. If the literal `>llm` token is present the command is split into `shell_code` and `user_prompt`. Otherwise the whole remainder is treated as `shell_code`. Monitor's parser uses shlex.split (POSIX) for tokenization; if tokenization fails for edge cases the implementation falls back to a robust substring split on the literal '>llm'. Ensure you quote shell_code and prompts correctly to avoid unexpected splitting.
 2. `shell_code` is executed with run_subprocess in a non-interactive shell; stdout, stderr and exit_code are captured.
 3. If the exit code indicates failure, `llm<` surfaces stderr and logs an error. The LLM call may be skipped depending on error handling.
 4. If there is a user_prompt and it contains `${result}`, that placeholder is replaced with stdout. If there is a user_prompt without `${result}`, Monitor concatenates the prompt and stdout.
@@ -80,9 +82,10 @@ Syntax
 
 Behavior
 
-- The command prints up to five parameter lines in the form `paramN=value` followed by the entire contents of the requested file.
+- The command emits five parameter lines (param1..param5) in the form `paramN=value` (unused parameters are emitted as empty, e.g., param4=) followed by the entire contents of the requested file.
 - The combined text is then internalized and sent to Monitor’s LLM pipeline.
 - There is no client-side variable substitution; the LLM sees the parameter lines and the file text and is expected to interpret the parameters.
+- The requested file is read from config.DIRECTIVES_DIR, and the directive-handling implementation lives in src/monitor/core/commands.py.
 
 Security and safety
 

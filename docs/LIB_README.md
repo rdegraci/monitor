@@ -83,6 +83,7 @@ Key integrations and responsibilities
 - Token & rate control:
   - token_management.py is the canonical API for counting and updating token usage across LLM requests. All modules that consume or charge tokens MUST call into this API to ensure consistent accounting and telemetry.
   - rate_limiter.py implements transport/request throttling with built-in token estimation to enforce limits and telemetry.
+  - Note: the low-level estimator estimate_token_count is implemented in monitor.lib.rate_limiter, but callers must use the monitor.lib.token_management API (count_message_tokens, update_token_usage) instead of calling the estimator directly.
 
 Security and server note
 - server.create_flask_server (or the server module's create_flask_server helper in the project) can be used to quickly start a local HTTP server for integrations and testing.
@@ -99,7 +100,8 @@ Contributor guidance — adding a new helper module
    - If the module requires state (memory caches, editor sessions, macros), expose a small class or well-defined manager object and document lifecycle expectations.
 
 3. Integration & registration
-   - If your helper should be exposed as a tool/function to macros or the orchestration layer, register it via tool_definitions.py and tool_loading.py so core tooling can discover it.
+   - If your helper should be exposed as a tool/function to macros or the orchestration layer, register it via tool_definitions.py and tool_loading.py so core tooling can discover and invoke it.
+   - Note that functions like add_tool typically manage descriptions and tool state, but the callable implementation must also be registered in tool_definitions.AVAILABLE_TOOLS (or wired during configure_tools) so the runtime can invoke it.
    - If your helper interacts with persistent memory, prefer using redis_utils.py or semantic_store.py adapters rather than re-implementing storage logic.
    - If your helper affects token usage, call monitor.lib.token_management APIs to report consumption and updates.
 
@@ -124,8 +126,8 @@ Examples of registration (patterns)
   - Surface the tool name and input/output schema to orchestration layers so macros and workflows can call it.
 
 - Token reporting (conceptual)
-  - Before an LLM call: tokens = token_management.count(prompt, model=model)
-  - After an LLM response: token_management.update_usage(user_id, model, request_tokens=tokens.request, response_tokens=tokens.response)
+  - Before an LLM call: tokens = token_management.count_message_tokens(messages)
+  - After an LLM response: token_management.update_token_usage(response_or_count)
 
 Style and maintainability notes
 - Keep functions small and focused; prefer composition over large monolithic helpers.

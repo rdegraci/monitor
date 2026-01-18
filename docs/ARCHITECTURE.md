@@ -9,7 +9,8 @@ Key File / Module Table
 |--------------------------|-----------------------------------------------------------------|
 | app.py                   | Main entry point: orchestrates CLI/event loop and HTTP server;   |
 |                          | initializes logging, core modules, registries, session handling, |
-|                          | signal cleanup, extensibility.                                  |
+|                          | signal cleanup, extensibility. app.py initializes the Flask app |
+|                          | via the factory in src/monitor/lib/server.py for server mode.    |
 | core/conversation.py     | Conversational event/chat loop abstractions for CLI and API.     |
 | core/command_processing.py| Aggregates command dispatch, routing, safety checks (built-ins, |
 |                          | system shell, macros).                                          |
@@ -18,7 +19,8 @@ Key File / Module Table
 | core/query_service.py    | Broker for LLM, tool, and macro queries—drives routing between   |
 |                          | CLI, LLM, macros, and core logic.                               |
 | config.py / config.yaml     | Configuration profiles: model options, limits, credentials, etc. |
-| logs/                    | Centralized, session-aware, rolling and audit logs.              |
+| logs/                    | Centralized, session-aware, rolling and audit logs; logs are     |
+|                          | written to configured paths and created at runtime.              |
 ===============================================================================
 
 ===============================================================================
@@ -73,11 +75,13 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 - Uses prompt_toolkit for multiline, syntax-highlighted input, context cues, and live macro expansion
 - Handles registration of built-ins, macros, and command processors
 - Event/chat loop controlled by `core/conversation.py`—with command processing mediated via `core.command_processing`
-- Logs all actions (session, audit, error) in timestamped/rotating logs under `logs/` 
+- Logs all actions (session, audit, error) in timestamped/rotating logs under `logs/` that are written to configured paths and created at runtime
 - Session and signal handlers: session ID, Ctrl+C/BREAK event cleanup, graceful exit with final audit logging
+- CLI entrypoint: conversation.chat() in core/conversation.py is the main interactive entrypoint for the CLI mode
 
 **B. HTTP Server API**
-- Enabled by `--server` flag in `app.py`, initializes Flask app for stateless/stateless API endpoints
+- Enabled by `--server` flag in `app.py`; app.py initializes the Flask app via the factory in src/monitor/lib/server.py for stateless API endpoints
+- Server endpoints and their routing are defined in src/monitor/lib/server.py; app.py calls into that factory (e.g., server.create_flask_server()) and manages process/thread-level integration
 - Exposes endpoints for:
     - Submitting commands/queries for processing
     - Fetching conversation/context state
@@ -90,7 +94,7 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 
 - **`app.py`:**
     - Always the entry point—sets up logger, config, context/memory, CLI/server mode selection, macro/command registration, tool registry installation
-    - Encapsulates main event loop (calls into `core/conversation.py`), sets up Flask API in server mode
+    - Encapsulates the main CLI entrypoint (calls conversation.chat() in core/conversation.py), sets up Flask API in server mode via the server factory
     - Handles all signal trapping (SIGINT/SIGTERM), session teardown and persistent artifact/summary emission
 
 - **`core/conversation.py`:**
@@ -118,12 +122,12 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 
 - **`config.py` / `config.yaml`:**
     - Configuration for tools, LLMs, logging, limits, credentials, persistent memory, summarization
-    - Hot-reloadable in CLI and server modes
+    - Some runtime components (for example, macro definitions and certain registries that are primarily runtime data structures) support explicit runtime reload mechanisms. These are implemented as explicit "reload" hooks or re-initialization entrypoints (for example, a configure_tools / registry re-run path) that refresh registry state, macro definitions, and related runtime data without restarting the whole process. This capability is limited to refreshing runtime-configurable data and registry entries; it does not provide process-level code hot-reload (you cannot dynamically replace arbitrary Python modules or change the process-executed code across the entire running process). See lib/macros.py for macro registration and available reload hooks, and app.py for registry initialization and configure_tools re-run entrypoints and patterns for safe runtime refresh.
 
 - **Logging and Auditing (`logs/`):**
     - Central session-log, full audit trace (commands, LLM, errors) in session-aware log files
     - Rotating logs, real-time streaming, replayable audit trail
-    - Logger is initialized in `app.py` and used system-wide
+    - Logger is initialized in `app.py` and used system-wide; logs are written to configured paths and created at runtime
 
 ## 4. Chat Loop and Server API—Details
 
@@ -132,9 +136,10 @@ Monitor consists of orchestrated Python modules with tight audit, session, and s
 - Receives user/LLM input, feeding into command processor and macro registry
 - Supports output capture, error injection, context trimming, summarization, and token window management
 - Underpins both standalone CLI and server-interactive API chat endpoints
+- Entry point for interactive sessions: conversation.chat()
 
-**Server API (Flask integration in `app.py`):**
-- All API endpoints are managed within `app.py`, using Flask and thread/process-level session control
+**Server API (Flask integration):**
+- Server endpoints live in src/monitor/lib/server.py as a Flask app factory; app.py initializes the Flask app via that factory
 - Each API query/event is dispatched via the same brokers and registries used by CLI mode
 - State, logs, audit, and context history are uniform across CLI and server
 - API extensibility: register new endpoints as modules under `lib/`, integrating via the command/macro registry
@@ -155,7 +160,7 @@ Extensibility Points
 
 ## 5. Session Audit, Logging, and Cleanup
 
-- **Logging:** All system, CLI, tool, LLM, and error events are timestamped. Log sessions are rolling, replayable, and redactable; debug/audit mode controls verbosity and retention policy.
+- **Logging:** All system, CLI, tool, LLM, and error events are timestamped. Log sessions are rolling, replayable, and redactable; debug/audit mode controls verbosity and retention policy. Logs are written to configured paths and created at runtime.
 - **Signal Handling / Session Teardown:**
     - Robust SIGINT/SIGTERM catchers for CLI and server
     - Ensures context summaries, log finalization, and any temporary state/artifacts are cleaned on shutdown
@@ -166,4 +171,12 @@ Extensibility Points
 
 ===============================================================================
 For architecture diagrams, maintainers’ docs, and up-to-date developer best practices: see README.md or contact the current maintainers.
+===============================================================================
+
+Where to look in the code:
+- core/conversation.py -> conversation.chat
+- src/monitor/lib/server.py -> server.create_flask_server
+- core/command_processing.py -> core.command_processing.process_command
+- core/query_service.py -> core.query_service
+
 ===============================================================================
