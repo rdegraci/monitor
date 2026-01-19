@@ -1,29 +1,40 @@
-import logging
-import litellm
-import re
-import json
-import time
-import os
+import difflib
 import hashlib
+import json
+import litellm
+import logging
+import os
+import re
+import subprocess
+import time
 
-from colored import fg, attr
+from colored import attr, fg
 from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
 from pygments.formatters import TerminalFormatter
+from pygments.lexers import BashLexer, DiffLexer, MarkdownLexer
 
-from monitor import config 
+from monitor import config
 from monitor.lib.progress import progress_dots
-from monitor.lib.protocol_engine_utils import PROHIBITED_SUMMARY_PATTERN, create_chunk_correction_prompt, create_initial_modification_query, create_compliance_warning, create_resume_chunk_prompt, create_next_chunk_prompt, create_system_prompt
+from monitor.lib.protocol_engine_utils import (
+    PROHIBITED_SUMMARY_PATTERN,
+    create_chunk_correction_prompt,
+    create_compliance_warning,
+    create_initial_modification_query,
+    create_next_chunk_prompt,
+    create_resume_chunk_prompt,
+    create_system_prompt,
+)
 from monitor.lib.sound import ring_bell
 
 logger = logging.getLogger(__name__)
 
-blue = fg('blue')
-red = fg('red')
-yellow = fg('yellow')
-reset = attr('reset')
+blue = fg("blue")
+red = fg("red")
+yellow = fg("yellow")
+reset = attr("reset")
 
 MESSAGE_HISTORY = []
+
 
 def configure_protocol_engine_message_history(message_history: list):
     global MESSAGE_HISTORY
@@ -32,8 +43,10 @@ def configure_protocol_engine_message_history(message_history: list):
     if message_history:
         MESSAGE_HISTORY.extend(message_history)
 
+
 class ProtocolEngine:
     """ProtocolEngine with global modification cycle retry logic."""
+
     MAX_RETRIES_PER_CHUNK = 3
     MAX_GLOBAL_MODIFICATION_RETRIES = 2
 
@@ -68,19 +81,19 @@ class ProtocolEngine:
         total_lines = len(lines)
         # Simple plan: equally sized line buckets
         expected = max(1, (total_lines + self.lines_per_chunk - 1) // self.lines_per_chunk)
-        
+
         plan = {
             "total_lines": total_lines,
             "expected_chunks": expected,
             "line_ranges": [
-                (i*self.lines_per_chunk + 1, min((i+1)*self.lines_per_chunk, total_lines))
+                (i * self.lines_per_chunk + 1, min((i + 1) * self.lines_per_chunk, total_lines))
                 for i in range(expected)
             ],
         }
-        
+
         logger.info(f"Created chunk plan: {total_lines} lines, {expected} expected chunks")
         logger.info(f"Line ranges: {plan['line_ranges']}")
-        
+
         return plan
 
     def _non_compliance_message(self, chunk_index: int) -> str:
@@ -93,14 +106,16 @@ class ProtocolEngine:
         self.modification_request = modification_request
         self.source_file = source_file
         self._modification_script_content = script_content
-        logger.debug("fetch_modified_script called (global attempt: %d)", self.global_retries+1)
+        logger.debug("fetch_modified_script called (global attempt: %d)", self.global_retries + 1)
         attempt_successful = False
         error_result = None
         while self.global_retries < self.MAX_GLOBAL_MODIFICATION_RETRIES:
             result = self._modification_cycle(script_content, modification_request, source_file)
             if isinstance(result, str) and result.startswith("Non-compliant output at chunk"):
                 self.global_retries += 1
-                logger.warning(f"Full modification cycle failed (attempt {self.global_retries}/{self.MAX_GLOBAL_MODIFICATION_RETRIES}). Retrying from checkpoint...")
+                logger.warning(
+                    f"Full modification cycle failed (attempt {self.global_retries}/{self.MAX_GLOBAL_MODIFICATION_RETRIES}). Retrying from checkpoint..."
+                )
                 checkpoint = self._load_checkpoint(modification_request)
                 if not checkpoint:
                     logger.error("Checkpoint unavailable or broken. Cannot auto-retry further.")
@@ -112,11 +127,13 @@ class ProtocolEngine:
                 error_result = None
                 break
         if attempt_successful:
-            logger.info(f"Modification completed in {self.global_retries+1} cycles.")
+            logger.info(f"Modification completed in {self.global_retries + 1} cycles.")
             self.global_retries = 0
             return result
         else:
-            logger.error(f"All modification retries exhausted ({self.MAX_GLOBAL_MODIFICATION_RETRIES}). Human intervention needed.")
+            logger.error(
+                f"All modification retries exhausted ({self.MAX_GLOBAL_MODIFICATION_RETRIES}). Human intervention needed."
+            )
             self.global_retries = 0
             return error_result or "Modification process failed after all automatic retries. Manual intervention required."
 
@@ -134,13 +151,13 @@ class ProtocolEngine:
         # Determine language from file extension
         ext = os.path.splitext(source_file)[1][1:].lower()
         languages = {
-            'py': 'Python',
-            'swift': 'Swift',
-            'js': 'JavaScript',
-            'ts': 'TypeScript',
-            'java': 'Java',
-            'cpp': 'C++',
-            'c': 'C',
+            "py": "Python",
+            "swift": "Swift",
+            "js": "JavaScript",
+            "ts": "TypeScript",
+            "java": "Java",
+            "cpp": "C++",
+            "c": "C",
             # Add more as needed
         }
         # Resume from checkpoint if possible:
@@ -160,10 +177,10 @@ class ProtocolEngine:
 
         # Compose a strict chunk-1-only instruction
         start_chunk_index = 1 if not checkpoint else checkpoint["next_chunk_index"]
-        is_last_expected = (start_chunk_index == self.expected_total_chunks)
+        is_last_expected = start_chunk_index == self.expected_total_chunks
         (lo, hi) = line_ranges[start_chunk_index - 1] if line_ranges else (1, None)
 
-        last_directive = ' last="true"' if is_last_expected else ''
+        last_directive = ' last="true"' if is_last_expected else ""
         initial_query = create_initial_modification_query(
             script_content=script_content,
             modification_request=modification_request,
@@ -173,9 +190,9 @@ class ProtocolEngine:
             hi=hi,
             lines_per_chunk=self.lines_per_chunk,
             chars_per_chunk=self.chars_per_chunk,
-            last_directive=last_directive
+            last_directive=last_directive,
         )
-        
+
         logger.info(f"Starting modification cycle for {source_file}")
         logger.info(f"start_chunk_index={start_chunk_index}, is_last_expected={is_last_expected}, lines={lo}..{hi}")
         logger.info(f"Initial query length: {len(initial_query)} chars")
@@ -215,9 +232,9 @@ class ProtocolEngine:
                     model=self.model,
                     messages=self.message_history,
                     max_completion_tokens=TOKEN_BUDGET_PER_CHUNK,
-                    drop_params=True
+                    drop_params=True,
                 )
-            content = response.choices[0].message['content']
+            content = response.choices[0].message["content"]
             self.message_history.append({"role": "assistant", "content": content})
             return content
         except Exception as e:
@@ -235,21 +252,25 @@ class ProtocolEngine:
                 compliance_warn = create_compliance_warning(retries, self.MAX_RETRIES_PER_CHUNK, chunk_index)
                 augmented_query = f"{query}\n\n{compliance_warn}"
             try:
-                logger.debug(f"Requesting chunk {chunk_index}, retry {retries+1}")
+                logger.debug(f"Requesting chunk {chunk_index}, retry {retries + 1}")
                 output = self._send_request(augmented_query)
             except Exception as e:
                 logger.error("LLM call failed for chunk %s, retry %s: %s", chunk_index, retries + 1, str(e))
-                raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries+1}: {str(e)}")
+                raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries + 1}: {str(e)}")
             prohibited = self._find_prohibited_phrases_in_text(output)
             if prohibited:
                 retries += 1
-                time.sleep(2 ** retries)
+                time.sleep(2**retries)
                 last_noncompliant_output = output
-                logger.warning(f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'} {last_noncompliant_output}")
+                logger.warning(
+                    f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'} {last_noncompliant_output}"
+                )
                 continue
             return output
         # If retries exhausted, attempt LLM correction using the full original source
-        logger.warning(f"All compliance retries failed for chunk {chunk_index}; retrying correction with full original source.")
+        logger.warning(
+            f"All compliance retries failed for chunk {chunk_index}; retrying correction with full original source."
+        )
         if last_noncompliant_output:
             corrected_chunk = self._request_chunk_correction(
                 non_compliant_chunk=last_noncompliant_output,
@@ -259,7 +280,9 @@ class ProtocolEngine:
             prohibited = self._find_prohibited_phrases_in_text(corrected_chunk) if corrected_chunk else set()
             if corrected_chunk and not prohibited:
                 return corrected_chunk
-        logger.warning(f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'}")
+        logger.warning(
+            f"Non-compliant output for chunk {chunk_index}, retry {retries} of {self.MAX_RETRIES_PER_CHUNK}. Markers: {list(prohibited) if prohibited else '-'}"
+        )
         self._assemble_and_save_partial()
         raise ValueError(self._non_compliance_message(chunk_index))
 
@@ -282,7 +305,7 @@ class ProtocolEngine:
             r"'(?:\\.|[^'\\])*'|"
             r"\"(?:\\.|[^\"\\])*\"|"
             r"`(?:\\.|[^`\\])*`)",
-            re.DOTALL
+            re.DOTALL,
         )
         # Replace matched string with spaces of the same length (keeps positions/line numbers stable)
         return string_re.sub(lambda m: " " * len(m.group(0)), text)
@@ -302,12 +325,12 @@ class ProtocolEngine:
             return comments
 
         # Single-line comment patterns (multiline flag)
-        comments.extend(re.findall(r'(?m)#.*$', text))    # # comment (python/shell)
-        comments.extend(re.findall(r'(?m)//.*$', text))   # // comment (C/JS/Java)
+        comments.extend(re.findall(r"(?m)#.*$", text))  # # comment (python/shell)
+        comments.extend(re.findall(r"(?m)//.*$", text))  # // comment (C/JS/Java)
 
         # Block comments
-        comments.extend(re.findall(r'/\*[\s\S]*?\*/', text))      # /* ... */
-        comments.extend(re.findall(r'<!--[\s\S]*?-->', text))    # <!-- ... -->
+        comments.extend(re.findall(r"/\*[\s\S]*?\*/", text))  # /* ... */
+        comments.extend(re.findall(r"<!--[\s\S]*?-->", text))  # <!-- ... -->
 
         return comments
 
@@ -333,8 +356,8 @@ class ProtocolEngine:
             # Normalize comment by stripping common leading/trailing comment delimiters
             # Remove leading comment intro (e.g. '#', '//', '///', '/*', '<!--') and trailing end markers.
             # We intentionally keep internal punctuation and words intact.
-            norm = re.sub(r'^\s*(?:#{1,}|//+|/\*+|<!--)\s*', '', comment)   # leading markers
-            norm = re.sub(r'\s*(?:\*/|-->)\s*$', '', norm)                  # trailing block markers
+            norm = re.sub(r"^\s*(?:#{1,}|//+|/\*+|<!--)\s*", "", comment)  # leading markers
+            norm = re.sub(r"\s*(?:\*/|-->)\s*$", "", norm)  # trailing block markers
 
             # Now search only the comment text using the existing compiled pattern
             for m in PROHIBITED_SUMMARY_PATTERN.finditer(norm):
@@ -345,7 +368,7 @@ class ProtocolEngine:
     def _validate_and_extract_chunk(self, response: str, expected_index: int, is_last_expected: bool):
         logger.info(f"_validate_and_extract_chunk: expected_index={expected_index}, is_last_expected={is_last_expected}")
         logger.info(f"Response length: {len(response) if response else 0} chars")
-        
+
         if not response or not isinstance(response, str):
             logger.info("Invalid response type - response is None or not string")
             raise ValueError("Invalid response type")
@@ -356,7 +379,7 @@ class ProtocolEngine:
         # Must have a matching chunk tag
         pattern = re.compile(
             rf'<chunk_{expected_index}(?:\s+last="true")?>(.*?)</chunk_{expected_index}(?:\s+last="true")?>',
-            re.DOTALL
+            re.DOTALL,
         )
         m = pattern.search(response)
         if not m:
@@ -374,20 +397,24 @@ class ProtocolEngine:
         tag_text = m.group(0)
         content = m.group(1)
         has_last = 'last="true"' in tag_text
-        
+
         logger.info(f"Extracted chunk {expected_index}: {len(content)} chars, {len(content.splitlines())} lines")
         logger.info(f"Has last flag: {has_last}")
 
         # Early/late last flag
         if has_last and not is_last_expected:
-            logger.info(f"Received unexpected last=\"true\" for chunk {expected_index} (expected at chunk {self.expected_total_chunks})")
-            raise ValueError(f"Received last=\"true\" before final chunk (expected at chunk {self.expected_total_chunks}).")
+            logger.info(
+                f'Received unexpected last="true" for chunk {expected_index} (expected at chunk {self.expected_total_chunks})'
+            )
+            raise ValueError(f'Received last="true" before final chunk (expected at chunk {self.expected_total_chunks}).')
 
         # Size constraints
         line_count = len(content.splitlines())
         char_count = len(content)
-        logger.info(f"Chunk {expected_index} size check: {line_count}/{self.lines_per_chunk} lines, {char_count}/{self.chars_per_chunk} chars")
-        
+        logger.info(
+            f"Chunk {expected_index} size check: {line_count}/{self.lines_per_chunk} lines, {char_count}/{self.chars_per_chunk} chars"
+        )
+
         if line_count > self.lines_per_chunk or char_count > self.chars_per_chunk:
             logger.info(f"Chunk {expected_index} exceeds size limits")
             raise ValueError(
@@ -405,21 +432,25 @@ class ProtocolEngine:
         return content, has_last
 
     def _collect_chunks(self, initial_response=None, modification_request=None, start_chunk_index=1, print_func=print):
-        logger.info(f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}")
+        logger.info(
+            f"_collect_chunks starting: initial_response={'provided' if initial_response else 'None'}, start_chunk_index={start_chunk_index}"
+        )
         logger.info(f"Expected total chunks: {self.expected_total_chunks}, current chunks collected: {len(self.chunks)}")
-        
+
         print_func("\nModifications complete.", end="", flush=True)
         line_ranges = getattr(self, "line_ranges", None)
         found_last_chunk = False
         iteration = 0
         max_iterations = 50  # Increased for larger files
-        
+
         if initial_response is None:
             logger.info(f"No initial response provided, requesting chunk {start_chunk_index}")
             # For resume: Request the next chunk with specific index
             next_chunk_prompt = create_resume_chunk_prompt(start_chunk_index)
             try:
-                current_response = self._send_request_with_compliance_retry(next_chunk_prompt, chunk_index=start_chunk_index)
+                current_response = self._send_request_with_compliance_retry(
+                    next_chunk_prompt, chunk_index=start_chunk_index
+                )
             except ValueError as e:
                 logger.warning(
                     "Chunk %s failed after all compliance retries: %s",
@@ -427,27 +458,37 @@ class ProtocolEngine:
                     str(e),
                 )
                 return self._non_compliance_message(start_chunk_index)
-            logger.info(f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars")
+            logger.info(
+                f"Received response for chunk {start_chunk_index}: {len(current_response) if current_response else 0} chars"
+            )
         else:
             logger.info(f"Using provided initial response: {len(initial_response)} chars")
             current_response = initial_response
         while not found_last_chunk and iteration < max_iterations:
             iteration += 1
             logger.info(f"_collect_chunks iteration {iteration}: processing chunk, found_last_chunk={found_last_chunk}")
-            
+
             if current_response:
-                expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
-                is_last_expected = (expected_index == self.expected_total_chunks)
-                logger.info(f"Processing current response for expected chunk {expected_index} (is_last_expected: {is_last_expected})")
-                
+                expected_index = (
+                    start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
+                )
+                is_last_expected = expected_index == self.expected_total_chunks
+                logger.info(
+                    f"Processing current response for expected chunk {expected_index} (is_last_expected: {is_last_expected})"
+                )
+
                 try:
-                    expected_index = start_chunk_index if (iteration == 1 and initial_response is not None) else (len(self.chunks) + 1)
-                    is_last_expected = (expected_index == self.expected_total_chunks)
+                    expected_index = (
+                        start_chunk_index
+                        if (iteration == 1 and initial_response is not None)
+                        else (len(self.chunks) + 1)
+                    )
+                    is_last_expected = expected_index == self.expected_total_chunks
 
                     new_chunk, is_last_chunk = self._validate_and_extract_chunk(
                         response=current_response,
                         expected_index=expected_index,
-                        is_last_expected=is_last_expected
+                        is_last_expected=is_last_expected,
                     )
                     logger.info(f"Successfully extracted chunk {expected_index}, is_last_chunk={is_last_chunk}")
                 except ValueError as e:
@@ -458,7 +499,7 @@ class ProtocolEngine:
 
                 self.chunks.append(new_chunk)
                 logger.info(f"Added chunk {expected_index} to collection. Total chunks now: {len(self.chunks)}")
-                
+
                 if modification_request:
                     self._save_checkpoint(self.chunks, len(self.chunks) + 1, modification_request)
                     logger.info(f"Saved checkpoint after chunk {expected_index}")
@@ -472,14 +513,16 @@ class ProtocolEngine:
                     return
             else:
                 logger.warning("current_response is None or empty - this shouldn't happen")
-            
+
             if not found_last_chunk:
-                logger.info(f"Need more chunks. Requesting next chunk {len(self.chunks) + 1} of {self.expected_total_chunks}")
+                logger.info(
+                    f"Need more chunks. Requesting next chunk {len(self.chunks) + 1} of {self.expected_total_chunks}"
+                )
                 try:
                     next_index = len(self.chunks) + 1
-                    is_last = (next_index == self.expected_total_chunks)
+                    is_last = next_index == self.expected_total_chunks
                     (lo, hi) = line_ranges[next_index - 1] if line_ranges else (None, None)
-                    
+
                     logger.info(f"Requesting chunk {next_index}, is_last={is_last}, lines {lo}..{hi}")
 
                     next_chunk_prompt = create_next_chunk_prompt(
@@ -489,7 +532,7 @@ class ProtocolEngine:
                         hi=hi,
                         lines_per_chunk=self.lines_per_chunk,
                         chars_per_chunk=self.chars_per_chunk,
-                        is_last=is_last
+                        is_last=is_last,
                     )
                     try:
                         current_response = self._send_request_with_compliance_retry(
@@ -502,23 +545,25 @@ class ProtocolEngine:
                             str(e),
                         )
                         return self._non_compliance_message(next_index)
-                    logger.info(f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars")
+                    logger.info(
+                        f"Received response for chunk {next_index}: {len(current_response) if current_response else 0} chars"
+                    )
                 except ValueError as e:
                     if "Non-compliant output at chunk" in str(e):
                         logger.error(f"Non-compliance error: {str(e)}")
                         self._assemble_and_save_partial()
-                        return f"Non-compliant output at chunk {len(self.chunks)+1}. Partial results saved."
+                        return f"Non-compliant output at chunk {len(self.chunks) + 1}. Partial results saved."
                     else:
                         logger.error(f"Error in chunk processing: {str(e)}")
                         if self.chunks:
                             self._assemble_and_save_partial()
-                        logger.info(f"Code modification completed with partial results.")
+                        logger.info("Code modification completed with partial results.")
                         break
                 except Exception as e:
                     logger.error("Error requesting next chunk: %s", str(e))
                     if self.chunks:
                         self._assemble_and_save_partial()
-                    logger.info(f"Code modification completed with partial results.")
+                    logger.info("Code modification completed with partial results.")
                     break
         if iteration >= max_iterations and self.chunks:
             logger.info(f"\nReached max iterations ({max_iterations}). Using collected chunks.")
@@ -527,7 +572,11 @@ class ProtocolEngine:
     def _parse_chunks(self, response):
         chunks = []
         is_last_chunk = False
-        matches = re.finditer(r'<chunk_(\d+)(?:\s+last="true")?>(.*?)(?:</chunk_\1>|</chunk_\1\s+last="true">)', response, re.DOTALL)
+        matches = re.finditer(
+            r'<chunk_(\d+)(?:\s+last="true")?>(.*?)(?:</chunk_\1>|</chunk_\1\s+last="true">)',
+            response,
+            re.DOTALL,
+        )
         for match in matches:
             chunks.append(match.group(2))
             if 'last="true"' in match.group(0):
@@ -546,14 +595,14 @@ class ProtocolEngine:
                 while lines and not lines[-1].strip():  # Remove trailing blank lines from non-final chunks
                     lines.pop()
             full_lines.extend(lines)
-        full_script = '\n'.join(full_lines)
-        full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
-        full_script = full_script + '\n'
+        full_script = "\n".join(full_lines)
+        full_script = full_script.replace("\r\n", "\n").replace("\r", "\n")
+        full_script = full_script + "\n"
         # Strip any number of blank / whitespace-only lines at the TOP
-        full_script = re.sub(r'\A(?:[ \t]*\n)+', '', full_script)
+        full_script = re.sub(r"\A(?:[ \t]*\n)+", "", full_script)
         # Strip any number of blank / whitespace-only lines at the END
         #  and ensure the file ends with exactly one newline
-        full_script = re.sub(r'(?:[ \t]*\n)+\Z', '\n', full_script)
+        full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
         with open(self.source_file, "w") as f:
             f.write(full_script)
         logger.info(f"Modified script saved to {self.source_file}")
@@ -571,14 +620,14 @@ class ProtocolEngine:
                 while lines and not lines[-1].strip():  # Remove trailing blank lines from non-final chunks
                     lines.pop()
             full_lines.extend(lines)
-        full_script = '\n'.join(full_lines)
-        full_script = full_script.replace('\r\n', '\n').replace('\r', '\n')
-        full_script = full_script + '\n'
+        full_script = "\n".join(full_lines)
+        full_script = full_script.replace("\r\n", "\n").replace("\r", "\n")
+        full_script = full_script + "\n"
         # Strip any number of blank / whitespace-only lines at the TOP
-        full_script = re.sub(r'\A(?:[ \t]*\n)+', '', full_script)
+        full_script = re.sub(r"\A(?:[ \t]*\n)+", "", full_script)
         # Strip any number of blank / whitespace-only lines at the END
         #  and ensure the file ends with exactly one newline
-        full_script = re.sub(r'(?:[ \t]*\n)+\Z', '\n', full_script)
+        full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
         partial_file = f"{self.source_file}.partial"
         with open(partial_file, "w") as f:
             f.write(full_script)
@@ -590,7 +639,7 @@ class ProtocolEngine:
 
     def _hash_file(self, file_path):
         h = hashlib.sha256()
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             while True:
                 chunk = f.read(8192)
                 if not chunk:
@@ -605,7 +654,7 @@ class ProtocolEngine:
                 "next_chunk_index": next_chunk_index,
                 "source_file": self.source_file,
                 "mod_request": mod_request,
-                "file_hash": self._hash_file(self.source_file)
+                "file_hash": self._hash_file(self.source_file),
             }
             with open(self._get_checkpoint_path(), "w") as f:
                 json.dump(checkpoint_data, f)
@@ -618,9 +667,11 @@ class ProtocolEngine:
             if os.path.exists(path):
                 with open(path) as f:
                     data = json.load(f)
-                if (data["mod_request"] == mod_request and 
-                    data["source_file"] == self.source_file and 
-                    data["file_hash"] == self._hash_file(self.source_file)):
+                if (
+                    data["mod_request"] == mod_request
+                    and data["source_file"] == self.source_file
+                    and data["file_hash"] == self._hash_file(self.source_file)
+                ):
                     return data
                 else:
                     logger.warning("Checkpoint context changed. Ignoring checkpoint.")
@@ -644,45 +695,51 @@ class ProtocolEngine:
         self.message_history = [{"role": "system", "content": self.system_prompt}]
         logger.debug("ProtocolEngine state has been reset.")
 
+
 # Default to chatgpt-4.1 capabilities
-MAX_LINES_PER_CHUNK = 1000       
-MAX_CHARS_PER_CHUNK = 100000     
-TOKEN_BUDGET_PER_CHUNK = 20000   
+MAX_LINES_PER_CHUNK = 1000
+MAX_CHARS_PER_CHUNK = 100000
+TOKEN_BUDGET_PER_CHUNK = 20000
+
 
 def _configure_protocol_engine_limits():
     global MAX_LINES_PER_CHUNK, MAX_CHARS_PER_CHUNK, TOKEN_BUDGET_PER_CHUNK
 
     model = (config.MODEL or "").lower()
     if model.startswith("openai/gpt-5") or model.startswith("xai/grok-4"):
-        MAX_LINES_PER_CHUNK = 15000       
-        MAX_CHARS_PER_CHUNK = 2000000     
-        TOKEN_BUDGET_PER_CHUNK = 120000   
+        MAX_LINES_PER_CHUNK = 15000
+        MAX_CHARS_PER_CHUNK = 2000000
+        TOKEN_BUDGET_PER_CHUNK = 120000
 
     if model.startswith("openai/o3"):
-        MAX_LINES_PER_CHUNK = 2000      
-        MAX_CHARS_PER_CHUNK = 200000    
+        MAX_LINES_PER_CHUNK = 2000
+        MAX_CHARS_PER_CHUNK = 200000
         TOKEN_BUDGET_PER_CHUNK = 40000
 
+
 # Note: configure_protocol_engine() should be invoked before code that uses ENGINE.
-ENGINE=None
+ENGINE = None
+
 
 def configure_protocol_engine():
     global ENGINE
     _configure_protocol_engine_limits()
-    
+
     system_prompt = create_system_prompt(
         max_lines_per_chunk=MAX_LINES_PER_CHUNK,
-        max_chars_per_chunk=MAX_CHARS_PER_CHUNK, 
-        token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK
+        max_chars_per_chunk=MAX_CHARS_PER_CHUNK,
+        token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK,
     )
 
     ENGINE = ProtocolEngine(
         model=config.MODEL,
         system_prompt=system_prompt,
-        middleware=litellm
+        middleware=litellm,
     )
 
+
 STARTER_SCRIPT = ""  # Empty or minimal starter code
+
 
 def stream_code(raw_user_input):
     logger.debug("stream_code called with user input (length: %d)", len(raw_user_input) if raw_user_input else 0)
@@ -696,22 +753,157 @@ def stream_code(raw_user_input):
     ENGINE.fetch_modified_script(
         script_content=STARTER_SCRIPT,
         modification_request=prompt,
-        source_file=file_name
+        source_file=file_name,
     )
     return "Working."
+
+
+def _try_perform_git_diff_file(path: str):
+    try:
+        from monitor.lib.git import perform_git_diff_file
+    except Exception:
+        perform_git_diff_file = None
+
+    if not perform_git_diff_file:
+        return None, "perform_git_diff_file not available"
+
+    try:
+        return perform_git_diff_file(path), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _get_git_run_git_capture():
+    """Returns monitor.lib.git.run_git_capture if importable, else None."""
+    try:
+        from monitor.lib.git import run_git_capture
+    except Exception:
+        return None
+    return run_git_capture
+
+
+def _is_inside_git_work_tree(cwd: str | None = None) -> bool:
+    """Returns True if the given directory is inside a Git work tree.
+
+    This function avoids surfacing Git errors to end users by using a lightweight
+    probe command: `git rev-parse --is-inside-work-tree`.
+
+    Args:
+        cwd: Optional working directory to run the Git command in.
+
+    Returns:
+        True if inside a Git work tree and Git is available; otherwise False.
+    """
+    run_git_capture = _get_git_run_git_capture()
+    if run_git_capture:
+        try:
+            out = run_git_capture(["rev-parse", "--is-inside-work-tree"], cwd=cwd)
+            return str(out).strip().lower() == "true"
+        except Exception:
+            return False
+
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+    if proc.returncode != 0:
+        return False
+    return (proc.stdout or "").strip().lower() == "true"
+
+
+def _get_os_print_diff():
+    """Returns monitor.lib.os.print_diff if importable, else None."""
+    try:
+        from monitor.lib.os import print_diff
+    except Exception:
+        return None
+    return print_diff
+
+
+def _try_print_diff_helper(diff_text: str, print_func=print):
+    """Prints a diff via monitor.lib.os.print_diff if available.
+
+    Args:
+        diff_text: Unified diff text to print.
+        print_func: Fallback printing function to use if needed.
+
+    Returns:
+        True if monitor.lib.os.print_diff was called successfully, else False.
+    """
+    if not diff_text:
+        return False
+    print_diff = _get_os_print_diff()
+    if not print_diff:
+        return False
+
+    try:
+        print_diff(diff_text)
+        return True
+    except Exception:
+        try:
+            print_func(diff_text, end="")
+            return True
+        except Exception:
+            return False
+
+
+def _highlight_and_print_diff(diff_text: str, print_func=print):
+    if not diff_text:
+        return
+    try:
+        colored_diff = highlight(diff_text, DiffLexer(), TerminalFormatter(reset=True))
+        print_func(colored_diff, end="")
+    except Exception:
+        print_func(diff_text, end="")
+
+
+def _print_unified_diff(original_text: str, updated_text: str, path: str, print_func=print):
+    if original_text is None or updated_text is None:
+        return
+    if original_text == updated_text:
+        return
+    diff_lines = difflib.unified_diff(
+        original_text.splitlines(keepends=True),
+        updated_text.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+    )
+    diff_text = "".join(diff_lines)
+    if not diff_text.strip():
+        return
+    if _try_print_diff_helper(diff_text, print_func=print_func):
+        return
+    _highlight_and_print_diff(diff_text, print_func=print_func)
+
 
 def modify_source_code(source_file: str, modification_request: str, print_func=print) -> str:
     """
     Modifies source code in place with global retry safeguard.
     """
-    model=config.MODEL
-    logger.debug("modify_source_code called: file=%s, req-length=%d", source_file, len(modification_request) if modification_request else 0)
+    model = config.MODEL
+    logger.debug(
+        "modify_source_code called: file=%s, req-length=%d",
+        source_file,
+        len(modification_request) if modification_request else 0,
+    )
     ENGINE.reset_state()
+    original_source_content = None
     try:
-        with open(source_file, 'r') as file:
+        with open(source_file, "r") as file:
             logger.debug(f"Reading file {source_file}")
             print_func(f"{yellow}Analyzing {source_file} for modification.{reset}")
             source_content = file.read()
+            original_source_content = source_content
             # Compute line_count after reading source_content and only show extended notice for large files (>500 LOC)
             try:
                 line_count = len(source_content.splitlines())
@@ -730,16 +922,47 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         modified_script = ENGINE.fetch_modified_script(
             script_content=source_content,
             modification_request=modification_request,
-            source_file=source_file
+            source_file=source_file,
         )
         ring_bell()
         print_func(f"{yellow}\nAnalyzing modifications made to {source_file}{reset}")
 
+        updated_content = None
+        try:
+            with open(source_file, "r") as f:
+                updated_content = f.read()
+        except Exception as e:
+            logger.error("Error reading updated file %s: %s", source_file, str(e))
+
+        diff_text = None
+        git_err = None
+        is_git_repo = _is_inside_git_work_tree(cwd=os.path.dirname(os.path.abspath(source_file)) or None)
+        if is_git_repo:
+            diff_text, git_err = _try_perform_git_diff_file(source_file)
+            if git_err:
+                logger.info("Git diff failed; falling back to difflib. Error: %s", git_err)
+                diff_text = None
+
+        if diff_text and str(diff_text).strip():
+            if isinstance(diff_text, bytes):
+                try:
+                    diff_text = diff_text.decode("utf-8", errors="replace")
+                except Exception:
+                    diff_text = str(diff_text)
+            if not str(diff_text).endswith("\n"):
+                diff_text = str(diff_text) + "\n"
+            if not _try_print_diff_helper(str(diff_text), print_func=print_func):
+                _highlight_and_print_diff(str(diff_text), print_func=print_func)
+        else:
+            _print_unified_diff(original_source_content or "", updated_content or "", source_file, print_func=print_func)
+
         return modified_script
     except Exception as e:
-        print_func(f"{red}\nFailed to implement modifications to {source_file}.{reset}\n{red}Attempting to re-modify.{reset}")
+        print_func(
+            f"{red}\nFailed to implement modifications to {source_file}.{reset}\n{red}Attempting to re-modify.{reset}"
+        )
         logger.error("Error in modify_source_code: %s", str(e))
-        
+
         # Return error message instead of raising exception to maintain tool contract
         # This allows LLM to understand failure and avoid retry loops
         error_msg = str(e)
