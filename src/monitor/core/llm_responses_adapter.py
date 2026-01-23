@@ -275,10 +275,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
 
         # Extract token usage (support common shapes) for the initial response
         actual_tokens = None
+        used_estimate = False
         try:
             usage = getattr(response, "usage", None)
             if usage is None:
                 actual_tokens = None
+                used_estimate = True
             else:
                 # usage might be an object with attributes or a dict-like
                 if isinstance(usage, dict):
@@ -293,6 +295,10 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                         or getattr(usage, USAGE_KEYS[1], None)
                         or getattr(usage, USAGE_KEYS[2], None)
                     )
+                if actual_tokens is None:
+                    used_estimate = True
+                else:
+                    used_estimate = False
             try:
                 rid = getattr(response, ID_KEY, None)
             except Exception:
@@ -354,6 +360,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                 pass
         except Exception:
             actual_tokens = None
+            used_estimate = True
 
         # If actual_tokens is None, set to 0 to avoid None propagation
         if actual_tokens is None:
@@ -361,7 +368,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
 
         # Update token usage and rate limiter immediately for the initial response
         try:
-            update_token_usage(actual_tokens)
+            update_token_usage(actual_tokens, used_estimate=used_estimate)
             logger.debug(
                 f"Updated token usage with {actual_tokens} tokens from OpenAI response"
             )
@@ -654,10 +661,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
 
                     # Extract token usage for follow-up response
                     follow_tokens = None
+                    follow_used_estimate = False
                     try:
                         usage = getattr(followup_response, "usage", None)
                         if usage is None:
                             follow_tokens = None
+                            follow_used_estimate = True
                         else:
                             if isinstance(usage, dict):
                                 follow_tokens = (
@@ -671,15 +680,20 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                                     or getattr(usage, USAGE_KEYS[1], None)
                                     or getattr(usage, USAGE_KEYS[2], None)
                                 )
+                            if follow_tokens is None:
+                                follow_used_estimate = True
+                            else:
+                                follow_used_estimate = False
                     except Exception:
                         follow_tokens = None
+                        follow_used_estimate = True
 
                     if follow_tokens is None:
                         follow_tokens = 0
 
                     # Update token usage and rate limiter for follow-up
                     try:
-                        update_token_usage(follow_tokens)
+                        update_token_usage(follow_tokens, used_estimate=follow_used_estimate)
                         logger.debug(
                             f"Updated token usage with {follow_tokens} tokens from follow-up OpenAI response"
                         )
@@ -1211,10 +1225,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
 
                         # Extract token usage for summary response
                         summary_tokens = None
+                        summary_used_estimate = False
                         try:
                             usage = getattr(summary_response, "usage", None)
                             if usage is None:
                                 summary_tokens = None
+                                summary_used_estimate = True
                             else:
                                 if isinstance(usage, dict):
                                     summary_tokens = (
@@ -1228,15 +1244,20 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                                         or getattr(usage, USAGE_KEYS[1], None)
                                         or getattr(usage, USAGE_KEYS[2], None)
                                     )
+                                if summary_tokens is None:
+                                    summary_used_estimate = True
+                                else:
+                                    summary_used_estimate = False
                         except Exception:
                             summary_tokens = None
+                            summary_used_estimate = True
 
                         if summary_tokens is None:
                             summary_tokens = 0
 
                         # Update token usage and rate limiter for summary
                         try:
-                            update_token_usage(summary_tokens)
+                            update_token_usage(summary_tokens, used_estimate=summary_used_estimate)
                             logger.debug(
                                 f"Updated token usage with {summary_tokens} tokens from summarization OpenAI response"
                             )
@@ -1461,7 +1482,7 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
             logger.info("Responses API call cancelled by user via Ctrl-C")
             # Conservative token accounting on cancellation
             try:
-                update_token_usage(estimated_request)
+                update_token_usage(estimated_request, used_estimate=True)
                 logger.debug(f"Conservatively updated token usage with {estimated_request} tokens on cancellation")
             except Exception:
                 logger.exception("Failed to conservatively update token usage on cancellation")

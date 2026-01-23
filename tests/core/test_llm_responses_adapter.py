@@ -170,8 +170,8 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert isinstance(second_kwargs["input"][0]["output"], str)
 
         # Token accounting: initial + follow-up
-        mock_update_tokens.assert_any_call(5)
-        mock_update_tokens.assert_any_call(3)
+        mock_update_tokens.assert_any_call(5, used_estimate=False)
+        mock_update_tokens.assert_any_call(3, used_estimate=False)
         assert mock_update_tokens.call_count >= 2
 
         # Rate limiter should receive two add_request calls
@@ -384,7 +384,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             adapter.call_responses_api([{"role": "user", "content": "tokenless"}], tool_descriptions={}, gemini_tool_descriptions={})
 
         # update_token_usage should be called with 0
-        mock_update_tokens.assert_any_call(0)
+        mock_update_tokens.assert_any_call(0, used_estimate=True)
 
         # Rate limiter should receive an add_request with 0
         calls = mock_rate_limiter.RATE_LIMITER.add_request.call_args_list

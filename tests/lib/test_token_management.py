@@ -21,11 +21,29 @@ class TestTokenManagement(unittest.TestCase):
         """Set up test fixtures before each test method."""
         # Store original token count to restore after tests
         self.original_token_count = getattr(config, 'TOTAL_TOKEN_COUNT', 0)
+        self.original_last_request_token_count = getattr(config, 'LAST_REQUEST_TOKEN_COUNT', None)
+        self.original_last_request_used_estimate = getattr(config, 'LAST_REQUEST_USED_ESTIMATE', False)
+
+        # Reset last-request tracking to avoid leakage between tests
+        config.LAST_REQUEST_TOKEN_COUNT = None
+        config.LAST_REQUEST_USED_ESTIMATE = False
 
     def tearDown(self):
         """Clean up after each test method."""
         # Restore original token count
         config.TOTAL_TOKEN_COUNT = self.original_token_count
+
+        if self.original_last_request_token_count is None:
+            if hasattr(config, 'LAST_REQUEST_TOKEN_COUNT'):
+                delattr(config, 'LAST_REQUEST_TOKEN_COUNT')
+        else:
+            config.LAST_REQUEST_TOKEN_COUNT = self.original_last_request_token_count
+
+        if self.original_last_request_used_estimate is None:
+            if hasattr(config, 'LAST_REQUEST_USED_ESTIMATE'):
+                delattr(config, 'LAST_REQUEST_USED_ESTIMATE')
+        else:
+            config.LAST_REQUEST_USED_ESTIMATE = self.original_last_request_used_estimate
 
     def test_count_message_tokens_valid_message(self):
         """Test counting tokens for a valid message with content."""
@@ -54,6 +72,8 @@ class TestTokenManagement(unittest.TestCase):
         result = update_token_usage(50)
         self.assertEqual(result, 150)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 150)
+        self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, 50)
+        self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, False)
 
     def test_update_token_usage_with_response_object(self):
         """Test updating token usage with a response object containing usage info."""
@@ -66,6 +86,8 @@ class TestTokenManagement(unittest.TestCase):
 
         self.assertEqual(result, 275)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 275)
+        self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, 75)
+        self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, False)
 
     def test_update_token_usage_with_invalid_response_object(self):
         """Test updating token usage with a response object without usage info."""
@@ -88,6 +110,8 @@ class TestTokenManagement(unittest.TestCase):
         result = update_token_usage(0)
         self.assertEqual(result, 100)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 100)
+        self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, 0)
+        self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, False)
 
     def test_update_token_usage_negative_tokens(self):
         """Test updating token usage with negative tokens."""
@@ -95,6 +119,17 @@ class TestTokenManagement(unittest.TestCase):
         result = update_token_usage(-10)
         self.assertEqual(result, 90)
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 90)
+        self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, -10)
+        self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, False)
+
+    def test_update_token_usage_sets_used_estimate_true_when_requested(self):
+        """Test that used_estimate=True sets LAST_REQUEST_USED_ESTIMATE to True."""
+        config.TOTAL_TOKEN_COUNT = 0
+        result = update_token_usage(42, used_estimate=True)
+        self.assertEqual(result, 42)
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, 42)
+        self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, 42)
+        self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, True)
 
     # @patch('monitor.lib.token_management.logger')
     # def test_update_token_usage_exception_handling(self, mock_logger):

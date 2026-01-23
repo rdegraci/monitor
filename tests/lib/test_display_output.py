@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
-import os
 
+import monitor.lib.display_output as display_output
 from monitor.lib.display_output import display_query_result, highlightMarkdown, format_prompt_display
 
 
@@ -91,7 +91,7 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertIn("C:", result)
         self.assertIn("H:", result)
 
-    @patch('os.getcwd')
+    @patch('monitor.lib.display_output.os.getcwd')
     def test_format_prompt_display_auto_cwd(self, mock_getcwd):
         """Test format_prompt_display automatically gets current directory when cwd is None."""
         mock_getcwd.return_value = "/auto/detected/dir"
@@ -130,7 +130,7 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertIn("C:", result)
         self.assertIn("H:", result)
 
-    @patch('os.getcwd')
+    @patch('monitor.lib.display_output.os.getcwd')
     @patch('builtins.print')
     def test_format_prompt_display_cwd_error_handling(self, mock_print, mock_getcwd):
         """Test format_prompt_display handles os.getcwd() errors gracefully."""
@@ -155,6 +155,21 @@ class TestDisplayOutput(unittest.TestCase):
 
         self.assertIsInstance(result, str)
         self.assertIn("/test", result)
+
+    def test_format_prompt_display_last_used_estimated_yellow(self):
+        """Test format_prompt_display includes L: when last_used is available and uses yellow when estimate is True."""
+        with patch.object(display_output.config, 'LAST_REQUEST_TOKEN_COUNT', 123, create=True), \
+                patch.object(display_output.config, 'LAST_REQUEST_USED_ESTIMATE', True, create=True):
+            result = format_prompt_display(
+                conversation_count=2,
+                tokens_remaining=500,
+                cwd="/test",
+                model="test-model"
+            )
+
+        self.assertIn("L:", result)
+        self.assertIn("123", result)
+        self.assertIn(display_output.yellow, result)
 
     def test_format_prompt_display_complete_example(self):
         """Test format_prompt_display with all parameters provided."""

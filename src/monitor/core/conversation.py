@@ -595,12 +595,16 @@ def chat():
             except Exception:
                 rate_remaining = None
             total_used = getattr(config, "TOTAL_TOKEN_COUNT", None)
+            last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
+            last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
             prompt = format_prompt_display(
                 conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
                 tokens_remaining=context_remaining,  # live calculation based on current history
                 context_remaining=context_remaining,
                 rate_remaining=rate_remaining,
                 total_used=total_used,
+                last_used=last_used,
+                last_used_estimated=last_used_estimated,
                 cwd=os.getcwd(),
                 model=config.MODEL,  # live config.MODEL value
                 extra_history_str=f"({len(config.CONVERSATION_HISTORY) - config.CONVERSATION_MAX_SIZE})",

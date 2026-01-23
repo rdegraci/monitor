@@ -26,11 +26,10 @@ and ensures all token handling is safely centralized, traceable, and auditable.
 import logging
 
 from monitor import config
-
+from monitor.lib.colors import red, reset
 from monitor.lib.rate_limiter import estimate_token_count
 
 logger = logging.getLogger(__name__)
-from monitor.lib.colors import red, reset
 
 
 def count_message_tokens(message):
@@ -99,7 +98,59 @@ def count_message_tokens(message):
         raise
 
 
-def update_token_usage(tokens_or_response):
+def set_last_request_token_usage(last_used_tokens: int, used_estimate: bool) -> None:
+    """Sets the last provider call token usage in config.
+
+    This helper is the canonical, auditable entry point for tracking the last request's
+    token usage as observed or estimated by the caller.
+
+    Args:
+        last_used_tokens (int): Token count used for the last provider call.
+        used_estimate (bool): Whether the token count is an estimate (True) or a direct
+            usage value from provider/SDK usage metadata (False).
+
+    Returns:
+        None
+    """
+    try:
+        from monitor import config  # For safe circular import resolution
+
+        if not hasattr(config, "LAST_REQUEST_TOKEN_COUNT"):
+            config.LAST_REQUEST_TOKEN_COUNT = None
+        if not hasattr(config, "LAST_REQUEST_USED_ESTIMATE"):
+            config.LAST_REQUEST_USED_ESTIMATE = False
+
+        config.LAST_REQUEST_TOKEN_COUNT = int(last_used_tokens)
+        config.LAST_REQUEST_USED_ESTIMATE = bool(used_estimate)
+    except Exception as e:
+        logger.error(f"Error setting last request token usage: {str(e)}", exc_info=True)
+
+
+def get_last_request_token_usage() -> tuple[int | None, bool]:
+    """Gets the last provider call token usage from config.
+
+    Reads config.LAST_REQUEST_TOKEN_COUNT and config.LAST_REQUEST_USED_ESTIMATE. If
+    missing, initializes them to None and False respectively to ensure deterministic
+    behavior and auditability.
+
+    Returns:
+        tuple[int|None, bool]: (last_request_token_count, last_request_used_estimate)
+    """
+    try:
+        from monitor import config  # For safe circular import resolution
+
+        if not hasattr(config, "LAST_REQUEST_TOKEN_COUNT"):
+            config.LAST_REQUEST_TOKEN_COUNT = None
+        if not hasattr(config, "LAST_REQUEST_USED_ESTIMATE"):
+            config.LAST_REQUEST_USED_ESTIMATE = False
+
+        return config.LAST_REQUEST_TOKEN_COUNT, bool(config.LAST_REQUEST_USED_ESTIMATE)
+    except Exception as e:
+        logger.error(f"Error getting last request token usage: {str(e)}", exc_info=True)
+        return None, False
+
+
+def update_token_usage(tokens_or_response, *, used_estimate: bool = False):
     """
     Canonical function to update the total token count in config.TOTAL_TOKEN_COUNT.
     This is THE ONLY approved location for token count increment logic.
@@ -133,8 +184,16 @@ def update_token_usage(tokens_or_response):
                 tokens = 0
             else:
                 tokens = total_tokens
+                try:
+                    set_last_request_token_usage(int(tokens), used_estimate=False)
+                except Exception:
+                    logger.error("Failed to set last request token usage from response usage", exc_info=True)
         elif isinstance(tokens_or_response, (int, float)):
             tokens = int(tokens_or_response)
+            try:
+                set_last_request_token_usage(tokens, used_estimate=used_estimate)
+            except Exception:
+                logger.error("Failed to set last request token usage from explicit token input", exc_info=True)
         else:
             # If it's not an int/float and doesn't have usage info, skip the update
             logger.warning(f"Invalid token input type: {type(tokens_or_response)}, skipping update")
@@ -219,7 +278,7 @@ def token_budgeter(params, input_window=100000, model_name=None):
 
             # Tiktoken model prefix to encoding
             encoding_model = get_model_head(
-                str(model_name), 
+                str(model_name),
                 {
                     "gpt-5.1": "gpt-5",
                     "gpt-5": "gpt-5",

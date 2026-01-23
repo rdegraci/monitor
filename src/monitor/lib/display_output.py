@@ -1,19 +1,19 @@
 # NOTE: No direct or legacy token counting or usage estimation logic exists in this file. 
 # If token logic is required in the future, use count_message_tokens and update_token_usage from monitor.lib/token_management.py. 
 
-import os
 import logging
+import os
 import sys
 from datetime import datetime
 
 from pygments import highlight
-from pygments.lexers import MarkdownLexer
 from pygments.formatters import TerminalFormatter
+from pygments.lexers import MarkdownLexer
 
 from monitor import config
+from monitor.lib.colors import blue, red, reset, yellow
 
 logger = logging.getLogger(__name__)
-from monitor.lib.colors import red, yellow, blue, reset
 
 def print_colored_error(message):
     print(f"{red}{message}{reset}", file=sys.stderr)
@@ -53,7 +53,7 @@ def highlightMarkdown(query_result):
     print("*******************")
     print("Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S\n"))
 
-def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None):
+def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None, last_used=None, last_used_estimated: bool | None = None):
     """Format the prompt display for the CLI.
 
     Args:
@@ -65,6 +65,8 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         context_remaining (int, optional): Context remaining; if None, derived from tokens_remaining.
         rate_remaining (int, optional): Rate limiter remaining; if None, derived from monitor.lib.rate_limiter.RATE_LIMITER when available.
         total_used (int, optional): Total usage; if None, uses config.TOTAL_TOKEN_COUNT when available.
+        last_used (int, optional): Last request token usage; if None, uses config.LAST_REQUEST_TOKEN_COUNT when available.
+        last_used_estimated (bool | None, optional): Whether last_used is an estimate; if None, uses config.LAST_REQUEST_USED_ESTIMATE when available.
 
     Returns:
         str: The formatted prompt display string.
@@ -78,6 +80,7 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     c_count = ""
     r_count = ""
     u_count = ""
+    l_count = ""
 
     try:
         if context_remaining is None:
@@ -133,6 +136,29 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         u_count = "Error in calculating total usage"
         logger.error(f"Error: {e}", exc_info=True)
 
+    try:
+        if last_used is None:
+            try:
+                last_used = getattr(config, 'LAST_REQUEST_TOKEN_COUNT', None)
+            except Exception:
+                last_used = None
+
+        if last_used_estimated is None:
+            try:
+                last_used_estimated = getattr(config, 'LAST_REQUEST_USED_ESTIMATE', None)
+            except Exception:
+                last_used_estimated = None
+
+        if last_used is not None:
+            if last_used == 0:
+                last_color = red
+            else:
+                last_color = yellow if last_used_estimated else blue
+            l_count = f"{last_color}{last_used}{reset}"
+    except Exception as e:
+        l_count = "Error in calculating last request usage"
+        logger.error(f"Error: {e}", exc_info=True)
+
     if cwd is None:
         try:
             cwd = os.getcwd()
@@ -153,6 +179,8 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         parts.append(f"R:{r_count}")
     if u_count:
         parts.append(f"U:{u_count}")
+    if l_count:
+        parts.append(f"L:{l_count}")
     parts.append(f"H:{tch_count}{extra_history_str}")
 
     stats_str = " ".join(parts)
