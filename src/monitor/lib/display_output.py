@@ -95,8 +95,20 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                         logger.warning(f"Recent conversation history (last 2): {config.CONVERSATION_HISTORY[-2:]}")
                 except Exception as log_err:
                     print(f"Error logging negative context_remaining: {log_err}")
-            context_color = red if context_remaining == 0 else blue
-            c_count = f"{context_color}{context_remaining}{reset}"
+            
+            # Calculate percentage remaining
+            try:
+                max_tokens = getattr(config, 'MAX_TOKEN_COUNT', None)
+                if max_tokens and max_tokens > 0:
+                    remaining_percent = (context_remaining / max_tokens) * 100
+                    context_color = red if context_remaining == 0 else blue
+                    c_count = f"{context_color}{context_remaining} ({remaining_percent:.0f}%){reset}"
+                else:
+                    context_color = red if context_remaining == 0 else blue
+                    c_count = f"{context_color}{context_remaining}{reset}"
+            except Exception:
+                context_color = red if context_remaining == 0 else blue
+                c_count = f"{context_color}{context_remaining}{reset}"
     except Exception as e:
         c_count = "Error in calculating context count"
         logger.error(f"Error: {e}", exc_info=True)
