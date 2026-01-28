@@ -919,6 +919,34 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
         logger.error("Error reading file %s: %s", source_file, str(e))
         return f"Error reading file {source_file}: {str(e)}"
     try:
+        # Inject Swift-specific logging guidance into the modification_request when applicable
+        ext = os.path.splitext(source_file)[1].lower()
+        if ext == ".swift":
+            swift_instr = """
+            When editing Swift, follow these logging rules:
+            1) logger.trace(): entry/exit, significant internal state snapshots, and rare diagnostic details — keep sparse.
+            2) logger.info(): important runtime state changes, completed major tasks, config or lifecycle events.
+            3) logger.warning(): use for recoverable/soft errors respectively.
+            4) Never use logger.debug() or logger.error(), these are reserved for human developers. 
+            5) Do not add logs in hot loops or for trivial local values.
+            6) Add at most one additional log per changed function unless necessary.
+
+            - Good trace uses:
+              - logger.trace("Entering parseInput, id=%s", userId)
+              - logger.trace("Computed X=%d from Y=%d", x, y)
+            - Good info uses:
+              - logger.info("Service started on port %d", port)
+              - logger.info("Processed batch %d: %d records", batchId, count)
+            - Avoid:
+              - Logging every intermediate calculation inside performance-sensitive loops
+              - Replacing structured errors with verbose debug dumps
+            """
+            if modification_request:
+                modification_request = modification_request + "\n\n" + swift_instr
+            else:
+                modification_request = swift_instr
+            logger.debug("Injected Swift logging guidance into modification_request for %s", source_file)
+
         modified_script = ENGINE.fetch_modified_script(
             script_content=source_content,
             modification_request=modification_request,
