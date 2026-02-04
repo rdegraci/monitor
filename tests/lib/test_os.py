@@ -57,6 +57,51 @@ def test_cat_file_non_utf8():
         assert res["error"].strip() != ""
 
 
+def test_cat_file_range_reads_lines():
+    """cat_file_range should return the requested middle range of lines and metadata."""
+    with tempfile.NamedTemporaryFile(mode="w+", delete=True) as tf:
+        tf.write("one\ntwo\nthree\nfour\nfive\n")
+        tf.flush()
+        # Request lines 2..3 (1-based start_line, end_line inclusive)
+        res = libos.cat_file_range(tf.name, start_line=2, end_line=3)
+        res = json.loads(res)
+        assert isinstance(res, dict)
+        assert "content" in res
+        # Expect the joined lines for line 2 and 3
+        assert res["content"] == "two\nthree\n"
+        # Metadata checks
+        assert res.get("start_line") == 2
+        assert res.get("end_line") == 3
+        assert res.get("lines_returned") == 2
+
+
+def test_cat_file_range_beyond_eof():
+    """Requesting a range beyond EOF should yield empty content and lines_returned == 0."""
+    with tempfile.NamedTemporaryFile(mode="w+", delete=True) as tf:
+        tf.write("alpha\nbeta\n")
+        tf.flush()
+        # Request starting well beyond EOF
+        res = libos.cat_file_range(tf.name, start_line=10, end_line=14)
+        res = json.loads(res)
+        assert isinstance(res, dict)
+        assert "content" in res
+        assert res["content"] == ""
+        assert res.get("lines_returned") == 0
+
+
+def test_cat_file_range_invalid_args():
+    """Invalid start_line (0) should return an error dict."""
+    with tempfile.NamedTemporaryFile(mode="w+", delete=True) as tf:
+        tf.write("a\nb\nc\n")
+        tf.flush()
+        res = libos.cat_file_range(tf.name, start_line=0, end_line=1)
+        res = json.loads(res)
+        assert isinstance(res, dict)
+        assert "error" in res
+        assert isinstance(res["error"], str)
+        assert res["error"].strip() != ""
+
+
 def test_list_directory_contents_invalid_path():
     """list_directory_contents should return a dict with 'error' for an invalid directory path."""
     bad_path = "/unlikely/to/exist/_NON_EXISTENT_"

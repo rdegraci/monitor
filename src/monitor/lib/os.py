@@ -162,6 +162,128 @@ def cat_file(path: str):
         logger.error("Error reading file %s: %s", path, str(e))
         return json.dumps({"error": f"Error reading file {path}: {str(e)}"})
 
+def cat_file_range(path: str, start_line: int, end_line: int):
+    """
+    Read and return a specific range of lines from a file.
+
+    This function streams the file content and returns only the requested
+    range of lines. Lines are 1-indexed. The function will not read the
+    entire file into memory; it iterates the file line-by-line.
+
+    Args:
+        path (str): Path to the file to read (may be a symlink).
+        start_line (int): 1-based line number to start reading from. Must be >= 1.
+        end_line (int): 1-based line number to end reading at. Must be >= start_line.
+
+    Returns:
+        str: JSON-encoded dict. On success returns a dict with keys:
+            - 'content': joined string of the returned lines (preserving line endings)
+            - 'start_line': the provided start_line
+            - 'end_line': the provided end_line
+            - 'lines_returned': the actual number of lines returned
+          On error returns a dict with an 'error' key describing the failure.
+    """
+    path = os.path.expanduser(path)
+    logger.debug("Entering cat_file_range function with path=%s, start_line=%s, end_line=%s", path, start_line, end_line)
+    try:
+        # Validate range parameters
+        try:
+            if not isinstance(start_line, int) or not isinstance(end_line, int):
+                logger.error("start_line and end_line must be integers. Received start_line=%s, end_line=%s", start_line, end_line)
+                return json.dumps({"error": "Invalid range: start_line and end_line must be integers >= 1."})
+            if start_line < 1 or end_line < 1:
+                logger.error("Invalid range parameters: start_line=%s, end_line=%s", start_line, end_line)
+                return json.dumps({"error": "Invalid range: start_line and end_line must be integers >= 1."})
+            if end_line < start_line:
+                logger.error("Invalid range: end_line (%s) is less than start_line (%s)", end_line, start_line)
+                return json.dumps({"error": "Invalid range: end_line must be greater than or equal to start_line."})
+        except Exception as e:
+            logger.error("Error validating range parameters: %s", str(e))
+            return json.dumps({"error": f"Invalid range parameters: {str(e)}"})
+
+        # Compute number of lines requested based on start/end
+        num_lines = end_line - start_line + 1
+
+        logger.debug("Reading file range from %s: start_line=%d, end_line=%d (num_lines=%d)", path, start_line, end_line, num_lines)
+        print(f"{yellow}Reading range from {path} (lines {start_line}..{end_line}){reset}")
+
+        if not os.path.lexists(path):
+            logger.debug("File %s does not exist", path)
+            return json.dumps({"error": f"File '{path}' does not exist."})
+
+        symlink_meta = None
+        target_to_open = path
+
+        if os.path.islink(path):
+            try:
+                link_target = os.readlink(path)
+                # For relative links, resolve relative to the symlink's directory
+                if not os.path.isabs(link_target):
+                    link_dir = os.path.dirname(os.path.abspath(path))
+                    link_target_abs = os.path.normpath(os.path.join(link_dir, link_target))
+                else:
+                    link_target_abs = link_target
+            except OSError as e:
+                logger.error("Could not read symlink at %s: %s", path, str(e))
+                return json.dumps({"error": f"Could not read symlink at '{path}': {str(e)}"})
+
+            if not os.path.exists(link_target_abs):
+                logger.error("Broken symlink: %s points to %s, which does not exist", path, link_target)
+                return json.dumps({
+                    "error": f"Broken symlink: '{path}' points to '{link_target}', which does not exist (absolute: '{link_target_abs}').",
+                    "symlink": True,
+                    "target": link_target,
+                    "target_absolute": link_target_abs,
+                    "broken": True
+                })
+            else:
+                symlink_meta = {
+                    "symlink": True,
+                    "target": link_target,
+                    "target_absolute": link_target_abs,
+                    "broken": False
+                }
+                # We can open the path directly; opening the symlink will follow to the target.
+                target_to_open = path
+
+        # Stream the file and collect requested lines
+        lines = []
+        lines_returned = 0
+        try:
+            with open(target_to_open, 'r', encoding='utf-8', errors='strict') as fh:
+                for lineno, line in enumerate(fh, start=1):
+                    if lineno < start_line:
+                        continue
+                    if lines_returned < num_lines:
+                        lines.append(line)
+                        lines_returned += 1
+                    else:
+                        break
+        except UnicodeDecodeError as e:
+            logger.error("Non-UTF8 content in file %s: %s", target_to_open, str(e))
+            return json.dumps({"error": f"Non-UTF8 content encountered while reading file '{target_to_open}': {str(e)}"})
+        except Exception as e:
+            logger.error("Error reading file range %s: %s", target_to_open, str(e), exc_info=True)
+            return json.dumps({"error": f"Error reading file '{target_to_open}': {str(e)}"})
+
+        content = ''.join(lines)
+        result = {
+            "content": content,
+            "start_line": start_line,
+            "end_line": end_line,
+            "lines_returned": lines_returned
+        }
+        if symlink_meta:
+            result.update(symlink_meta)
+            result["message"] = f"'{path}' is a symlink to '{symlink_meta['target_absolute']}'."
+
+        logger.debug("Returning %d lines from %s (requested lines %d..%d)", lines_returned, target_to_open, start_line, end_line)
+        return json.dumps(result)
+    except Exception as e:
+        print(f"{red}{str(e)}{reset}")
+        logger.error("Exception in cat_file_range for %s: %s", path, str(e), exc_info=True)
+        return json.dumps({"error": f"Exception reading file range: {str(e)}"})
+
 def run_diff(file1: str, file2: str):
     """
     Run the diff command to compare two files.

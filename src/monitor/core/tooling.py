@@ -52,8 +52,8 @@ def execute_tool_call(tool_call):
         function_args = parse_function_args(function_args_raw)
 
         # Apply rate limiting for high-token operations using centralized API
-        if function_name in ["cat_file", "list_directory_contents", "create_file"]:
-            if function_name == "cat_file" and "path" in function_args:
+        if function_name in ["cat_file", "cat_file_range", "list_directory_contents", "create_file"]:
+            if function_name in ("cat_file", "cat_file_range") and "path" in function_args:
                 # Use count_message_tokens for accurate estimation
                 try:
                     with open(function_args["path"], "r") as f:
@@ -74,7 +74,7 @@ def execute_tool_call(tool_call):
 
         # Record usage for high-token operations using canonical counting API
         if (
-            function_name in ["cat_file", "list_directory_contents"]
+            function_name in ["cat_file", "cat_file_range", "list_directory_contents"]
             and isinstance(result, str)
         ):
             estimated_tokens = count_message_tokens({"role": "system", "content": result})
@@ -315,8 +315,8 @@ def execute_function(function_name, function_args_raw):
         function_args = parse_function_args(function_args_raw)
 
         # Apply rate limiting for high-token operations (centralized logic)
-        if function_name in ["cat_file", "list_directory_contents", "modify_source_code"]:
-            if function_name == "cat_file" and "path" in function_args:
+        if function_name in ["cat_file", "cat_file_range", "list_directory_contents", "modify_source_code"]:
+            if function_name in ("cat_file", "cat_file_range") and "path" in function_args:
                 try:
                     with open(function_args["path"], "r") as f:
                         content = f.read()
@@ -345,7 +345,7 @@ def execute_function(function_name, function_args_raw):
 
         # Record usage for high-token operations via canonical message token count
         if (
-            function_name in ["cat_file", "list_directory_contents"]
+            function_name in ["cat_file", "cat_file_range", "list_directory_contents"]
             and isinstance(result, str)
         ):
             estimated_tokens = count_message_tokens({"role": "system", "content": result})

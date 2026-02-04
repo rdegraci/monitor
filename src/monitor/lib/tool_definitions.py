@@ -24,7 +24,8 @@ from monitor.lib.os import (
     cat_file,
     create_file,
     file_type,
-    make_directory
+    make_directory,
+    cat_file_range
 )
 
 from monitor.lib.db_storage import execute_duckdb, execute_psql, execute_mc
@@ -58,6 +59,7 @@ AVAILABLE_TOOLS = {
     "perform_git_show": perform_git_show,
     "list_directory_contents": list_directory_contents,
     "cat_file": cat_file,
+    "cat_file_range": cat_file_range,
     "create_file": create_file,
     "execute_psql": execute_psql,
     "file_type": file_type,
@@ -187,34 +189,25 @@ TOOL_DESCRIPTIONS = [
     {
         "type": "function",
         "function": {
-            "name": "file_type",
-            "description": "Provides the file type of a given file at the specified path.",
+            "name": "cat_file_range",
+            "description": "Display a range of lines from a file at the given filepath. Use this function when you need to read a specific portion of a file by line numbers.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The path to the file to check"
+                        "description": "The path to the file to display. (e.g. 'path/to/some/file')"
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "The 1-based line number to start reading from."
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "The 1-based line number to stop reading at (inclusive)."
                     }
                 },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "tavily_search",
-            "description": "Performs a web search using Tavily API to get up-to-date information or additional context. Use this when you need current information or think a search could provide a better answer.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query"
-                    }
-                },
-                "required": ["query"]
+                "required": ["path", "start_line", "end_line"]
             }
         }
     },
@@ -442,6 +435,32 @@ GEMINI_TOOL_DESCRIPTIONS = [
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Display a range of lines from a file at the given filepath. Use this function when you need to read a specific portion of a file by line numbers.",
+    "name": "cat_file_range",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "The path to the file to display. (e.g. 'path/to/some/file')",
+          "type": "string"
+        },
+        "start_line": {
+          "description": "The 1-based line number to start reading from.",
+          "type": "integer"
+        },
+        "end_line": {
+          "description": "The 1-based line number to stop reading at (inclusive).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "start_line",
+        "end_line"
       ],
       "type": "object"
     }
