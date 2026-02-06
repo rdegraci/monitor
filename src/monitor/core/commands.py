@@ -206,6 +206,69 @@ def parse_command(command: str) -> tuple[str, list[str], str]:
         rest_joined = " ".join(rest_tokens) if rest_tokens else ''
     return first_word, rest_tokens, rest_joined
 
+def contains_unquoted_shell_metacharacters(remainder: str) -> bool:
+    """Return True if the provided remainder string contains unquoted/unescaped
+    shell metacharacters that should be preserved when executing via the shell.
+
+    This function scans the string while tracking single- and double-quote contexts
+    and backslash escapes. Characters considered shell metacharacters include:
+      - Pipe, ampersand, semicolon, redirection, backtick, dollar, parentheses,
+        braces, brackets: | & ; < > ` $ ( ) { } [ ]
+      - Wildcard/globbing characters: * ? [
+    Behavior:
+      - Characters inside single quotes are considered quoted and ignored.
+      - Inside double quotes, $ and ` are considered active metacharacters (and
+        therefore treated as unquoted for the purpose of this check), while other
+        metacharacters are treated as quoted.
+      - A backslash escapes the next character when not inside single quotes.
+    """
+    if not remainder:
+        return False
+
+    always_metachars = set('|&;<>`$(){}[]')
+    wildcard_metachars = set('*?[')
+
+    in_single = False
+    in_double = False
+    i = 0
+    length = len(remainder)
+
+    while i < length:
+        ch = remainder[i]
+
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+
+        if ch == "\\" and not in_single:
+            # Escape next character (if any) when not in single quotes
+            i += 2
+            continue
+
+        # Check always-metacharacters: treat $ and ` as meta even inside double quotes.
+        if ch in always_metachars:
+            if not in_single:
+                # If inside double quotes, only $ and ` still count as active metacharacters.
+                if not in_double or ch in ('$', '`'):
+                    logger.debug(f"Detected unquoted metacharacter '{ch}' at position {i} in remainder={remainder!r}")
+                    return True
+
+        # Check wildcard metacharacters: only count if not quoted (neither single nor double)
+        if ch in wildcard_metachars:
+            if not in_single and not in_double:
+                logger.debug(f"Detected unquoted wildcard metacharacter '{ch}' at position {i} in remainder={remainder!r}")
+                return True
+
+        i += 1
+
+    return False
+
 def is_interactive_command(command: str):
     """
     Determine if the given command matches a public or private interactive command.
@@ -228,8 +291,18 @@ def execute_non_interactive_command(command: str):
       in a non-interactive subshell.
     - If no expansion is found for the matched command, the command itself is executed
       directly in a non-interactive subshell.
+
+    This function now preserves raw shell operators when the original remainder
+    contains unquoted/unescaped shell metacharacters. In that case the original
+    remainder substring is appended to preserve operators like pipes, redirections,
+    and other shell constructs. Otherwise a safe shlex.join of parsed tokens is used.
     """
-    first_word, _, rest_joined = parse_command(command)
+    first_word, rest_tokens, rest_joined = parse_command(command)
+    # Compute the original raw remainder substring from the original command text
+    idx = command.find(first_word)
+    remainder_raw = command[idx + len(first_word):].lstrip() if idx != -1 else ""
+    logger.debug(f"execute_non_interactive_command: first_word={first_word!r}, remainder_raw={remainder_raw!r}, rest_tokens={rest_tokens}")
+
     # Using shlex for safe argument joining to handle quotes and escapes.
     matching_command = next(
         (cmd for cmd in NON_INTERACTIVE_COMMANDS if cmd["command"] == first_word), None
@@ -237,14 +310,29 @@ def execute_non_interactive_command(command: str):
     command_to_run = None
 
     try:
+        # Choose whether to use the raw remainder (preserve shell metacharacters) or the safe joined tokens
+        if remainder_raw:
+            try:
+                if contains_unquoted_shell_metacharacters(remainder_raw):
+                    chosen_remainder = remainder_raw
+                    logger.debug("execute_non_interactive_command: Using raw remainder because it contains unquoted shell metacharacters.")
+                else:
+                    chosen_remainder = shlex.join(rest_tokens) if rest_tokens else ""
+                    logger.debug("execute_non_interactive_command: Using shlex.join of rest_tokens (no unquoted metacharacters detected).")
+            except Exception as ex_check:
+                logger.debug(f"execute_non_interactive_command: Error checking metacharacters: {ex_check}. Falling back to safe joining.")
+                chosen_remainder = shlex.join(rest_tokens) if rest_tokens else ""
+        else:
+            chosen_remainder = ""
+
         if matching_command is not None:
             command_to_run = matching_command.get("expansion")
             if command_to_run:
-                command_to_run += f" {rest_joined}"
+                command_to_run += f" {chosen_remainder}" if chosen_remainder else ""
             else:
-                command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
+                command_to_run = f"{first_word} {chosen_remainder}" if chosen_remainder else first_word
         else:
-            command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
+            command_to_run = f"{first_word} {chosen_remainder}" if chosen_remainder else first_word
 
         logger.info(f"Executing non-interactive command '{first_word}' without macro expansion.")
         logger.debug(f"Executing non-interactive command in subprocess: {command_to_run}")
@@ -276,9 +364,18 @@ def execute_interactive_command(command: str):
     - If no expansion is found for the matched command, the command itself is executed
       directly in an interactive subshell.
 
+    This function now preserves raw shell operators when the original remainder
+    contains unquoted/unescaped shell metacharacters. In that case the original
+    remainder substring is appended to preserve operators like pipes, redirections,
+    and other shell constructs. Otherwise a safe shlex.join of parsed tokens is used.
+
     All executions use run_subprocess(). Errors are surfaced to the user via handle_error with display=True.
     """
-    first_word, _, rest_joined = parse_command(command)
+    first_word, rest_tokens, rest_joined = parse_command(command)
+    # Compute the original raw remainder substring from the original command text
+    idx = command.find(first_word)
+    remainder_raw = command[idx + len(first_word):].lstrip() if idx != -1 else ""
+    logger.debug(f"execute_interactive_command: first_word={first_word!r}, remainder_raw={remainder_raw!r}, rest_tokens={rest_tokens}")
     # Using shlex for safe argument joining to handle quotes and escapes.
     matching_command = next(
         (cmd for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS) if cmd["command"] == first_word), None
@@ -286,26 +383,44 @@ def execute_interactive_command(command: str):
     command_to_run = None
 
     try:
-        if matching_command is not None:
-            command_to_run = matching_command.get("expansion")
-            if command_to_run:
-                command_to_run += f" {rest_joined}"
-            else:
-                command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
+        # Choose whether to use the raw remainder (preserve shell metacharacters) or the safe joined tokens
+        if remainder_raw:
+            try:
+                if contains_unquoted_shell_metacharacters(remainder_raw):
+                    chosen_remainder = remainder_raw
+                    logger.debug("execute_interactive_command: Using raw remainder because it contains unquoted shell metacharacters.")
+                else:
+                    chosen_remainder = shlex.join(rest_tokens) if rest_tokens else ""
+                    logger.debug("execute_interactive_command: Using shlex.join of rest_tokens (no unquoted metacharacters detected).")
+            except Exception as ex_check:
+                logger.debug(f"execute_interactive_command: Error checking metacharacters: {ex_check}. Falling back to safe joining.")
+                chosen_remainder = shlex.join(rest_tokens) if rest_tokens else ""
         else:
-            command_to_run = f"{first_word} {rest_joined}" if rest_joined else first_word
+            chosen_remainder = ""
 
-        logger.info(f"Executing interactive command '{first_word}' without macro expansion.")
-        logger.debug(f"Executing command in subprocess: {command_to_run}")
-        preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
-        exit_code, stdout, stderr, process = run_subprocess(
-            command_to_run,
-            interactive=True,
-            shell=True,
-            preexec_fn=preexec,
-            text=True,
-            fetch_output=False,
-        )
+        try:
+            if matching_command is not None:
+                command_to_run = matching_command.get("expansion")
+                if command_to_run:
+                    command_to_run += f" {chosen_remainder}" if chosen_remainder else ""
+                else:
+                    command_to_run = f"{first_word} {chosen_remainder}" if chosen_remainder else first_word
+            else:
+                command_to_run = f"{first_word} {chosen_remainder}" if chosen_remainder else first_word
+
+            logger.info(f"Executing interactive command '{first_word}' without macro expansion.")
+            logger.debug(f"Executing command in subprocess: {command_to_run}")
+            preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
+            exit_code, stdout, stderr, process = run_subprocess(
+                command_to_run,
+                interactive=True,
+                shell=True,
+                preexec_fn=preexec,
+                text=True,
+                fetch_output=False,
+            )
+        except Exception as ex_inner:
+            raise ex_inner
     except Exception as ex_outer:
         handle_error(
             f"Failed to handle interactive command: '{command}'",

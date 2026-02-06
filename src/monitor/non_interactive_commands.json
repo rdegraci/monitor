@@ -1,74 +1,92 @@
 [
   {
     "command": "ls",
+    "expansion": "function _ls() { ls \"$@\"; }; _ls",
     "description": "list directory contents"
   },
   {
     "command": "rm",
+    "expansion": "function _rm() { rm \"$@\"; }; _rm",
     "description": "remove files or directories"
   },
   {
     "command": "touch",
+    "expansion": "function _touch() { touch \"$@\"; }; _touch",
     "description": "create empty files or update file timestamps"
   },
   {
     "command": "cd",
+    "expansion": "function _cd() { cd \"$@\"; }; _cd",
     "description": "change the current directory"
   },
   {
     "command": "clear",
+    "expansion": "function _clear() { clear \"$@\"; }; _clear",
     "description": "clear the terminal screen"
   },
   {
     "command": "pwd",
+    "expansion": "function _pwd() { pwd \"$@\"; }; _pwd",
     "description": "print the current working directory"
   },
   {
     "command": "cp",
+    "expansion": "function _cp() { cp \"$@\"; }; _cp",
     "description": "copy files and directories"
   },
   {
     "command": "mv",
+    "expansion": "function _mv() { mv \"$@\"; }; _mv",
     "description": "move or rename files and directories"
   },
   {
     "command": "mkdir",
+    "expansion": "function _mkdir() { mkdir \"$@\"; }; _mkdir",
     "description": "create directories"
   },
   {
     "command": "rmdir",
+    "expansion": "function _rmdir() { rmdir \"$@\"; }; _rmdir",
     "description": "remove empty directories"
   },
   {
     "command": "grep",
+    "expansion": "function _grep() { grep \"$@\"; }; _grep",
     "description": "search text using patterns"
   },
   {
     "command": "find",
+    "expansion": "function _find() { find \"$@\"; }; _find",
     "description": "search for files in a directory hierarchy"
   },
   {
     "command": "chmod",
+    "expansion": "function _chmod() { chmod \"$@\"; }; _chmod",
     "description": "change file permissions"
   },
   {
     "command": "chown",
+    "expansion": "function _chown() { chown \"$@\"; }; _chown",
     "description": "change file owner and group"
   },
   {
     "command": "ps",
+    "expansion": "function _ps() { ps \"$@\"; }; _ps",
     "description": "report process status"
   },
   {
     "command": "echo",
+    "expansion": "function _echo() { echo \"$@\"; }; _echo",
     "description": "display a line of text"
   },
   {
     "command": "wget",
+    "expansion": "function _wget() { wget \"$@\"; }; _wget",
     "description": "download files from the web"
   },
   {
     "command": "curl",
+    "expansion": "function _curl() { curl \"$@\"; }; _curl",
     "description": "transfer data from or to a server"
   },
   {
@@ -83,34 +101,42 @@
   },
   {
     "command": "bin/rails",
+    "expansion": "function _bin_rails() { bin/rails \"$@\"; }; _bin_rails",
     "description": "Rails application executable in project bin"
   },
   {
     "command": "bin/rake",
+    "expansion": "function _bin_rake() { bin/rake \"$@\"; }; _bin_rake",
     "description": "Rake task runner executable in project bin"
   },
   {
     "command": "rake",
+    "expansion": "function _rake() { rake \"$@\"; }; _rake",
     "description": "Ruby build automation and task runner"
   },
   {
     "command": "gem",
+    "expansion": "function _gem() { gem \"$@\"; }; _gem",
     "description": "RubyGems package manager"
   },
   {
     "command": "bundle",
+    "expansion": "function _bundle() { bundle \"$@\"; }; _bundle",
     "description": "Bundler for managing Ruby dependencies"
   },
   {
     "command": "rails",
+    "expansion": "function _rails() { rails \"$@\"; }; _rails",
     "description": "Ruby on Rails command-line tool"
   },
   {
     "command": "foreman",
+    "expansion": "function _foreman() { foreman \"$@\"; }; _foreman",
     "description": "manage Procfile-based applications and processes"
   },
   {
     "command": "reset",
+    "expansion": "function _reset() { reset \"$@\"; }; _reset",
     "description": "reset terminal settings"
   },
   {
@@ -125,46 +151,57 @@
   },
   {
     "command": "heroku",
+    "expansion": "function _heroku() { heroku \"$@\"; }; _heroku",
     "description": "Heroku command-line interface"
   },
   {
     "command": "wc",
+    "expansion": "function _wc() { wc \"$@\"; }; _wc",
     "description": "print newline, word, and byte counts for files"
   },
   {
     "command": "patch",
+    "expansion": "function _patch() { patch \"$@\"; }; _patch",
     "description": "apply a diff patch to files"
   },
   {
     "command": "scp",
+    "expansion": "function _scp() { scp \"$@\"; }; _scp",
     "description": "securely copy files over SSH"
   },
   {
     "command": "rsync",
+    "expansion": "function _rsync() { rsync \"$@\"; }; _rsync",
     "description": "fast, versatile file copying and synchronization tool"
   },
   {
     "command": "ifconfig",
+    "expansion": "function _ifconfig() { ifconfig \"$@\"; }; _ifconfig",
     "description": "configure or display network interface parameters"
   },
   {
     "command": "netstat",
+    "expansion": "function _netstat() { netstat \"$@\"; }; _netstat",
     "description": "display network connections, routing tables, and interface stats"
   },
   {
     "command": "ruby",
+    "expansion": "function _ruby() { ruby \"$@\"; }; _ruby",
     "description": "run the Ruby interpreter"
   },
   {
     "command": "uptime",
+    "expansion": "function _uptime() { uptime \"$@\"; }; _uptime",
     "description": "show how long the system has been running"
   },
   {
     "command": "diff",
+    "expansion": "function _diff() { diff \"$@\"; }; _diff",
     "description": "compare files line by line"
   },
   {
     "command": "open",
+    "expansion": "function _open() { open \"$@\"; }; _open",
     "description": "Open files in MacOS"
   },
   {
