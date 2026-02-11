@@ -246,7 +246,7 @@ def configure_built_ins() -> None:
             "group_description": "General utility commands",
             "commands": [
                 {
-                    "command": "commands",
+                    "command": ":commands",
                     "function": _make_callable(print_terminal_commands),
                     "description": "Print the list of interactive commands.",
                 },
@@ -295,6 +295,11 @@ def configure_built_ins() -> None:
                     "command": ":llm",
                     "function": _make_callable(llm_command),
                     "description": "Change the active LLM model at runtime. Usage: :llm <model> or :llm help for available models.",
+                },
+                {
+                    "command": ":model",
+                    "function": _make_callable(llm_command),
+                    "description": "Change the active LLM model at runtime. Usage: :model <model> or :model help for available models.",
                 },
                 {
                     "command": ":reasoning",
@@ -349,7 +354,7 @@ def configure_built_ins() -> None:
             ],
         },
         {
-            "group_description": "Tool management commands",
+            "group_description": "Tool management commands EXPERIMENTAL",
             "commands": [
                 {
                     "command": ":add_db_tools",
@@ -374,7 +379,7 @@ def configure_built_ins() -> None:
             ],
         },
         {
-            "group_description": "Indexing and retrieval commands",
+            "group_description": "Indexing and retrieval commands (Experimental)",
             "commands": [
                 {
                     "command": ":embed",
@@ -404,7 +409,7 @@ def configure_built_ins() -> None:
                 {
                     "command": ":power_user",
                     "function": _make_callable(stream_code),
-                    "description": "Enable power-user streaming mode.",
+                    "description": "Enable power-user streaming mode. <file_path>:<prompt>",
                 },
                 {
                     "command": ":design_mode",
