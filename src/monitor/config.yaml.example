@@ -1,0 +1,119 @@
+MODEL: openai/gpt-5-mini-2025-08-07  # Fully qualified primary LLM model (provider/model:version) used for standard responses
+MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens)
+MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens)
+MODEL_INPUT_TIER: 4  # Input tier/plan selector for model usage limits (integer)
+CONVERSATION_MAX_SIZE: 50  # Maximum number of messages retained per conversation
+ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
+
+# Uncomment this to override MODEL_INPUT_TIER
+# MODEL_MAX_TPM: 2000000
+
+REASONING_MODEL_PREFIX: openai/gpt-5  # Prefix/family for selecting reasoning-capable models
+REASONING_EFFORT: high  # Reasoning effort level (low|medium|high) affecting cost/latency
+REASONING_MAX_COMPLETION_TOKENS: 25000  # Cap on tokens for reasoning completions (tokens)
+RESPONSES_API: True  # If True + MODEL matches REASONING_MODEL_PREFIX, use OpenAI Responses API (responses.create) semantics.
+
+TOOL_OUTPUT_TOKEN_LIMIT: 16384 # Truncate tool output to this many tokens
+
+SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
+
+history:
+  file: ~/Library/Application Support/monitor/chat_history  # Path to persistent conversation history file
+
+# Centralized logging configuration
+logging:
+  level: WARNING  # Minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'  # Python logging format string
+  date_format: '%Y-%m-%d %H:%M:%S'  # Datetime format used in logs (strftime)
+  log_dir: ~/Library/Application Support/monitor/logs  # Directory for log files
+  app_log_filename: app.log  # Application log filename
+  conversation_log_filename: conversation.log  # Conversation log filename
+  console_logging_enabled: true  # Echo logs to console/stdout
+  encoding: utf-8  # Log file encoding
+
+ARTIFACT_SERVER: http://192.168.0.250:2323/  # Base URL for artifact storage/service
+JOKES_FILE: ~/Library/Application Support/monitor/jokes.txt  # Path to jokes corpus file
+
+# Master flag to activate/deactivate summaries to third parties
+EXTERNAL_SERVICES: False  # Global switch for allowing summaries to be sent to external platforms
+SUMMARY_TWITCH: False  # Enable Twitch summaries (requires EXTERNAL_SERVICES=True)
+SUMMARY_LINKEDIN: False  # Enable LinkedIn summaries (requires EXTERNAL_SERVICES=True)
+SUMMARY_TWITTER: False  # Enable Twitter/X summaries (requires EXTERNAL_SERVICES=True)
+
+REDIS_HOST: localhost  # Host/IP for Redis backing the memory/cache
+MEMORY_SERVICES: False  # Enable Redis-backed memory services
+
+NON_INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/non_interactive_commands.json  # Path to non-interactive commands JSON definition
+INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/interactive_commands.json # Path to interactive commands JSON definition
+
+
+CODE_LENS_HOST: "192.168.0.250"  # Host/IP for Code Lens service
+CODE_LENS_PORT: 5010  # Port for Code Lens service
+
+ECS_HOST: "192.168.0.250"  # Host/IP for ECS service
+ECS_PORT: 5010  # Port for ECS service
+
+ollama:
+  host: "192.168.0.26:11434"  # Ollama server host:port
+  model: "llama3.1:latest"  # Ollama model name/tag to load
+
+# Summarization configuration
+summarization:
+  triggers:
+    token_threshold: 0.6  # Percentage of max tokens (currently 60%)
+    memory_limit_mb: 100  # Memory limit in MB
+    time_limit_seconds: 259200  # Time between summaries in seconds (currently 72 hours)
+    token_reduction_factor: 0.7  # Factor to reduce tokens by when limit reached (currently 70%)
+    summary_token_ratio: 0.03  # Ratio of context allocated to the summary (0-1)
+    maximum_summary_tokens: 4096  # Hard cap on tokens used to generate a single summary (tokens)
+  prompt:
+    template: "Summarize the following conversation concisely, always using file paths when capturing the main points and context: {messages}"  # Prompt template for summaries; {messages} is replaced with the conversation
+
+MACRO_FILE: ~/Library/Application Support/monitor/macros.json  # Path to macros configuration JSON
+
+# Macro expansion delimiter configuration
+# Note: if you change the open and close delimiters, you must modify the hardcoded macros (see lib/macros.py)
+# 
+# Important: These delimiters are used for macro expansion
+macro_delimiters:
+  open: '{{'  # Opening delimiter for macros
+  close: '}}'  # Closing delimiter for macros
+  escape: '\\'  # Escape character for delimiters (escaped here for YAML)
+
+# User instruction preferences file
+PREFERENCE_PROMPT_FILE: ~/Library/Application Support/monitor/preferences.prompt  # Path to the preferences prompt file
+
+rate_limiting:
+  safety_factor: 0.8  # Safety multiplier applied to provider limits (0-1)
+  window_seconds: 60  # Time window for rate limiting (seconds)
+
+# Contains files that give context and direct an LLM to build source code
+DIRECTIVES_DIR: ~/Library/Application Support/monitor/directives
+
+# RipGrep file extension exclusions
+DEFAULT_EXCLUDE_EXTENSIONS: [
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "pdf",
+    "zip",
+    "sqlite",
+    "db",
+    "lock",
+    "xcodeproj",
+    "storyboard",
+    "xib",
+    "bundle"
+  ]
+
+# RipGrep glob exclusions
+DEFAULT_EXCLUDE_GLOBS: [
+    "node_modules/**",
+    ".venv/**",
+    "dist/**",
+    "build/**",
+    "Pods/**"
+  ]
+
+# End Config.yaml

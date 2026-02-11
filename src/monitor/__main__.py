@@ -18,7 +18,7 @@ def ensure_user_config_file(src_filename, dest_filename):
         print(f"Copied default {src_filename} to {dest}")
 
 def main():
-    ensure_user_config_file("config.yaml","config.yaml")
+    ensure_user_config_file("config.yaml.example","config.yaml")
     ensure_user_config_file("macros.json","macros.json")
     ensure_user_config_file("preferences.prompt","preferences.prompt")
     ensure_user_config_file("model_config.json", "model_config.json")

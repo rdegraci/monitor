@@ -250,7 +250,7 @@ def remove_weather_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Di
     
 def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
     if not config.MEMORY_SERVICES:
-        logger.warning("Memory Tools not available. No MEMORY_SERVICES.")
+        logger.info("Memory Tools not available. No MEMORY_SERVICES.")
         return 
 
     add_tool(

@@ -774,7 +774,7 @@ def prepend_memory_to_history() -> None:
     )
     try:
         if not config.MEMORY_SERVICES:
-            logger.warning(
+            logger.info(
                 "Unable to prepend memory to history. No MEMORY_SERVICES."
             )
             return
