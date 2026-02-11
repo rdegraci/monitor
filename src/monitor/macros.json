@@ -16,5 +16,5 @@
     "todo_extract": "Scan the code for TODO/FIXME comments or unresolved issues. List them by file/line, prioritize by urgency, and suggest resolutions as a table. {{rank_improvements}} for prioritization",
     "multi_file_refactor": "Propose refactors across multiple files (e.g., rename a shared function or update API). {{do_diff}} and list affected files, provide unified diffs, and ensure consistency. Warn on breaking changes ",
     "deploy_check": "Review changes for deployment readiness: check for new deps, env vars, migration needs, or config updates. {{do_diff}} and suggest a deployment checklist as a Markdown table",
-    "rank_examine": "Given the specified type, {{rank_improvements}} Type: ",
+    "rank_examine": "Given the specified type, {{rank_improvements}} Type: "
 }
