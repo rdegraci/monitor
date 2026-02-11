@@ -43,8 +43,43 @@ Monitor provides a console script entry point so it can be installed as a normal
    ```
    The installation registers a `monitor` console script (via pyproject/setup) so you can launch Monitor directly from your shell.
 
----
+3. Copy the dot_env_example to ~/.config/monitor/.env and edit it
+    ```
+    mkdir ~/.config
+    mkdir ~/.config/monitor
+    cp src/monintor/dot_env_example ~/.config/monitor/.env
+    vi ~/.config/monitor/.env
+    ```
+
+4. Proceed to Platform Setup section below to set up additional MacOS tools:
+    - Homebrew - recommended
+    - brew install pkg-config portaudio libmagic ffmpeg graphviz ripgrep redis duckdb git  
+    - brew services start redis
+    - Xcode - recommended
+
+5. Start an interactive Monitor shell from project root or any directory:
+    ```
+    monitor
+    ```
+    or
+    ```
+    python -m monitor
+    ```
+
 **Note:** On the first run after installation, Monitor may take several minutes to initialize libraries and large dependencies. This is expected and happens only once.
+
+6. Run the self test macro:
+    ```
+    {{self_test}}
+    ```
+
+7. View the help:
+    ```
+    :help
+    ```
+
+8. Read the additional documentation located in the docs/ directory
+
 ---
 
 ## Platform setup
@@ -53,7 +88,7 @@ Below are explicit, copy-paste ready commands to install common system dependenc
 
 Note: Run these commands in a terminal/shell with appropriate privileges (sudo on Linux/macOS when shown). For Windows, run the terminal as Administrator for Chocolatey or winget installation actions.
 
-### macOS (Homebrew - recommended)
+### macOS (Homebrew and Xcode - recommended)
 
 If you do not have Homebrew installed: https://brew.sh/
 ```
@@ -87,7 +122,7 @@ python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install pyaudio
 ```
 
-### Debian / Ubuntu (Linux)
+### Debian / Ubuntu (Linux) WARNING - Untested
 
 Update and install core build tools and libraries:
 ```
@@ -117,7 +152,7 @@ Notes:
 - portaudio19-dev is required to build PyAudio from source.
 - If your distribution provides 'duckdb' in apt, the package above will install it; otherwise install DuckDB via pip (`pip install duckdb`) or download the binary.
 
-### Windows (Chocolatey)
+### Windows (Chocolatey) WARNING - EXPERIMENTAL
 
 Install Chocolatey (if not already installed). Open an Administrator PowerShell and run:
 ```
@@ -348,7 +383,7 @@ Monitor supports loading environment variables from .env files. The order is:
 1. Project-level `.env` in the current working directory (if present).
 2. User-level `.env` in the user config directory (if present) — values here override the project-level values.
    - (Linux example) ~/.config/monitor/.env
-   - (macOS example) ~/Library/Application Support/monitor/.env
+   - (macOS example) ~/Library/Application Support/monitor/.env OR ~/.config/monitor/.env
    - (Windows example) %APPDATA%/monitor/.env
 
 This ordering allows project-specific overrides while enabling persistent credentials or defaults in the user config directory.
