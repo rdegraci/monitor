@@ -7,12 +7,16 @@
       "gpt4o": "openai",
       "o3-mini": "openai",
       "gemini20": "google",
+      "gemini30": "google",
       "gpt41": "openai",
       "gpt5": "openai",
+      "gpt51": "openai",
+      "gpt52": "openai",
       "o3": "openai",
       "grok4": "xai",
       "grok3": "xai",
       "grok4-fast": "xai",
+      "grok41-fast": "xai",
       "gpt5-mini": "openai"
   },
   "model_mapping": {
@@ -23,12 +27,16 @@
       "gpt4o": "openai/gpt-4o-2024-08-06",
       "o3-mini": "openai/o3-mini-2025-01-31",
       "gemini20": "gemini/gemini-2.0-flash",
+      "gemini30": "gemini/gemini-3-pro-preview",
       "gpt41": "openai/gpt-4.1-2025-04-14",
       "gpt5": "openai/gpt-5-2025-08-07",
+      "gpt51": "openai/gpt-5.1-2025-11-13",
+      "gpt52": "openai/gpt-5.2-2025-12-11",
       "o3": "openai/o3-2025-04-16",
       "grok4": "xai/grok-4-0709",
       "grok3": "xai/grok-3",
       "grok4-fast": "xai/grok-4-fast",
+      "grok41-fast": "xai/grok-4-1-fast-reasoning",
       "gpt5-mini": "openai/gpt-5-mini-2025-08-07"
   },
   "conversation_history_mapping": {
@@ -39,12 +47,16 @@
     "gpt4o": 50,
     "o3-mini": 50,
     "gemini20": 50,
+    "gemini30": 50,
     "gpt41": 50,
     "gpt5": 50,
+    "gpt51": 50,
+    "gpt52": 50,
     "o3": 50,
     "grok4": 50,
     "grok3": 50,
     "grok4-fast": 50,
+    "grok41-fast": 100,
     "gpt5-mini": 50
   },
   "context_window_mapping": {
@@ -55,12 +67,16 @@
     "gpt4o": 128000,
     "o3-mini": 200000,
     "gemini20": 1048576,
+    "gemini30": 1048576,
     "gpt41": 1048576,
     "gpt5": 400000,
+    "gpt51": 400000,
+    "gpt52": 400000,
     "o3": 200000,
     "grok4": 256000,
     "grok3": 131072,
     "grok4-fast": 2000000,
+    "grok41-fast": 2000000,
     "gpt5-mini": 400000
   },
   "output_window_mapping": {
@@ -71,12 +87,16 @@
     "gpt4o": 16384,
     "o3-mini": 100000,
     "gemini20": 8192,
+    "gemini30": 64000,
     "gpt41": 32768,
     "gpt5": 128000,
+    "gpt51": 128000,
+    "gpt52": 128000,
     "o3": 100000,
     "grok4": 128000,
     "grok3": 64000,
-    "grok4-fast": 128000,
+    "grok4-fast": 8192,
+    "grok41-fast": 30000,
     "gpt5-mini": 128000
   },
   "model_max_tpm": {
@@ -91,8 +111,12 @@
     "grok4": 1,
     "grok3": 1,
     "grok4-fast": "grok4-fast-1",
+    "grok41-fast": "grok41-fast-1",
     "gemini20": 1,
+    "gemini30": 1,
     "gpt5": "chatgpt5-4",
+    "gpt51": "chatgpt5-4",
+    "gpt52": "chatgpt5-4",
     "gpt5-mini": "chatgpt5-mini-4"
   },
   "openai_model_tpm_tier": {
@@ -123,7 +147,8 @@
     "2": 2000000,
     "3": 2000000,
     "4": 2000000,
-    "grok4-fast-1": 4000000
+    "grok4-fast-1": 4000000,
+    "grok41-fast-1": 4000000
   },
   "google_model_tpm_tier": {
     "1": 80000,
