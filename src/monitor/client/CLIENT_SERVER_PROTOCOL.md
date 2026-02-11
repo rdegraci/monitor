@@ -1,5 +1,7 @@
 # CLIENT_SERVER_PROTOCOL.md
 
+# EXPERIMENTAL - WIP
+
 ## Overview
 
 This protocol enables a secure client-server workflow for operations involving file data, where:
