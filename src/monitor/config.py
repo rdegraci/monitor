@@ -698,7 +698,7 @@ def configure_globals():
                         "lock",
                         "xcodeproj",
                         "storyboard",
-                        "xib"
+                        "xib",
                         "bundle"
                     ]
                 )
@@ -720,7 +720,7 @@ def configure_globals():
                 "lock",
                 "xcodeproj",
                 "storyboard",
-                "xib"
+                "xib",
                 "bundle"
             ]
         )
