@@ -207,6 +207,26 @@
   {
     "command": "kill",
     "expansion": "function _kill() { kill \"$@\"; }; _kill",
+    "description": "Kill processes"
+  },
+  {
+    "command": "ping",
+    "expansion": "function _ping() { ping \"$@\"; }; _ping",
     "description": "expansion: shell function - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "subl",
+    "expansion": "function _subl() { subl \"$@\"; }; _subl",
+    "description": "expansion: shell function - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "xcodebuild",
+    "expansion": "function _xcodebuild() { xcodebuild \"$@\"; }; _xcodebuild",
+    "description": "xcode builder - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "file",
+    "expansion": "function _file() { file \"$@\"; }; _file",
+    "description": "determine file type - forwards all positional parameters ($@)"
   }
 ]

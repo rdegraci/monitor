@@ -169,5 +169,10 @@
     "command": "cat",
     "expansion": "function _cat() { cat \"$@\"; }; _cat",
     "description": "concatenate and display files  (forwards all args)"
+  },
+  {
+    "command": "brew",
+    "expansion": "function _brew() { brew \"$@\"; }; _brew",
+    "description": "Homebrew  (forwards all args)"
   }
 ]
