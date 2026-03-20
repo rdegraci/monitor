@@ -67,56 +67,73 @@ def test_run_command_in_terminal_exception(monkeypatch, caplog):
 def test_run_command_in_screen_not_unix(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Windows")
     with caplog.at_level("ERROR"):
-        terminal_commands.run_command_in_screen("ls")
+        terminal_commands.run_command_in_screen("doit")
     assert "run_command_in_screen is only supported on UNIX-like systems" in caplog.text
 
 def test_run_command_in_screen_no_screen(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: None)
     with caplog.at_level("ERROR"):
-        terminal_commands.run_command_in_screen("ls")
+        terminal_commands.run_command_in_screen("doit")
     assert "screen' is not installed or not found in PATH" in caplog.text
 
 def test_run_command_in_screen_session_failure(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # create_interactive_subagent raises
+    def raise_create(*a, **k):
+        raise Exception("boom")
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "create_interactive_subagent", raise_create)
+    # subprocess.run returns a failure for the create_result (if called)
     mock_run = mock.Mock()
     failure = mock.Mock(returncode=1, stderr="fail", stdout="")
     mock_run.side_effect = [failure]
     monkeypatch.setattr("subprocess.run", mock_run)
     with caplog.at_level("ERROR"):
-        terminal_commands.run_command_in_screen("ls")
+        terminal_commands.run_command_in_screen("doit")
     assert "Failed to create screen session" in caplog.text
 
 def test_run_command_in_screen_stuff_failure(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # create_interactive_subagent raises
+    def raise_create(*a, **k):
+        raise Exception("boom")
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "create_interactive_subagent", raise_create)
     mock_run = mock.Mock()
     success = mock.Mock(returncode=0, stderr="", stdout="")
     failure = mock.Mock(returncode=1, stderr="failx", stdout="")
     mock_run.side_effect = [success, failure]
     monkeypatch.setattr("subprocess.run", mock_run)
     with caplog.at_level("ERROR"):
-        terminal_commands.run_command_in_screen("ls")
+        terminal_commands.run_command_in_screen("doit")
     assert "Failed to send command to screen session" in caplog.text
 
 def test_run_command_in_screen_success(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # create_interactive_subagent returns session info
+    def create_agent(*a, **k):
+        return {"session_name": "foobar", "meta_path": "/tmp/meta", "log_path": "/tmp/log"}
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "create_interactive_subagent", create_agent)
     mock_run = mock.Mock()
     success = mock.Mock(returncode=0, stderr="", stdout="")
     mock_run.side_effect = [success, success]
     monkeypatch.setattr("subprocess.run", mock_run)
     with caplog.at_level("INFO"):
-        terminal_commands.run_command_in_screen("ls", session_name="foobar")
-    assert "Command 'ls' is running in screen session 'foobar'" in caplog.text
+        terminal_commands.run_command_in_screen("doit")
+    assert "Created interactive subagent" in caplog.text
 
 def test_run_command_in_screen_exception(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # create_interactive_subagent raises
+    def raise_create(*a, **k):
+        raise Exception("boom")
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "create_interactive_subagent", raise_create)
     def raise_exception(*a, **k):
         raise RuntimeError("failz")
     monkeypatch.setattr("subprocess.run", raise_exception)
     with caplog.at_level("ERROR"):
-        terminal_commands.run_command_in_screen("ls")
+        terminal_commands.run_command_in_screen("doit")
     assert "Exception while trying to launch command in screen session" in caplog.text

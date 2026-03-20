@@ -1,0 +1,499 @@
+"""ScreenHandler: manage interactive Monitor sub-agent sessions in screen.
+
+This module provides ScreenHandler, a class encapsulating the logic to create
+and manage interactive sub-agent sessions that run Monitor inside GNU screen.
+
+The design intentionally keeps all screen-specific behavior centralized so the
+interactive built-in can call into this helper without duplicating logic.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import random
+import shlex
+import socket
+import string
+import subprocess
+import tempfile
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import appdirs
+
+logger = logging.getLogger(__name__)
+
+
+class ScreenHandlerError(RuntimeError):
+    """Exception raised for ScreenHandler-specific errors."""
+
+
+class ScreenHandler:
+    """Manage interactive sub-agent sessions using GNU screen.
+
+    Responsibilities:
+    - Generate unique session names.
+    - Launch an interactive Monitor process inside a detached screen session.
+    - Inject an initial prompt into the Monitor process so the sub-agent starts.
+    - Provide helper APIs for listing sessions, sending input, killing sessions,
+      and reading per-session metadata/logs.
+
+    Args:
+        screen_cmd: The screen executable to use (default: "screen").
+        monitor_cmd: The command to launch Monitor (list form). If None, defaults
+            to ["python", "-m", "monitor"].
+        base_log_dir: Directory to place per-session logs. Defaults to appdirs user cache.
+        base_meta_dir: Directory to place per-session metadata. Defaults to appdirs user data.
+    """
+
+    SAFE_SESSION_CHARS = set(string.ascii_lowercase + string.digits + "_-")
+
+    def __init__(
+        self,
+        screen_cmd: str = "screen",
+        monitor_cmd: Optional[List[str]] = None,
+        base_log_dir: Optional[str] = None,
+        base_meta_dir: Optional[str] = None,
+    ) -> None:
+        self.screen_cmd = screen_cmd
+        self.monitor_cmd = monitor_cmd or ["python", "-m", "monitor"]
+        self.base_log_dir = (
+            Path(base_log_dir)
+            if base_log_dir
+            else Path(appdirs.user_cache_dir("monitor")) / "subagents"
+        )
+        self.base_meta_dir = (
+            Path(base_meta_dir)
+            if base_meta_dir
+            else Path(appdirs.user_data_dir("monitor")) / "subagents"
+        )
+        self.base_log_dir.mkdir(parents=True, exist_ok=True)
+        self.base_meta_dir.mkdir(parents=True, exist_ok=True)
+
+    def generate_session_name(self) -> str:
+        """Generate a unique session name: YYYYMMDD_abc.
+
+        Returns:
+            A string like '20261003_ysx'.
+        """
+        date_part = datetime.utcnow().strftime("%Y%m%d")
+        suffix = "".join(random.choices(string.ascii_lowercase, k=3))
+        name = f"{date_part}_{suffix}"
+        return name
+
+    def _validate_session_name(self, name: str) -> bool:
+        """Validate session name contains only safe characters."""
+        if not name:
+            return False
+        return all(c in self.SAFE_SESSION_CHARS for c in name.replace("_", ""))
+
+    def sanitize_prompt(self, prompt: str, max_len: int = 32_000) -> str:
+        """Sanitize prompt text to remove problematic control characters.
+
+        Args:
+            prompt: Raw prompt string.
+            max_len: Maximum allowed length; truncates if necessary.
+
+        Returns:
+            Sanitized prompt string safe to inject into a pty via screen stuff.
+        """
+        if not isinstance(prompt, str):
+            prompt = str(prompt)
+        # Remove C0 control characters except newline and tab
+        sanitized = []
+        for ch in prompt:
+            code = ord(ch)
+            if code < 0x20 and ch not in ("\n", "\t"):
+                continue
+            if code == 0x7F:
+                continue
+            sanitized.append(ch)
+        out = "".join(sanitized)
+        if len(out) > max_len:
+            out = out[:max_len] + "\n...[truncated]"
+        return out
+
+    def _screen_available(self) -> bool:
+        """Return True if the screen executable is available on PATH."""
+        return shutil_which(self.screen_cmd) is not None
+
+    def _run(self, args: List[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        """Run subprocess command and return CompletedProcess. Logs on exception."""
+        try:
+            logger.debug("Running subprocess: %s", args)
+            return subprocess.run(args, **kwargs)
+        except Exception as exc:
+            logger.exception("Subprocess failed: %s", exc)
+            raise ScreenHandlerError(f"Failed to run subprocess {args}: {exc}") from exc
+
+    def create_interactive_subagent(
+        self,
+        prompt: str,
+        session_name: Optional[str] = None,
+        *,
+        max_retries: int = 30,
+        retry_delay: float = 0.2,
+    ) -> Dict[str, Any]:
+        """Create a detached screen session running interactive Monitor and inject prompt.
+
+        Args:
+            prompt: Initial prompt to inject into the Monitor interactive session.
+            session_name: Optional session name to use; if None a unique name is generated.
+            max_retries: How many times to retry prompt injection.
+            retry_delay: Seconds to wait between retries.
+
+        Returns:
+            A dict describing the created session (session_name, log_path, meta_path).
+
+        Raises:
+            ScreenHandlerError on failure.
+        """
+        if not session_name:
+            session_name = self.generate_session_name()
+        if not self._validate_session_name(session_name):
+            raise ScreenHandlerError(
+                "Generated or supplied session name contains invalid characters"
+            )
+
+        # Ensure screen exists
+        if shutil_which(self.screen_cmd) is None:
+            raise ScreenHandlerError("'screen' executable not found on PATH")
+
+        # Prepare file paths
+        log_path = (self.base_log_dir / f"{session_name}.log").resolve()
+        meta_path = (self.base_meta_dir / f"{session_name}.json").resolve()
+        socket_path = (self.base_meta_dir / f"{session_name}.sock").resolve()
+
+        # Start detached screen with monitor
+        # Use a small wrapper so Monitor runs in the pty; we do not redirect output here
+        # so interactive attach will show it. We'll also write a metadata file.
+        # Prepend an env wrapper to enable status reporting via a UNIX socket.
+        cmd = [
+            self.screen_cmd,
+            "-S",
+            session_name,
+            "-dm",
+            "env",
+            "MONITOR_ENABLE_STATUS=1",
+            f"MONITOR_STATUS_SOCKET={str(socket_path)}",
+        ] + self.monitor_cmd
+        cp = self._run(cmd, check=False, capture_output=True, text=True)
+        time.sleep(0.4)
+
+        if cp.returncode != 0:
+            raise ScreenHandlerError(
+                f"Failed to create screen session {session_name}: {cp.stderr or cp.stdout}"
+            )
+
+        # Sanitize prompt early so metadata can include it before injection attempts.
+        sanitized = self.sanitize_prompt(prompt)
+
+        # Persist metadata early so listing/polling can observe the session.
+        meta = {
+            "session_name": session_name,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "prompt": sanitized,
+            "log_path": str(log_path),
+            "monitor_cmd": self.monitor_cmd,
+            "socket_path": str(socket_path),
+        }
+        try:
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh, ensure_ascii=False, indent=2)
+            os.chmod(meta_path, 0o600)
+        except Exception as exc:
+            logger.exception("Failed writing metadata for %s: %s", session_name, exc)
+
+        # Resolve the screen token for the created session. Prefer the token of form "<pid>.<name>"
+        # and choose the one with the highest PID if multiple are present. If resolution fails,
+        # fall back to using the session_name.
+        token_str = session_name
+        try:
+            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
+            out = ls.stdout or ""
+            candidates: List[tuple[int, str]] = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                for p in parts:
+                    if p.endswith(f".{session_name}"):
+                        pid_part = p.split(".", 1)[0]
+                        try:
+                            pid_val = int(pid_part)
+                        except Exception:
+                            pid_val = -1
+                        candidates.append((pid_val, p))
+            if candidates:
+                # select candidate with highest PID
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                token_str = candidates[0][1]
+                logger.info("Resolved screen token %s for session %s", token_str, session_name)
+            else:
+                logger.warning(
+                    "Could not resolve screen token for session %s; falling back to session name",
+                    session_name,
+                )
+                token_str = session_name
+        except Exception:
+            logger.exception("Failed to run '%s -ls' when resolving token for %s", self.screen_cmd, session_name)
+            token_str = session_name
+
+        # Update metadata with resolved screen token
+        try:
+            meta["screen_token"] = token_str
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh, ensure_ascii=False, indent=2)
+            os.chmod(meta_path, 0o600)
+        except Exception:
+            logger.exception("Failed updating metadata with screen_token for %s", session_name)
+
+        # Poll for Monitor readiness by using 'screen hardcopy' into a temporary file.
+        # If we see "Monitor ready!" in the hardcopy output within poll_timeout, proceed to injection.
+        # Otherwise warn and proceed to injection retries.
+        poll_timeout = 8.0
+        poll_interval = 0.25
+        found_ready = False
+        tmp_path = None
+        try:
+            start = time.monotonic()
+            # Create a temp file path that we will pass to screen hardcopy. Use delete=False
+            # so screen can write to it; we'll remove it later.
+            tmp_fh = tempfile.NamedTemporaryFile(delete=False)
+            tmp_path = tmp_fh.name
+            tmp_fh.close()
+            while time.monotonic() - start < poll_timeout:
+                try:
+                    # Request a hardcopy of window 0 into our temp file
+                    result = subprocess.run(
+                        [self.screen_cmd, "-S", token_str, "-p", "0", "-X", "hardcopy", tmp_path],
+                        capture_output=True,
+                        text=True,
+                    )
+                    # If hardcopy succeeded, read and inspect the file
+                    if result.returncode == 0 and os.path.exists(tmp_path):
+                        try:
+                            with open(tmp_path, "r", encoding="utf-8", errors="replace") as fh:
+                                contents = fh.read()
+                            if "Monitor ready!" in contents:
+                                found_ready = True
+                                break
+                        except Exception:
+                            # If reading fails, ignore and continue polling
+                            pass
+                except Exception:
+                    # Ignore polling exceptions and retry until timeout
+                    pass
+                time.sleep(poll_interval)
+            if not found_ready:
+                logger.warning(
+                    "Did not observe 'Monitor ready!' within %.1fs for session %s; proceeding to injection",
+                    poll_timeout,
+                    session_name,
+                )
+        finally:
+            # Clean up temp file if it was created
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+        # Attempt to inject the prompt
+        success = False
+        for attempt in range(max_retries):
+            # Try to stuff into the screen window 0
+            stuff_arg = sanitized + "\n"
+            result = subprocess.run(
+                [
+                    self.screen_cmd,
+                    "-S",
+                    token_str,
+                    "-p",
+                    "0",
+                    "-X",
+                    "stuff",
+                    stuff_arg,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                success = True
+                break
+            logger.debug(
+                "Prompt inject attempt %d failed: rc=%s stderr=%s stdout=%s",
+                attempt,
+                result.returncode,
+                result.stderr,
+                result.stdout,
+            )
+            time.sleep(retry_delay)
+
+        if not success:
+            # Do not raise on injection failure. Mark metadata and return.
+            logger.warning(
+                "Failed to inject prompt into session %s after %d attempts; marking metadata and returning",
+                session_name,
+                max_retries,
+            )
+            meta["injection_failed"] = True
+            meta["injection_attempts"] = max_retries
+            try:
+                with open(meta_path, "w", encoding="utf-8") as fh:
+                    json.dump(meta, fh, ensure_ascii=False, indent=2)
+                os.chmod(meta_path, 0o600)
+            except Exception as exc:
+                logger.exception("Failed updating metadata for %s after injection failure: %s", session_name, exc)
+
+            logger.info("Created sub-agent %s (injection failed)", session_name)
+            return {"session_name": session_name, "log_path": str(log_path), "meta_path": str(meta_path)}
+
+        # If we reached here injection succeeded; metadata already present but we can refresh timestamp
+        meta["injection_failed"] = False
+        try:
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh, ensure_ascii=False, indent=2)
+            os.chmod(meta_path, 0o600)
+        except Exception:
+            # Non-fatal if we can't update metadata
+            logger.exception("Failed writing metadata for %s after successful injection", session_name)
+
+        logger.info("Created sub-agent %s", session_name)
+        return {"session_name": session_name, "log_path": str(log_path), "meta_path": str(meta_path)}
+
+    def send_to_session(self, session_name: str, text: str) -> bool:
+        """Send text to an existing screen session via 'stuff'.
+
+        Returns True on success, False otherwise.
+        """
+        if not self._validate_session_name(session_name):
+            raise ScreenHandlerError("Invalid session name")
+        sanitized = self.sanitize_prompt(text)
+        stuff_arg = sanitized + "\n"
+        result = subprocess.run(
+            [
+                self.screen_cmd,
+                "-S",
+                session_name,
+                "-p",
+                "0",
+                "-X",
+                "stuff",
+                stuff_arg,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """List screen sessions using 'screen -ls' and return parsed results.
+
+        Each entry is a dict with keys 'name' and raw 'line'. This is a lightweight
+        parser intended for friendly display.
+        """
+        if shutil_which(self.screen_cmd) is None:
+            raise ScreenHandlerError("'screen' executable not found on PATH")
+        result = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
+        out = result.stdout or ""
+        lines = out.splitlines()
+        entries: List[Dict[str, Any]] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Sample lines: "\t1234.mysession\t(Detached)"
+            parts = line.split()
+            # find token containing a dot joining pid and name
+            candidate = None
+            for p in parts:
+                if "." in p:
+                    candidate = p
+                    break
+            if candidate:
+                _, name = candidate.split(".", 1)
+                state = "unknown"
+                try:
+                    meta = self.session_metadata(name)
+                    if meta and "socket_path" in meta and meta["socket_path"]:
+                        sock_path = meta["socket_path"]
+                        # Try to connect to the UNIX socket and read a single JSON response
+                        try:
+                            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                                s.settimeout(0.5)
+                                s.connect(sock_path)
+                                # Read up to 64k of data; assume a single JSON payload is sent
+                                data = b""
+                                try:
+                                    chunk = s.recv(65536)
+                                    if chunk:
+                                        data += chunk
+                                except socket.timeout:
+                                    pass
+                                if data:
+                                    try:
+                                        payload = json.loads(data.decode("utf-8", errors="replace"))
+                                        if isinstance(payload, dict) and "state" in payload:
+                                            state = payload.get("state", "unknown")
+                                        else:
+                                            # If the payload is not dict, try to extract a string state
+                                            if isinstance(payload, str):
+                                                state = payload
+                                    except Exception:
+                                        state = "unknown"
+                        except Exception:
+                            state = "unknown"
+                except Exception:
+                    # Any metadata read/parsing errors result in unknown state
+                    state = "unknown"
+
+                entries.append({"name": name, "line": line, "state": state})
+        return entries
+
+    def kill_session(self, session_name: str) -> bool:
+        """Kill a screen session by name (send quit). Returns True on success."""
+        if not self._validate_session_name(session_name):
+            raise ScreenHandlerError("Invalid session name")
+        result = subprocess.run([self.screen_cmd, "-S", session_name, "-X", "quit"], capture_output=True, text=True)
+        return result.returncode == 0
+
+    def session_metadata(self, session_name: str) -> Optional[Dict[str, Any]]:
+        """Load per-session metadata JSON if present."""
+        candidate = self.base_meta_dir / f"{session_name}.json"
+        if not candidate.exists():
+            return None
+        try:
+            with open(candidate, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            logger.exception("Failed reading metadata for %s", session_name)
+            return None
+
+    def tail_log(self, session_name: str, lines: int = 200) -> str:
+        """Return the last `lines` of the session log if present."""
+        log_file = self.base_log_dir / f"{session_name}.log"
+        if not log_file.exists():
+            return ""
+        try:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as fh:
+                all_lines = fh.readlines()
+            return "".join(all_lines[-lines:])
+        except Exception:
+            logger.exception("Failed to read log for %s", session_name)
+            return ""
+
+
+# Small helper to resolve executables (kept local to avoid extra imports in test)
+def shutil_which(exe: str) -> Optional[str]:
+    try:
+        import shutil
+
+        return shutil.which(exe)
+    except Exception:
+        return None

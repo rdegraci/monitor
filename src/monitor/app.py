@@ -30,6 +30,7 @@ from monitor.core.conversation import chat
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
+from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
 from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
 from monitor.core.conversation import process_input  # Import process_input to feed lines through the conversation input pipeline.
 
@@ -331,6 +332,15 @@ def main():
             logger.info(warning_msg)
 
     configure_subsystems()
+
+
+    # Try to start the status UDS server if enabled via environment variable.
+    if os.environ.get("MONITOR_ENABLE_STATUS") == "1":
+        try:
+            socket_path = start_status_server(os.environ.get('MONITOR_STATUS_SOCKET'))
+            logger.info("Status UDS server started at: %s", socket_path)
+        except Exception:
+            logger.exception("Failed to start status UDS server")
 
 
     # Built-ins 

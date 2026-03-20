@@ -197,4 +197,4 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
 
     stats_str = " ".join(parts)
 
-    return f"\n{cwd}\n{stats_str}\n{model_str} {reasoning_str} ] "
+    return f"\n{cwd}\n{stats_str}\nmonitor {model_str} {reasoning_str} ]] "
