@@ -486,6 +486,10 @@ class ScreenHandler:
                             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                                 s.settimeout(1.0)
                                 s.connect(sock_path)
+                                try:
+                                    s.sendall(b'\n')
+                                except Exception:
+                                    pass
                                 # Read up to 64k chunks until EOF or idle timeout
                                 data = bytearray()
                                 try:
