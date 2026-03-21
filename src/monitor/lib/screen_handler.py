@@ -24,6 +24,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import appdirs
+from .screen_handler_utils import (
+    shutil_which,
+    resolve_screen_token,
+    find_tokens_for_name,
+    parse_screen_ls_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -213,26 +219,9 @@ class ScreenHandler:
         # fall back to using the session_name.
         token_str = session_name
         try:
-            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
-            out = ls.stdout or ""
-            candidates: List[tuple[int, str]] = []
-            for line in out.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split()
-                for p in parts:
-                    if p.endswith(f".{session_name}"):
-                        pid_part = p.split(".", 1)[0]
-                        try:
-                            pid_val = int(pid_part)
-                        except Exception:
-                            pid_val = -1
-                        candidates.append((pid_val, p))
-            if candidates:
-                # select candidate with highest PID
-                candidates.sort(key=lambda x: x[0], reverse=True)
-                token_str = candidates[0][1]
+            resolved = resolve_screen_token(self.screen_cmd, session_name)
+            if resolved:
+                token_str = resolved
                 logger.info("Resolved screen token %s for session %s", token_str, session_name)
             else:
                 logger.warning(
@@ -415,25 +404,9 @@ class ScreenHandler:
 
         token = session_name
         try:
-            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
-            out = ls.stdout or ""
-            candidates: List[tuple[int, str]] = []
-            for line in out.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split()
-                for p in parts:
-                    if p.endswith(f".{session_name}"):
-                        pid_part = p.split(".", 1)[0]
-                        try:
-                            pid_val = int(pid_part)
-                        except Exception:
-                            pid_val = -1
-                        candidates.append((pid_val, p))
-            if candidates:
-                candidates.sort(key=lambda x: x[0], reverse=True)
-                token = candidates[0][1]
+            resolved = resolve_screen_token(self.screen_cmd, session_name)
+            if resolved:
+                token = resolved
                 logger.debug("Resolved screen token %s for session %s", token, session_name)
             else:
                 logger.warning(
@@ -567,19 +540,7 @@ class ScreenHandler:
             raise ScreenHandlerError("'screen' executable not found on PATH")
 
         try:
-            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
-            out = ls.stdout or ""
-            tokens_to_kill: List[str] = []
-            for line in out.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split()
-                for p in parts:
-                    if p.endswith(f".{session_name}"):
-                        pid_part = p.split(".", 1)[0]
-                        if pid_part.isdigit():
-                            tokens_to_kill.append(p)
+            tokens_to_kill: List[str] = find_tokens_for_name(self.screen_cmd, session_name)
             if not tokens_to_kill:
                 logger.warning("No screen tokens found for session name %s", session_name)
                 return False
@@ -631,13 +592,3 @@ class ScreenHandler:
         except Exception:
             logger.exception("Failed to read log for %s", session_name)
             return ""
-
-
-# Small helper to resolve executables (kept local to avoid extra imports in test)
-def shutil_which(exe: str) -> Optional[str]:
-    try:
-        import shutil
-
-        return shutil.which(exe)
-    except Exception:
-        return None
