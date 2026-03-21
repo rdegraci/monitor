@@ -71,10 +71,13 @@ def test_list_sessions_parsing(mock_run, handler):
 
 @patch("subprocess.run")
 def test_kill_session_invokes_screen_quit(mock_run, handler):
-    mock_cp = MagicMock()
-    mock_cp.returncode = 0
-    mock_run.return_value = mock_cp
+    # Simulate 'screen -ls' returning a matching token, then a successful quit
+    ls_cp = MagicMock()
+    ls_cp.stdout = "1234.20261003_abc\t(Detached)\n"
+    quit_cp = MagicMock()
+    quit_cp.returncode = 0
+    mock_run.side_effect = [ls_cp, quit_cp]
 
     ok = handler.kill_session("20261003_abc")
     assert ok is True
-    mock_run.assert_called()
+    assert mock_run.call_count >= 2

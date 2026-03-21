@@ -372,25 +372,108 @@ class ScreenHandler:
 
         Returns True on success, False otherwise.
         """
+        # If caller passed an explicit screen token like "<pid>.<name>" where pid is numeric,
+        # treat it as an explicit token and send directly to it.
+        if "." in session_name:
+            left, _ = session_name.split(".", 1)
+            if left.isdigit():
+                token = session_name
+                sanitized = self.sanitize_prompt(text)
+                stuff_arg = sanitized + "\n"
+                try:
+                    result = subprocess.run(
+                        [
+                            self.screen_cmd,
+                            "-S",
+                            token,
+                            "-p",
+                            "0",
+                            "-X",
+                            "stuff",
+                            stuff_arg,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode != 0:
+                        logger.debug(
+                            "send_to_session (token) failed: rc=%s stderr=%s stdout=%s",
+                            result.returncode,
+                            result.stderr,
+                            result.stdout,
+                        )
+                    return result.returncode == 0
+                except Exception as exc:
+                    logger.exception("Exception while sending to screen token %s: %s", token, exc)
+                    return False
+
+        # Otherwise resolve the token from 'screen -ls' by finding tokens that end with ".{session_name}"
         if not self._validate_session_name(session_name):
             raise ScreenHandlerError("Invalid session name")
+        if shutil_which(self.screen_cmd) is None:
+            raise ScreenHandlerError("'screen' executable not found on PATH")
+
+        token = session_name
+        try:
+            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
+            out = ls.stdout or ""
+            candidates: List[tuple[int, str]] = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                for p in parts:
+                    if p.endswith(f".{session_name}"):
+                        pid_part = p.split(".", 1)[0]
+                        try:
+                            pid_val = int(pid_part)
+                        except Exception:
+                            pid_val = -1
+                        candidates.append((pid_val, p))
+            if candidates:
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                token = candidates[0][1]
+                logger.debug("Resolved screen token %s for session %s", token, session_name)
+            else:
+                logger.warning(
+                    "Could not resolve screen token for session %s; will attempt to use session name directly",
+                    session_name,
+                )
+                token = session_name
+        except Exception as exc:
+            logger.exception("Failed to list screen sessions when resolving token for %s: %s", session_name, exc)
+            token = session_name
+
         sanitized = self.sanitize_prompt(text)
         stuff_arg = sanitized + "\n"
-        result = subprocess.run(
-            [
-                self.screen_cmd,
-                "-S",
-                session_name,
-                "-p",
-                "0",
-                "-X",
-                "stuff",
-                stuff_arg,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0
+        try:
+            result = subprocess.run(
+                [
+                    self.screen_cmd,
+                    "-S",
+                    token,
+                    "-p",
+                    "0",
+                    "-X",
+                    "stuff",
+                    stuff_arg,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.debug(
+                    "send_to_session failed for resolved token %s: rc=%s stderr=%s stdout=%s",
+                    token,
+                    result.returncode,
+                    result.stderr,
+                    result.stdout,
+                )
+            return result.returncode == 0
+        except Exception as exc:
+            logger.exception("Exception while sending to resolved screen token %s for session %s: %s", token, session_name, exc)
+            return False
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """List screen sessions using 'screen -ls' and return parsed results.
@@ -410,12 +493,14 @@ class ScreenHandler:
                 continue
             # Sample lines: "\t1234.mysession\t(Detached)"
             parts = line.split()
-            # find token containing a dot joining pid and name
+            # find token containing a dot joining pid and name; only consider tokens with numeric pid part
             candidate = None
             for p in parts:
                 if "." in p:
-                    candidate = p
-                    break
+                    pid_part = p.split(".", 1)[0]
+                    if pid_part.isdigit():
+                        candidate = p
+                        break
             if candidate:
                 _, name = candidate.split(".", 1)
                 state = "unknown"
@@ -458,10 +543,69 @@ class ScreenHandler:
 
     def kill_session(self, session_name: str) -> bool:
         """Kill a screen session by name (send quit). Returns True on success."""
+        # If the caller passed a token like "<pid>.<name>" where pid is numeric, treat it as a token.
+        if "." in session_name:
+            left, _ = session_name.split(".", 1)
+            if left.isdigit():
+                # Treat as explicit token
+                try:
+                    result = subprocess.run([self.screen_cmd, "-S", session_name, "-X", "quit"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logger.info("Killed screen token %s", session_name)
+                        return True
+                    else:
+                        logger.warning("Failed to kill screen token %s: rc=%s stderr=%s stdout=%s", session_name, result.returncode, result.stderr, result.stdout)
+                        return False
+                except Exception as exc:
+                    logger.exception("Exception while killing screen token %s: %s", session_name, exc)
+                    return False
+
+        # Otherwise, validate the session name and attempt to find matching tokens via 'screen -ls'
         if not self._validate_session_name(session_name):
             raise ScreenHandlerError("Invalid session name")
-        result = subprocess.run([self.screen_cmd, "-S", session_name, "-X", "quit"], capture_output=True, text=True)
-        return result.returncode == 0
+        if shutil_which(self.screen_cmd) is None:
+            raise ScreenHandlerError("'screen' executable not found on PATH")
+
+        try:
+            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
+            out = ls.stdout or ""
+            tokens_to_kill: List[str] = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split()
+                for p in parts:
+                    if p.endswith(f".{session_name}"):
+                        pid_part = p.split(".", 1)[0]
+                        if pid_part.isdigit():
+                            tokens_to_kill.append(p)
+            if not tokens_to_kill:
+                logger.warning("No screen tokens found for session name %s", session_name)
+                return False
+
+            success_any = False
+            for token in tokens_to_kill:
+                try:
+                    result = subprocess.run([self.screen_cmd, "-S", token, "-X", "quit"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logger.info("Killed screen token %s for session %s", token, session_name)
+                        success_any = True
+                    else:
+                        logger.warning(
+                            "Failed to kill screen token %s for session %s: rc=%s stderr=%s stdout=%s",
+                            token,
+                            session_name,
+                            result.returncode,
+                            result.stderr,
+                            result.stdout,
+                        )
+                except Exception as exc:
+                    logger.exception("Exception while killing screen token %s for session %s: %s", token, session_name, exc)
+            return success_any
+        except Exception as exc:
+            logger.exception("Failed to list/kill screen sessions for %s: %s", session_name, exc)
+            return False
 
     def session_metadata(self, session_name: str) -> Optional[Dict[str, Any]]:
         """Load per-session metadata JSON if present."""
