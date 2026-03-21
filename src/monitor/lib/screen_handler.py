@@ -484,15 +484,43 @@ class ScreenHandler:
                         # Try to connect to the UNIX socket and read a single JSON response
                         try:
                             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                                s.settimeout(0.5)
+                                s.settimeout(1.0)
                                 s.connect(sock_path)
-                                # Read up to 64k of data; assume a single JSON payload is sent
-                                data = b""
+                                # Read up to 64k chunks until EOF or idle timeout
+                                data = bytearray()
                                 try:
-                                    chunk = s.recv(65536)
-                                    if chunk:
-                                        data += chunk
-                                except socket.timeout:
+                                    # Improved read logic:
+                                    # - Wait up to 2.0s for the first byte to arrive (first_byte_deadline).
+                                    # - Use an idle timeout of 1.0s for subsequent reads.
+                                    # - Continue reading chunks until recv returns empty (peer closed),
+                                    #   or an idle timeout occurs after some data was received,
+                                    #   or until the first-byte deadline elapses without receiving any data.
+                                    first_byte_deadline = time.monotonic() + 2.0
+                                    idle_timeout = 1.0
+                                    while True:
+                                        # Determine timeout for this recv:
+                                        if not data:
+                                            # Waiting for first byte; compute remaining time until deadline
+                                            time_left = first_byte_deadline - time.monotonic()
+                                            if time_left <= 0:
+                                                # First-byte deadline elapsed without receiving data
+                                                break
+                                            s.settimeout(time_left)
+                                        else:
+                                            # We have received some data; use idle timeout for further reads
+                                            s.settimeout(idle_timeout)
+                                        try:
+                                            chunk = s.recv(65536)
+                                        except socket.timeout:
+                                            # If no data has been received yet, this indicates the first-byte deadline elapsed.
+                                            # If some data has been received, this indicates an idle timeout.
+                                            break
+                                        if not chunk:
+                                            # Connection closed by peer; stop reading
+                                            break
+                                        data.extend(chunk)
+                                except Exception:
+                                    # Any read errors: proceed to parsing whatever was read, or mark unknown later
                                     pass
                                 if data:
                                     try:

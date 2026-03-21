@@ -60,7 +60,12 @@ def _handle_connection(conn: socket.socket) -> None:
         # We don't require a particular request format; ignore request body
         status = get_status()
         resp = json.dumps(status) + "\n"
-        conn.sendall(resp.encode("utf-8"))
+        try:
+            conn.sendall(resp.encode("utf-8"))
+        except BrokenPipeError:
+            logger.info("Client closed the connection before the server finished writing")
+        except Exception as exc:
+            logger.exception("Exception while sending status response: %s", exc)
     except Exception as exc:
         logger.exception("Exception while handling status connection: %s", exc)
     finally:
@@ -137,4 +142,3 @@ def stop_status_server() -> None:
     if _SERVER_THREAD and _SERVER_THREAD.is_alive():
         _SERVER_SHUTDOWN.set()
         _SERVER_THREAD.join(timeout=2.0)
-
