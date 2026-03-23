@@ -7,6 +7,7 @@ import platform
 import logging
 import shlex
 from monitor.lib.screen_handler import ScreenHandler
+from monitor.lib.screen_handler_utils import resolve_screen_token
 
 # Set up a root-level logger
 logger = logging.getLogger(__name__)
@@ -205,12 +206,22 @@ def run_command_in_screen(command):
             target_session = tokens[1]
             try:
                 # Attempt to attach to the session; do not capture output so it attaches to the current TTY
-                result = subprocess.run(['screen', '-r', target_session])
+                # Resolve the provided token to an actual screen token if possible using the ScreenHandler helper.
+                try:
+                    resolved_token = resolve_screen_token(_SCREEN_HANDLER.screen_cmd, target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving screen token for '{target_session}': {e}", exc_info=True)
+                    resolved_token = None
+
+                token_to_use = resolved_token if resolved_token else target_session
+                logger.info(f"Attaching to screen session token: '{token_to_use}'")
+
+                result = subprocess.run(['screen', '-r', token_to_use])
                 if result.returncode != 0:
-                    logger.error(f"Failed to attach to screen session '{target_session}': returncode {result.returncode}")
+                    logger.error(f"Failed to attach to screen session '{token_to_use}': returncode {result.returncode}")
                     user_feedback(f"Failed to attach to screen session '{target_session}'. See logs for details.")
                 else:
-                    logger.info(f"Attached to screen session '{target_session}'.")
+                    logger.info(f"Attached to screen session '{token_to_use}'.")
                 return
             except Exception as e:
                 logger.error(f"Exception while trying to attach to screen session '{target_session}': {e}", exc_info=True)

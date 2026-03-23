@@ -137,3 +137,38 @@ def test_run_command_in_screen_exception(monkeypatch, caplog):
     with caplog.at_level("ERROR"):
         terminal_commands.run_command_in_screen("doit")
     assert "Exception while trying to launch command in screen session" in caplog.text
+
+def test_attach_resolves_token(monkeypatch, caplog):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # resolve_screen_token returns a resolved token
+    monkeypatch.setattr(terminal_commands, "resolve_screen_token", lambda screen_cmd, session_name: "37082.20260323_fih")
+    mock_run = mock.Mock()
+    mock_run.return_value = mock.Mock(returncode=0, stderr="", stdout="")
+    monkeypatch.setattr("subprocess.run", mock_run)
+    with caplog.at_level("INFO"):
+        terminal_commands.run_command_in_screen("attach 20260323_fih")
+    # Ensure subprocess.run was called with the resolved token
+    assert mock_run.call_count >= 1
+    called_lists = [c[0][0] for c in mock_run.call_args_list if len(c[0]) > 0]
+    assert ["screen", "-r", "37082.20260323_fih"] in called_lists
+    # Ensure log contains info about attaching to that token
+    assert "37082.20260323_fih" in caplog.text
+    assert "attach" in caplog.text.lower()
+
+def test_attach_fallback_no_resolution(monkeypatch, caplog):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # resolve_screen_token returns None, so fallback to provided token
+    monkeypatch.setattr(terminal_commands, "resolve_screen_token", lambda screen_cmd, session_name: None)
+    mock_run = mock.Mock()
+    mock_run.return_value = mock.Mock(returncode=1, stderr="fail", stdout="")
+    monkeypatch.setattr("subprocess.run", mock_run)
+    with caplog.at_level("ERROR"):
+        terminal_commands.run_command_in_screen("attach 20260323_fih")
+    # Ensure subprocess.run was called with the original token when resolution failed
+    assert mock_run.call_count >= 1
+    called_lists = [c[0][0] for c in mock_run.call_args_list if len(c[0]) > 0]
+    assert ["screen", "-r", "20260323_fih"] in called_lists
+    # Ensure log contains the error message indicating failure to attach
+    assert "Failed to attach to screen session" in caplog.text
