@@ -19,6 +19,7 @@ import string
 import subprocess
 import tempfile
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -80,6 +81,15 @@ class ScreenHandler:
         self.base_log_dir.mkdir(parents=True, exist_ok=True)
         self.base_meta_dir.mkdir(parents=True, exist_ok=True)
 
+        # Instance identifier: UTC timestamp + short uuid (8 hex chars)
+        # Exposed as attribute for external reference.
+        ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        short_uuid = uuid.uuid4().hex[:8]
+        self.instance_id = f"{ts}_{short_uuid}"
+
+        # Sessions index file path for this instance
+        self.sessions_file = self.base_meta_dir / f"sessions_{self.instance_id}.json"
+
     def generate_session_name(self) -> str:
         """Generate a unique session name: YYYYMMDD_abc.
 
@@ -135,6 +145,126 @@ class ScreenHandler:
         except Exception as exc:
             logger.exception("Subprocess failed: %s", exc)
             raise ScreenHandlerError(f"Failed to run subprocess {args}: {exc}") from exc
+
+    def load_sessions_index(self) -> List[Dict[str, Any]]:
+        """Load the per-instance sessions index file.
+
+        Returns:
+            A list of session entry dicts. If the index file is missing or unreadable,
+            returns an empty list.
+
+        Entry dict keys:
+            - session_name: str
+            - meta_path: Optional[str]
+            - created_at: str (ISO8601 UTC with 'Z' suffix)
+        """
+        if not self.sessions_file.exists():
+            return []
+        try:
+            with open(self.sessions_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, list):
+                return data
+            logger.warning("Sessions index %s did not contain a list; returning empty list", str(self.sessions_file))
+            return []
+        except Exception:
+            logger.exception("Failed reading sessions index %s", str(self.sessions_file))
+            return []
+
+    def save_sessions_index(self, entries: List[Dict[str, Any]]) -> None:
+        """Atomically save the sessions index to disk with restricted permissions.
+
+        Args:
+            entries: List of session entry dicts to persist.
+
+        The file is written atomically using a temporary file and os.replace, and
+        permissions are set to 0o600.
+        """
+        try:
+            # Ensure parent dir exists
+            self.base_meta_dir.mkdir(parents=True, exist_ok=True)
+            # Create a temporary file in the same directory to ensure atomic replace works across filesystems
+            tmp_fh = tempfile.NamedTemporaryFile(prefix=f"sessions_{self.instance_id}_", dir=str(self.base_meta_dir), delete=False, mode="w", encoding="utf-8")
+            tmp_path = Path(tmp_fh.name)
+            try:
+                json.dump(entries, tmp_fh, ensure_ascii=False, indent=2)
+                tmp_fh.flush()
+                try:
+                    os.fsync(tmp_fh.fileno())
+                except Exception:
+                    # Not fatal if fsync isn't available
+                    pass
+            finally:
+                try:
+                    tmp_fh.close()
+                except Exception:
+                    pass
+            # Atomically replace
+            os.replace(str(tmp_path), str(self.sessions_file))
+            try:
+                os.chmod(self.sessions_file, 0o600)
+            except Exception:
+                # Not fatal if chmod fails
+                pass
+        except Exception:
+            logger.exception("Failed saving sessions index to %s", str(self.sessions_file))
+
+    def add_session_to_index(self, session_name: str, meta_path: Optional[str] = None, created_at: Optional[str] = None) -> None:
+        """Add or refresh a session entry in the per-instance sessions index.
+
+        Args:
+            session_name: The session's short name (e.g., '20261003_abc').
+            meta_path: Optional path to the session metadata JSON file.
+            created_at: Optional ISO8601 UTC timestamp string. If omitted, defaults to now.
+
+        Behavior:
+            - Avoids duplicate entries by removing any existing entry with the same session_name.
+            - Prepends the new entry so index 1 is the most recent session.
+        """
+        if created_at is None:
+            created_at = datetime.utcnow().isoformat() + "Z"
+        entries = self.load_sessions_index()
+        # Remove duplicates
+        normalized = [e for e in entries if e.get("session_name") != session_name]
+        new_entry: Dict[str, Any] = {"session_name": session_name, "created_at": created_at}
+        if meta_path:
+            new_entry["meta_path"] = meta_path
+        # Prepend newest
+        normalized.insert(0, new_entry)
+        self.save_sessions_index(normalized)
+
+    def remove_session_from_index(self, session_name: str) -> bool:
+        """Remove a session entry from the per-instance sessions index.
+
+        Args:
+            session_name: The session's short name to remove.
+
+        Returns:
+            True if an entry was removed and the index was updated, False otherwise.
+        """
+        entries = self.load_sessions_index()
+        filtered = [e for e in entries if e.get("session_name") != session_name]
+        if len(filtered) == len(entries):
+            return False
+        self.save_sessions_index(filtered)
+        return True
+
+    def get_session_by_index(self, index: int) -> Dict[str, Any]:
+        """Return a session entry by 1-based index from the sessions index.
+
+        Args:
+            index: 1-based index into the sessions index (1 is most recent).
+
+        Returns:
+            The session entry dict.
+
+        Raises:
+            ScreenHandlerError: If the index is out of range.
+        """
+        entries = self.load_sessions_index()
+        if index < 1 or index > len(entries):
+            raise ScreenHandlerError(f"Invalid session index: {index}")
+        return entries[index - 1]
 
     def create_interactive_subagent(
         self,
@@ -213,6 +343,12 @@ class ScreenHandler:
             os.chmod(meta_path, 0o600)
         except Exception as exc:
             logger.exception("Failed writing metadata for %s: %s", session_name, exc)
+
+        # Update per-instance sessions index to include this new session.
+        try:
+            self.add_session_to_index(session_name, meta_path=str(meta_path), created_at=meta["created_at"])
+        except Exception:
+            logger.exception("Failed adding session %s to sessions index %s", session_name, str(self.sessions_file))
 
         # Resolve the screen token for the created session. Prefer the token of form "<pid>.<name>"
         # and choose the one with the highest PID if multiple are present. If resolution fails,
@@ -550,13 +686,18 @@ class ScreenHandler:
         """Kill a screen session by name (send quit). Returns True on success."""
         # If the caller passed a token like "<pid>.<name>" where pid is numeric, treat it as a token.
         if "." in session_name:
-            left, _ = session_name.split(".", 1)
+            left, right = session_name.split(".", 1)
             if left.isdigit():
                 # Treat as explicit token
                 try:
                     result = subprocess.run([self.screen_cmd, "-S", session_name, "-X", "quit"], capture_output=True, text=True)
                     if result.returncode == 0:
                         logger.info("Killed screen token %s", session_name)
+                        # Remove from index using the short session name (after the dot)
+                        try:
+                            self.remove_session_from_index(right)
+                        except Exception:
+                            logger.exception("Failed removing session %s from index after killing token %s", right, session_name)
                         return True
                     else:
                         logger.warning("Failed to kill screen token %s: rc=%s stderr=%s stdout=%s", session_name, result.returncode, result.stderr, result.stdout)
@@ -595,6 +736,11 @@ class ScreenHandler:
                         )
                 except Exception as exc:
                     logger.exception("Exception while killing screen token %s for session %s: %s", token, session_name, exc)
+            if success_any:
+                try:
+                    self.remove_session_from_index(session_name)
+                except Exception:
+                    logger.exception("Failed removing session %s from index after killing tokens", session_name)
             return success_any
         except Exception as exc:
             logger.exception("Failed to list/kill screen sessions for %s: %s", session_name, exc)
@@ -611,6 +757,115 @@ class ScreenHandler:
         except Exception:
             logger.exception("Failed reading metadata for %s", session_name)
             return None
+
+    def list_indexed_sessions(self, full: bool = False) -> List[Dict[str, Any]]:
+        """List sessions recorded in the per-instance sessions index.
+
+        Args:
+            full: If True, include meta_path in the returned dicts. If False, omit meta_path.
+
+        Returns:
+            A list of dicts with keys:
+                - index: 1-based index (1 is most recent)
+                - session_name: str
+                - token: resolved screen token or session_name fallback
+                - state: str (e.g., 'running', 'idle', 'unknown')
+                - created_at: str
+                - meta_path: str (only present if full=True and available)
+        """
+        entries = self.load_sessions_index()
+        results: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(entries, start=1):
+            sess_name = entry.get("session_name")
+            created_at = entry.get("created_at")
+            meta_path = entry.get("meta_path")
+            token = sess_name
+            state = "unknown"
+            try:
+                resolved = resolve_screen_token(self.screen_cmd, sess_name)
+                if resolved:
+                    token = resolved
+                else:
+                    token = sess_name
+            except Exception:
+                token = sess_name
+
+            # Try to probe state via metadata socket if available
+            sock_path = None
+            # If meta_path was present, try to read it to get socket_path
+            if meta_path:
+                try:
+                    if os.path.exists(meta_path):
+                        with open(meta_path, "r", encoding="utf-8") as fh:
+                            m = json.load(fh)
+                        if isinstance(m, dict) and "socket_path" in m and m["socket_path"]:
+                            sock_path = m["socket_path"]
+                except Exception:
+                    logger.exception("Failed reading metadata %s for indexed session %s", str(meta_path), sess_name)
+                    sock_path = None
+            # If no socket from meta, try to read from base meta dir file
+            if not sock_path:
+                try:
+                    meta_local = self.session_metadata(sess_name)
+                    if meta_local and "socket_path" in meta_local and meta_local["socket_path"]:
+                        sock_path = meta_local["socket_path"]
+                except Exception:
+                    sock_path = None
+
+            if sock_path:
+                try:
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                        s.settimeout(1.0)
+                        s.connect(sock_path)
+                        try:
+                            s.sendall(b'\n')
+                        except Exception:
+                            pass
+                        data = bytearray()
+                        try:
+                            first_byte_deadline = time.monotonic() + 2.0
+                            idle_timeout = 1.0
+                            while True:
+                                if not data:
+                                    time_left = first_byte_deadline - time.monotonic()
+                                    if time_left <= 0:
+                                        break
+                                    s.settimeout(time_left)
+                                else:
+                                    s.settimeout(idle_timeout)
+                                try:
+                                    chunk = s.recv(65536)
+                                except socket.timeout:
+                                    break
+                                if not chunk:
+                                    break
+                                data.extend(chunk)
+                        except Exception:
+                            pass
+                        if data:
+                            try:
+                                payload = json.loads(data.decode("utf-8", errors="replace"))
+                                if isinstance(payload, dict) and "state" in payload:
+                                    state = payload.get("state", "unknown")
+                                else:
+                                    if isinstance(payload, str):
+                                        state = payload
+                            except Exception:
+                                state = "unknown"
+                except Exception:
+                    state = "unknown"
+
+            item: Dict[str, Any] = {
+                "index": idx,
+                "session_name": sess_name,
+                "token": token,
+                "state": state,
+                "created_at": created_at,
+            }
+            if full and meta_path:
+                item["meta_path"] = meta_path
+            results.append(item)
+        return results
 
     def tail_log(self, session_name: str, lines: int = 200) -> str:
         """Return the last `lines` of the session log if present."""

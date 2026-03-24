@@ -6,7 +6,7 @@ import shutil
 import platform
 import logging
 import shlex
-from monitor.lib.screen_handler import ScreenHandler
+from monitor.lib.screen_handler import ScreenHandler, ScreenHandlerError
 from monitor.lib.screen_handler_utils import resolve_screen_token
 
 # Set up a root-level logger
@@ -14,6 +14,84 @@ logger = logging.getLogger(__name__)
 
 # Module-level default screen handler
 _SCREEN_HANDLER = ScreenHandler()
+
+def _color(text, color):
+    """Return text wrapped in ANSI color codes.
+
+    Args:
+        text (str): Text to colorize.
+        color (str): One of "green", "yellow", "red", "blue", "magenta", "reset".
+
+    Returns:
+        str: Colorized text using ANSI escape sequences if supported.
+    """
+    colors = {
+        "reset": "\033[0m",
+        "green": "\033[32m",
+        "yellow": "\033[33m",
+        "red": "\033[31m",
+        "blue": "\033[34m",
+        "magenta": "\033[35m",
+    }
+    prefix = colors.get(color, "")
+    suffix = colors.get("reset", "")
+    if not prefix:
+        return text
+    return f"{prefix}{text}{suffix}"
+
+def _resolve_index_to_session_name(token):
+    """Resolve a numeric session index to the actual session name via ScreenHandler.
+
+    This function supports ScreenHandler.get_session_by_index returning either a
+    simple session name (str) or a dict-like session entry. If a dict is returned,
+    the function will attempt to extract the 'session_name', 'name', or 'session'
+    key from the dict.
+
+    Args:
+        token (str): Token provided by the user; if numeric, attempt to resolve.
+
+    Returns:
+        str: The resolved session name.
+
+    Raises:
+        ScreenHandlerError: If ScreenHandler.get_session_by_index raises ScreenHandlerError.
+        Exception: If no session is found for the given index or other errors occur.
+    """
+    if not str(token).isdigit():
+        return token
+    idx = int(token)
+    # ScreenHandler is expected to provide a method get_session_by_index
+    session_entry = None
+    try:
+        session_entry = _SCREEN_HANDLER.get_session_by_index(idx)
+    except ScreenHandlerError:
+        # Propagate ScreenHandler-specific errors for the caller to handle appropriately.
+        raise
+    except Exception:
+        # Let caller handle other exceptions and user feedback/logging
+        raise
+
+    session_name = None
+
+    # If handler returned a dict-like entry, attempt to extract the session name.
+    if isinstance(session_entry, dict):
+        session_name = session_entry.get('session_name') or session_entry.get('name') or session_entry.get('session')
+    elif isinstance(session_entry, tuple) and len(session_entry) >= 2:
+        # Some handlers may return (index, payload)
+        payload = session_entry[1]
+        if isinstance(payload, dict):
+            session_name = payload.get('session_name') or payload.get('name') or payload.get('session')
+        else:
+            session_name = getattr(payload, 'session_name', None) or getattr(payload, 'name', None) or (str(payload) if isinstance(payload, str) else None)
+    else:
+        if isinstance(session_entry, str):
+            session_name = session_entry
+        else:
+            session_name = getattr(session_entry, 'session_name', None) or getattr(session_entry, 'name', None) or getattr(session_entry, 'session', None)
+
+    if not session_name:
+        raise Exception(f"No session found for index {idx}")
+    return session_name
 
 def user_feedback(message):
     """UX helper for user-facing feedback; currently logs as INFO.
@@ -124,17 +202,23 @@ def run_command_in_screen(command):
         help_text = (
             "Usage: :screen <subcommand> [args]\n\n"
             "Subcommands:\n"
-            "  list, ls                    List active screen sessions\n"
-            "  logs <session_name>         Show recent logs for a session\n"
-            "  attach <session_name>       Attach to an existing session\n"
-            "  kill <session_name>         Kill a session\n"
-            "  send <session_name> [--] <text>  Send text to a session\n\n"
+            "  list, ls                    List active screen sessions (supports per-instance numeric indices)\n"
+            "                              Use --full to show tokens and metadata paths\n"
+            "  logs <session_name|index>   Show recent logs for a session (index resolves per-instance)\n"
+            "  attach <session_name|index> Attach to an existing session (index resolves per-instance)\n"
+            "  kill <session_name|index>   Kill a session (index resolves per-instance)\n"
+            "  send <session_name|index> [--] <text>  Send text to a session (index resolves per-instance)\n\n"
             "Examples:\n"
             "  :screen list\n"
+            "  :screen list --full\n"
             "  :screen logs mysession\n"
+            "  :screen logs 3\n"
             "  :screen attach mysession\n"
+            "  :screen attach 2\n"
             "  :screen kill mysession\n"
+            "  :screen kill 1\n"
             "  :screen send mysession -- \"echo hello\"\n"
+            "  :screen send 4 \"echo hello\"\n"
         )
         print(help_text)
         user_feedback("Displayed :screen usage information.")
@@ -144,25 +228,135 @@ def run_command_in_screen(command):
         first = tokens[0]
         # Handle "list" / "ls" custom action via ScreenHandler
         if first in ("list", "ls"):
+            # detect --full flag
+            full = '--full' in tokens
             try:
-                sessions = _SCREEN_HANDLER.list_sessions()
+                # Prefer the new API that supports per-instance indices and full metadata
+                try:
+                    sessions = _SCREEN_HANDLER.list_indexed_sessions(full=full)
+                except AttributeError:
+                    # Fallback if the handler doesn't implement the new API
+                    sessions = _SCREEN_HANDLER.list_sessions()
+                    full = False  # can't show full details if method absent
+
                 if sessions is None:
                     user_feedback("No screen sessions found.")
                     return
 
-                # sessions may be a dict {name: state} or an iterable of (name, state)
-                if isinstance(sessions, dict):
-                    items = sessions.items()
-                else:
-                    items = sessions
+                # Prepare rows with normalized fields
+                rows = []
+                # Attempt to determine instance id and sessions file for header
+                instance_id = getattr(_SCREEN_HANDLER, 'instance_id', None)
+                sessions_file = getattr(_SCREEN_HANDLER, 'sessions_file', None)
 
-                for item in items:
+                def _extract_info(item):
+                    """Normalize a single item into a dict with expected keys."""
+                    info = {}
+                    # item might be (index, payload), dict, or object
+                    if isinstance(item, tuple) and len(item) == 2 and (isinstance(item[0], (int, str))):
+                        idx = item[0]
+                        payload = item[1]
+                    else:
+                        payload = item
+                        idx = None
+
+                    if isinstance(payload, dict):
+                        info['index'] = idx if idx is not None else payload.get('index') or payload.get('idx')
+                        info['name'] = payload.get('name') or payload.get('session_name') or payload.get('session')
+                        info['token'] = payload.get('token') or payload.get('screen_token') or payload.get('screen')
+                        info['state'] = payload.get('state') or payload.get('status')
+                        info['created_at'] = payload.get('created_at') or payload.get('created') or payload.get('ctime')
+                        info['meta_path'] = payload.get('meta_path') or payload.get('metadata_path') or payload.get('metadata')
+                    else:
+                        # Generic object or simple value
+                        info['index'] = idx if idx is not None else getattr(payload, 'index', None) or getattr(payload, 'idx', None)
+                        info['name'] = getattr(payload, 'name', None) or getattr(payload, 'session_name', None) or (str(payload) if isinstance(payload, str) else None)
+                        info['token'] = getattr(payload, 'token', None) or getattr(payload, 'screen_token', None)
+                        info['state'] = getattr(payload, 'state', None) or getattr(payload, 'status', None)
+                        info['created_at'] = getattr(payload, 'created_at', None) or getattr(payload, 'created', None)
+                        info['meta_path'] = getattr(payload, 'meta_path', None) or getattr(payload, 'metadata_path', None) or getattr(payload, 'metadata', None)
+                    # Normalize to strings for display
+                    for k in ['index', 'name', 'token', 'state', 'created_at', 'meta_path']:
+                        if info.get(k) is None:
+                            info[k] = ""
+                    return info
+
+                # Determine iterable type
+                if isinstance(sessions, dict):
+                    iterable = sessions.items()
+                else:
+                    iterable = sessions
+
+                for item in iterable:
                     try:
-                        name, state = item
-                        print(f"{name} - {state}")
+                        info = _extract_info(item)
+                        rows.append(info)
                     except Exception:
-                        # Fallback if item is not a (name, state) pair
-                        print(str(item))
+                        # Best-effort: fallback to string representation
+                        rows.append({
+                            'index': '',
+                            'name': str(item),
+                            'token': '',
+                            'state': '',
+                            'created_at': '',
+                            'meta_path': ''
+                        })
+
+                # Compute column widths
+                idx_width = max([len(str(r['index'])) for r in rows] + [5])
+                name_width = max([len(r['name'] or "") for r in rows] + [12])
+                token_width = max([len(r['token'] or "") for r in rows] + ([10] if full else [0]))
+                state_width = max([len(r['state'] or "") for r in rows] + [6])
+                created_width = max([len(r['created_at'] or "") for r in rows] + [10])
+                meta_width = max([len(r['meta_path'] or "") for r in rows] + ([12] if full else [0]))
+
+                # Print header with instance info and sessions file basename if available
+                header_line = "Sessions"
+                if instance_id:
+                    header_line += f" (instance: {instance_id})"
+                print(header_line)
+                if sessions_file:
+                    try:
+                        print(f"Sessions file: {os.path.basename(sessions_file)}")
+                    except Exception:
+                        # If sessions_file is not a path-like string, just print representation
+                        print(f"Sessions file: {sessions_file}")
+
+                # Print table header
+                if full:
+                    header_fmt = f"{{:<{idx_width}}}  {{:<{name_width}}}  {{:<{token_width}}}  {{:<{state_width}}}  {{:<{created_width}}}  {{:<{meta_width}}}"
+                    print(header_fmt.format("Index", "Name", "Token", "State", "Created", "Meta"))
+                    print("-" * (idx_width + name_width + token_width + state_width + created_width + meta_width + 10))
+                    for r in rows:
+                        state_text = r['state'] or ""
+                        st_lower = (state_text or "").lower()
+                        if "run" in st_lower or "attached" in st_lower or "up" in st_lower:
+                            color = "green"
+                        elif "detach" in st_lower or "detached" in st_lower:
+                            color = "yellow"
+                        elif "dead" in st_lower or "exit" in st_lower or "exited" in st_lower or "stop" in st_lower:
+                            color = "red"
+                        else:
+                            color = "blue"
+                        state_colored = _color(state_text, color)
+                        print(header_fmt.format(str(r['index']), r['name'], r['token'], state_colored, r['created_at'], r['meta_path']))
+                else:
+                    header_fmt = f"{{:<{idx_width}}}  {{:<{name_width}}}  {{:<{state_width}}}  {{:<{created_width}}}"
+                    print(header_fmt.format("Index", "Name", "State", "Created"))
+                    print("-" * (idx_width + name_width + state_width + created_width + 6))
+                    for r in rows:
+                        state_text = r['state'] or ""
+                        st_lower = (state_text or "").lower()
+                        if "run" in st_lower or "attached" in st_lower or "up" in st_lower:
+                            color = "green"
+                        elif "detach" in st_lower or "detached" in st_lower:
+                            color = "yellow"
+                        elif "dead" in st_lower or "exit" in st_lower or "exited" in st_lower or "stop" in st_lower:
+                            color = "red"
+                        else:
+                            color = "blue"
+                        state_colored = _color(state_text, color)
+                        print(header_fmt.format(str(r['index']), r['name'], state_colored, r['created_at']))
                 return
             except Exception as e:
                 logger.error(f"Error listing screen sessions: {e}", exc_info=True)
@@ -175,6 +369,14 @@ def run_command_in_screen(command):
                 user_feedback("Usage: logs <session_name>")
                 return
             target_session = tokens[1]
+            # Resolve numeric index tokens to session names
+            if str(target_session).isdigit():
+                try:
+                    target_session = _resolve_index_to_session_name(target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving session index '{tokens[1]}': {e}", exc_info=True)
+                    user_feedback(f"Failed to resolve session index '{tokens[1]}'. See logs for details.")
+                    return
             try:
                 log_output = _SCREEN_HANDLER.tail_log(target_session)
                 # If tail_log returns an iterable of lines, print them; otherwise, print the object
@@ -204,6 +406,14 @@ def run_command_in_screen(command):
                 user_feedback("Usage: attach <session_name>")
                 return
             target_session = tokens[1]
+            # Resolve numeric index tokens to session names
+            if str(target_session).isdigit():
+                try:
+                    target_session = _resolve_index_to_session_name(target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving session index '{tokens[1]}': {e}", exc_info=True)
+                    user_feedback(f"Failed to resolve session index '{tokens[1]}'. See logs for details.")
+                    return
             try:
                 # Attempt to attach to the session; do not capture output so it attaches to the current TTY
                 # Resolve the provided token to an actual screen token if possible using the ScreenHandler helper.
@@ -234,6 +444,14 @@ def run_command_in_screen(command):
                 user_feedback("Usage: kill <session_name>")
                 return
             target_session = tokens[1]
+            # Resolve numeric index tokens to session names
+            if str(target_session).isdigit():
+                try:
+                    target_session = _resolve_index_to_session_name(target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving session index '{tokens[1]}': {e}", exc_info=True)
+                    user_feedback(f"Failed to resolve session index '{tokens[1]}'. See logs for details.")
+                    return
             try:
                 result = _SCREEN_HANDLER.kill_session(target_session)
                 if result:
@@ -254,6 +472,14 @@ def run_command_in_screen(command):
                 user_feedback("Usage: send <session_name> [--] <text>")
                 return
             target_session = tokens[1]
+            # Resolve numeric index tokens to session names
+            if str(target_session).isdigit():
+                try:
+                    target_session = _resolve_index_to_session_name(target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving session index '{tokens[1]}': {e}", exc_info=True)
+                    user_feedback(f"Failed to resolve session index '{tokens[1]}'. See logs for details.")
+                    return
             # Extract text after '--' if present; otherwise everything after the session name
             if '--' in tokens:
                 sep_index = tokens.index('--')

@@ -172,3 +172,85 @@ def test_attach_fallback_no_resolution(monkeypatch, caplog):
     assert ["screen", "-r", "20260323_fih"] in called_lists
     # Ensure log contains the error message indicating failure to attach
     assert "Failed to attach to screen session" in caplog.text
+
+def test_list_indexed_sessions_full(monkeypatch, capsys):
+    # Ensure environment looks like UNIX with screen installed
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # Prepare full entries
+    full_entries = [
+        {
+            "index": 0,
+            "name": "session-alpha",
+            "token": "1001.alpha",
+            "state": "attached",
+            "created": "2026-03-23T10:00:00Z",
+            "meta": "/tmp/meta-alpha"
+        },
+        {
+            "index": 1,
+            "name": "session-beta",
+            "token": "1002.beta",
+            "state": "detached",
+            "created": "2026-03-23T11:00:00Z",
+            "meta": "/tmp/meta-beta"
+        }
+    ]
+    # Monkeypatch the screen handler to return the full entries when requested
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "list_indexed_sessions", lambda full: full_entries)
+    # Set instance_id and sessions_file on the handler for header/footer info
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "instance_id", "instance-123")
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "sessions_file", "/var/lib/app/sessions.db")
+    # Run the list --full command and capture stdout
+    terminal_commands.run_command_in_screen("list --full")
+    captured = capsys.readouterr()
+    out = captured.out
+    # Assertions: instance id and sessions file basename
+    assert "instance-123" in out
+    assert "sessions.db" in out
+    # Headers should include these columns
+    assert "Index" in out
+    assert "Name" in out
+    assert "Token" in out
+    assert "State" in out
+    assert "Created" in out
+    assert "Meta" in out
+    # Ensure the two sessions and their tokens are present
+    assert "session-alpha" in out
+    assert "1001.alpha" in out
+    assert "session-beta" in out
+    assert "1002.beta" in out
+
+def test_list_indexed_sessions_compact(monkeypatch, capsys):
+    # Ensure environment looks like UNIX with screen installed
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
+    # Prepare compact entries
+    compact_entries = [
+        {
+            "index": 0,
+            "name": "compact-one",
+            "state": "running",
+            "created": "2026-03-23T09:00:00Z"
+        },
+        {
+            "index": 1,
+            "name": "compact-two",
+            "state": "stopped",
+            "created": "2026-03-23T09:30:00Z"
+        }
+    ]
+    # Monkeypatch the screen handler to return compact entries when full=False
+    monkeypatch.setattr(terminal_commands._SCREEN_HANDLER, "list_indexed_sessions", lambda full: compact_entries)
+    # Run the compact list command and capture stdout
+    terminal_commands.run_command_in_screen("list")
+    captured = capsys.readouterr()
+    out = captured.out
+    # Headers for compact mode
+    assert "Index" in out
+    assert "Name" in out
+    assert "State" in out
+    assert "Created" in out
+    # Ensure the session names are present
+    assert "compact-one" in out
+    assert "compact-two" in out
