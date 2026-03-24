@@ -432,9 +432,9 @@ def configure_built_ins() -> None:
                     "description": "Search project files using ripgrep.",
                 },
                 {
-                    "command": ":screen",
+                    "command": ":agent",
                     "function": _make_callable(run_command_in_screen),
-                    "description": "Run a shell command in a detached screen session.",
+                    "description": "Run a shell command in a detached agent/screen session.",
                 },
             ],
         },

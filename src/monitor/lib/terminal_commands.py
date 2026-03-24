@@ -200,28 +200,28 @@ def run_command_in_screen(command):
     # If invoked with no arguments, print concise usage help and return
     if not tokens:
         help_text = (
-            "Usage: :screen <subcommand> [args]\n\n"
+            "Usage: :agent <subcommand> [args]\n\n"
             "Subcommands:\n"
-            "  list, ls                    List active screen sessions (supports per-instance numeric indices)\n"
+            "  list, ls                    List active agent sessions (supports per-instance numeric indices)\n"
             "                              Use --full to show tokens and metadata paths\n"
-            "  logs <session_name|index>   Show recent logs for a session (index resolves per-instance)\n"
-            "  attach <session_name|index> Attach to an existing session (index resolves per-instance)\n"
-            "  kill <session_name|index>   Kill a session (index resolves per-instance)\n"
-            "  send <session_name|index> [--] <text>  Send text to a session (index resolves per-instance)\n\n"
+            "  logs <session_name|index>   Show recent logs for a agent (index resolves per-instance)\n"
+            "  attach <session_name|index> Attach to an existing agent (index resolves per-instance)\n"
+            "  kill <session_name|index>   Kill a agent (index resolves per-instance)\n"
+            "  send <session_name|index> [--] <text>  Send text to a agent (index resolves per-instance)\n\n"
             "Examples:\n"
-            "  :screen list\n"
-            "  :screen list --full\n"
-            "  :screen logs mysession\n"
-            "  :screen logs 3\n"
-            "  :screen attach mysession\n"
-            "  :screen attach 2\n"
-            "  :screen kill mysession\n"
-            "  :screen kill 1\n"
-            "  :screen send mysession -- \"echo hello\"\n"
-            "  :screen send 4 \"echo hello\"\n"
+            "  :agent list\n"
+            "  :agent list --full\n"
+            "  :agent logs mysession\n"
+            "  :agent logs 3\n"
+            "  :agent attach mysession\n"
+            "  :agent attach 2\n"
+            "  :agent kill mysession\n"
+            "  :agent kill 1\n"
+            "  :agent send mysession -- \"echo hello\"\n"
+            "  :agent send 4 \"echo hello\"\n"
         )
         print(help_text)
-        user_feedback("Displayed :screen usage information.")
+        user_feedback("Displayed :agent usage information.")
         return
 
     if tokens:
