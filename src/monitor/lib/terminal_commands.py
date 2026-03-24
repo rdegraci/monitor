@@ -8,36 +8,14 @@ import logging
 import shlex
 from monitor.lib.screen_handler import ScreenHandler, ScreenHandlerError
 from monitor.lib.screen_handler_utils import resolve_screen_token
+from monitor.lib import subagent_logging
+from monitor.lib.terminal_commands_util import _color, user_feedback, is_executable_on_path, is_platform_mac, is_platform_unix
 
 # Set up a root-level logger
 logger = logging.getLogger(__name__)
 
 # Module-level default screen handler
 _SCREEN_HANDLER = ScreenHandler()
-
-def _color(text, color):
-    """Return text wrapped in ANSI color codes.
-
-    Args:
-        text (str): Text to colorize.
-        color (str): One of "green", "yellow", "red", "blue", "magenta", "reset".
-
-    Returns:
-        str: Colorized text using ANSI escape sequences if supported.
-    """
-    colors = {
-        "reset": "\033[0m",
-        "green": "\033[32m",
-        "yellow": "\033[33m",
-        "red": "\033[31m",
-        "blue": "\033[34m",
-        "magenta": "\033[35m",
-    }
-    prefix = colors.get(color, "")
-    suffix = colors.get("reset", "")
-    if not prefix:
-        return text
-    return f"{prefix}{text}{suffix}"
 
 def _resolve_index_to_session_name(token):
     """Resolve a numeric session index to the actual session name via ScreenHandler.
@@ -92,41 +70,6 @@ def _resolve_index_to_session_name(token):
     if not session_name:
         raise Exception(f"No session found for index {idx}")
     return session_name
-
-def user_feedback(message):
-    """UX helper for user-facing feedback; currently logs as INFO.
-
-    Args:
-        message (str): The message to deliver to the user.
-    """
-    logger.info(message)
-
-def is_executable_on_path(executable):
-    """Check if an executable exists on the current system PATH.
-
-    Args:
-        executable (str): The executable name to check.
-
-    Returns:
-        bool: True if found, False otherwise.
-    """
-    return shutil.which(executable) is not None
-
-def is_platform_mac():
-    """Check if the current platform is macOS.
-
-    Returns:
-        bool: True if running on macOS, False otherwise.
-    """
-    return platform.system() == "Darwin"
-
-def is_platform_unix():
-    """Check if the current platform is UNIX-like (Linux or Darwin).
-
-    Returns:
-        bool: True if running on a UNIX-like system, False otherwise.
-    """
-    return platform.system() in ("Linux", "Darwin")
 
 # The Terminal application’s permissions must be configured to allow AppleScript automation on your Mac. 
 # You can adjust these settings under `System Preferences > Security & Privacy > Privacy > Automation`.
@@ -205,6 +148,7 @@ def run_command_in_screen(command):
             "  list, ls                    List active agent sessions (supports per-instance numeric indices)\n"
             "                              Use --full to show tokens and metadata paths\n"
             "  logs <session_name|index>   Show recent logs for a agent (index resolves per-instance)\n"
+            "  logfile <session_name|index> Print the logfile path for a session (index resolves per-instance)\n"
             "  attach <session_name|index> Attach to an existing agent (index resolves per-instance)\n"
             "  kill <session_name|index>   Kill a agent (index resolves per-instance)\n"
             "  send <session_name|index> [--] <text>  Send text to a agent (index resolves per-instance)\n\n"
@@ -213,6 +157,8 @@ def run_command_in_screen(command):
             "  :agent list --full\n"
             "  :agent logs mysession\n"
             "  :agent logs 3\n"
+            "  :agent logfile mysession\n"
+            "  :agent logfile 3\n"
             "  :agent attach mysession\n"
             "  :agent attach 2\n"
             "  :agent kill mysession\n"
@@ -402,6 +348,40 @@ def run_command_in_screen(command):
             except Exception as e:
                 logger.error(f"Error tailing logs for session '{target_session}': {e}", exc_info=True)
                 user_feedback(f"Failed to get logs for session '{target_session}'. See logs for details.")
+                return
+
+        # Handle "logfile <session_name>" custom action to locate the logfile for a session
+        # This uses monitor.lib.subagent_logging.find_logfile_for_session_name to resolve the path.
+        # Args:
+        #   tokens: token list where tokens[1] is session name or numeric index.
+        # Behavior:
+        #   Resolve numeric indices to session names, call the helper to find the logfile path,
+        #   print only the path if found, otherwise provide user feedback.
+        if first == "logfile":
+            if len(tokens) < 2:
+                user_feedback("Usage: logfile <session_name>")
+                return
+            target_session = tokens[1]
+            # Resolve numeric index tokens to session names
+            if str(target_session).isdigit():
+                try:
+                    target_session = _resolve_index_to_session_name(target_session)
+                except Exception as e:
+                    logger.error(f"Error resolving session index '{tokens[1]}': {e}", exc_info=True)
+                    user_feedback(f"Failed to resolve session index '{tokens[1]}'. See logs for details.")
+                    return
+            try:
+                logfile_path = subagent_logging.find_logfile_for_session_name(target_session)
+                if logfile_path:
+                    # Print only the path to be machine-friendly
+                    print(logfile_path)
+                    return
+                else:
+                    user_feedback(f"No logfile found for session '{target_session}'.")
+                    return
+            except Exception as e:
+                logger.error(f"Error finding logfile for session '{target_session}': {e}", exc_info=True)
+                user_feedback(f"Failed to get logfile for session '{target_session}'. See logs for details.")
                 return
 
         # Handle "attach <session_name>" to attach to an existing screen session using 'screen -r <session>'

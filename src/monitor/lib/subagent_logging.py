@@ -86,6 +86,82 @@ def _find_meta_for_socket(socket_path: str) -> Optional[Path]:
     return None
 
 
+def find_logfile_for_session_name(session_name: str) -> Optional[str]:
+    """Find the logfile path for a given session name.
+
+    This function searches the user data directory for the monitor's subagents
+    metadata JSON files and attempts to locate a metadata entry that matches
+    the provided session_name. A match is determined if the metadata's
+    "session_name" value equals the provided session_name or if the metadata
+    filename stem equals the provided session_name.
+
+    If a matching metadata file is found and it contains a "log_path" entry,
+    that path is returned as a string. If a matching metadata file is found
+    but does not contain "log_path", or if no matching metadata file is found,
+    a deterministic fallback path is returned under the user cache directory:
+    appdirs.user_cache_dir("monitor")/subagents/<stem>.log where <stem> is the
+    matching metadata filename stem (if available) or the provided session_name.
+
+    The function employs robust error handling: IO and JSON errors for
+    individual metadata files are ignored (the search continues). If a
+    non-recoverable error occurs while determining directories or creating the
+    fallback, the function will log the exception and return None.
+
+    Args:
+        session_name: The session name to search for.
+
+    Returns:
+        A string path to the discovered logfile or deterministic fallback, or
+        None if a fatal error prevents constructing a path.
+    """
+    try:
+        base = Path(appdirs.user_data_dir("monitor")) / "subagents"
+    except Exception:
+        logger.exception("Failed to determine user data dir for monitor")
+        base = None
+
+    found_meta_stem: Optional[str] = None
+
+    if base and base.exists():
+        try:
+            for p in base.glob("*.json"):
+                try:
+                    with open(p, "r", encoding="utf-8") as fh:
+                        data = json.load(fh)
+                    if isinstance(data, dict) and (data.get("session_name") == session_name or p.stem == session_name):
+                        # Prefer explicit log_path in metadata if present
+                        lp = data.get("log_path")
+                        if lp:
+                            try:
+                                return str(Path(lp))
+                            except Exception:
+                                # If constructing Path fails for some reason, fall back to deterministic path
+                                logger.exception("Invalid log_path in metadata %s", str(p))
+                                found_meta_stem = p.stem
+                                break
+                        found_meta_stem = p.stem
+                        break
+                except Exception:
+                    # Ignore errors reading/parsing individual metadata files
+                    continue
+        except Exception:
+            logger.exception("Failed searching for metadata files in %s", str(base))
+
+    # Construct deterministic fallback under user cache dir
+    try:
+        cache_base = Path(appdirs.user_cache_dir("monitor")) / "subagents"
+        _ensure_dir(cache_base)
+        stem = found_meta_stem if found_meta_stem else session_name
+        if not stem:
+            # As a last resort, use process id to avoid empty filename
+            stem = f"session_{os.getpid()}"
+        fallback = cache_base / f"{stem}.log"
+        return str(fallback)
+    except Exception:
+        logger.exception("Failed to construct fallback logfile path for session %s", session_name)
+        return None
+
+
 def append_interaction(prompt_text: str, reply_text: str, explicit_path: Optional[str] = None) -> None:
     """Append a minimal JSONL interaction record to the per-session subagent log.
 
