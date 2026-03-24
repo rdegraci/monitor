@@ -387,13 +387,17 @@ def run_command_in_screen(command):
                     for line in log_output:
                         print(line)
                 else:
-                    # Could be a generator or a single string; handle generator by iterating
-                    try:
-                        for line in log_output:
-                            print(line)
-                    except TypeError:
-                        # Not iterable, just print directly
+                    # Fix: Avoid iterating strings character-by-character by checking for str explicitly.
+                    # Preserve existing behavior for lists/tuples and iterables (generators); print strings whole.
+                    if isinstance(log_output, str):
                         print(log_output)
+                    else:
+                        try:
+                            for line in log_output:
+                                print(line)
+                        except TypeError:
+                            # Not iterable, just print directly
+                            print(log_output)
                 return
             except Exception as e:
                 logger.error(f"Error tailing logs for session '{target_session}': {e}", exc_info=True)

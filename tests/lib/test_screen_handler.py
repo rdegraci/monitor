@@ -44,6 +44,9 @@ def test_create_interactive_subagent_runs_screen_and_stuffs(mock_run, handler, t
     # Verify that subprocess.run was called at least twice (create + stuff attempts)
     assert mock_run.call_count >= 2
 
+    # Verify that one of the subprocess.run invocations included MONITOR_AGENT=1 in the positional args
+    assert any("MONITOR_AGENT=1" in "".join(map(str, call.args)) for call in mock_run.call_args_list)
+
 
 @patch("subprocess.run")
 def test_send_to_session_calls_stuff(mock_run, handler):

@@ -86,6 +86,7 @@ from monitor.lib.summarizers import (
 from monitor.lib.colors import blue, red, yellow, reset
 from monitor.lib.redis_utils import prepend_memory_to_history
 from monitor.lib import status as status_module
+import monitor.lib.subagent_logging as subagent_logging
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,22 @@ def query(user_prompt):
 
     # Get response message
     response_message = response.choices[0].message
+
+    # Subagent logging: attempt to record the prompt and reply if agent mode is enabled.
+    if getattr(config, "AGENT", False):
+        try:
+            prompt_text = user_prompt if isinstance(user_prompt, str) else str(user_prompt)
+            reply_text = ""
+            if hasattr(response_message, "content"):
+                reply_text = response_message.content
+            else:
+                reply_text = str(response_message)
+            try:
+                subagent_logging.append_interaction(prompt_text=prompt_text, reply_text=reply_text)
+            except Exception:
+                logger.exception("subagent_logging.append_interaction failed")
+        except Exception:
+            logger.exception("Failed to prepare subagent logging interaction data")
 
     # Determine how to handle the response
     return process_response_by_type(

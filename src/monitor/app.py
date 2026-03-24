@@ -10,29 +10,28 @@ is gracefully closed, even when the program is interrupted by the user (e.g.,
 Ctrl-C).
 """
 
-import logging
-import sys
 import argparse  # Added for command-line argument parsing.
-import os  # Added for forced process exit fallback.
-import shutil  # For config file backup/copy
+import appdirs  # Import appdirs for user config directory
 from datetime import datetime  # For backup filename timestamps
 import importlib.resources  # For accessing package resource defaults
-import appdirs  # Import appdirs for user config directory
+import logging
+import os  # Added for forced process exit fallback.
+import shutil  # For config file backup/copy
+import sys
 
 from monitor import config
 from monitor.config import configure_subsystems, load_environment_globals, start_logging, load_model_config
 from monitor.config import set_model  # Import set_model for CLI model override.
-from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
-
 from monitor.core.built_ins import configure_built_ins
-from monitor.lib.macros import configure_macros
 from monitor.core.conversation import chat
-from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
-from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
-from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
-from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
-from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
 from monitor.core.conversation import process_input  # Import process_input to feed lines through the conversation input pipeline.
+from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
+from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
+from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
+from monitor.lib.macros import configure_macros
+from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
+from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
+from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +256,11 @@ def main():
         type=str,
         help="Path to a script file containing commands to execute, one per line. If present, the script is run and the program exits.",
     )
+    parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Enable agent mode (sets config.AGENT to True).",
+    )
 
     args, unknown = parser.parse_known_args()
 
@@ -330,6 +334,14 @@ def main():
             )
             print(user_msg)
             logger.info(warning_msg)
+
+    # Apply --agent CLI flag: set config.AGENT to True and log when enabled.
+    if getattr(args, "agent", False):
+        try:
+            config.AGENT = True
+            logger.info("Agent mode enabled via --agent flag.")
+        except Exception:
+            logger.exception("Failed to set config.AGENT via --agent flag.")
 
     configure_subsystems()
 

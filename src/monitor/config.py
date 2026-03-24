@@ -479,6 +479,7 @@ SUMMARY_TWITCH = None
 SUMMARY_LINKEDIN = None
 SUMMARY_TWITTER = None
 SERVER_MODE = None
+AGENT = False
 RESPONSES_API = None
 TWITTER_CLIENT_API = None
 TWITCH_CLIENT_API = None
@@ -498,7 +499,7 @@ def configure_globals():
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
     global ECS_HOST, ECS_PORT, ECS_TIMEOUT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
-    global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, RESPONSES_API
+    global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
 
@@ -656,6 +657,21 @@ def configure_globals():
     ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get("ENABLE_AUTO_SUMMARIZE_ON_LIMIT")
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")
+    AGENT = yaml_config.get("AGENT", False)
+
+    # Allow MONITOR_AGENT env var to override YAML when present.
+    # Accept truthy values: '1', 'true', 'yes', 'on' (case-insensitive).
+    try:
+        _agent_env_val = os.getenv("MONITOR_AGENT")
+    except Exception as _e:
+        logger.error(f"Error reading MONITOR_AGENT environment variable: {_e}", exc_info=True)
+        raise
+    if _agent_env_val is not None:
+        try:
+            AGENT = str(_agent_env_val).strip().lower() in ("1", "true", "yes", "on")
+        except Exception as _e:
+            logger.error(f"Error parsing MONITOR_AGENT environment variable: {_e}", exc_info=True)
+            raise
 
     TWITTER_CLIENT_API = os.getenv(
         "TWITTER_CLIENT_API",

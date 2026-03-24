@@ -316,6 +316,7 @@ class ScreenHandler:
             "env",
             "MONITOR_ENABLE_STATUS=1",
             f"MONITOR_STATUS_SOCKET={str(socket_path)}",
+            "MONITOR_AGENT=1",
         ] + self.monitor_cmd
         cp = self._run(cmd, check=False, capture_output=True, text=True)
         time.sleep(0.4)
