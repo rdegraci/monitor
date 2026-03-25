@@ -1,4 +1,5 @@
 from monitor import config
+from monitor.core.agent_tools import agent_kill, agent_list, agent_logfile, agent_send
 
 from monitor.lib.redis_utils import (
     save_to_memory,
@@ -80,6 +81,10 @@ AVAILABLE_TOOLS = {
     "list_todos": list_todos,
     "update_todo": update_todo,
     "clear_todos": clear_todos,
+    "agent_kill": agent_kill,
+    "agent_list": agent_list,
+    "agent_logfile": agent_logfile,
+    "agent_send": agent_send,
     "make_directory": make_directory
 }
 
@@ -762,6 +767,72 @@ GEMINI_TOOL_DESCRIPTIONS = [
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Terminate or stop the specified agent session. Use this function to stop an agent safely.",
+    "name": "agent_kill",
+    "parameters": {
+      "properties": {
+        "index": {
+          "description": "The index of the agent session to terminate.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Returns a list of available agents and their metadata. Use this function to discover agents that can be invoked or inspected.",
+    "name": "agent_list",
+    "parameters": {
+      "properties": {
+        "full": {
+          "description": "If true, return complete agent metadata including configuration and capabilities; otherwise return a summary list.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Retrieve or stream the logfile for the specified agent session. Use this to obtain logs produced by agents for debugging or auditing.",
+    "name": "agent_logfile",
+    "parameters": {
+      "properties": {
+        "index": {
+          "description": "The index of the agent logfile to retrieve.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Send a text message to the specified agent session. Use this function to provide input or commands to an active agent.",
+    "name": "agent_send",
+    "parameters": {
+      "properties": {
+        "index": {
+          "description": "The index of the agent session to send the message to.",
+          "type": "integer"
+        },
+        "text": {
+          "description": "The text message or command to send to the agent.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "text"
       ],
       "type": "object"
     }
