@@ -1,12 +1,14 @@
 """Uses global logging config; do not configure logging here."""
 
-import subprocess
-import os
-import shutil
-import platform
 import logging
+import os
+import platform
+import shutil
+import subprocess
 import shlex
-from monitor.lib.screen_handler import ScreenHandler, ScreenHandlerError
+import uuid
+import threading
+from monitor.lib.screen_handler import ScreenHandlerError, get_global_screen_handler
 from monitor.lib.screen_handler_utils import resolve_screen_token
 from monitor.lib import subagent_logging
 from monitor.lib.terminal_commands_util import _color, user_feedback, is_executable_on_path, is_platform_mac, is_platform_unix
@@ -14,8 +16,72 @@ from monitor.lib.terminal_commands_util import _color, user_feedback, is_executa
 # Set up a root-level logger
 logger = logging.getLogger(__name__)
 
-# Module-level default screen handler
-_SCREEN_HANDLER = ScreenHandler()
+# Module-level default screen handler (lazy)
+class _LazyScreen:
+    """Lazy proxy for the global ScreenHandler.
+
+    This proxy defers the construction/lookup of the actual global ScreenHandler
+    until the first attribute access. It is thread-safe and forwards attribute
+    access and method calls to the underlying handler returned by
+    get_global_screen_handler().
+
+    The intent is to avoid importing/constructing the real ScreenHandler at
+    module-import time and instead obtain it on first use, preserving existing
+    call sites which expect a handler object with standard attributes and
+    methods.
+
+    Attributes:
+        _lock (threading.Lock): Lock protecting lazy initialization.
+        _handler: The resolved ScreenHandler instance, or None until initialized.
+    """
+
+    def __init__(self):
+        """Initialize the lazy proxy.
+
+        Initializes the internal lock and leaves the underlying handler unset.
+        """
+        self._lock = threading.Lock()
+        self._handler = None
+
+    def _ensure(self):
+        """Ensure the underlying ScreenHandler instance is initialized.
+
+        If not already initialized, calls get_global_screen_handler() to obtain
+        the real handler and caches it for subsequent attribute accesses.
+
+        Raises:
+            Exception: Propagates exceptions from get_global_screen_handler.
+        """
+        if self._handler is None:
+            with self._lock:
+                if self._handler is None:
+                    self._handler = get_global_screen_handler()
+
+    def __getattr__(self, name):
+        """Forward attribute access to the underlying ScreenHandler.
+
+        This method triggers initialization on first access.
+
+        Args:
+            name (str): Attribute name to retrieve.
+
+        Returns:
+            Any: The attribute from the underlying ScreenHandler.
+
+        Raises:
+            AttributeError: If the underlying handler doesn't have the attribute.
+            Exception: Propagated exceptions from initialization.
+        """
+        self._ensure()
+        return getattr(self._handler, name)
+
+    def __repr__(self):
+        """Return a representation for debugging purposes."""
+        if self._handler is None:
+            return "<_LazyScreen(uninitialized)>"
+        return repr(self._handler)
+
+_SCREEN_HANDLER = _LazyScreen()
 
 def _resolve_index_to_session_name(token):
     """Resolve a numeric session index to the actual session name via ScreenHandler.
@@ -124,12 +190,23 @@ def run_command_in_screen(command):
         session_name (str, optional): The name for the screen session. Defaults to "mysession".
 
     Returns:
-        None
+        dict or None:
+            On successful creation of an interactive subagent via
+            _SCREEN_HANDLER.create_interactive_subagent(command), returns a structured
+            dict with keys:
+                - status: 'ok'
+                - session_name: name of the created session
+                - metadata_path: path to session metadata (if provided by handler)
+                - status_socket: path to status socket (if provided)
+                - token / screen_token / screen: any token-like fields provided by the handler
+
+            On failure or when falling back to legacy behavior, the function returns None.
 
     Notes:
-        - Requires 'screen' to be installed and available in the system PATH.
+        - Requires 'screen' to be installed and available in the system PATH for fallback.
         - Only works on UNIX-like operating systems.
         - Logs all errors, does not raise exceptions on missing dependencies or runtime errors.
+        - Preserves user feedback and prints but will return the structured dict on successful interactive creation.
     """
     # Parse the incoming command for local helper actions first
     session_name = "mysession"
@@ -508,20 +585,33 @@ def run_command_in_screen(command):
         try:
             subagent_info = _SCREEN_HANDLER.create_interactive_subagent(command)
 
+            # If handler returned a (idx, payload) style tuple/list, prefer the payload element
+            if isinstance(subagent_info, (list, tuple)) and len(subagent_info) >= 2:
+                subagent_info = subagent_info[1]
+
             # Normalize returned information into session_name, metadata_path, status_socket where possible.
             session_name_ret = None
             metadata_path = None
             status_socket = None
+            token_val = None
+            screen_token_val = None
+            screen_val = None
 
             if isinstance(subagent_info, dict):
                 session_name_ret = subagent_info.get('session_name') or subagent_info.get('name') or session_name
                 metadata_path = subagent_info.get('metadata_path') or subagent_info.get('metadata') or subagent_info.get('meta_path')
                 status_socket = subagent_info.get('status_socket') or subagent_info.get('status') or subagent_info.get('socket')
+                token_val = subagent_info.get('token') if 'token' in subagent_info else None
+                screen_token_val = subagent_info.get('screen_token') if 'screen_token' in subagent_info else None
+                screen_val = subagent_info.get('screen') if 'screen' in subagent_info else None
             else:
                 # Fallback to attribute access for objects
                 session_name_ret = getattr(subagent_info, 'session_name', None) or getattr(subagent_info, 'name', None) or session_name
                 metadata_path = getattr(subagent_info, 'metadata_path', None) or getattr(subagent_info, 'metadata', None) or getattr(subagent_info, 'meta_path', None)
                 status_socket = getattr(subagent_info, 'status_socket', None) or getattr(subagent_info, 'status', None) or getattr(subagent_info, 'socket', None)
+                token_val = getattr(subagent_info, 'token', None)
+                screen_token_val = getattr(subagent_info, 'screen_token', None)
+                screen_val = getattr(subagent_info, 'screen', None)
 
             # Inform the user and print relevant metadata paths
             user_feedback(f"Command '{command}' is running in screen session '{session_name_ret}'.")
@@ -534,7 +624,32 @@ def run_command_in_screen(command):
                 print(f"Status socket: {status_socket}")
 
             logger.info(f"Created interactive subagent for command '{command}' in session '{session_name_ret}' with metadata '{metadata_path}' and status socket '{status_socket}'")
-            return
+
+            # Normalize values to JSON-serializable types
+            metadata_path = str(metadata_path) if metadata_path is not None else None
+            status_socket = str(status_socket) if status_socket is not None else None
+            token_val = str(token_val) if token_val is not None else None
+            screen_token_val = str(screen_token_val) if screen_token_val is not None else None
+            screen_val = str(screen_val) if screen_val is not None else None
+            correlation_id = uuid.uuid4().hex[:12]
+
+            # Build structured return dict including any token-like fields if present
+            result_dict = {
+                'status': 'ok',
+                'session_name': session_name_ret,
+                'session': session_name_ret,
+                'metadata_path': metadata_path,
+                'status_socket': status_socket,
+                'correlation_id': correlation_id
+            }
+            if token_val:
+                result_dict['token'] = token_val
+            if screen_token_val:
+                result_dict['screen_token'] = screen_token_val
+            if screen_val:
+                result_dict['screen'] = screen_val
+
+            return result_dict
         except Exception as e:
             # If ScreenHandler.create_interactive_subagent fails, log and fall back to legacy behavior.
             logger.error(f"create_interactive_subagent failed: {e}", exc_info=True)

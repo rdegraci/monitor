@@ -4,13 +4,88 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from monitor.lib.screen_handler import ScreenHandler
+from monitor.lib.screen_handler import get_global_screen_handler
 from monitor.lib import subagent_logging
 
 logger = logging.getLogger(__name__)
 
-# Module-level ScreenHandler instance
-_SCREEN = ScreenHandler()
+# Module-level ScreenHandler instance (lazy)
+class _LazyScreen:
+    """Proxy that lazily retrieves the global ScreenHandler.
+
+    This proxy defers obtaining the real ScreenHandler instance until the
+    first attribute access. It is intended to replace an eager import of a
+    module-level GLOBAL_SCREEN_HANDLER to avoid expensive initialization at
+    import time.
+
+    Attributes:
+        _real (Optional[Any]): The actual ScreenHandler instance once loaded.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the lazy proxy without creating the real handler.
+
+        The real handler will be created on first attribute access.
+        """
+        # Store the real instance in the instance dict to avoid recursion in
+        # __setattr__ and __getattr__.
+        self.__dict__["_real"] = None
+
+    def _ensure(self) -> Any:
+        """Ensure the real ScreenHandler is available.
+
+        Returns:
+            Any: The real ScreenHandler instance obtained from
+                get_global_screen_handler().
+        """
+        real = self.__dict__.get("_real")
+        if real is None:
+            real = get_global_screen_handler()
+            self.__dict__["_real"] = real
+        return real
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the real ScreenHandler.
+
+        Args:
+            name: The attribute name being accessed.
+
+        Returns:
+            Any: The requested attribute from the real ScreenHandler.
+
+        Raises:
+            AttributeError: If the underlying handler does not have the attribute.
+        """
+        real = self._ensure()
+        return getattr(real, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Delegate attribute assignment to the real ScreenHandler.
+
+        Args:
+            name: The attribute name to set.
+            value: The value to assign to the attribute.
+        """
+        if name == "_real":
+            # Allow setting the internal marker without forcing initialization.
+            self.__dict__["_real"] = value
+        else:
+            real = self._ensure()
+            setattr(real, name, value)
+
+    def __repr__(self) -> str:
+        """Return a representation indicating whether the real handler is loaded.
+
+        Returns:
+            str: A human-readable representation of the proxy.
+        """
+        real = self.__dict__.get("_real")
+        if real is None:
+            return "<LazyScreen (uninitialized)>"
+        return repr(real)
+
+
+_SCREEN = _LazyScreen()
 
 
 def _new_correlation_id() -> str:

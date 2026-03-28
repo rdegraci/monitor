@@ -880,3 +880,23 @@ class ScreenHandler:
         except Exception:
             logger.exception("Failed to read log for %s", session_name)
             return ""
+
+
+# Shared in-process ScreenHandler instance for modules to import and reuse
+_GLOBAL_SCREEN_HANDLER: Optional[ScreenHandler] = None
+
+
+def get_global_screen_handler() -> ScreenHandler:
+    """Return the module-level shared ScreenHandler instance.
+
+    This function implements lazy construction of the global ScreenHandler used by
+    other modules. The ScreenHandler is created on first call and the same instance
+    is returned on subsequent calls.
+
+    Returns:
+        ScreenHandler: The shared ScreenHandler instance.
+    """
+    global _GLOBAL_SCREEN_HANDLER
+    if _GLOBAL_SCREEN_HANDLER is None:
+        _GLOBAL_SCREEN_HANDLER = ScreenHandler()
+    return _GLOBAL_SCREEN_HANDLER
