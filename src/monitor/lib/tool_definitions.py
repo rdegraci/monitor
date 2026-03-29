@@ -375,6 +375,96 @@ TOOL_DESCRIPTIONS = [
                 "required": ["path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tavily_search",
+            "description": "Performs a web search using Tavily API to get up-to-date information or additional context. Use this when you need current information or think a search could provide a better answer.",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "The search query",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_kill",
+            "description": "Terminate or stop the specified agent session. Use this function to stop an agent safely.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "The index of the agent session to terminate."
+                    }
+                },
+                "required": ["index"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_list",
+            "description": "Returns a list of available agents and their metadata. Use this function to discover agents that can be invoked or inspected.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "full": {
+                        "type": "boolean",
+                        "description": "If true, return complete agent metadata including configuration and capabilities; otherwise return a summary list."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_logfile",
+            "description": "Retrieve or stream the logfile for the specified agent session. Use this to obtain logs produced by agents for debugging or auditing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "The index of the agent logfile to retrieve."
+                    }
+                },
+                "required": ["index"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_send",
+            "description": "Send a text message to the specified agent session. Use this function to provide input or commands to an active agent.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "The index of the agent session to send the message to."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The text message or command to send to the agent."
+                    }
+                },
+                "required": ["index", "text"]
+            }
+        }
     }
 ]
 
