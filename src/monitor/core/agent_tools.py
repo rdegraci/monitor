@@ -4,7 +4,6 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from monitor.lib.screen_handler import get_global_screen_handler
 from monitor.lib import subagent_logging
 
 logger = logging.getLogger(__name__)
@@ -40,6 +39,10 @@ class _LazyScreen:
         """
         real = self.__dict__.get("_real")
         if real is None:
+            # Import the potentially expensive get_global_screen_handler
+            # lazily to avoid module import-time overhead and side effects.
+            from monitor.lib.screen_handler import get_global_screen_handler
+
             real = get_global_screen_handler()
             self.__dict__["_real"] = real
         return real
@@ -126,6 +129,140 @@ def agent_list(full: bool = False) -> Dict[str, Any]:
         return result
     except Exception as exc:
         logger.exception("agent_list failed: %s", exc)
+        return {"status": "error", "correlation_id": cid, "message": str(exc)}
+
+
+def agent_create(prompt: str) -> Dict[str, Any]:
+    """Create an interactive subagent (screen) session.
+
+    This wrapper requests the ScreenHandler to create an interactive subagent
+    using the provided prompt. It returns a structured result suitable for
+    LLM consumption with a correlation id for auditing.
+
+    The returned structure attempts to normalize the handler's response into
+    a session name, a metadata path and a logfile path where available.
+
+    Args:
+        prompt: The prompt to use when creating the interactive subagent.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing status, correlation_id, and on
+            success the keys 'session_name', 'meta_path', and 'log_path'. On
+            failure, returns status 'error' with a message.
+    """
+    cid = _new_correlation_id()
+
+    # Input validation: require a str prompt
+    if not isinstance(prompt, str):
+        msg = "prompt must be a str"
+        logger.error("agent_create validation failed: cid=%s, prompt=%r, msg=%s", cid, prompt, msg)
+        return {"status": "error", "correlation_id": cid, "message": msg}
+
+    try:
+        # Request creation from the handler, handling the blocked case explicitly.
+        try:
+            info = _SCREEN.create_interactive_subagent(prompt)
+        except Exception as exc:
+            # Import SubagentCreationBlocked lazily; handle the blocked case if available.
+            try:
+                from monitor.lib.screen_handler import SubagentCreationBlocked  # type: ignore
+            except Exception:
+                SubagentCreationBlocked = None  # type: ignore
+
+            if SubagentCreationBlocked is not None and isinstance(exc, SubagentCreationBlocked):
+                # Creation was blocked; return an error result but do not raise.
+                logger.warning("agent_create blocked: cid=%s, prompt=%r, exc=%s", cid, prompt, exc)
+                return {"status": "error", "correlation_id": cid, "message": str(exc)}
+            if isinstance(exc, AttributeError):
+                # Handler does not expose the expected API.
+                raise RuntimeError("ScreenHandler.create_interactive_subagent is not available")
+            # Propagate other exceptions to be handled uniformly below.
+            raise
+
+        # Normalize the returned info into session_name, meta_path, log_path.
+        session_name: Optional[str] = None
+        meta_path: Optional[str] = None
+        log_path: Optional[str] = None
+
+        # If it's a simple string, treat it as the session name.
+        if isinstance(info, str):
+            session_name = info
+        # If it's a dict, extract common keys.
+        elif isinstance(info, dict):
+            for key in ("session_name", "name", "session", "id", "title"):
+                if key in info and isinstance(info[key], str) and info[key]:
+                    session_name = info[key]
+                    break
+            for key in ("meta_path", "meta", "meta_file", "meta_filepath", "metadata_path"):
+                if key in info and isinstance(info[key], str) and info[key]:
+                    meta_path = info[key]
+                    break
+            for key in ("log_path", "logfile", "log_file", "logpath", "logfile_path"):
+                if key in info and isinstance(info[key], str) and info[key]:
+                    log_path = info[key]
+                    break
+        # If it's a list/tuple, inspect positional elements.
+        elif isinstance(info, (list, tuple)):
+            if info:
+                first = info[0]
+                if isinstance(first, str):
+                    session_name = first
+                elif isinstance(first, dict):
+                    for key in ("session_name", "name", "session", "id", "title"):
+                        if key in first and isinstance(first[key], str) and first[key]:
+                            session_name = first[key]
+                            break
+                else:
+                    session_name = str(first) if first is not None else ""
+                if len(info) > 1 and isinstance(info[1], str):
+                    meta_path = info[1]
+                if len(info) > 2 and isinstance(info[2], str):
+                    log_path = info[2]
+        # Otherwise, try common attributes on objects, then fall back to str().
+        else:
+            for attr in ("session_name", "name", "session", "id", "title"):
+                if hasattr(info, attr):
+                    val = getattr(info, attr)
+                    if isinstance(val, str) and val:
+                        session_name = val
+                        break
+            if session_name is None:
+                for attr in ("meta_path", "meta", "meta_file", "meta_filepath", "metadata_path"):
+                    if hasattr(info, attr):
+                        val = getattr(info, attr)
+                        if isinstance(val, str) and val:
+                            meta_path = val
+                            break
+            if log_path is None:
+                for attr in ("log_path", "logfile", "log_file", "logpath", "logfile_path"):
+                    if hasattr(info, attr):
+                        val = getattr(info, attr)
+                        if isinstance(val, str) and val:
+                            log_path = val
+                            break
+            if not session_name:
+                session_name = str(info) if info is not None else ""
+
+        if not session_name:
+            raise RuntimeError("Could not resolve session name from create_interactive_subagent result")
+
+        result = {
+            "status": "ok",
+            "correlation_id": cid,
+            "session_name": session_name,
+            "meta_path": meta_path,
+            "log_path": log_path,
+        }
+        logger.info(
+            "agent_create success: cid=%s, session=%s, meta=%s, log=%s",
+            cid,
+            session_name,
+            meta_path,
+            log_path,
+        )
+        return result
+    except Exception as exc:
+        logger.exception("agent_create failed: %s", exc)
         return {"status": "error", "correlation_id": cid, "message": str(exc)}
 
 

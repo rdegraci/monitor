@@ -8,7 +8,8 @@ import subprocess
 import shlex
 import uuid
 import threading
-from monitor.lib.screen_handler import ScreenHandlerError, get_global_screen_handler
+import json
+from monitor.lib.screen_handler import ScreenHandlerError, get_global_screen_handler, SubagentCreationBlocked
 from monitor.lib.screen_handler_utils import resolve_screen_token
 from monitor.lib import subagent_logging
 from monitor.lib.terminal_commands_util import _color, user_feedback, is_executable_on_path, is_platform_mac, is_platform_unix
@@ -650,6 +651,12 @@ def run_command_in_screen(command):
                 result_dict['screen'] = screen_val
 
             return result_dict
+        except SubagentCreationBlocked as e:
+            # If the ScreenHandler explicitly blocks subagent creation, inform the user and do not fall back.
+            logger.info(f"create_interactive_subagent blocked: {e}")
+            user_feedback(str(e))
+            print(json.dumps({"status":"error","message": str(e)}))
+            return
         except Exception as e:
             # If ScreenHandler.create_interactive_subagent fails, log and fall back to legacy behavior.
             logger.error(f"create_interactive_subagent failed: {e}", exc_info=True)

@@ -480,6 +480,9 @@ SUMMARY_LINKEDIN = None
 SUMMARY_TWITTER = None
 SERVER_MODE = None
 AGENT = False
+# New globals for agent depth configuration
+MONITOR_AGENT_DEPTH = 0
+MONITOR_AGENT_MAX_DEPTH = 1
 RESPONSES_API = None
 TWITTER_CLIENT_API = None
 TWITCH_CLIENT_API = None
@@ -502,6 +505,7 @@ def configure_globals():
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
+    global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -672,6 +676,37 @@ def configure_globals():
         except Exception as _e:
             logger.error(f"Error parsing MONITOR_AGENT environment variable: {_e}", exc_info=True)
             raise
+
+    # MONITOR_AGENT_DEPTH (int) - controls the agent recursion/depth behavior.
+    # MONITOR_AGENT_MAX_DEPTH (int) - maximum allowed depth for agent operations.
+    # Read from environment variables if present; otherwise fall back to YAML defaults (0 and 1).
+    try:
+        raw_agent_depth = os.getenv("MONITOR_AGENT_DEPTH", yaml_config.get("MONITOR_AGENT_DEPTH", 0))
+    except Exception as e:
+        logger.error(f"Error reading MONITOR_AGENT_DEPTH environment variable: {e}", exc_info=True)
+        raise
+    try:
+        MONITOR_AGENT_DEPTH = int(raw_agent_depth)
+    except Exception:
+        logger.warning("Invalid MONITOR_AGENT_DEPTH value %r; defaulting to 0", raw_agent_depth)
+        try:
+            MONITOR_AGENT_DEPTH = int(yaml_config.get("MONITOR_AGENT_DEPTH", 0))
+        except Exception:
+            MONITOR_AGENT_DEPTH = 0
+
+    try:
+        raw_agent_max_depth = os.getenv("MONITOR_AGENT_MAX_DEPTH", yaml_config.get("MONITOR_AGENT_MAX_DEPTH", 1))
+    except Exception as e:
+        logger.error(f"Error reading MONITOR_AGENT_MAX_DEPTH environment variable: {e}", exc_info=True)
+        raise
+    try:
+        MONITOR_AGENT_MAX_DEPTH = int(raw_agent_max_depth)
+    except Exception:
+        logger.warning("Invalid MONITOR_AGENT_MAX_DEPTH value %r; defaulting to 1", raw_agent_max_depth)
+        try:
+            MONITOR_AGENT_MAX_DEPTH = int(yaml_config.get("MONITOR_AGENT_MAX_DEPTH", 1))
+        except Exception:
+            MONITOR_AGENT_MAX_DEPTH = 1
 
     TWITTER_CLIENT_API = os.getenv(
         "TWITTER_CLIENT_API",

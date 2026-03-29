@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 import pytest
 
-from monitor.lib.screen_handler import ScreenHandler, ScreenHandlerError
+from monitor.lib.screen_handler import ScreenHandler, ScreenHandlerError, SubagentCreationBlocked
 
 
 @pytest.fixture
@@ -84,3 +84,18 @@ def test_kill_session_invokes_screen_quit(mock_run, handler):
     ok = handler.kill_session("20261003_abc")
     assert ok is True
     assert mock_run.call_count >= 2
+
+
+@patch("subprocess.run")
+def test_create_interactive_subagent_blocked_by_max_depth(mock_run, handler, monkeypatch):
+    # Set environment to indicate current depth equals max depth
+    monkeypatch.setenv("MONITOR_AGENT_DEPTH", "1")
+    monkeypatch.setenv("MONITOR_AGENT_MAX_DEPTH", "1")
+
+    # Even if subprocess.run would succeed, creation should be blocked due to depth
+    mock_cp = MagicMock()
+    mock_cp.returncode = 0
+    mock_run.return_value = mock_cp
+
+    with pytest.raises(SubagentCreationBlocked):
+        handler.create_interactive_subagent("should be blocked")

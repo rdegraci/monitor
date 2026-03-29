@@ -1,5 +1,5 @@
 from monitor import config
-from monitor.core.agent_tools import agent_kill, agent_list, agent_logfile, agent_send
+from monitor.core.agent_tools import agent_create, agent_kill, agent_list, agent_logfile, agent_send
 
 from monitor.lib.redis_utils import (
     save_to_memory,
@@ -81,6 +81,7 @@ AVAILABLE_TOOLS = {
     "list_todos": list_todos,
     "update_todo": update_todo,
     "clear_todos": clear_todos,
+    "agent_create": agent_create,
     "agent_kill": agent_kill,
     "agent_list": agent_list,
     "agent_logfile": agent_logfile,
@@ -397,6 +398,27 @@ TOOL_DESCRIPTIONS = [
                 "query"
               ],
               "type": "object"
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_create",
+            "description": "Create a new agent session initialized with the provided prompt and description. Use this function to start or instantiate an agent that can be interacted with afterwards.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The initial prompt or instruction for the new agent."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "A short human-readable description of the agent's purpose or role."
+                    }
+                },
+                "required": ["prompt", "description"]
             }
         }
     },

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import appdirs
+import monitor.config as config
 from .screen_handler_utils import (
     shutil_which,
     resolve_screen_token,
@@ -37,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 class ScreenHandlerError(RuntimeError):
     """Exception raised for ScreenHandler-specific errors."""
+
+
+class SubagentCreationBlocked(ScreenHandlerError):
+    """Raised when sub-agent creation is blocked due to configured depth limits."""
 
 
 class ScreenHandler:
@@ -288,6 +293,45 @@ class ScreenHandler:
         Raises:
             ScreenHandlerError on failure.
         """
+        # Determine current and maximum agent depths from environment or config.
+        curr_depth = 0
+        max_depth: Optional[int] = None
+        try:
+            env_val = os.environ.get("MONITOR_AGENT_DEPTH")
+            if env_val is None:
+                env_val = getattr(config, "MONITOR_AGENT_DEPTH", None)
+            if env_val is not None:
+                try:
+                    curr_depth = int(env_val)
+                except Exception:
+                    logger.warning("Invalid MONITOR_AGENT_DEPTH value %r, defaulting to 0", env_val)
+                    curr_depth = 0
+        except Exception:
+            logger.exception("Failed to determine MONITOR_AGENT_DEPTH; defaulting to 0")
+            curr_depth = 0
+
+        try:
+            env_max = os.environ.get("MONITOR_AGENT_MAX_DEPTH")
+            if env_max is None:
+                env_max = getattr(config, "MONITOR_AGENT_MAX_DEPTH", None)
+            if env_max is not None:
+                try:
+                    max_depth = int(env_max)
+                except Exception:
+                    logger.warning("Invalid MONITOR_AGENT_MAX_DEPTH value %r; ignoring", env_max)
+                    max_depth = None
+        except Exception:
+            logger.exception("Failed to determine MONITOR_AGENT_MAX_DEPTH; ignoring")
+            max_depth = None
+
+        if max_depth is not None and curr_depth >= max_depth:
+            logger.warning(
+                "Sub-agent creation disabled: MONITOR_AGENT_MAX_DEPTH reached (depth=%d, max=%d).",
+                curr_depth,
+                max_depth,
+            )
+            raise SubagentCreationBlocked(f"Sub-agent creation disabled: MONITOR_AGENT_MAX_DEPTH reached (depth={curr_depth}, max={max_depth}).")
+
         if not session_name:
             session_name = self.generate_session_name()
         if not self._validate_session_name(session_name):
@@ -308,16 +352,16 @@ class ScreenHandler:
         # Use a small wrapper so Monitor runs in the pty; we do not redirect output here
         # so interactive attach will show it. We'll also write a metadata file.
         # Prepend an env wrapper to enable status reporting via a UNIX socket.
-        cmd = [
-            self.screen_cmd,
-            "-S",
-            session_name,
-            "-dm",
-            "env",
+        env_vars = [
             "MONITOR_ENABLE_STATUS=1",
             f"MONITOR_STATUS_SOCKET={str(socket_path)}",
             "MONITOR_AGENT=1",
-        ] + self.monitor_cmd
+            f"MONITOR_AGENT_DEPTH={curr_depth+1}",
+        ]
+        if max_depth is not None:
+            env_vars.append(f"MONITOR_AGENT_MAX_DEPTH={max_depth}")
+
+        cmd = [self.screen_cmd, "-S", session_name, "-dm", "env"] + env_vars + self.monitor_cmd
         cp = self._run(cmd, check=False, capture_output=True, text=True)
         time.sleep(0.4)
 
