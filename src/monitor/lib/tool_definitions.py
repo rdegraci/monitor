@@ -405,20 +405,16 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "agent_create",
-            "description": "Create a new agent session initialized with the provided prompt and description. Use this function to start or instantiate an agent that can be interacted with afterwards.",
+            "description": "Create a new agent session initialized with the provided prompt. Use this function to start or instantiate an agent that can be interacted with afterwards.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
                         "description": "The initial prompt or instruction for the new agent."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "A short human-readable description of the agent's purpose or role."
                     }
                 },
-                "required": ["prompt", "description"]
+                "required": ["prompt"]
             }
         }
     },
