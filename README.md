@@ -1,27 +1,24 @@
 # Monitor
 
-Monitor is a modular Large Language Model (LLM) developer assistant designed for robust command-line interface (CLI) and API-driven workflows. It provides advanced shell, code, and git integration; macro command composition; a registry system for plugin discovery; persistent logging and audit trails; secure extensibility; and systematic configuration for critical and large-scale developer environments.
-
-Monitor is ideal for software professionals who need a safe, auditable, and scriptable LLM tool that can be tailored to sophisticated CI/CD, devops, and research/automation scenarios.
+Monitor is a CLI-first Python application with interactive chat mode, server mode, scriptable command usage, configuration reset support, macros, built-in commands, logging, and integrations with external tools and services.
 
 ## Key Features
 
-- **Structured LLM Terminal:** Intelligent command-line shell with LLM integration and secure sandboxing of code or shell execution.
-- **Code Assistant:** Code generation, refactoring, and documentation across multiple languages/tools for developers.
-- **Git Support:** Context-aware git toolset for code review, commit assistance, and repository analytics.
-- **Macros:** Compose multi-step automations and chained LLM actions (workflows) using macros, making complex tasks repeatable and safe.
-- **Registry System:** Fully auditable plugin and macro registry—discover, share, and govern tools and automations.
-- **Audit & Logging:** Every action, prompt, and result is logged for transparency, compliance, and reproducibility.
-- **Security:** Code execution controls, sandboxing, environment whitelisting, and robust user-supplied configuration.
-- **Extensible:** Easily add custom macros, LLM tools, built-in functions, or integrate with external systems.
-- **Modern CLI & API:** Use interactively via terminal, run as a local HTTP server for API-driven workflows, or embed in scripts and automation.
-- **Cross-platform:** Runs on Linux, macOS, Windows.
+- **Interactive CLI:** Command-line interface for chatting with the application and running commands.
+- **Code Assistance:** Supports code generation, refactoring, and documentation workflows.
+- **Git Support:** Includes git-related commands and workflows.
+- **Macros:** Supports reusable macro workflows for multi-step tasks.
+- **Built-in Commands:** Provides built-in commands for common operations.
+- **Logging:** Records application activity and session output to files.
+- **Tool Integrations:** Integrates with external tools and services where configured.
+- **Server Mode:** Runs as a local HTTP server for API-style access.
+- **Cross-platform:** Runs on Linux, macOS, and Windows.
 
 ## Requirements
 
 - Python 3.10+
 - pip (latest recommended)
-- Supported OS: macOS
+- The project uses platform-specific user config directories via appdirs conventions.
 
 ## Installation
 
@@ -47,7 +44,7 @@ Monitor provides a console script entry point so it can be installed as a normal
     ```
     mkdir ~/.config
     mkdir ~/.config/monitor
-    cp src/monintor/dot_env_example ~/.config/monitor/.env
+    cp src/monitor/dot_env_example ~/.config/monitor/.env
     vi ~/.config/monitor/.env
     ```
 
@@ -84,7 +81,9 @@ Monitor provides a console script entry point so it can be installed as a normal
 
 ## Platform setup
 
-Below are explicit, copy-paste ready commands to install common system dependencies required to run Monitor and its optional helper tooling. The primary focus is macOS (Homebrew), with Debian/Ubuntu Linux instructions and two options for Windows (Chocolatey and winget). These commands cover audio support (PortAudio / PyAudio), libmagic (file type detection), ffmpeg (media processing), graphviz (graph rendering), ripgrep (fast search), redis (optional persistence), duckdb (optional DB helper), and build tools where needed.
+Below are copy-paste ready commands for installing common system dependencies that may be used by Monitor or by optional helper tooling. The primary focus is macOS (Homebrew), with Debian/Ubuntu Linux instructions and two options for Windows (Chocolatey and winget). Not every tool listed here is required for the core application.
+
+These commands cover audio support (PortAudio / PyAudio), libmagic (file type detection), ffmpeg (media processing), graphviz (graph rendering), ripgrep (fast search), redis (optional persistence), duckdb (optional DB helper), and build tools where needed.
 
 Note: Run these commands in a terminal/shell with appropriate privileges (sudo on Linux/macOS when shown). For Windows, run the terminal as Administrator for Chocolatey or winget installation actions.
 
@@ -324,7 +323,7 @@ Behavior details:
 
 ## Server Mode
 
-- The server mode runs a lightweight Flask HTTP server (implemented in src/monitor/app.py).
+- The server mode runs a Flask HTTP server (implemented in src/monitor/app.py).
 - Default host: 127.0.0.1
 - Default port: 5000
 - Example to run on all interfaces, port 8080:
@@ -368,7 +367,7 @@ Monitor exposes a minimal, OpenAI-compatible REST surface for simple integration
   - (Linux example) ~/.config/monitor/logs/
   - (macOS example) ~/Library/Application Support/monitor/logs/
   - (Windows example) %APPDATA%/monitor/logs/
-- Logs include CLI/API invocations, LLM prompts and completions, macro executions, and other audit information.
+- Logs include CLI/API invocations, LLM prompts and completions, macro executions, and other application activity.
 - Configure alternate log directories via `config.yaml` in your user config directory.
 
 Defaults and naming conventions:
@@ -402,7 +401,7 @@ This ordering allows project-specific overrides while enabling persistent creden
 
 ## Optional Tools
 
-The following external tools are optional for running Monitor, but are highly recommended for advanced features, improved performance, production, or development scenarios. Monitor can run basic commands without these tools, but more advanced setups and workflows will benefit from having them available.
+The following external tools are optional for running Monitor, but are commonly used by some features or helper workflows.
 
 ### ripgrep
 
@@ -515,32 +514,6 @@ Used by OS helpers for file diffs, MIME/type checks, and applying patches.
   ```
 - Windows:
   Use WSL or install via Git Bash/MSYS2 where available.
-
-### Audio playback utilities (afplay/aplay)
-
-Used by text-to-speech helper for simple WAV playback.
-
-- macOS: "afplay" is provided by the OS.
-- Linux (apt):
-  ```
-  sudo apt install alsa-utils  # provides aplay
-  ```
-- Windows: Uses winsound via Python stdlib (no extra install).
-
-### Editors (vim/nano/vi)
-
-Used by macros editor command to open the macros file when $EDITOR is not set.
-
-- macOS (Homebrew):
-  ```
-  brew install vim nano
-  ```
-- Linux (apt):
-  ```
-  sudo apt install vim nano
-  ```
-- Windows:
-  Use a terminal editor available in your environment (e.g., Vim via Git Bash) or set EDITOR to your preferred GUI editor.
 
 Note: Monitor no longer documents internal TTLs for conversation memory in the README; refer to runtime configuration in `config.yaml` for your environment's retention behavior.
 
