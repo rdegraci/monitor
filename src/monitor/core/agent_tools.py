@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+import os
 from typing import Any, Dict, Optional
 
 from monitor.lib import subagent_logging
@@ -100,6 +101,60 @@ def _new_correlation_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _orchestration_enabled() -> bool:
+    """Check whether agent orchestration is enabled via configuration.
+
+    The agent orchestration feature is gated by the configuration key
+    MONITOR_ENABLE_AGENT_ORCHESTRATION. This function first consults the
+    environment variable MONITOR_ENABLE_AGENT_ORCHESTRATION; if the variable
+    is present it is interpreted (strings like '1', 'true', 'yes', 'on' are
+    treated as truthy). If the environment variable is not set, the function
+    falls back to lazily reading monitor.config.MONITOR_ENABLE_AGENT_ORCHESTRATION
+    (either a module attribute or via config.get()).
+
+    Any unexpected error during detection results in orchestration being
+    considered disabled (conservative default).
+    Returns:
+        bool: True if orchestration is enabled, False otherwise.
+    """
+    try:
+        # First, check for an explicit environment override.
+        try:
+            env_val = os.getenv("MONITOR_ENABLE_AGENT_ORCHESTRATION")
+        except Exception:
+            env_val = None
+
+        if env_val is not None:
+            # Interpret strings like '1', 'true', 'yes', 'on' as truthy; otherwise use Python truthiness.
+            if isinstance(env_val, str):
+                return env_val == "1" or env_val.lower() in ("true", "yes", "y", "on")
+            return bool(env_val)
+
+        # Lazily import the configuration to avoid circular import at module import time.
+        try:
+            from monitor import config
+        except Exception:
+            config = None
+
+        # Prefer a direct attribute on the config module, fall back to a get method if present.
+        val = getattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", None) if config is not None else None
+        if val is None:
+            get = getattr(config, "get", None) if config is not None else None
+            if callable(get):
+                try:
+                    val = get("MONITOR_ENABLE_AGENT_ORCHESTRATION")
+                except Exception:
+                    val = None
+
+        # Interpret strings like '1', 'true', 'yes', 'on' as truthy; otherwise use Python truthiness.
+        if isinstance(val, str):
+            return val == "1" or val.lower() in ("true", "yes", "y", "on")
+        return bool(val)
+    except Exception:
+        # On any unexpected error, be conservative and disable orchestration.
+        return False
+
+
 def agent_list(full: bool = False) -> Dict[str, Any]:
     """List active agent (screen) sessions.
 
@@ -151,6 +206,12 @@ def agent_create(prompt: str) -> Dict[str, Any]:
             failure, returns status 'error' with a message.
     """
     cid = _new_correlation_id()
+
+    # Orchestration gating: refuse to create sub-agents unless explicitly enabled.
+    if not _orchestration_enabled():
+        msg = "Agent orchestration is disabled. Set MONITOR_ENABLE_AGENT_ORCHESTRATION=1 to enable."
+        logger.warning("agent_create orchestration disabled: cid=%s, prompt=%r", cid, prompt)
+        return {"status": "error", "correlation_id": cid, "message": msg}
 
     # Input validation: require a str prompt
     if not isinstance(prompt, str):
@@ -519,6 +580,12 @@ def agent_send(index: int, text: str) -> Dict[str, Any]:
             On error, returns an error message instead.
     """
     cid = _new_correlation_id()
+
+    # Orchestration gating: refuse to send to sub-agents unless explicitly enabled.
+    if not _orchestration_enabled():
+        msg = "Agent orchestration is disabled. Set MONITOR_ENABLE_AGENT_ORCHESTRATION=1 to enable."
+        logger.warning("agent_send orchestration disabled: cid=%s, index=%r", cid, index)
+        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
 
     # Input validation: require an int index and str text
     if not isinstance(index, int):

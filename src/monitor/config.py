@@ -483,6 +483,7 @@ AGENT = False
 # New globals for agent depth configuration
 MONITOR_AGENT_DEPTH = 0
 MONITOR_AGENT_MAX_DEPTH = 1
+MONITOR_ENABLE_AGENT_ORCHESTRATION = False
 RESPONSES_API = None
 TWITTER_CLIENT_API = None
 TWITCH_CLIENT_API = None
@@ -505,7 +506,7 @@ def configure_globals():
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
-    global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH
+    global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -677,6 +678,25 @@ def configure_globals():
             logger.error(f"Error parsing MONITOR_AGENT environment variable: {_e}", exc_info=True)
             raise
 
+    # MONITOR_ENABLE_AGENT_ORCHESTRATION (bool) - enable orchestration features for agents.
+    # Read from YAML default and allow environment override (truthy values '1','true','yes','on').
+    try:
+        MONITOR_ENABLE_AGENT_ORCHESTRATION = yaml_config.get("MONITOR_ENABLE_AGENT_ORCHESTRATION", False)
+    except Exception as e:
+        logger.error(f"Error reading MONITOR_ENABLE_AGENT_ORCHESTRATION from YAML: {e}", exc_info=True)
+        raise
+    try:
+        _agent_orch_env = os.getenv("MONITOR_ENABLE_AGENT_ORCHESTRATION")
+    except Exception as _e:
+        logger.error(f"Error reading MONITOR_ENABLE_AGENT_ORCHESTRATION environment variable: {_e}", exc_info=True)
+        raise
+    if _agent_orch_env is not None:
+        try:
+            MONITOR_ENABLE_AGENT_ORCHESTRATION = str(_agent_orch_env).strip().lower() in ("1", "true", "yes", "on")
+        except Exception as _e:
+            logger.error(f"Error parsing MONITOR_ENABLE_AGENT_ORCHESTRATION environment variable: {_e}", exc_info=True)
+            raise
+
     # MONITOR_AGENT_DEPTH (int) - controls the agent recursion/depth behavior.
     # MONITOR_AGENT_MAX_DEPTH (int) - maximum allowed depth for agent operations.
     # Read from environment variables if present; otherwise fall back to YAML defaults (0 and 1).
@@ -824,7 +844,6 @@ LOG_BACKUP_COUNT = None
 CONSOLE_LOGGING_ENABLED = None
 LOG_DIR = None
 LOG_FILE_PATH = None
-LOG_ENCODING = None
 CONVERSATION_LOG_FILENAME = None
 CONVERSATION_LOG_FILE = None
 

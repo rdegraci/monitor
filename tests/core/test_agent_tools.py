@@ -1,12 +1,15 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
+import monitor.config as config
+
 from monitor.core.agent_tools import agent_create
 from monitor.lib.screen_handler import SubagentCreationBlocked
 
 
 @patch("monitor.core.agent_tools._SCREEN")
-def test_agent_create_blocked(mock_screen):
+def test_agent_create_blocked(mock_screen, monkeypatch):
+    monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
     # Simulate handler raising SubagentCreationBlocked
     def raise_block(prompt):
         raise SubagentCreationBlocked("Sub-agent creation disabled: MONITOR_AGENT_MAX_DEPTH reached (depth=1, max=1).")
@@ -19,7 +22,8 @@ def test_agent_create_blocked(mock_screen):
 
 
 @patch("monitor.core.agent_tools._SCREEN")
-def test_agent_create_success(mock_screen):
+def test_agent_create_success(mock_screen, monkeypatch):
+    monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
     # Simulate successful creation returning dict
     mock_screen.create_interactive_subagent.return_value = {
         "session_name": "20261003_abc",
