@@ -18,7 +18,7 @@ dependencies = [
     "pyyaml==6.0.2",
     "python-dotenv==1.0.1",
     "colored==2.3.0",
-    "litellm==1.80.8",
+    "litellm==1.82.3",
     "prompt_toolkit==3.0.51",
     "pygments==2.19.1",
     "mcp==1.9.0",
