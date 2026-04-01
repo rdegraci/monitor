@@ -16,6 +16,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from monitor.lib import todo  # noqa: E402  (import after sys.path tweak)
+from monitor.lib import todo_redis  # noqa: E402  (import after sys.path tweak)
 
 
 @pytest.fixture()
@@ -43,6 +44,14 @@ def fake_memory(monkeypatch) -> Dict[str, str]:
     monkeypatch.setattr(todo, "clear_todo_from_memory", fake_delete_from_memory)
 
     return {"store": store, "ttls": ttls}
+
+
+@pytest.fixture()
+def fallback_memory(monkeypatch):
+    monkeypatch.setattr(todo_redis, "get_redis_client", lambda: None)
+    if hasattr(todo_redis, "_IN_MEMORY_TODO_STORE"):
+        todo_redis._IN_MEMORY_TODO_STORE.clear()
+    return todo_redis
 
 
 def _key(session_id: str) -> str:
@@ -370,3 +379,32 @@ def test_update_todo_updates_notes_for_legacy_item_without_notes(fake_memory):
     saved_list = json.loads(fake_memory["store"][key])
     assert saved_list[0].get("notes") == "added later"
     assert fake_memory["ttls"][key] == todo.TODO_TTL
+
+
+def test_todo_redis_fallback_persists_data_for_same_session(fallback_memory):
+    session_id = "fallback-session-1"
+
+    fallback_memory.save_todo_to_memory(session_id=session_id, todos=[{"item": "Task A"}])
+    assert fallback_memory.read_todo_from_memory(session_id) == [{"item": "Task A"}]
+
+    fallback_memory.save_todo_to_memory(session_id=session_id, todos=[{"item": "Task A"}, {"item": "Task B"}])
+    assert fallback_memory.read_todo_from_memory(session_id) == [{"item": "Task A"}, {"item": "Task B"}]
+
+    fallback_memory.clear_todo_from_memory(session_id)
+    assert fallback_memory.read_todo_from_memory(session_id) == []
+
+
+def test_todo_redis_fallback_isolated_per_session(fallback_memory):
+    session_id_1 = "fallback-session-1"
+    session_id_2 = "fallback-session-2"
+
+    fallback_memory.save_todo_to_memory(session_id=session_id_1, todos=[{"item": "Task One"}])
+    fallback_memory.save_todo_to_memory(session_id=session_id_2, todos=[{"item": "Task Two"}])
+
+    assert fallback_memory.read_todo_from_memory(session_id_1) == [{"item": "Task One"}]
+    assert fallback_memory.read_todo_from_memory(session_id_2) == [{"item": "Task Two"}]
+
+    fallback_memory.clear_todo_from_memory(session_id_1)
+
+    assert fallback_memory.read_todo_from_memory(session_id_1) == []
+    assert fallback_memory.read_todo_from_memory(session_id_2) == [{"item": "Task Two"}]
