@@ -96,7 +96,7 @@ def add_todo(session_id: str, item: str, priority: int = 0, notes: str | None = 
     # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
     save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
     logger.info(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
-    print(f"* Added work item: {item}\n  - {notes}")
+    print(f"Added work item: session_id={session_id}, item={item}, priority={priority}")
     response = {
         "ok": True,
         "action": "add_todo",
@@ -131,6 +131,7 @@ def list_todos(session_id: str) -> str:
         if isinstance(_item, dict) and "notes" not in _item:
             _item["notes"] = ""
     logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
+    print(f"List work items: session_id={session_id}, count={len(todos)}")
     return json.dumps(todos)
 
 def update_todo(session_id: str, index: int, status: str = "done", notes: str | None = None) -> str:
@@ -151,6 +152,7 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
     current_list = read_todo_from_memory(key)
     if not current_list:
         logger.info(f"Update failed for session_id={session_id}, index={index}, status={status}: no todos found")
+        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=no todos found")
         error_resp = {
             "ok": False,
             "action": "update_todo",
@@ -165,6 +167,7 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
         todos: List[Dict[str, Any]] = json.loads(current_list)
         if not isinstance(todos, list):
             logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
+            print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=stored value is not a list")
             error_resp = {
                 "ok": False,
                 "action": "update_todo",
@@ -177,6 +180,7 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
             return json.dumps(error_resp)
     except (json.JSONDecodeError, TypeError) as e:
         logger.error(f"JSON decode error updating todos for session_id={session_id}: {e}")
+        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=json decode error")
         error_resp = {
             "ok": False,
             "action": "update_todo",
@@ -193,6 +197,7 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
             todos[index]["notes"] = notes
         save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
         logger.info(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
+        print(f"Updated work item: session_id={session_id}, index={index}, status={status}")
         resp = {
             "ok": True,
             "action": "update_todo",
@@ -204,6 +209,7 @@ def update_todo(session_id: str, index: int, status: str = "done", notes: str | 
         return json.dumps(resp)
     else:
         logger.warning(f"Update failed for session_id={session_id}, index={index}, status={status}: index out of range")
+        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=index out of range, count={len(todos)}")
         error_resp = {
             "ok": False,
             "action": "update_todo",
@@ -225,6 +231,7 @@ def clear_todos(session_id: str) -> str:
     key = _get_todo_key(session_id)
     clear_todo_from_memory(key)
     logger.info(f"Cleared todos for session_id={session_id}")
+    print(f"Cleared all work items: session_id={session_id}")
     response = {
         "ok": True,
         "action": "clear_todos",
