@@ -110,11 +110,13 @@ class RateLimiter:
         safety_factor (float): Factor to apply to limit as a buffer (default: 0.6)
         now_fn (callable): Optional function that returns the current time in seconds. Defaults to time.time.
         sleep_fn (callable): Optional function that accepts seconds and sleeps. Defaults to time.sleep.
+        grace_buffer_seconds (float): Seconds added after a cooldown to reduce immediate back-to-back
+            retries at the window edge. Defaults to GRACE_BUFFER_SECONDS (3.0).
     """
 
     GRACE_BUFFER_SECONDS = 3.0
 
-    def __init__(self, logger, limit=800000, window_seconds=60, safety_factor=0.6, now_fn=None, sleep_fn=None):
+    def __init__(self, logger, limit=800000, window_seconds=60, safety_factor=0.6, now_fn=None, sleep_fn=None, grace_buffer_seconds=None):
         """
         Initialize the rate limiter.
 
@@ -125,6 +127,8 @@ class RateLimiter:
             safety_factor (float): Factor to apply to limit as a buffer (default: 0.6)
             now_fn (callable, optional): Function to obtain current time in seconds. Defaults to time.time.
             sleep_fn (callable, optional): Sleep function accepting seconds. Defaults to time.sleep.
+            grace_buffer_seconds (float, optional): Seconds added after a cooldown to reduce immediate
+                back-to-back retries at the window edge. Defaults to GRACE_BUFFER_SECONDS (3.0).
         """
         logger.debug("Initializing RateLimiter: limit=%s, window_seconds=%s, safety_factor=%s", 
                     limit, window_seconds, safety_factor)
@@ -138,6 +142,7 @@ class RateLimiter:
 
         self.now_fn = now_fn if now_fn is not None else time.time
         self.sleep_fn = sleep_fn if sleep_fn is not None else time.sleep
+        self.grace_buffer_seconds = grace_buffer_seconds if grace_buffer_seconds is not None else self.GRACE_BUFFER_SECONDS
 
         logger.info("RateLimiter initialized with safety threshold of %s tokens", self.safety_threshold)
 
@@ -282,9 +287,9 @@ class RateLimiter:
                 if cooldown_seconds > 0:
                     self.logger.debug(
                         "Applying post-cooldown grace buffer of %s seconds to reduce immediate back-to-back cooldowns",
-                        self.GRACE_BUFFER_SECONDS,
+                        self.grace_buffer_seconds,
                     )
-                    cooldown_seconds += self.GRACE_BUFFER_SECONDS
+                    cooldown_seconds += self.grace_buffer_seconds
 
                 self.logger.debug(
                     "[RATE LIMITING] Cooldown until diagnostic: current_time=%s, cooldown_expires_at=%s, remaining_wait_seconds=%s",
