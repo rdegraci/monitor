@@ -9,6 +9,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+ANTHROPIC_SAFETY_THRESHOLD_MULTIPLIER = 1.05
+
 def estimate_token_count(text):
     """
     Estimate the number of tokens in a text string.
@@ -60,9 +62,15 @@ def estimate_token_count(text):
         try:
             import anthropic
             if hasattr(anthropic, "count_tokens"):
-                token_count = anthropic.count_tokens(text)
-                logger.debug("anthropic.count_tokens estimated token count: %s", token_count)
-                return token_count
+                raw_token_count = anthropic.count_tokens(text)
+                # Anthropic counts tend to be conservative for this limiter's use case.
+                adjusted_token_count = int(raw_token_count * 0.9)
+                logger.debug(
+                    "anthropic.count_tokens raw token count: %s, adjusted token count: %s",
+                    raw_token_count,
+                    adjusted_token_count,
+                )
+                return adjusted_token_count
         except ImportError as e:
             logger.warning("anthropic not installed or import failed: %s. Falling back to heuristic.", str(e))
         except Exception as e:
@@ -133,6 +141,20 @@ class RateLimiter:
 
         logger.info("RateLimiter initialized with safety threshold of %s tokens", self.safety_threshold)
 
+    def _get_effective_safety_threshold(self):
+        model_name = getattr(config, "MODEL", None)
+        model_name_str = str(model_name).lower() if model_name else ""
+        if "anthropic" in model_name_str or "claude" in model_name_str:
+            adjusted_threshold = self.safety_threshold * ANTHROPIC_SAFETY_THRESHOLD_MULTIPLIER
+            self.logger.info(
+                "[RATE LIMITING] Anthropic safety tuning active: base_threshold=%s, adjusted_threshold=%s, multiplier=%s",
+                self.safety_threshold,
+                adjusted_threshold,
+                ANTHROPIC_SAFETY_THRESHOLD_MULTIPLIER,
+            )
+            return adjusted_threshold
+        return self.safety_threshold
+
     def add_request(self, tokens):
         """
         Record token usage for a request and clean up expired entries.
@@ -198,14 +220,16 @@ class RateLimiter:
         self.logger.info("[RATE LIMITING] Checking rate limit for operation with %s estimated tokens", 
                          estimated_tokens)
 
-        if estimated_tokens > self.safety_threshold:
+        safety_threshold = self._get_effective_safety_threshold()
+
+        if estimated_tokens > safety_threshold:
             self.logger.error(
                 "Cannot process request: Estimated tokens for a single call (%d)"
                 "exceed the configured safety threshold of (%d tokens, limit: %d, factor: %.2f). "
                 "Reduce the request size, split it into smaller batches, or increase your "
                 "rate limit configuration. No cooldown will help, this request is unprocessable in a single window.",
-                estimated_tokens, self.safety_threshold, self.limit,
-                self.safety_threshold / self.limit if self.limit else 0.0,
+                estimated_tokens, safety_threshold, self.limit,
+                safety_threshold / self.limit if self.limit else 0.0,
             )
             return None, self.window_seconds
 
@@ -216,13 +240,13 @@ class RateLimiter:
         projected_usage = current_usage + estimated_tokens
 
         self.logger.info("[RATE LIMITING] Projected usage: %s/%s (safety threshold: %s)", 
-                         projected_usage, self.limit, self.safety_threshold)
+                         projected_usage, self.limit, safety_threshold)
 
-        if projected_usage > self.safety_threshold:
+        if projected_usage > safety_threshold:
             # If approaching limit, calculate recommended wait time
             if self.token_usage:
                 # Threshold-sensitive cooldown calculation
-                target_remaining = self.safety_threshold - estimated_tokens
+                target_remaining = safety_threshold - estimated_tokens
                 remaining = current_usage
                 boundary_timestamp = None
 
@@ -234,7 +258,7 @@ class RateLimiter:
 
                 if boundary_timestamp is not None:
                     expiry_boundary = boundary_timestamp + self.window_seconds
-                    self.logger.info(
+                    self.logger.debug(
                         "[RATE LIMITING] Cooldown diagnostics: oldest_active_token_timestamp=%s, active_usage_entries=%s, expiry_boundary=%s, boundary_timestamp_used=%s",
                         self.token_usage[0][0],
                         len(self.token_usage),
@@ -245,7 +269,7 @@ class RateLimiter:
                 else:
                     oldest_time = self.token_usage[0][0]
                     expiry_boundary = oldest_time + self.window_seconds
-                    self.logger.info(
+                    self.logger.debug(
                         "[RATE LIMITING] Cooldown diagnostics: oldest_active_token_timestamp=%s, active_usage_entries=%s, expiry_boundary=%s, oldest_timestamp_fallback_used=%s",
                         oldest_time,
                         len(self.token_usage),
@@ -262,7 +286,7 @@ class RateLimiter:
                     )
                     cooldown_seconds += self.GRACE_BUFFER_SECONDS
 
-                self.logger.info(
+                self.logger.debug(
                     "[RATE LIMITING] Cooldown until diagnostic: current_time=%s, cooldown_expires_at=%s, remaining_wait_seconds=%s",
                     now,
                     now + cooldown_seconds,
@@ -271,12 +295,12 @@ class RateLimiter:
 
                 # Only log a warning once every 5 seconds to prevent spam
                 if now - self.last_warning_time > 5:
-                    tokens_to_clear = int(max(0, projected_usage - self.safety_threshold))
+                    tokens_to_clear = int(max(0, projected_usage - safety_threshold))
                     self.logger.warning(
                         "Token usage is projected at %d tokens after adding %d estimated tokens "
                         "(safety threshold: %d, limit: %d). Approximately %d tokens must clear. "
                         "Cooling down for %.1f seconds to remain under the API cap.",
-                        projected_usage, estimated_tokens, int(self.safety_threshold), self.limit, tokens_to_clear, cooldown_seconds
+                        projected_usage, estimated_tokens, int(safety_threshold), self.limit, tokens_to_clear, cooldown_seconds
                     )
                     self.last_warning_time = now
 
