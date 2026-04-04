@@ -1,5 +1,4 @@
-"""
-Modified rate limiter with a reduced safety factor to prevent hitting rate limits.
+"""Modified rate limiter with a reduced safety factor to prevent hitting rate limits.
 """
 
 import logging
@@ -104,6 +103,8 @@ class RateLimiter:
         now_fn (callable): Optional function that returns the current time in seconds. Defaults to time.time.
         sleep_fn (callable): Optional function that accepts seconds and sleeps. Defaults to time.sleep.
     """
+
+    GRACE_BUFFER_SECONDS = 3.0
 
     def __init__(self, logger, limit=800000, window_seconds=60, safety_factor=0.6, now_fn=None, sleep_fn=None):
         """
@@ -232,26 +233,55 @@ class RateLimiter:
                         break
 
                 if boundary_timestamp is not None:
-                    time_to_free = (boundary_timestamp + self.window_seconds) - now
+                    expiry_boundary = boundary_timestamp + self.window_seconds
+                    self.logger.info(
+                        "[RATE LIMITING] Cooldown diagnostics: oldest_active_token_timestamp=%s, active_usage_entries=%s, expiry_boundary=%s, boundary_timestamp_used=%s",
+                        self.token_usage[0][0],
+                        len(self.token_usage),
+                        expiry_boundary,
+                        boundary_timestamp,
+                    )
+                    time_to_free = expiry_boundary - now
                 else:
                     oldest_time = self.token_usage[0][0]
-                    time_to_free = (oldest_time + self.window_seconds) - now
+                    expiry_boundary = oldest_time + self.window_seconds
+                    self.logger.info(
+                        "[RATE LIMITING] Cooldown diagnostics: oldest_active_token_timestamp=%s, active_usage_entries=%s, expiry_boundary=%s, oldest_timestamp_fallback_used=%s",
+                        oldest_time,
+                        len(self.token_usage),
+                        expiry_boundary,
+                        oldest_time,
+                    )
+                    time_to_free = expiry_boundary - now
+
+                cooldown_seconds = max(0, time_to_free)
+                if cooldown_seconds > 0:
+                    self.logger.debug(
+                        "Applying post-cooldown grace buffer of %s seconds to reduce immediate back-to-back cooldowns",
+                        self.GRACE_BUFFER_SECONDS,
+                    )
+                    cooldown_seconds += self.GRACE_BUFFER_SECONDS
+
+                self.logger.info(
+                    "[RATE LIMITING] Cooldown until diagnostic: current_time=%s, cooldown_expires_at=%s, remaining_wait_seconds=%s",
+                    now,
+                    now + cooldown_seconds,
+                    cooldown_seconds,
+                )
 
                 # Only log a warning once every 5 seconds to prevent spam
                 if now - self.last_warning_time > 5:
                     tokens_to_clear = int(max(0, projected_usage - self.safety_threshold))
                     self.logger.warning(
-                        "Token usage is at %d tokens in the last %ds (limit: %d, safety threshold: %d). "
-                        "Approximately %d tokens must clear. Cooling down for %.1f seconds to remain under the API cap.",
-                        current_usage, self.window_seconds, self.limit, int(self.safety_threshold), tokens_to_clear, round(max(0, time_to_free) + 3.0, 1)
+                        "Token usage is projected at %d tokens after adding %d estimated tokens "
+                        "(safety threshold: %d, limit: %d). Approximately %d tokens must clear. "
+                        "Cooling down for %.1f seconds to remain under the API cap.",
+                        projected_usage, estimated_tokens, int(self.safety_threshold), self.limit, tokens_to_clear, cooldown_seconds
                     )
                     self.last_warning_time = now
 
-                # Add extra buffer time to ensure we're well under the limit
-                time_to_free += 3.0  # Add 3 seconds extra buffer
-
-                self.logger.info("Rate limit cooldown needed: %s seconds", round(time_to_free, 1))
-                return False, max(0, time_to_free)
+                self.logger.info("Rate limit cooldown needed: %s seconds", cooldown_seconds)
+                return False, cooldown_seconds
             else:
                 self.logger.error("Rate limit approaching but no token usage records found. Logic error.")
                 return False, self.window_seconds  # Default cooldown
