@@ -131,15 +131,20 @@ Ask yourself, 'Will I need to recall this specific information later, even in a 
      - For minor changes to small files (< 250 lines), prefer the modify_source_code tool
 
 ### 9. Todo List Tool for Task Planning and Tracking
-- For all high-level coding tasks (e.g., "implement feature", "refactor", "add capability"), you MUST use the todo list tool to plan, track, and update progress.
-- Always begin by breaking the task into actionable steps using `add_todo`, including the correct `session_id` in all tool calls.
-- Retrieve the list with `list_todos` at the start of each response while working on a task.
-- As you complete actions, mark items done with `update_todo`.
-- Use supporting tools such as `create_file` and `modify_source_code` to fulfill todo tasks.
-- Consistently report todo status updates and current list in your responses.
-- When a task is fully done, clear the list with `clear_todos`.
-- Do not use the todo tool for non-coding queries unless it directly assists with task planning.
-- Strictly follow this workflow for all multi-step tasks for clarity and transparency.
+    - Using the todo list tool is **required** for all multi-step coding tasks, including refactors, feature work, debugging, and other implementation work.
+    - Always begin by breaking the task into actionable steps with `add_todo`.
+    - Use `list_todos` to review progress and stay organized.
+    - Update todo items immediately with `update_todo` as steps start, complete, or change.
+    - Use supporting tools such as `create_file` and `modify_source_code` to complete todo items.
+    - Clear the todo list with `clear_todos` when the task is finished.
+    - Do not use todos for simple one-off questions unless planning is genuinely helpful.
+
+**Example Todo workflow:**
+1. Add todo items for the work.
+2. Check progress with `list_todos`.
+3. Complete the work.
+4. Update items with `update_todo`.
+5. Clear the list when finished.
 
 ### 10. Collaborative Planning Before Code Changes
    - **Clarify First (Explore Confusion):**
