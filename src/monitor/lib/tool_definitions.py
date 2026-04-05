@@ -316,7 +316,7 @@ TOOL_DESCRIPTIONS = [
                     "priority": {"type": "integer", "description": "Optional priority (higher number = higher priority).", "default": 0},
                     "notes": {"type": "string", "description": "Notes for the todo item."}
                 },
-                "required": ["session_id", "item", "priority", "notes"]
+                "required": ["session_id", "item"]
             }
         }
     },
@@ -347,7 +347,7 @@ TOOL_DESCRIPTIONS = [
                     "status": {"type": "string", "description": "The new status (e.g., 'done', 'in_progress').", "default": "done"},
                     "notes": {"type": "string", "description": "Optional notes to update for the todo item."}
                 },
-                "required": ["session_id", "index", "status", "notes"]
+                "required": ["session_id", "index", "status"]
             }
         }
     },
@@ -702,9 +702,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
       },
       "required": [
         "session_id",
-        "item",
-        "priority",
-        "notes"
+        "item"
       ],
       "type": "object"
     }
@@ -751,8 +749,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
       "required": [
         "session_id",
         "index",
-        "status",
-        "notes"
+        "status"
       ],
       "type": "object"
     }
