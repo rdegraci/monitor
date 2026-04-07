@@ -30,6 +30,7 @@ No test code or run-on-main logic will be present in this file.
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+
 import appdirs
 
 from monitor import config
@@ -48,11 +49,14 @@ DEFAULT_LOGGING = {
 }
 
 # Ensure file_path exists in DEFAULT_LOGGING to avoid KeyError in _load_logging_config.
-DEFAULT_LOGGING['file_path'] = os.path.join(DEFAULT_LOGGING['log_dir'], DEFAULT_LOGGING['app_log_filename'])
+DEFAULT_LOGGING['file_path'] = os.path.join(
+    DEFAULT_LOGGING['log_dir'], DEFAULT_LOGGING['app_log_filename']
+)
+
 
 def _load_logging_config():
     """
-    Load the logging configuration dictionary
+    Load the logging configuration dictionary.
 
     Returns:
         dict: A merged logging configuration dictionary combining config.py globals and defaults.
@@ -68,7 +72,6 @@ def _load_logging_config():
         'max_bytes': 'LOG_MAX_BYTES',
         'backup_count': 'LOG_BACKUP_COUNT',
         'console_logging_enabled': 'CONSOLE_LOGGING_ENABLED',
-        'encoding': 'LOG_ENCODING',
     }
 
     # Populate loaded_config with values from config.py globals if available, otherwise use defaults.
@@ -81,6 +84,9 @@ def _load_logging_config():
                 f"Logging config: missing '{var}', using default '{DEFAULT_LOGGING[key]}'"
             )
 
+    # LOG_ENCODING is optional and defaults silently to utf-8.
+    loaded_config['encoding'] = getattr(config, 'LOG_ENCODING', DEFAULT_LOGGING['encoding'])
+
     # Ensure required settings are present; fallback to defaults if missing or empty.
     for required in ['level', 'file_path']:
         if loaded_config[required] is None or loaded_config[required] == '':
@@ -90,6 +96,7 @@ def _load_logging_config():
             loaded_config[required] = DEFAULT_LOGGING[required]
 
     return loaded_config
+
 
 def _resolve_log_level(level):
     """
@@ -126,6 +133,7 @@ def _resolve_log_level(level):
             return mapping[s]
     return logging.INFO
 
+
 def _inject_pid_into_logfile_path(log_path, pid=None):
     """
     Inject current process PID into filename unless '{pid}' is already present.
@@ -154,6 +162,7 @@ def _inject_pid_into_logfile_path(log_path, pid=None):
             filename = f"{filename}_{pid}"
         log_path = os.path.join(dirname, filename)
     return log_path
+
 
 def configure_logging():
     """
@@ -197,7 +206,7 @@ def configure_logging():
             log_cfg['file_path'],
             maxBytes=log_cfg['max_bytes'],
             backupCount=log_cfg['backup_count'],
-            encoding=log_cfg.get('encoding', 'utf-8')
+            encoding=log_cfg.get('encoding', 'utf-8'),
         )
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
@@ -213,6 +222,7 @@ def configure_logging():
 
     # Log INFO after all handlers are added so both console and file see this message
     root_logger.info(f"Application log file initialized at: {os.path.abspath(log_cfg['file_path'])}")
+
 
 def get_logger(name):
     """
