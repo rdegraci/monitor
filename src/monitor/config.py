@@ -18,6 +18,7 @@ import shutil
 
 from dotenv import find_dotenv, load_dotenv
 
+from monitor.function_keys_loader import load_function_keys_config
 from monitor.lib.rate_limiter import configure_rate_limiter
 from monitor.core.tools import configure_tools
 from monitor.core.llm_responses_adapter import configure_responses_adapter
@@ -26,6 +27,7 @@ from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
 from monitor.lib.protocol_engine import configure_protocol_engine
 from monitor.lib.logging import configure_logging
+from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.keyboard import configure_voice_to_text
 from monitor.lib.ripgrep_search import configure_rip_grep
 
@@ -490,6 +492,7 @@ TWITCH_CLIENT_API = None
 LINKEDIN_CLIENT_API = None
 DEFAULT_EXCLUDE_EXTENSIONS = None
 DEFAULT_EXCLUDE_GLOBS = None
+FUNCTION_KEY_INSERTIONS = {}
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
@@ -507,6 +510,7 @@ def configure_globals():
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
     global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
+    global FUNCTION_KEY_INSERTIONS
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -834,6 +838,17 @@ def configure_globals():
                 "Pods/**"
             ]
         )
+
+    try:
+        FUNCTION_KEY_INSERTIONS = load_function_keys_config()
+    except Exception as e:
+        logger.error(f"Failed to load function keys config: {e}", exc_info=True)
+        raise
+    try:
+        configure_function_key_insertions(FUNCTION_KEY_INSERTIONS)
+    except Exception as e:
+        logger.error(f"Failed to configure function key insertions: {e}", exc_info=True)
+        raise
 
 LOGGING_CONFIG = None
 LOGGING_LEVEL = None
