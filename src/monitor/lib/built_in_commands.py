@@ -1,31 +1,35 @@
-import os
-import logging
-from monitor import config
 import copy
+import logging
+import os
+import subprocess
 
 from typing import Any, Dict
+
+import appdirs
 from colored import attr, fg
 from pygments import highlight
 from pygments.formatters import TerminalFormatter
 from pygments.lexers import BashLexer, MarkdownLexer
 
-from monitor.lib.summarizers import summarize_conversation_for_twitch
-from monitor.lib.summarizers import summarize_conversation_for_linkedin
+from monitor import config
+from monitor.function_keys_loader import load_function_keys_config
+from monitor.lib.colors import print_yellow
+from monitor.lib.display_output import print_colored_error
 from monitor.lib.external_services import (
-    send_twitch_message_command,
     joke_for_twitch,
-    send_twitter_message,
-    send_file_to_indexing_service,
     send_artifact,
+    send_file_to_indexing_service,
     send_linkedin_message,
+    send_twitter_message,
+    send_twitch_message_command,
 )
-
+from monitor.lib.history import adjust_history_size
+from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.preferences import open_preferences_editor
+from monitor.lib.summarizers import summarize_conversation_for_linkedin
+from monitor.lib.summarizers import summarize_conversation_for_twitch
 from monitor.lib.system_prompt import SYSTEM_PROMPT
 from monitor.lib.tool_loading import list_tools
-from monitor.lib.colors import print_yellow
-from monitor.lib.history import adjust_history_size
-from monitor.lib.display_output import print_colored_error
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +320,67 @@ def edit_macros_command(arg=None):
     result = open_macros_editor()
     if result:
         print(result)
+
+
+def open_function_keys_editor(path=None):
+    """Open the function keys configuration file in a text editor.
+
+    Args:
+        path: Optional path to the function keys configuration file. If not
+            provided, the default configuration directory from
+            ``appdirs.user_config_dir('monitor')`` is used.
+
+    Returns:
+        The path to the configuration file on success, or ``None`` on failure.
+    """
+    try:
+        if path is None:
+            path = os.path.join(appdirs.user_config_dir("monitor"), "function_keys.json")
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}\n")
+
+        editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "vi"
+        result = subprocess.run([editor, path], check=False)
+        if result.returncode != 0:
+            message = f"Editor exited with non-zero status {result.returncode}: {editor}"
+            print_colored_error(message)
+            logger.error(message)
+            return None
+        return path
+    except Exception as e:
+        print_colored_error(f"Failed to open function keys editor: {e}")
+        logger.error(f"Failed to open function keys editor: {e}", exc_info=True)
+        return None
+
+
+def edit_function_keys_command(arg=None):
+    """Edit function key mappings and apply them after saving.
+
+    Args:
+        arg: Optional dispatcher argument. If provided as a string path, it is
+            used as the function keys configuration file path.
+
+    Returns:
+        The path to the configuration file on success, or ``None`` on failure.
+    """
+    try:
+        path = arg if isinstance(arg, str) and str(arg).strip() else None
+        config_path = open_function_keys_editor(path)
+        if not config_path:
+            return None
+
+        mapping = load_function_keys_config(config_path)
+        configure_function_key_insertions(mapping)
+        print(f"Function keys configuration updated and applied: {config_path}")
+        return config_path
+    except Exception as e:
+        print_colored_error(f"Failed to edit function keys configuration: {e}")
+        logger.error(f"Failed to edit function keys configuration: {e}", exc_info=True)
+        return None
 
 
 def reload_macros_command(arg: Any = None) -> None:

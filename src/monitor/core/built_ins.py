@@ -17,6 +17,7 @@ from monitor.lib.built_ins_utils import append_function_to_built_ins
 from monitor.lib.commit_analysis import next_steps
 from monitor.lib.built_in_commands import clean_missing_values_command, normalize_data_command
 from monitor.lib.built_in_commands import (
+    edit_function_keys_command,
     linkedin_summary_command,
     open_preferences_command,
     print_tools_command,
@@ -315,6 +316,11 @@ def configure_built_ins() -> None:
                     "command": ":edit_macros",
                     "function": _make_callable(edit_macros_command),
                     "description": "Edit global macros file (persistent across sessions). Uses your $EDITOR.",
+                },
+                {
+                    "command": ":edit_function_keys",
+                    "function": _make_callable(edit_function_keys_command),
+                    "description": "Edit function keys file (persistent across sessions). Uses your $EDITOR.",
                 },
                 {
                     "command": ":reload_macros",
