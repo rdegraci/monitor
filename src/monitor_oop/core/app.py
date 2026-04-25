@@ -1,0 +1,54 @@
+"""Top-level application coordinator for Monitor OOP."""
+from __future__ import annotations
+
+from monitor_oop.core.command_processor import CommandProcessor
+from monitor_oop.core.config_service import ConfigService
+from monitor_oop.core.history_service import HistoryService
+from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.runtime_context import RuntimeContext
+from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
+
+
+class MonitorApp:
+    """Owns startup, mode selection, and lifecycle management."""
+
+    def __init__(self, context: RuntimeContext) -> None:
+        self.context = context
+
+    def run(self) -> int:
+        """Run the default CLI workflow."""
+        return run_cli(self)
+
+    def run_cli(self) -> int:
+        """Run the CLI workflow."""
+        return run_cli(self)
+
+    def run_server(self) -> int:
+        """Run the server workflow."""
+        return run_server(self)
+
+    def run_script(self, script_path: str) -> int:
+        """Run a script workflow."""
+        return run_script(self, script_path)
+
+    def reset_config(self, force: bool = False) -> None:
+        """Reset application configuration."""
+        reset_config(self, force=force)
+
+
+def build_app() -> MonitorApp:
+    """Build a thin-slice application instance."""
+    config_service = ConfigService()
+    history_service = HistoryService(config_service)
+    macro_service = MacroService(config_service)
+    status_service = StatusService()
+    command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
+    context = RuntimeContext(
+        config_service=config_service,
+        history_service=history_service,
+        macro_service=macro_service,
+        status_service=status_service,
+        command_processor=command_processor,
+    )
+    return MonitorApp(context)
