@@ -9,17 +9,17 @@ class HistoryService:
 
     def __init__(self, config_service) -> None:
         self.config_service = config_service
-        self.messages: list[Message] = []
+        self.messages: list[str | Message] = []
 
     def initialize(self) -> None:
         """Initialize history storage."""
 
         return None
 
-    def append(self, message: Message) -> None:
+    def append(self, item) -> None:
         """Append a message to history."""
 
-        self.messages.append(message)
+        self.messages.append(item)
 
     def flush(self) -> None:
         """Flush stored history."""

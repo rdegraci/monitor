@@ -52,6 +52,7 @@ Issues = "https://github.com/rdegraci/monitor/issues"
 
 [project.scripts]
 monitor = "monitor.__main__:main"
+monitor-oop = "monitor_oop.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

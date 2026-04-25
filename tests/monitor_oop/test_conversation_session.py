@@ -37,6 +37,25 @@ def test_conversation_session_start_sets_running() -> None:
     assert session.context.state.running is True
 
 
+def test_conversation_session_process_non_exit_input_appends_history_and_prints_placeholder_response(capsys) -> None:
+    """Verify non-exit input is recorded and yields the placeholder response."""
+
+    session = build_session()
+    session.start()
+
+    assert session.process_user_input("hello") is True
+    assert session.running is True
+    assert session.context.state.running is True
+    history_entry = session.context.history_service.messages[-1]
+    assert (
+        history_entry == "hello"
+        or getattr(history_entry, "content", None) == "hello"
+    )
+
+    captured = capsys.readouterr()
+    assert "Response pending LLM integration." in captured.out
+
+
 def test_conversation_session_process_exit_command() -> None:
     """Verify exit commands stop the session."""
 

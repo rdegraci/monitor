@@ -16,10 +16,25 @@ def process_user_input(session: ConversationSession, text: str) -> bool:
 
 
 def run_cli(app: MonitorApp) -> int:
-    """Run the CLI workflow for the application."""
+    """Run the CLI workflow for the application.
+
+    Returns:
+        The exit status for the workflow.
+    """
 
     session = app.context.create_session()
-    return session.start()
+    exit_code = session.start()
+
+    while True:
+        try:
+            print(session.prompt_user(), end="")
+            user_input = input()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not session.process_user_input(user_input):
+            break
+
+    return exit_code
 
 
 def run_server(app: MonitorApp) -> int:
