@@ -62,6 +62,23 @@ Handles isolated configuration loading and access.
 - Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs user config `.env`, and `~/.config/monitor/.env`.
 - Manage model selection and config reset behavior.
 
+## History
+Owns the ordered conversation messages.
+
+### Constructor
+- `_messages: list[Message]`
+
+### Public Methods
+- `append(message: Message) -> None`
+- `trim(count: int) -> None`
+- `clear() -> None`
+- `snapshot() -> list[Message]`
+
+### Responsibilities
+- Hold the ordered conversation messages.
+- Be owned by `HistoryService`.
+- Keep the conversation message collection isolated from other app state.
+
 ## HistoryService
 Owns conversation history and persistence.
 
@@ -77,7 +94,8 @@ Owns conversation history and persistence.
 - `reset_with_summary(summary_text: str) -> None`
 
 ### Responsibilities
-- Manage conversation state.
+- Own a `History` instance.
+- Manage in-memory conversation state plus persistence and summarization behavior.
 - Persist and summarize history.
 - Keep token-related behavior isolated.
 - Support the current temporary mixed storage flow where needed by the thin slice implementation.
@@ -98,6 +116,7 @@ Owns macro state and expansion workflows.
 ### Responsibilities
 - Load macros.
 - Expand macro expressions.
+- Keep macro definitions private.
 - Handle runtime macro updates.
 
 ## StatusService
@@ -155,6 +174,7 @@ Owns one interactive chat session.
 - Own the REPL/session lifecycle.
 - Manage prompt state and session-scoped chat behavior.
 - Coordinate with services through the runtime context.
+- Expose the session `is_running` read-only property for lifecycle state.
 - Handle the current placeholder non-LLM response flow used by the thin slice implementation.
 
 ## ServerApp

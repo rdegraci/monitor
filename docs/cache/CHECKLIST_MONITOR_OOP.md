@@ -21,11 +21,13 @@
 - [x] Define `ConversationSession` responsibilities.
 - [x] Define `CommandProcessor` responsibilities.
 - [x] Define `HistoryService` responsibilities.
+- [x] Confirm a dedicated History domain object exists and that `HistoryService` owns it.
 - [x] Define `MacroService` responsibilities.
 - [x] Define `StatusService` responsibilities.
 - [x] Define `ServerApp` responsibilities.
 - [x] Define the runtime object graph and ownership boundaries.
 - [x] Ensure config, history, macros, and status are instance-owned.
+- [x] Ensure stateful classes keep internal storage private and expose read-only or method-based access instead of public mutable fields.
 - [x] Ensure any reused legacy logic is adapted through explicit inputs.
 - [ ] Decide which workflows remain as free functions.
 

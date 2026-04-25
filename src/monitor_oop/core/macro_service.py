@@ -7,7 +7,7 @@ class MacroService:
 
     def __init__(self, config_service) -> None:
         self.config_service = config_service
-        self.macros: dict[str, str] = {}
+        self._macros: dict[str, str] = {}
 
     def load(self) -> None:
         """Load macros for this runtime."""
@@ -28,13 +28,13 @@ class MacroService:
         key, value = (part.strip() for part in parts)
         if not key:
             return False
-        self.macros[key] = value
+        self._macros[key] = value
         return True
 
     def list_macros(self) -> dict[str, str]:
         """Return all known macros."""
 
-        return dict(self.macros)
+        return dict(self._macros)
 
     def reload(self) -> None:
         """Reload macros from configuration."""

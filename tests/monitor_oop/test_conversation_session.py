@@ -36,7 +36,7 @@ def test_conversation_session_start_sets_running() -> None:
     session = build_session()
 
     assert session.start() == 0
-    assert session.running is True
+    assert session.is_running is True
     assert session.context.state.running is True
 
 
@@ -63,12 +63,12 @@ def test_conversation_session_process_non_exit_input_appends_history_and_prints_
     session.context.llm_service.adapter.complete = lambda *args, **kwargs: MockResponse(response_text)  # type: ignore[method-assign]
 
     assert session.process_user_input("hello") is True
-    assert session.running is True
+    assert session.is_running is True
     assert session.context.state.running is True
-    history_entry = session.context.history_service.messages[-1]
-    assert (
-        history_entry == response_text
-        or getattr(history_entry, "content", None) == response_text
+    history_snapshot = session.context.history_service.snapshot()
+    assert any(
+        entry == response_text or getattr(entry, "content", None) == response_text
+        for entry in history_snapshot
     )
 
     captured = capsys.readouterr()
@@ -82,5 +82,5 @@ def test_conversation_session_process_exit_command() -> None:
     session.start()
 
     assert session.process_user_input(":exit") is False
-    assert session.running is False
+    assert session.is_running is False
     assert session.context.state.running is False

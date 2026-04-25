@@ -9,7 +9,7 @@ def test_history_defaults_to_empty_messages() -> None:
 
     history = History()
 
-    assert history.messages == []
+    assert history.snapshot() == []
 
 
 def test_history_service_owns_history_instance() -> None:
@@ -18,12 +18,11 @@ def test_history_service_owns_history_instance() -> None:
     service = HistoryService(ConfigService())
 
     assert isinstance(service.history, History)
-    assert service.messages == []
-    assert service.history.messages == []
+    assert service.snapshot() == []
 
 
-def test_history_service_append_trim_and_reset_summary() -> None:
-    """Verify history mutations update the owned messages collection."""
+def test_history_service_snapshot_after_mutations() -> None:
+    """Verify history mutations update the snapshot."""
 
     service = HistoryService(ConfigService())
     first = Message(role="user", content="one")
@@ -34,14 +33,19 @@ def test_history_service_append_trim_and_reset_summary() -> None:
     service.append(second)
     service.append(third)
 
-    assert service.messages == [first, second, third]
+    assert service.snapshot() == [first, second, third]
 
     service.trim(2)
 
-    assert service.messages == [second, third]
+    assert service.snapshot() == [second, third]
+
+    service.clear()
+
+    assert service.snapshot() == []
 
     service.reset_with_summary("summary text")
 
-    assert len(service.messages) == 1
-    assert service.messages[0].role == "system"
-    assert service.messages[0].content == "summary text"
+    snapshot = service.snapshot()
+    assert len(snapshot) == 1
+    assert snapshot[0].role == "system"
+    assert snapshot[0].content == "summary text"

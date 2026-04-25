@@ -14,9 +14,11 @@ def test_history_service_append_and_trim() -> None:
 
     service.trim(2)
 
-    assert len(service.messages) == 2
-    assert service.messages[0].content == "two"
-    assert service.messages[1].content == "three"
+    snapshot = service.snapshot()
+
+    assert len(snapshot) == 2
+    assert snapshot[0].content == "two"
+    assert snapshot[1].content == "three"
 
 
 def test_history_service_reset_with_summary() -> None:
@@ -26,6 +28,8 @@ def test_history_service_reset_with_summary() -> None:
 
     service.reset_with_summary("summary text")
 
-    assert len(service.messages) == 1
-    assert service.messages[0].role == "system"
-    assert service.messages[0].content == "summary text"
+    snapshot = service.snapshot()
+
+    assert len(snapshot) == 1
+    assert snapshot[0].role == "system"
+    assert snapshot[0].content == "summary text"

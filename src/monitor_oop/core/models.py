@@ -49,7 +49,38 @@ class History:
         messages: Conversation messages in chronological order.
     """
 
-    messages: list[Message] = field(default_factory=list)
+    _messages: list[Message] = field(default_factory=list)
+
+    def append(self, message: Message) -> None:
+        """Append a message to the history.
+
+        Args:
+            message: The message to append.
+        """
+
+        self._messages.append(message)
+
+    def trim(self, count: int) -> None:
+        """Keep only the newest messages in the history.
+
+        Args:
+            count: The number of newest messages to keep.
+        """
+
+        if count <= 0:
+            self._messages.clear()
+            return
+        self._messages[:] = self._messages[-count:]
+
+    def clear(self) -> None:
+        """Remove all messages from the history."""
+
+        self._messages.clear()
+
+    def snapshot(self) -> list[Message]:
+        """Return a copy of the current message list."""
+
+        return list(self._messages)
 
 
 @dataclass(slots=True)

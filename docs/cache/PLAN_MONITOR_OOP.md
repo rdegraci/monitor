@@ -29,13 +29,19 @@ The new app should build a clear runtime graph at startup:
 - `ConfigService`
   - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
 - `HistoryService`
-  - Manages conversation state, persistence, summarization, and flushing.
+  - Owns a `History` domain object for conversation state.
+  - Manages history persistence, summarization, and flushing through `History`.
+- `History`
+  - Encapsulates conversation messages behind a private internal store.
+  - Stores messages privately and exposes a controlled API for history access and mutation.
 - `MacroService`
   - Manages macro loading, expansion, and editing workflows.
+  - Keeps macro definitions private behind the service boundary.
 - `StatusService`
   - Owns runtime status state and optional status server integration.
 - `ConversationSession`
   - Owns a single interactive chat session and its state.
+  - Exposes `is_running` as a read-only view of session lifecycle state instead of a public running attribute.
 - `CommandProcessor`
   - Classifies commands and executes command-specific behavior.
 - `ServerApp`
@@ -147,7 +153,10 @@ These functions should coordinate the runtime object graph, not own long-lived s
   - `MonitorApp` owns startup and mode selection.
   - `RuntimeContext` owns process-local services and per-run state.
   - `ConfigService`, `HistoryService`, `MacroService`, and `StatusService` own their own state.
+  - `HistoryService` owns a `History` domain object, and history state is stored in `History` rather than a raw list.
+  - `History` encapsulates messages privately behind its API, instead of exposing direct message storage.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.
+  - `ConversationSession` exposes `is_running` as the read-only lifecycle indicator for the active session.
   - `CommandProcessor` classifies and dispatches commands through service calls.
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.
 - Startup order:

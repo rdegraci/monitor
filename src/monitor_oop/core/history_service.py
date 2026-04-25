@@ -11,21 +11,36 @@ class HistoryService:
         self.config_service = config_service
         self.history = History()
 
-    @property
-    def messages(self) -> list[str | Message]:
-        """Return the stored conversation messages."""
+    def _snapshot(self) -> list[Message]:
+        """Return a snapshot of the stored conversation messages."""
 
-        return self.history.messages
+        return self.history.snapshot()
+
+    @property
+    def messages(self) -> list[Message]:
+        """Compatibility view of the current history messages."""
+
+        return self._snapshot()
+
+    def snapshot(self) -> list[Message]:
+        """Return a copy of the current history messages."""
+
+        return self._snapshot()
 
     def initialize(self) -> None:
         """Initialize history storage."""
 
         return None
 
-    def append(self, item) -> None:
+    def append(self, item: Message) -> None:
         """Append a message to history."""
 
-        self.history.messages.append(item)
+        self.history.append(item)
+
+    def clear(self) -> None:
+        """Clear stored history."""
+
+        self.history.clear()
 
     def flush(self) -> None:
         """Flush stored history."""
@@ -35,14 +50,20 @@ class HistoryService:
     def trim(self, count: int) -> None:
         """Trim messages to the newest ``count`` entries."""
 
-        self.history.messages = self.history.messages[-count:]
+        self.history.trim(count)
 
     def summarize_if_needed(self) -> bool:
         """Summarize history when needed."""
 
         return False
 
+    def _reset_with_summary(self, summary_text: str) -> None:
+        """Reset history while preserving a summary message."""
+
+        self.history.clear()
+        self.history.append(Message(role="system", content=summary_text))
+
     def reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""
 
-        self.history.messages = [Message(role="system", content=summary_text)]
+        self._reset_with_summary(summary_text)
