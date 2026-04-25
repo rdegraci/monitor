@@ -29,6 +29,10 @@
 - [x] Ensure config, history, macros, and status are instance-owned.
 - [x] Ensure stateful classes keep internal storage private and expose read-only or method-based access instead of public mutable fields.
 - [x] Ensure any reused legacy logic is adapted through explicit inputs.
+- [x] Confirm a class-based tool registry/service with private storage for tool-calling design.
+- [x] Confirm the tool subsystem uses `tool_models.py` for tool-specific dataclasses.
+- [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
+- [x] Confirm parsing, normalization, and output-wrapping helpers remain free functions where appropriate.
 - [ ] Decide which workflows remain as free functions.
 
 ## Milestone 3: Package and bootstrap
@@ -41,6 +45,8 @@
 - [x] Implement a thin-slice bootstrap that starts the app with minimal wiring.
 - [x] Keep bootstrap code isolated from business logic.
 - [x] Confirm current code lives under `src/monitor_oop/core/` rather than the package root.
+- [x] Confirm `LoggerService` is in place for centralized logging responsibilities.
+- [x] Confirm centralized logging bootstrap is in place and wired before app startup.
 
 ## Milestone 4: Conversation flow
 - [x] Implement session startup.
@@ -84,3 +90,7 @@
 - [x] Confirm each checklist item is actionable enough to track implementation progress.
 - [x] Confirm this section is used as the initial blueprint tracker for the new app.
 - [x] Confirm `ConfigService` supports the fallback user config path `~/.config/monitor/.env`.
+- [x] Confirm `LLMService` finish-reason handling is in place.
+- [x] Confirm the defensive 5-call cap is in place.
+- [x] Confirm the weather tool is registered at startup.
+- [x] Confirm dedicated `LLMService` tests exist.

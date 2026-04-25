@@ -32,7 +32,11 @@ Owns the isolated runtime services and per-run state.
 - `history_service: HistoryService`
 - `macro_service: MacroService`
 - `status_service: StatusService`
+- `logger_service: LoggerService`
 - `command_processor: CommandProcessor`
+- `tool_registry: ToolRegistry`
+- `tool_service: ToolService`
+- `llm_service: LLMService`
 - `server_app: ServerApp | None = None`
 
 ### Public Methods
@@ -136,6 +140,23 @@ Owns app status state and optional status server integration.
 - Track runtime working/idle status.
 - Manage the optional status server if enabled.
 
+## LoggerService
+Owns logging configuration and runtime log routing.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `configure() -> None`
+- `get_logger(name: str) -> object`
+- `reset() -> None`
+
+### Responsibilities
+- Provide the centralized logging configuration point.
+- Configure application logging for the isolated runtime.
+- Keep logger setup and routing isolated from module globals.
+- Serve as the single owner of logging initialization for the app instance.
+
 ## CommandProcessor
 Classifies and executes commands.
 
@@ -154,6 +175,64 @@ Classifies and executes commands.
 - Determine what a command is.
 - Dispatch command execution.
 - Return structured results instead of loose booleans.
+
+## ToolRegistry
+Owns registered tool definitions and lookup metadata.
+
+### Constructor
+- `_tools: dict[str, ToolDefinition]`
+
+### Public Methods
+- `register(tool: ToolDefinition) -> bool`
+- `unregister(tool_name: str) -> bool`
+- `list_tools() -> dict[str, ToolDefinition]`
+- `resolve(tool_name: str) -> ToolDefinition | None`
+- `has_tool(tool_name: str) -> bool`
+
+### Responsibilities
+- Keep private storage for registered tools.
+- Provide lookup and listing for available tools.
+- Support isolated tool registration without module globals.
+- Serve as the single source of truth for tool metadata.
+
+## ToolService
+Owns tool execution workflows and tool invocation behavior.
+
+### Constructor
+- `tool_registry: ToolRegistry`
+
+### Public Methods
+- `execute(tool_name: str, arguments: dict[str, object]) -> ToolResult`
+- `register_tool(tool: ToolDefinition) -> bool`
+- `list_tools() -> dict[str, ToolDefinition]`
+- `resolve_tool(tool_name: str) -> ToolDefinition | None`
+
+### Responsibilities
+- Depend on the registry for tool lookup and storage.
+- Execute registered tools through a controlled service boundary.
+- Expose registration and listing operations to higher layers.
+- Keep tool execution logic isolated from command and session state.
+
+## LLMService
+Owns LLM request/response orchestration and completion handling.
+
+### Constructor
+- `config_service: ConfigService`
+- `tool_service: ToolService`
+- `history_service: HistoryService`
+- `status_service: StatusService`
+
+### Public Methods
+- `complete(messages: list[Message]) -> str`
+- `respond(messages: list[Message]) -> str`
+- `run_with_tools(messages: list[Message]) -> str`
+
+### Responsibilities
+- Handle finish-reason branching for model responses.
+- Orchestrate tool calls when the model requests them.
+- Enforce a defensive maximum tool-call loop cap.
+- Convert partial model output into a completed response.
+- Keep LLM response flow isolated from command processing and session state.
 
 ## ConversationSession
 `src/monitor_oop/core/conversation_session.py`
@@ -207,6 +286,8 @@ These remain free functions because they orchestrate object behavior:
 - `reset_config(app: MonitorApp, force: bool = False) -> None`
 - `process_user_input(session: ConversationSession, text: str) -> bool`
 
+Parsing, normalization, and output wrapping can remain free functions in this layer as needed.
+
 The workflow layer currently provides the interactive CLI loop.
 
 ## Shared Data Models
@@ -217,10 +298,13 @@ Define these in `models.py`:
 - `CommandType`
 - `CommandResult`
 - `AppState`
+- `ToolDefinition`
+- `ToolResult`
 
 ## Dependency Rules
 - `MonitorApp` owns `RuntimeContext`.
 - `RuntimeContext` owns service instances.
 - `ConversationSession` and `ServerApp` use `RuntimeContext` only.
 - `CommandProcessor` depends on services, not on module globals.
+- `ToolService` depends on `ToolRegistry`, not on module globals.
 - No class in `monitor_oop` should read state from `monitor` at runtime.

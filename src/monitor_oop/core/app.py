@@ -1,6 +1,7 @@
 """Top-level application coordinator for Monitor OOP."""
 from __future__ import annotations
 
+import logging
 import sys
 from logging import getLogger
 
@@ -8,9 +9,11 @@ from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
+from monitor_oop.core.logger_service import LoggerService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.tools.weather import build_weather_tool_definition, get_current_weather
 from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
 
 logger = getLogger(__name__)
@@ -51,6 +54,8 @@ class MonitorApp:
 
 def build_app() -> MonitorApp:
     """Build a thin-slice application instance."""
+    logger_service = LoggerService()
+    logger_service.configure(level=logging.INFO)
     config_service = ConfigService()
     config_service.load_env()
     history_service = HistoryService(config_service)
@@ -62,8 +67,10 @@ def build_app() -> MonitorApp:
         config_service=config_service,
         history_service=history_service,
         llm_service=llm_service,
+        logger_service=logger_service,
         macro_service=macro_service,
         status_service=status_service,
         command_processor=command_processor,
     )
+    context.tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
     return MonitorApp(context)

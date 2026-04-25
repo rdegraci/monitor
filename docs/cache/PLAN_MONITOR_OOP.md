@@ -16,8 +16,9 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Prefer explicit dependency injection over implicit module state.
 - Use classes to own state and subsystem behavior.
 - Use free functions for orchestration and workflow composition.
-- Each runtime instance must own its own config, history, macros, status, and session state.
+- Each runtime instance must own its own config, history, macros, status, logger, and session state.
 - No new code path in `src/monitor_oop/` should mutate `src/monitor/` state.
+- Logging is configured once at bootstrap, and runtime code uses standard module loggers.
 
 ## Runtime Object Graph
 The new app should build a clear runtime graph at startup:
@@ -39,6 +40,9 @@ The new app should build a clear runtime graph at startup:
   - Keeps macro definitions private behind the service boundary.
 - `StatusService`
   - Owns runtime status state and optional status server integration.
+- `LoggerService`
+  - Owns logging bootstrap state and logger configuration for the runtime instance.
+  - Configures logging once at startup and exposes module logger access patterns through standard Python logging.
 - `ConversationSession`
   - Owns a single interactive chat session and its state.
   - Exposes `is_running` as a read-only view of session lifecycle state instead of a public running attribute.
@@ -46,6 +50,13 @@ The new app should build a clear runtime graph at startup:
   - Classifies commands and executes command-specific behavior.
 - `ServerApp`
   - Builds and runs the HTTP API for the new app.
+- `ToolRegistry` / `ToolService`
+  - Owns tool definitions, registration, and invocation state behind a private internal store.
+  - Exposes a controlled API for listing, resolving, validating, and dispatching tools without leaking mutable tool state.
+  - Keeps tool-call metadata, adapters, and execution context isolated behind the service boundary.
+- `LLMService`
+  - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
+  - Applies a defensive maximum tool-loop cap of 5 total model calls.
 
 Suggested ownership flow:
 - `MonitorApp` creates `RuntimeContext`.
@@ -53,6 +64,7 @@ Suggested ownership flow:
 - `ConversationSession` depends on `ConfigService`, `HistoryService`, `MacroService`, and `CommandProcessor`.
 - `CommandProcessor` delegates to services rather than reaching into global state.
 - `ServerApp` uses the same `RuntimeContext` as CLI and script modes.
+- `LoggerService` is initialized during bootstrap and shared through explicit context wiring, while runtime modules continue to use standard `logging.getLogger(__name__)` access.
 
 ## Free Functions
 Keep orchestration outside the classes where practical:
@@ -67,10 +79,12 @@ Keep orchestration outside the classes where practical:
 
 These functions should coordinate the runtime object graph, not own long-lived state.
 
+For tool calling workflows, free functions should also handle tool-call parsing, normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap.
+
 ## Separation Rules
 - The new app must not import legacy module globals for runtime state.
 - The new app must not mutate legacy caches, singleton objects, or module-level configuration.
-- The new app must construct its own config, history, macros, status, and session state per process or per app instance.
+- The new app must construct its own config, history, macros, status, logger, and session state per process or per app instance.
 - Any legacy behavior that is reused must be wrapped behind new interfaces.
 - Shared helpers must be stateless or pure unless explicitly isolated behind a service boundary.
 - Startup code in `src/monitor_oop/` must not depend on side effects from `src/monitor/`.
@@ -87,6 +101,7 @@ These functions should coordinate the runtime object graph, not own long-lived s
   - `core/history_service.py`
   - `core/macro_service.py`
   - `core/status_service.py`
+  - `core/logger_service.py`
   - `core/server_app.py`
   - `core/workflow.py`
   - `models.py`
@@ -98,10 +113,10 @@ These functions should coordinate the runtime object graph, not own long-lived s
 - Define the runtime object graph and constructor dependencies.
 - Add a minimal `main()` entrypoint that can instantiate `MonitorApp`.
 - Wire one end-to-end startup path for CLI mode using the new runtime only.
-- Keep the first slice narrow: config load, session creation, and a basic command dispatch path.
+- Keep the first slice narrow: config load, session creation, logging bootstrap, and a basic command dispatch path.
 
 ### Milestone 2: Core runtime ownership
-- Implement isolated config, history, macro, and status services.
+- Implement isolated config, history, macro, logger, and status services.
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
 - Ensure runtime state is owned by `RuntimeContext` and passed explicitly.
@@ -113,7 +128,7 @@ These functions should coordinate the runtime object graph, not own long-lived s
 
 ### Milestone 4: Verification
 - Add regression tests comparing new behavior to legacy behavior.
-- Validate startup, chat flow, command flow, and server flow.
+- Validate startup, chat flow, command flow, logging, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
 
 ### Milestone 5: Cutover decision
@@ -143,31 +158,41 @@ These functions should coordinate the runtime object graph, not own long-lived s
   - `src/monitor_oop/core/history_service.py`
   - `src/monitor_oop/core/macro_service.py`
   - `src/monitor_oop/core/status_service.py`
+  - `src/monitor_oop/core/logger_service.py`
   - `src/monitor_oop/core/command_processor.py`
   - `src/monitor_oop/core/conversation_session.py`
-  - `src/monitor_oop/core/server_app.py`
   - `src/monitor_oop/core/workflow.py`
+  - `src/monitor_oop/core/server_app.py`
   - `src/monitor_oop/models.py`
   - `src/monitor_oop/utils.py`
 - Runtime object graph:
   - `MonitorApp` owns startup and mode selection.
   - `RuntimeContext` owns process-local services and per-run state.
-  - `ConfigService`, `HistoryService`, `MacroService`, and `StatusService` own their own state.
+  - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, and `LoggerService` own their own state.
   - `HistoryService` owns a `History` domain object, and history state is stored in `History` rather than a raw list.
   - `History` encapsulates messages privately behind its API, instead of exposing direct message storage.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.
   - `ConversationSession` exposes `is_running` as the read-only lifecycle indicator for the active session.
   - `CommandProcessor` classifies and dispatches commands through service calls.
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.
+  - `LoggerService` configures logging once at bootstrap, and runtime modules use standard module loggers.
+  - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
+  - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
+  - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and per-tool modules such as `weather.py`.
+  - Tool definitions, adapters, and invocation metadata remain private to the tool service boundary.
+  - Tool-call parsing, normalization, output wrapping, and orchestration are handled by free functions as needed, with service calls used for actual tool state and execution.
+  - The weather tool is registered at startup through the app bootstrap.
+  - `LLMService` enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
+  - `LLMService` applies a defensive maximum tool-loop cap of 5 total model calls.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.
   - Construct `RuntimeContext`.
-  - Initialize config first, then history, macros, and status.
+  - Initialize config first, then logger, history, macros, and status.
   - Create `ConversationSession`.
   - Enter CLI, server, or script workflow.
 - Thin-slice first implementation:
-  - Start with config loading, a minimal runtime context, session creation, and one command dispatch path.
+  - Start with config loading, a minimal runtime context, session creation, logging bootstrap, and one command dispatch path.
   - Keep orchestration in free functions and keep services small.
   - Make the first runnable path CLI only.
 - Avoid early:
@@ -183,6 +208,7 @@ These functions should coordinate the runtime object graph, not own long-lived s
   - `core/history_service.py`
   - `core/macro_service.py`
   - `core/status_service.py`
+  - `core/logger_service.py`
   - `core/command_processor.py`
   - `core/conversation_session.py`
   - `core/workflow.py`

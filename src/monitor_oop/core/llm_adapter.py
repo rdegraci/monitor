@@ -12,10 +12,26 @@ class ResponsesLiteLLMAdapter:
     This adapter owns the Responses-style LiteLLM call path.
     """
 
-    def complete(self, model: str, messages: list[dict[str, str]], api_key: str) -> Any:
+    def complete(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        api_key: str,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
+    ) -> Any:
         """Call LiteLLM with the Responses-style model/messages contract."""
 
-        return litellm.completion(model=model, messages=messages, api_key=api_key)
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "api_key": api_key,
+        }
+        if tools is not None:
+            kwargs["tools"] = tools
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+        return litellm.completion(**kwargs)
 
     def extract_text(self, response: Any) -> str:
         """Extract assistant text from a LiteLLM response object."""
