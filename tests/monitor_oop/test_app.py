@@ -9,5 +9,5 @@ def test_build_app_creates_runtime() -> None:
     app = build_app()
 
     assert app.context.config_service.get_model() == DEFAULT_MODEL
-    assert app.context.history_service.messages == []
+    assert app.context.history_service.history.messages == []
     assert app.context.llm_service is not None

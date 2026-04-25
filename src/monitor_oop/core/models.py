@@ -1,7 +1,7 @@
 """Shared data models for the isolated Monitor application."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -39,6 +39,17 @@ class Message:
 
     role: str
     content: str
+
+
+@dataclass(slots=True)
+class History:
+    """Owned conversation history state.
+
+    Attributes:
+        messages: Conversation messages in chronological order.
+    """
+
+    messages: list[Message] = field(default_factory=list)
 
 
 @dataclass(slots=True)
