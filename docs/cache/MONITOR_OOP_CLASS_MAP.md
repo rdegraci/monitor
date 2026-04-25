@@ -73,6 +73,7 @@ Owns conversation history and persistence.
 - Manage conversation state.
 - Persist and summarize history.
 - Keep token-related behavior isolated.
+- Support the current temporary mixed storage flow where needed by the thin slice implementation.
 
 ## MacroService
 Owns macro state and expansion workflows.
@@ -145,6 +146,7 @@ Owns one interactive chat session.
 - Own the REPL/session lifecycle.
 - Manage prompt state and session-scoped chat behavior.
 - Coordinate with services through the runtime context.
+- Handle the current placeholder non-LLM response flow used by the thin slice implementation.
 
 ## ServerApp
 Creates and runs the isolated HTTP API.
@@ -161,6 +163,7 @@ Creates and runs the isolated HTTP API.
 - Build the Flask app.
 - Register routes.
 - Call into the new runtime context only.
+- Serve as a placeholder for the future HTTP implementation in the thin slice.
 
 ## Workflow Functions
 These remain free functions because they orchestrate object behavior:
@@ -170,6 +173,8 @@ These remain free functions because they orchestrate object behavior:
 - `run_script(app: MonitorApp, script_path: str) -> int`
 - `reset_config(app: MonitorApp, force: bool = False) -> None`
 - `process_user_input(session: ConversationSession, text: str) -> bool`
+
+The workflow layer currently provides the interactive CLI loop.
 
 ## Shared Data Models
 Define these in `models.py`:
