@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+DEFAULT_MODEL = "openai/gpt-4o-mini"
+
+
 class AppMode(str, Enum):
     """Supported application runtime modes."""
 
@@ -26,7 +29,7 @@ class CommandType(str, Enum):
 class RuntimeConfig:
     """Runtime configuration for a single app instance."""
 
-    model_name: str = "default"
+    model_name: str = DEFAULT_MODEL
     context_window: int = 4_096
 
 

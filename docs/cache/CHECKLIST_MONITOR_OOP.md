@@ -38,6 +38,7 @@
 - [x] Add model/dataclass definitions.
 - [x] Implement a thin-slice bootstrap that starts the app with minimal wiring.
 - [x] Keep bootstrap code isolated from business logic.
+- [x] Confirm current code lives under `src/monitor_oop/core/` rather than the package root.
 
 ## Milestone 4: Conversation flow
 - [x] Implement session startup.
@@ -80,3 +81,4 @@
 - [x] Confirm the first file order is package init, model/dataclasses, services, orchestration, startup entrypoint, tests.
 - [x] Confirm each checklist item is actionable enough to track implementation progress.
 - [x] Confirm this section is used as the initial blueprint tracker for the new app.
+- [x] Confirm `ConfigService` supports the fallback user config path `~/.config/monitor/.env`.

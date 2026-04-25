@@ -3,6 +3,7 @@ from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.history_service import HistoryService
+from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.models import CommandType
 from monitor_oop.core.runtime_context import RuntimeContext
@@ -16,6 +17,7 @@ def build_session() -> ConversationSession:
     history_service = HistoryService(config_service)
     macro_service = MacroService(config_service)
     status_service = StatusService()
+    llm_service = LLMService(config_service)
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
         config_service=config_service,
@@ -23,6 +25,7 @@ def build_session() -> ConversationSession:
         macro_service=macro_service,
         status_service=status_service,
         command_processor=command_processor,
+        llm_service=llm_service,
     )
     return ConversationSession(context)
 
@@ -37,23 +40,39 @@ def test_conversation_session_start_sets_running() -> None:
     assert session.context.state.running is True
 
 
-def test_conversation_session_process_non_exit_input_appends_history_and_prints_placeholder_response(capsys) -> None:
-    """Verify non-exit input is recorded and yields the placeholder response."""
+def test_conversation_session_process_non_exit_input_appends_history_and_prints_model_response(capsys) -> None:
+    """Verify non-exit input is recorded and yields the LiteLLM adapter path via the mocked response."""
 
     session = build_session()
     session.start()
+
+    response_text = "mocked model response"
+
+    class MockMessage:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class MockChoice:
+        def __init__(self, content: str) -> None:
+            self.message = MockMessage(content)
+
+    class MockResponse:
+        def __init__(self, output_text: str) -> None:
+            self.choices = [MockChoice(output_text)]
+
+    session.context.llm_service.adapter.complete = lambda *args, **kwargs: MockResponse(response_text)  # type: ignore[method-assign]
 
     assert session.process_user_input("hello") is True
     assert session.running is True
     assert session.context.state.running is True
     history_entry = session.context.history_service.messages[-1]
     assert (
-        history_entry == "hello"
-        or getattr(history_entry, "content", None) == "hello"
+        history_entry == response_text
+        or getattr(history_entry, "content", None) == response_text
     )
 
     captured = capsys.readouterr()
-    assert "Response pending LLM integration." in captured.out
+    assert response_text in captured.out
 
 
 def test_conversation_session_process_exit_command() -> None:

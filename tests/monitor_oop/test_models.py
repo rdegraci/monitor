@@ -1,5 +1,5 @@
 """Tests for the isolated Monitor OOP models."""
-from monitor_oop.core.models import AppMode, AppState, CommandResult, CommandType, Message, RuntimeConfig
+from monitor_oop.core.models import AppMode, AppState, CommandResult, CommandType, DEFAULT_MODEL, Message, RuntimeConfig
 
 
 def test_models_default_values() -> None:
@@ -10,7 +10,7 @@ def test_models_default_values() -> None:
     message = Message(role="user", content="hello")
     result = CommandResult(command_type=CommandType.UNKNOWN)
 
-    assert config.model_name == "default"
+    assert config.model_name == DEFAULT_MODEL
     assert config.context_window == 4_096
     assert state.mode is AppMode.CLI
     assert state.running is False

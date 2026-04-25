@@ -22,7 +22,7 @@ Phase 2 is complete: the core services and command processor are implemented.
 11. Add `workflow.py` with orchestration functions.
 12. Add `app.py` with `MonitorApp`.
 
-Phase 3 is complete: the session/workflow layer is implemented, and the current CLI loop is runnable end to end.
+Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`.
 
 ## Phase 4: Server
 13. Add `server_app.py`.
@@ -34,7 +34,7 @@ Phase 4 remains future work: server wiring is still pending.
 15. Make one CLI path runnable end to end.
 16. Keep the first version narrow: config load, session creation, prompt, one command, exit.
 
-The thin-slice CLI milestone is achieved: the first-stage flow now runs from config load through one command and exit.
+The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback.
 
 ## Phase 6: Tests
 17. Add startup tests.

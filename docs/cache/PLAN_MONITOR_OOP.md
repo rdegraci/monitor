@@ -27,7 +27,7 @@ The new app should build a clear runtime graph at startup:
 - `RuntimeContext`
   - Owns references to all services and per-run state.
 - `ConfigService`
-  - Loads, validates, and exposes app configuration.
+  - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
 - `HistoryService`
   - Manages conversation state, persistence, summarization, and flushing.
 - `MacroService`
@@ -73,16 +73,16 @@ These functions should coordinate the runtime object graph, not own long-lived s
 ## Suggested Package Layout
 - `src/monitor_oop/`
   - `__init__.py`
-  - `app.py`
-  - `context.py`
-  - `config_service.py`
-  - `conversation_session.py`
-  - `command_processor.py`
-  - `history_service.py`
-  - `macro_service.py`
-  - `status_service.py`
-  - `server_app.py`
-  - `workflow.py`
+  - `core/app.py`
+  - `core/runtime_context.py`
+  - `core/config_service.py`
+  - `core/conversation_session.py`
+  - `core/command_processor.py`
+  - `core/history_service.py`
+  - `core/macro_service.py`
+  - `core/status_service.py`
+  - `core/server_app.py`
+  - `core/workflow.py`
   - `models.py`
   - `utils.py`
 
@@ -131,16 +131,16 @@ These functions should coordinate the runtime object graph, not own long-lived s
 ## Starter Blueprint
 - Recommended package layout:
   - `src/monitor_oop/__init__.py`
-  - `src/monitor_oop/app.py`
-  - `src/monitor_oop/context.py`
-  - `src/monitor_oop/config_service.py`
-  - `src/monitor_oop/history_service.py`
-  - `src/monitor_oop/macro_service.py`
-  - `src/monitor_oop/status_service.py`
-  - `src/monitor_oop/command_processor.py`
-  - `src/monitor_oop/conversation_session.py`
-  - `src/monitor_oop/server_app.py`
-  - `src/monitor_oop/workflow.py`
+  - `src/monitor_oop/core/app.py`
+  - `src/monitor_oop/core/runtime_context.py`
+  - `src/monitor_oop/core/config_service.py`
+  - `src/monitor_oop/core/history_service.py`
+  - `src/monitor_oop/core/macro_service.py`
+  - `src/monitor_oop/core/status_service.py`
+  - `src/monitor_oop/core/command_processor.py`
+  - `src/monitor_oop/core/conversation_session.py`
+  - `src/monitor_oop/core/server_app.py`
+  - `src/monitor_oop/core/workflow.py`
   - `src/monitor_oop/models.py`
   - `src/monitor_oop/utils.py`
 - Runtime object graph:
@@ -169,16 +169,16 @@ These functions should coordinate the runtime object graph, not own long-lived s
   - Reusing legacy globals, caches, or singleton initialization.
 - Recommended first file order:
   - `models.py`
-  - `context.py`
-  - `config_service.py`
-  - `history_service.py`
-  - `macro_service.py`
-  - `status_service.py`
-  - `command_processor.py`
-  - `conversation_session.py`
-  - `workflow.py`
-  - `app.py`
-  - `server_app.py`
+  - `core/runtime_context.py`
+  - `core/config_service.py`
+  - `core/history_service.py`
+  - `core/macro_service.py`
+  - `core/status_service.py`
+  - `core/command_processor.py`
+  - `core/conversation_session.py`
+  - `core/workflow.py`
+  - `core/app.py`
+  - `core/server_app.py`
   - `utils.py`
   - `__init__.py`
 - The first-pass class map and build sequence are defined in `MONITOR_OOP_CLASS_MAP.md` and `MONITOR_OOP_IMPLEMENTATION_SEQUENCE.md` to keep the implementation aligned with this blueprint.

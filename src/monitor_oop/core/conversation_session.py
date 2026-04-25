@@ -43,5 +43,11 @@ class ConversationSession:
             self.context.state.running = False
             return False
         self.context.history_service.append(Message(role="user", content=user_input))
-        print("Response pending LLM integration.")
+        response_text = self.context.llm_service.complete(
+            user_input, self.context.history_service.messages
+        )
+        self.context.history_service.append(
+            Message(role="assistant", content=response_text)
+        )
+        print(response_text)
         return True

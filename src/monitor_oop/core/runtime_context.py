@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
+from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.models import AppState
 from monitor_oop.core.status_service import StatusService
@@ -15,6 +16,7 @@ class RuntimeContext:
         self,
         config_service: ConfigService,
         history_service: HistoryService,
+        llm_service: LLMService,
         macro_service: MacroService,
         status_service: StatusService,
         command_processor,
@@ -22,6 +24,7 @@ class RuntimeContext:
     ) -> None:
         self.config_service = config_service
         self.history_service = history_service
+        self.llm_service = llm_service
         self.macro_service = macro_service
         self.status_service = status_service
         self.command_processor = command_processor

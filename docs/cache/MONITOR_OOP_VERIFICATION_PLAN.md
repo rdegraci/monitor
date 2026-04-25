@@ -13,7 +13,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 ## Verification Scope
 ### Startup
 - App can be instantiated without importing legacy runtime state.
-- App can load its own config and construct its runtime context.
+- App can load its own config, including the fallback `~/.config/monitor/.env`, and construct its runtime context.
 - App can start and stop cleanly.
 - Current tests and the runnable CLI partially verify startup behavior.
 
@@ -41,7 +41,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Integration tests for app startup and session flow.
 - Integration tests for server routes.
 - Regression comparisons against legacy behavior for key workflows.
-- Isolation tests to ensure separation from `src/monitor/`.
+- Isolation tests to ensure separation from `src/monitor_oop/core/`.
 
 ## Suggested Verification Order
 1. Startup tests.

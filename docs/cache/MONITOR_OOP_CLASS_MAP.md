@@ -3,6 +3,8 @@
 This document defines the first-pass object model for the isolated Monitor rewrite.
 
 ## MonitorApp
+`src/monitor_oop/core/app.py`
+
 Top-level coordinator for startup, mode selection, and lifecycle management.
 
 ### Constructor
@@ -21,6 +23,8 @@ Top-level coordinator for startup, mode selection, and lifecycle management.
 - Coordinate shutdown and process exit.
 
 ## RuntimeContext
+`src/monitor_oop/core/runtime_context.py`
+
 Owns the isolated runtime services and per-run state.
 
 ### Constructor
@@ -39,6 +43,8 @@ Owns the isolated runtime services and per-run state.
 - Keep state local to the new app process.
 
 ## ConfigService
+`src/monitor_oop/core/config_service.py`
+
 Handles isolated configuration loading and access.
 
 ### Constructor
@@ -53,6 +59,7 @@ Handles isolated configuration loading and access.
 
 ### Responsibilities
 - Load and validate app configuration.
+- Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs user config `.env`, and `~/.config/monitor/.env`.
 - Manage model selection and config reset behavior.
 
 ## HistoryService
@@ -130,6 +137,8 @@ Classifies and executes commands.
 - Return structured results instead of loose booleans.
 
 ## ConversationSession
+`src/monitor_oop/core/conversation_session.py`
+
 Owns one interactive chat session.
 
 ### Constructor
@@ -149,6 +158,8 @@ Owns one interactive chat session.
 - Handle the current placeholder non-LLM response flow used by the thin slice implementation.
 
 ## ServerApp
+`src/monitor_oop/core/server_app.py`
+
 Creates and runs the isolated HTTP API.
 
 ### Constructor
@@ -166,6 +177,8 @@ Creates and runs the isolated HTTP API.
 - Serve as a placeholder for the future HTTP implementation in the thin slice.
 
 ## Workflow Functions
+`src/monitor_oop/core/workflow.py`
+
 These remain free functions because they orchestrate object behavior:
 - `main() -> int`
 - `run_cli(app: MonitorApp) -> int`
