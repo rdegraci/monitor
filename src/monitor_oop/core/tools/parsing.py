@@ -24,6 +24,106 @@ def normalize_tool_arguments(raw_arguments: object) -> dict[str, object]:
     return {}
 
 
+def _extract_tool_call_from_mapping(item: dict[str, object]) -> ToolCall | None:
+    """Extract a tool call from a mapping with conservative shape checks."""
+
+    item_type = item.get("type")
+    if item_type not in {"function_call", "tool_call"}:
+        return None
+    call_id = item.get("call_id") or item.get("id")
+    response_item_id = item.get("id")
+    tool_name = item.get("name") or item.get("tool") or item.get("tool_name")
+    raw_arguments = item.get("arguments")
+    if call_id and tool_name:
+        arguments = normalize_tool_arguments(raw_arguments)
+        return ToolCall(
+            call_id=str(call_id),
+            response_item_id=str(response_item_id) if response_item_id is not None else None,
+            tool_name=str(tool_name),
+            arguments=arguments,
+        )
+
+    for nested_key in ("function_call", "tool_call", "function", "function_call_output"):
+        nested = item.get(nested_key)
+        if not isinstance(nested, dict):
+            continue
+        nested_type = nested.get("type")
+        if nested_type is not None and nested_type not in {"function_call", "tool_call"}:
+            continue
+        call_id = nested.get("call_id") or nested.get("id") or item.get("call_id") or item.get("id")
+        response_item_id = nested.get("id") or item.get("id")
+        tool_name = (
+            nested.get("name")
+            or nested.get("tool")
+            or nested.get("tool_name")
+            or item.get("name")
+            or item.get("tool")
+            or item.get("tool_name")
+        )
+        raw_arguments = nested.get("arguments")
+        if call_id and tool_name:
+            arguments = normalize_tool_arguments(raw_arguments)
+            return ToolCall(
+                call_id=str(call_id),
+                response_item_id=str(response_item_id) if response_item_id is not None else None,
+                tool_name=str(tool_name),
+                arguments=arguments,
+            )
+    return None
+
+
+def _extract_tool_call_from_object(item: object) -> ToolCall | None:
+    """Extract a tool call from an object with conservative shape checks."""
+
+    item_type = getattr(item, "type", None)
+    if item_type in {"function_call", "tool_call"}:
+        call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+        response_item_id = getattr(item, "id", None)
+        tool_name = getattr(item, "name", None) or getattr(item, "tool", None) or getattr(item, "tool_name", None)
+        raw_arguments = getattr(item, "arguments", None)
+        if call_id and tool_name:
+            arguments = normalize_tool_arguments(raw_arguments)
+            return ToolCall(
+                call_id=str(call_id),
+                response_item_id=str(response_item_id) if response_item_id is not None else None,
+                tool_name=str(tool_name),
+                arguments=arguments,
+            )
+
+    for nested_key in ("function_call", "tool_call", "function", "function_call_output"):
+        nested = getattr(item, nested_key, None)
+        if nested is None:
+            continue
+        if isinstance(nested, dict):
+            nested_call = _extract_tool_call_from_mapping(nested)
+            if nested_call is not None:
+                return nested_call
+            continue
+        nested_type = getattr(nested, "type", None)
+        if nested_type is not None and nested_type not in {"function_call", "tool_call"}:
+            continue
+        call_id = getattr(nested, "call_id", None) or getattr(nested, "id", None) or getattr(item, "call_id", None) or getattr(item, "id", None)
+        response_item_id = getattr(nested, "id", None) or getattr(item, "id", None)
+        tool_name = (
+            getattr(nested, "name", None)
+            or getattr(nested, "tool", None)
+            or getattr(nested, "tool_name", None)
+            or getattr(item, "name", None)
+            or getattr(item, "tool", None)
+            or getattr(item, "tool_name", None)
+        )
+        raw_arguments = getattr(nested, "arguments", None)
+        if call_id and tool_name:
+            arguments = normalize_tool_arguments(raw_arguments)
+            return ToolCall(
+                call_id=str(call_id),
+                response_item_id=str(response_item_id) if response_item_id is not None else None,
+                tool_name=str(tool_name),
+                arguments=arguments,
+            )
+    return None
+
+
 def extract_first_tool_call(output: object) -> ToolCall | None:
     """Extract the first tool call from a response output list."""
 
@@ -31,21 +131,11 @@ def extract_first_tool_call(output: object) -> ToolCall | None:
         return None
     for item in output:
         if isinstance(item, dict):
-            item_type = item.get("type")
-            call_id = item.get("call_id") or item.get("id")
-            tool_name = item.get("name") or item.get("tool") or item.get("tool_name")
-            raw_arguments = item.get("arguments")
+            tool_call = _extract_tool_call_from_mapping(item)
         else:
-            item_type = getattr(item, "type", None)
-            call_id = getattr(item, "call_id", None) or getattr(item, "id", None)
-            tool_name = getattr(item, "name", None) or getattr(item, "tool", None) or getattr(item, "tool_name", None)
-            raw_arguments = getattr(item, "arguments", None)
-        if item_type not in {"function_call", "tool_call"}:
-            continue
-        if not call_id or not tool_name:
-            continue
-        arguments = normalize_tool_arguments(raw_arguments)
-        return ToolCall(call_id=str(call_id), tool_name=str(tool_name), arguments=arguments)
+            tool_call = _extract_tool_call_from_object(item)
+        if tool_call is not None:
+            return tool_call
     return None
 
 
@@ -56,14 +146,26 @@ def parse_tool_call(response: object) -> ToolCall | None:
     return extract_first_tool_call(output)
 
 
-def build_tool_call_output(call_id: str, result: ToolResult) -> dict[str, Any]:
-    """Build a tool-call output payload for the model follow-up."""
+def build_tool_call_output(
+    call_id: str,
+    result: ToolResult,
+    response_item_id: str | None = None,
+    parent_response_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a tool-call output payload for the model follow-up.
 
-    return {
+    The payload id is intentionally omitted to avoid duplicate item IDs in
+    Responses API follow-up requests.
+    """
+
+    output_item: dict[str, Any] = {
         "type": "function_call_output",
         "call_id": call_id,
         "output": result.output if result.success else result.error,
     }
+    if not result.success:
+        output_item["error"] = result.error
+    return output_item
 
 
 def should_continue_after_tool_call(response_or_tool_call: object) -> bool:

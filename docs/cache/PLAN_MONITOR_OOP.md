@@ -18,7 +18,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Use free functions for orchestration and workflow composition.
 - Each runtime instance must own its own config, history, macros, status, logger, and session state.
 - No new code path in `src/monitor_oop/` should mutate `src/monitor/` state.
-- Logging is configured once at bootstrap, and runtime code uses standard module loggers.
+- Logging is configured once at centralized bootstrap, and runtime code uses standard module loggers.
 
 ## Runtime Object Graph
 The new app should build a clear runtime graph at startup:
@@ -27,6 +27,7 @@ The new app should build a clear runtime graph at startup:
   - Top-level coordinator for startup, mode selection, and lifecycle management.
 - `RuntimeContext`
   - Owns references to all services and per-run state.
+  - Serves as the explicit wiring point for CLI, script, and server modes.
 - `ConfigService`
   - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
 - `HistoryService`
@@ -42,7 +43,7 @@ The new app should build a clear runtime graph at startup:
   - Owns runtime status state and optional status server integration.
 - `LoggerService`
   - Owns logging bootstrap state and logger configuration for the runtime instance.
-  - Configures logging once at startup and exposes module logger access patterns through standard Python logging.
+  - Configures logging once at centralized startup and exposes module logger access patterns through standard Python logging.
 - `ConversationSession`
   - Owns a single interactive chat session and its state.
   - Exposes `is_running` as a read-only view of session lifecycle state instead of a public running attribute.
@@ -56,7 +57,7 @@ The new app should build a clear runtime graph at startup:
   - Keeps tool-call metadata, adapters, and execution context isolated behind the service boundary.
 - `LLMService`
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
-  - Applies a defensive maximum tool-loop cap of 5 total model calls.
+  - Applies a defensive maximum tool loop cap of 16 total model calls.
 
 Suggested ownership flow:
 - `MonitorApp` creates `RuntimeContext`.
@@ -64,7 +65,7 @@ Suggested ownership flow:
 - `ConversationSession` depends on `ConfigService`, `HistoryService`, `MacroService`, and `CommandProcessor`.
 - `CommandProcessor` delegates to services rather than reaching into global state.
 - `ServerApp` uses the same `RuntimeContext` as CLI and script modes.
-- `LoggerService` is initialized during bootstrap and shared through explicit context wiring, while runtime modules continue to use standard `logging.getLogger(__name__)` access.
+- `LoggerService` is initialized during centralized bootstrap and shared through explicit context wiring, while runtime modules continue to use standard `logging.getLogger(__name__)` access.
 
 ## Free Functions
 Keep orchestration outside the classes where practical:
@@ -79,7 +80,7 @@ Keep orchestration outside the classes where practical:
 
 These functions should coordinate the runtime object graph, not own long-lived state.
 
-For tool calling workflows, free functions should also handle tool-call parsing, normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap.
+For tool calling workflows, free functions should also handle OpenAI Responses API response parsing, tool call normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap.
 
 ## Separation Rules
 - The new app must not import legacy module globals for runtime state.
@@ -175,7 +176,7 @@ For tool calling workflows, free functions should also handle tool-call parsing,
   - `ConversationSession` exposes `is_running` as the read-only lifecycle indicator for the active session.
   - `CommandProcessor` classifies and dispatches commands through service calls.
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.
-  - `LoggerService` configures logging once at bootstrap, and runtime modules use standard module loggers.
+  - `LoggerService` configures logging once at centralized bootstrap, and runtime modules use standard module loggers.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
   - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and per-tool modules such as `weather.py`.
@@ -183,7 +184,7 @@ For tool calling workflows, free functions should also handle tool-call parsing,
   - Tool-call parsing, normalization, output wrapping, and orchestration are handled by free functions as needed, with service calls used for actual tool state and execution.
   - The weather tool is registered at startup through the app bootstrap.
   - `LLMService` enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
-  - `LLMService` applies a defensive maximum tool-loop cap of 5 total model calls.
+  - `LLMService` applies a defensive maximum tool loop cap of 16 total model calls.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.

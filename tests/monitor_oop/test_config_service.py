@@ -21,8 +21,8 @@ def test_config_service_defaults() -> None:
 
     service = ConfigService()
 
-    assert service.get_model() == "openai/gpt-4o-mini"
-    assert service.get_context_window() == 4_096
+    assert service.get_model() == "openai/gpt-5.4-mini"
+    assert service.get_context_window() == 400_000
     assert service.get_provider() == "openai"
 
 

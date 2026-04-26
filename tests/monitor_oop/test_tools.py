@@ -73,6 +73,88 @@ def test_tool_service_build_litellm_tools_exports_registered_schema() -> None:
     assert function_schema["parameters"]["type"] == "object"
 
 
+def test_parse_tool_call_extracts_function_call_from_object_output() -> None:
+    """Verify parse_tool_call handles Responses-style object-shaped output."""
+
+    response = type(
+        "Response",
+        (),
+        {
+            "output": [
+                type(
+                    "Message",
+                    (),
+                    {
+                        "type": "message",
+                        "content": [
+                            type(
+                                "Text",
+                                (),
+                                {
+                                    "type": "text",
+                                    "text": "I should check the weather before answering.",
+                                },
+                            )()
+                        ],
+                    },
+                )(),
+                type(
+                    "ToolCall",
+                    (),
+                    {
+                        "type": "function_call",
+                        "tool_name": "get_current_weather",
+                        "arguments": '{"location": "San Diego, CA", "unit": "F"}',
+                        "call_id": "call_123",
+                    },
+                )(),
+            ],
+        },
+    )()
+
+    tool_call = parse_tool_call(response)
+
+    assert tool_call is not None
+    assert tool_call.tool_name == "get_current_weather"
+    assert tool_call.arguments == {"location": "San Diego, CA", "unit": "F"}
+    assert tool_call.call_id == "call_123"
+
+
+def test_parse_tool_call_extracts_function_call_from_dict_output() -> None:
+    """Verify parse_tool_call handles Responses-style dict-shaped output."""
+
+    response = type(
+        "Response",
+        (),
+        {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I should check the weather before answering.",
+                        }
+                    ],
+                },
+                {
+                    "type": "function_call",
+                    "name": "get_current_weather",
+                    "arguments": '{"location": "San Diego, CA", "unit": "F"}',
+                    "call_id": "call_456",
+                },
+            ],
+        },
+    )()
+
+    tool_call = parse_tool_call(response)
+
+    assert tool_call is not None
+    assert tool_call.tool_name == "get_current_weather"
+    assert tool_call.arguments == {"location": "San Diego, CA", "unit": "F"}
+    assert tool_call.call_id == "call_456"
+
+
 def test_tool_helpers_normalize_and_wrap_output() -> None:
     """Verify parsing and output helpers produce stable shapes."""
 
@@ -83,6 +165,7 @@ def test_tool_helpers_normalize_and_wrap_output() -> None:
     )
     assert payload["call_id"] == "call_123"
     assert payload["output"] == "ok"
+    assert "id" not in payload
     assert should_continue_after_tool_call(type("Response", (), {"output": []})()) is False
     assert parse_tool_call(type("Response", (), {"output": []})()) is None
 
@@ -135,13 +218,12 @@ def test_tool_service_supports_multi_round_tool_loop() -> None:
     assert should_continue_after_tool_call(first_response) is True
     tool_call = parse_tool_call(first_response)
     assert tool_call is not None
-    assert tool_call.tool_name == "get_current_weather"
-    assert tool_call.arguments == {"location": "San Diego, CA", "unit": "F"}
 
     tool_result = service.execute(tool_call.tool_name, tool_call.arguments)
     tool_output = build_tool_call_output(tool_call.call_id, tool_result)
     assert tool_output["call_id"] == "call_123"
     assert tool_output["output"] == "The weather in San Diego, CA is 12F and cold."
+    assert "id" not in tool_output
 
     follow_up_response = type(
         "Response",

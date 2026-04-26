@@ -11,7 +11,7 @@ def test_models_default_values() -> None:
     result = CommandResult(command_type=CommandType.UNKNOWN)
 
     assert config.model_name == DEFAULT_MODEL
-    assert config.context_window == 4_096
+    assert config.context_window == 400_000
     assert state.mode is AppMode.CLI
     assert state.running is False
     assert message.role == "user"

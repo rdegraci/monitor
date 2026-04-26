@@ -1,6 +1,7 @@
 """Isolated configuration service for Monitor OOP."""
 from __future__ import annotations
 
+import logging
 import os
 
 import appdirs
@@ -105,3 +106,13 @@ class ConfigService:
         """Return the effective OPENAI_API_KEY for this runtime."""
 
         return self._openai_api_key
+
+    def get_logging_level(self) -> int:
+        """Return the logging level from LOG_LEVEL with a safe INFO default.
+
+        Returns:
+            int: The resolved logging level constant.
+        """
+
+        log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        return logging._nameToLevel.get(log_level, logging.INFO)

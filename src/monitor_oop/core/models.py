@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "openai/gpt-5.4-mini"
 
 
 class AppMode(str, Enum):
@@ -30,7 +30,7 @@ class RuntimeConfig:
     """Runtime configuration for a single app instance."""
 
     model_name: str = DEFAULT_MODEL
-    context_window: int = 4_096
+    context_window: int = 400_000
 
 
 @dataclass(slots=True)

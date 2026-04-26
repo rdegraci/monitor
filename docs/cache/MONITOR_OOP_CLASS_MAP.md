@@ -25,7 +25,7 @@ Top-level coordinator for startup, mode selection, and lifecycle management.
 ## RuntimeContext
 `src/monitor_oop/core/runtime_context.py`
 
-Owns the isolated runtime services and per-run state.
+Owns the isolated runtime services and per-run state for the staged implementation.
 
 ### Constructor
 - `config_service: ConfigService`
@@ -45,6 +45,8 @@ Owns the isolated runtime services and per-run state.
 ### Responsibilities
 - Provide a single dependency graph for the app instance.
 - Keep state local to the new app process.
+- Own the staged service wiring without reaching into module globals.
+- Supply shared services to sessions, server handlers, and workflows.
 
 ## ConfigService
 `src/monitor_oop/core/config_service.py`
@@ -156,6 +158,7 @@ Owns logging configuration and runtime log routing.
 - Configure application logging for the isolated runtime.
 - Keep logger setup and routing isolated from module globals.
 - Serve as the single owner of logging initialization for the app instance.
+- Work with the staged runtime configuration rather than module-level logging state.
 
 ## CommandProcessor
 Classifies and executes commands.
@@ -212,6 +215,7 @@ Owns tool execution workflows and tool invocation behavior.
 - Execute registered tools through a controlled service boundary.
 - Expose registration and listing operations to higher layers.
 - Keep tool execution logic isolated from command and session state.
+- Mediate tool lookup/execution for the staged Responses API flow.
 
 ## LLMService
 Owns LLM request/response orchestration and completion handling.
@@ -228,9 +232,10 @@ Owns LLM request/response orchestration and completion handling.
 - `run_with_tools(messages: list[Message]) -> str`
 
 ### Responsibilities
-- Handle finish-reason branching for model responses.
+- Drive the staged OpenAI Responses API flow for model interactions.
+- Handle response items, finish-reason branching, and tool-call continuation.
 - Orchestrate tool calls when the model requests them.
-- Enforce a defensive maximum tool-call loop cap.
+- Enforce a defensive maximum of 16 tool-call loops before aborting.
 - Convert partial model output into a completed response.
 - Keep LLM response flow isolated from command processing and session state.
 

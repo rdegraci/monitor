@@ -90,7 +90,7 @@
 - [x] Confirm each checklist item is actionable enough to track implementation progress.
 - [x] Confirm this section is used as the initial blueprint tracker for the new app.
 - [x] Confirm `ConfigService` supports the fallback user config path `~/.config/monitor/.env`.
-- [x] Confirm `LLMService` finish-reason handling is in place.
-- [x] Confirm the defensive 5-call cap is in place.
+- [x] Confirm `LLMService` Responses API finish-reason handling is in place.
+- [x] Confirm the 16-call defensive cap is in place for Responses API tool-calling.
 - [x] Confirm the weather tool is registered at startup.
 - [x] Confirm dedicated `LLMService` tests exist.

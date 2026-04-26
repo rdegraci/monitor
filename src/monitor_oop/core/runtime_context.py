@@ -32,7 +32,7 @@ class RuntimeContext:
         self.history_service = history_service
         self.macro_service = macro_service
         self.status_service = status_service
-        self.logger_service = logger_service or LoggerService()
+        self.logger_service = logger_service
         self.command_processor = command_processor
         self.server_app = server_app
         self.tool_registry = tool_registry or ToolRegistry()

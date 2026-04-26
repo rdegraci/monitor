@@ -21,6 +21,7 @@ class ToolCall:
     call_id: str
     tool_name: str
     arguments: dict[str, object]
+    response_item_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -31,6 +32,16 @@ class ToolResult:
     success: bool
     output: str
     error: str = ""
+
+
+@dataclass(slots=True)
+class ToolOutputEnvelope:
+    """Represent the bookkeeping record for tool output aggregation."""
+
+    call_id: str
+    response_item_id: str | None
+    parent_response_id: str | None
+    result: ToolResult | None
 
 
 @dataclass(slots=True)

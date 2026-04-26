@@ -14,6 +14,8 @@ from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.tools.weather import build_weather_tool_definition, get_current_weather
+from monitor_oop.core.tools.registry import ToolRegistry
+from monitor_oop.core.tools.tool_service import ToolService
 from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
 
 logger = getLogger(__name__)
@@ -55,13 +57,19 @@ class MonitorApp:
 def build_app() -> MonitorApp:
     """Build a thin-slice application instance."""
     logger_service = LoggerService()
-    logger_service.configure(level=logging.INFO)
     config_service = ConfigService()
     config_service.load_env()
+    logger_service.configure(level=config_service.get_logging_level())
+    app_logger = logger_service.get_logger(__name__)
+    app_logger.info("Starting application bootstrap")
     history_service = HistoryService(config_service)
-    llm_service = LLMService(config_service)
     macro_service = MacroService(config_service)
     status_service = StatusService()
+    tool_registry = ToolRegistry()
+    tool_service = ToolService(tool_registry)
+    app_logger.info("Registering weather tool")
+    tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
+    llm_service = LLMService(config_service, tool_service)
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
         config_service=config_service,
@@ -71,6 +79,7 @@ def build_app() -> MonitorApp:
         macro_service=macro_service,
         status_service=status_service,
         command_processor=command_processor,
+        tool_service=tool_service,
     )
-    context.tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
+    app_logger.info("Application bootstrap complete after weather tool registration")
     return MonitorApp(context)
