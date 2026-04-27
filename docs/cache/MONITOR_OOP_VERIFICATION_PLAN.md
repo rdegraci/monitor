@@ -11,7 +11,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm logging is configured once at bootstrap through `LoggerService`, and runtime modules use standard logger access patterns without reconfiguring global logging state.
 - Confirm tool calling is verified for detection, normalization, execution, and follow-up payload construction using the new isolated registry/service design, isolated from legacy global tool registries or mutable shared state.
 - Confirm tool-calling verification now has a concrete tool package to exercise (`src/monitor_oop/core/tools/`), including the deterministic weather tool, registry/service boundaries, and parsing helpers.
-- Confirm tool calling is verified through the OpenAI Responses API flow, richer tool parsing, follow-up payload handling, and a defensive 16-call tool-loop cap.
+- Confirm tool calling is verified through multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing, and a defensive 16-call tool-loop cap.
 - Confirm real LLM behavior remains a future work item.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
 
@@ -67,7 +67,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Server mode passes basic route and response tests where implemented.
 - Core behaviors match legacy expectations where intentionally preserved.
 - Real LLM behavior is deferred until the corresponding implementation exists.
-- Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, richer tool parsing and follow-up payload handling, and the defensive 16-call tool-loop cap.
+- Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing, and the defensive 16-call tool-loop cap.
 - Logging is configured once at bootstrap via `LoggerService`, and runtime modules use standard logger access patterns.
 
 ## Failure Handling

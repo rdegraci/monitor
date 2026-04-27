@@ -80,7 +80,7 @@ Keep orchestration outside the classes where practical:
 
 These functions should coordinate the runtime object graph, not own long-lived state.
 
-For tool calling workflows, free functions should also handle OpenAI Responses API response parsing, tool call normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap.
+For tool calling workflows, free functions should also handle OpenAI Responses API response parsing, tool call normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap. The current plan state reflects completed multi-call tool handling, envelope bookkeeping, and batched follow-up payload support, so follow-up orchestration should preserve those behaviors while keeping state isolated behind the service boundary.
 
 ## Separation Rules
 - The new app must not import legacy module globals for runtime state.
@@ -121,6 +121,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
 - Ensure runtime state is owned by `RuntimeContext` and passed explicitly.
+- Track multi-call tool handling, envelope bookkeeping, and batched follow-up payload support as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
 
 ### Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
@@ -131,6 +132,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
+- Confirm multi-call tool execution, envelope tracking, and batched follow-up payload handling remain stable under repeated tool loops and mixed command flows.
 
 ### Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
@@ -142,6 +144,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Accidental reuse of mutable globals.
 - A monolithic `MonitorApp` that absorbs responsibilities better handled by services.
 - Hidden coupling through imports, caches, or module-level initialization.
+- Regression in multi-call tool orchestration, envelope bookkeeping, or batched follow-up payload assembly if workflow boundaries are not kept explicit.
 
 ## Success Criteria
 - The new app runs independently from the legacy app.
@@ -149,6 +152,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - The new app can be started, tested, and extended in isolation.
 - The new app preserves current user-facing behavior where intended.
 - The legacy app remains available under `src/monitor/` throughout the migration.
+- Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are preserved within the isolated runtime design.
 
 ## Starter Blueprint
 - Recommended package layout:
@@ -185,6 +189,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - The weather tool is registered at startup through the app bootstrap.
   - `LLMService` enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - `LLMService` applies a defensive maximum tool loop cap of 16 total model calls.
+  - Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are part of the expected tool workflow behavior in the new app.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.

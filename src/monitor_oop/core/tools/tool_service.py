@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from monitor_oop.core.tools.parsing import build_tool_call_output, parse_tool_call as _parse_tool_call
+from monitor_oop.core.tools.parsing import build_tool_call_output, parse_tool_call as _parse_tool_call, parse_tool_calls as _parse_tool_calls
 from monitor_oop.core.tools.registry import ToolRegistry
 from monitor_oop.core.tools.tool_models import ToolCall, ToolDefinition, ToolResult
 
@@ -51,6 +51,11 @@ class ToolService:
 
         return _parse_tool_call(value)
 
+    def parse_tool_calls(self, value: object) -> list[ToolCall]:
+        """Parse all tool calls from a response-like value."""
+
+        return _parse_tool_calls(value)
+
     def build_follow_up_payload(
         self,
         messages: list[dict[str, object]] | None,
@@ -72,6 +77,92 @@ class ToolService:
         logger.info("Follow-up payload built without a duplicate payload id for tool call: %s", call_id)
         payload.append(payload_item)
         logger.info("Follow-up payload built for tool call: %s", call_id)
+        return payload
+
+    def build_follow_up_payloads(
+        self,
+        messages: list[dict[str, object]] | None,
+        envelopes: list[ToolCall | ToolResult | tuple[ToolCall, ToolResult] | tuple[str, str | None, ToolResult]] | list[dict[str, object]],
+        parent_response_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Build a follow-up payload for multiple tool call outputs.
+
+        Supports the current LLMService tuple shape of (call_id, response_item_id, tool_result)
+        while remaining compatible with legacy ToolCall/ToolResult pair-like inputs and
+        parseable response dicts when reasonable.
+
+        Args:
+            messages: Existing conversation messages to prepend to the payload.
+            envelopes: Tool call/result envelopes or call/result pairs.
+            parent_response_id: Optional parent response identifier for metadata.
+
+        Returns:
+            A new payload containing one output item per tool call result.
+        """
+
+        logger.info("Building multi-item follow-up payload")
+        payload = list(messages) if messages is not None else []
+        for envelope in envelopes:
+            call_id: str | None = None
+            tool_result: ToolResult | None = None
+            response_item_id: str | None = None
+
+            if isinstance(envelope, tuple):
+                if len(envelope) == 3:
+                    call_id, response_item_id, tool_result = envelope
+                elif len(envelope) == 2:
+                    first_item, second_item = envelope
+                    if isinstance(first_item, ToolCall) and isinstance(second_item, ToolResult):
+                        call_id = first_item.call_id if hasattr(first_item, "call_id") else first_item.tool_name
+                        response_item_id = None
+                        tool_result = second_item
+                    elif isinstance(first_item, str) and isinstance(second_item, ToolResult):
+                        call_id = first_item
+                        response_item_id = None
+                        tool_result = second_item
+                    else:
+                        parsed_call = self.parse_tool_call(first_item)
+                        if parsed_call is not None and isinstance(second_item, ToolResult):
+                            call_id = parsed_call.call_id if hasattr(parsed_call, "call_id") else parsed_call.tool_name
+                            response_item_id = None
+                            tool_result = second_item
+                elif len(envelope) > 0:
+                    first_item = envelope[0]
+                    if isinstance(first_item, str):
+                        call_id = first_item
+                        response_item_id = envelope[1] if len(envelope) > 1 and isinstance(envelope[1], str) else None
+                        last_item = envelope[-1]
+                        if isinstance(last_item, ToolResult):
+                            tool_result = last_item
+                if call_id is None and tool_result is not None:
+                    call_id = tool_result.tool_name
+                if call_id is not None and tool_result is None:
+                    tool_result = ToolResult(tool_name=call_id, success=False, output="", error="Missing tool result.")
+                if call_id is not None and tool_result is not None:
+                    payload_item = build_tool_call_output(call_id, tool_result)
+                    logger.info("Follow-up payload item: %s", payload_item)
+                    if response_item_id is not None:
+                        logger.info("Follow-up payload response item id: %s", response_item_id)
+                    payload.append(payload_item)
+                continue
+
+            if isinstance(envelope, ToolResult):
+                call_id = envelope.tool_name
+                tool_result = envelope
+            elif isinstance(envelope, ToolCall):
+                call_id = envelope.call_id if hasattr(envelope, "call_id") else envelope.tool_name
+                tool_result = ToolResult(tool_name=envelope.tool_name, success=False, output="", error="Missing tool result.")
+            else:
+                parsed_call = self.parse_tool_call(envelope)
+                if parsed_call is None:
+                    continue
+                call_id = parsed_call.call_id if hasattr(parsed_call, "call_id") else parsed_call.tool_name
+                tool_result = ToolResult(tool_name=parsed_call.tool_name, success=False, output="", error="Missing tool result.")
+
+            payload_item = build_tool_call_output(call_id, tool_result)
+            logger.info("Follow-up payload item: %s", payload_item)
+            payload.append(payload_item)
+        logger.info("Multi-item follow-up payload built")
         return payload
 
     def build_litellm_tools(self) -> list[dict[str, object]]:

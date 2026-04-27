@@ -43,32 +43,6 @@ def _extract_tool_call_from_mapping(item: dict[str, object]) -> ToolCall | None:
             arguments=arguments,
         )
 
-    for nested_key in ("function_call", "tool_call", "function", "function_call_output"):
-        nested = item.get(nested_key)
-        if not isinstance(nested, dict):
-            continue
-        nested_type = nested.get("type")
-        if nested_type is not None and nested_type not in {"function_call", "tool_call"}:
-            continue
-        call_id = nested.get("call_id") or nested.get("id") or item.get("call_id") or item.get("id")
-        response_item_id = nested.get("id") or item.get("id")
-        tool_name = (
-            nested.get("name")
-            or nested.get("tool")
-            or nested.get("tool_name")
-            or item.get("name")
-            or item.get("tool")
-            or item.get("tool_name")
-        )
-        raw_arguments = nested.get("arguments")
-        if call_id and tool_name:
-            arguments = normalize_tool_arguments(raw_arguments)
-            return ToolCall(
-                call_id=str(call_id),
-                response_item_id=str(response_item_id) if response_item_id is not None else None,
-                tool_name=str(tool_name),
-                arguments=arguments,
-            )
     return None
 
 
@@ -90,60 +64,54 @@ def _extract_tool_call_from_object(item: object) -> ToolCall | None:
                 arguments=arguments,
             )
 
-    for nested_key in ("function_call", "tool_call", "function", "function_call_output"):
-        nested = getattr(item, nested_key, None)
-        if nested is None:
-            continue
-        if isinstance(nested, dict):
-            nested_call = _extract_tool_call_from_mapping(nested)
-            if nested_call is not None:
-                return nested_call
-            continue
-        nested_type = getattr(nested, "type", None)
-        if nested_type is not None and nested_type not in {"function_call", "tool_call"}:
-            continue
-        call_id = getattr(nested, "call_id", None) or getattr(nested, "id", None) or getattr(item, "call_id", None) or getattr(item, "id", None)
-        response_item_id = getattr(nested, "id", None) or getattr(item, "id", None)
-        tool_name = (
-            getattr(nested, "name", None)
-            or getattr(nested, "tool", None)
-            or getattr(nested, "tool_name", None)
-            or getattr(item, "name", None)
-            or getattr(item, "tool", None)
-            or getattr(item, "tool_name", None)
-        )
-        raw_arguments = getattr(nested, "arguments", None)
-        if call_id and tool_name:
-            arguments = normalize_tool_arguments(raw_arguments)
-            return ToolCall(
-                call_id=str(call_id),
-                response_item_id=str(response_item_id) if response_item_id is not None else None,
-                tool_name=str(tool_name),
-                arguments=arguments,
-            )
     return None
 
 
-def extract_first_tool_call(output: object) -> ToolCall | None:
-    """Extract the first tool call from a response output list."""
+def extract_tool_calls(output: object) -> list[ToolCall]:
+    """Extract all tool calls from a response output list."""
 
     if not isinstance(output, list):
-        return None
+        return []
+    tool_calls: list[ToolCall] = []
     for item in output:
         if isinstance(item, dict):
             tool_call = _extract_tool_call_from_mapping(item)
         else:
             tool_call = _extract_tool_call_from_object(item)
         if tool_call is not None:
-            return tool_call
+            tool_calls.append(tool_call)
+    return tool_calls
+
+
+def extract_tool_calls_from_response(response_or_output: object) -> list[ToolCall]:
+    """Extract all tool calls from a response object or output list."""
+
+    output = getattr(response_or_output, "output", response_or_output)
+    return extract_tool_calls(output)
+
+
+def parse_tool_calls(response_or_output: object) -> list[ToolCall]:
+    """Parse all tool calls from a response object or output list."""
+
+    return extract_tool_calls_from_response(response_or_output)
+
+
+def extract_first_tool_call(output: object) -> ToolCall | None:
+    """Extract the first tool call from a response output list."""
+
+    tool_calls = extract_tool_calls(output)
+    if tool_calls:
+        return tool_calls[0]
     return None
 
 
 def parse_tool_call(response: object) -> ToolCall | None:
     """Parse a tool call from a model response if present."""
 
-    output = getattr(response, "output", response)
-    return extract_first_tool_call(output)
+    tool_calls = extract_tool_calls_from_response(response)
+    if tool_calls:
+        return tool_calls[0]
+    return None
 
 
 def build_tool_call_output(

@@ -15,7 +15,7 @@ Phase 1 is complete: the foundation package, models, runtime context, and config
 8. Add `status_service.py`.
 9. Add `command_processor.py`.
 
-Phase 2 is complete: the core services and command processor are implemented.
+Phase 2 is complete: the core services and command processor are implemented, including tool-calling support for multi-call extraction, envelope recording, and batched follow-up payloads using `call_id`.
 
 ## Phase 3: Session and workflows
 10. Add `conversation_session.py`.

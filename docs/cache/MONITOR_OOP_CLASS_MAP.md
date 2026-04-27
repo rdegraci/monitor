@@ -209,13 +209,20 @@ Owns tool execution workflows and tool invocation behavior.
 - `register_tool(tool: ToolDefinition) -> bool`
 - `list_tools() -> dict[str, ToolDefinition]`
 - `resolve_tool(tool_name: str) -> ToolDefinition | None`
+- `prepare_batch_calls(calls: list[dict[str, object]]) -> list[dict[str, object]]`
+- `record_envelope(envelope: dict[str, object]) -> None`
+- `apply_batched_follow_up(payloads: list[dict[str, object]]) -> None`
 
 ### Responsibilities
 - Depend on the registry for tool lookup and storage.
 - Execute registered tools through a controlled service boundary.
 - Expose registration and listing operations to higher layers.
 - Keep tool execution logic isolated from command and session state.
-- Mediate tool lookup/execution for the staged Responses API flow.
+- Mediate tool lookup/execution for the staged model flow.
+- Support multiple tool calls in a single assistant turn.
+- Maintain envelope-based bookkeeping for tool-call groups.
+- Coordinate batched follow-up payloads for downstream processing.
+- Preserve the association between a model turn, its tool envelope, and the resulting tool outputs.
 
 ## LLMService
 Owns LLM request/response orchestration and completion handling.
@@ -232,12 +239,14 @@ Owns LLM request/response orchestration and completion handling.
 - `run_with_tools(messages: list[Message]) -> str`
 
 ### Responsibilities
-- Drive the staged OpenAI Responses API flow for model interactions.
+- Drive the staged model interaction flow for completions.
 - Handle response items, finish-reason branching, and tool-call continuation.
 - Orchestrate tool calls when the model requests them.
 - Enforce a defensive maximum of 16 tool-call loops before aborting.
 - Convert partial model output into a completed response.
 - Keep LLM response flow isolated from command processing and session state.
+- Support batched tool-call handling within a single turn.
+- Consume tool envelopes and produce follow-up payloads through the tool service.
 
 ## ConversationSession
 `src/monitor_oop/core/conversation_session.py`

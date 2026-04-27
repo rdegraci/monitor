@@ -33,7 +33,7 @@
 - [x] Confirm the tool subsystem uses `tool_models.py` for tool-specific dataclasses.
 - [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
 - [x] Confirm parsing, normalization, and output-wrapping helpers remain free functions where appropriate.
-- [ ] Decide which workflows remain as free functions.
+- [x] Decide which workflows remain as free functions.
 
 ## Milestone 3: Package and bootstrap
 - [x] Create the new package directory.
@@ -53,10 +53,12 @@
 - [x] Implement prompt display.
 - [x] Implement input collection.
 - [x] Implement command classification.
-- [ ] Implement command execution.
+- [x] Implement command execution, including tool/function calling.
 - [x] Implement exit handling.
-- [ ] Implement token/window management.
-- [ ] Implement summary and history handling.
+- [x] Implement token/window management.
+- [x] Implement summary and history handling.
+- [x] Implement multi-call handling within a single turn.
+- [x] Implement follow-up payload submission using `call_id`.
 
 ## Milestone 5: Server flow
 - [ ] Implement isolated Flask app creation.
