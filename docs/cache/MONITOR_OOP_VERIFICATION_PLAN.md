@@ -12,6 +12,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm tool calling is verified for detection, normalization, execution, and follow-up payload construction using the new isolated registry/service design, isolated from legacy global tool registries or mutable shared state.
 - Confirm tool-calling verification now has a concrete tool package to exercise (`src/monitor_oop/core/tools/`), including the deterministic weather tool, registry/service boundaries, and parsing helpers.
 - Confirm tool calling is verified through multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing, a defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
+- Confirm tool turn state is owned by the dedicated `ToolTurnState` helper with turn-scoped lifecycle management, including tool call accumulation, follow-up preparation, and cleanup at the end of each turn.
 - Confirm real LLM behavior remains a future work item.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
 - Confirm adjusted tests assert the present tool-calling behavior as implemented today.
@@ -46,6 +47,12 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Logger configuration is centralized and performed once at bootstrap; runtime modules only acquire loggers through standard access patterns.
 - Current tests and the runnable CLI partially verify isolation behavior.
 
+### Tool Turn State
+- Tool turn state is encapsulated in `ToolTurnState` rather than being managed ad hoc inside LLM/service code.
+- Tool turn lifecycle is turn-scoped, with state created at the start of a tool-enabled turn and cleared after the turn completes.
+- Tool call tracking, pending follow-up payload preparation, and multi-call sequencing are verified through the dedicated helper.
+- Current tests assert that the helper owns the per-turn tool state and that no stale tool turn state leaks across turns.
+
 ## Test Categories
 - Unit tests for services and helpers.
 - Integration tests for app startup and session flow.
@@ -61,6 +68,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 5. Server tests.
 6. Isolation tests.
 7. Regression comparison tests.
+8. Tool turn state tests.
 
 ## Pass Criteria
 - No test depends on legacy mutable globals.
@@ -69,6 +77,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Core behaviors match legacy expectations where intentionally preserved.
 - Real LLM behavior is deferred until the corresponding implementation exists.
 - Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing, the defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
+- Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
 - Logging is configured once at bootstrap via `LoggerService`, and runtime modules use standard logger access patterns.
 
 ## Failure Handling

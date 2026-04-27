@@ -55,6 +55,7 @@ The new app should build a clear runtime graph at startup:
   - Owns tool definitions, registration, and invocation state behind a private internal store.
   - Exposes a controlled API for listing, resolving, validating, and dispatching tools without leaking mutable tool state.
   - Keeps tool-call metadata, adapters, and execution context isolated behind the service boundary.
+  - Turn-scoped tool state is handled by the dedicated `ToolTurnState` helper, keeping per-turn lifecycle data isolated from the registry and service stores.
 - `LLMService`
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
@@ -80,7 +81,7 @@ Keep orchestration outside the classes where practical:
 
 These functions should coordinate the runtime object graph, not own long-lived state.
 
-For tool calling workflows, free functions should also handle OpenAI Responses API response parsing, tool call normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap. The current plan state reflects completed multi-call tool handling, envelope bookkeeping, and batched follow-up payload support, so follow-up orchestration should preserve those behaviors while keeping state isolated behind the service boundary.
+For tool calling workflows, free functions should also handle OpenAI Responses API response parsing, tool call normalization, output wrapping, and orchestration as needed, while delegating tool registry and execution state to `ToolRegistry` / `ToolService`. The weather tool is registered at startup through the app bootstrap. The current plan state reflects completed multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped lifecycle handling through `ToolTurnState`, so follow-up orchestration should preserve those behaviors while keeping state isolated behind the service boundary.
 
 ## Separation Rules
 - The new app must not import legacy module globals for runtime state.
@@ -121,8 +122,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
 - Ensure runtime state is owned by `RuntimeContext` and passed explicitly.
-- Track multi-call tool handling, envelope bookkeeping, and batched follow-up payload support as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
-- Validate the tool workflow against the current test adjustments so the latest tool-calling path, loop handling, and follow-up payload assembly remain covered under repeated runs.
+- Track multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped lifecycle management via `ToolTurnState` as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
+- Validate the tool workflow against the current test adjustments so the latest tool-calling path, loop handling, turn-state lifecycle, and follow-up payload assembly remain covered under repeated runs.
 
 ### Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
@@ -133,7 +134,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
-- Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
+- Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, turn-scoped tool lifecycle handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
 - Keep verification notes aligned with the latest tool-calling implementation so the plan tracks both runtime behavior and the corresponding test updates.
 
 ### Milestone 5: Cutover decision
@@ -146,7 +147,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Accidental reuse of mutable globals.
 - A monolithic `MonitorApp` that absorbs responsibilities better handled by services.
 - Hidden coupling through imports, caches, or module-level initialization.
-- Regression in multi-call tool orchestration, envelope bookkeeping, or batched follow-up payload assembly if workflow boundaries are not kept explicit.
+- Regression in multi-call tool orchestration, envelope bookkeeping, turn-scoped tool lifecycle state, or batched follow-up payload assembly if workflow boundaries are not kept explicit.
 - Tool-path test drift if the implementation and the latest assertions are not updated together.
 
 ## Success Criteria
@@ -155,7 +156,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - The new app can be started, tested, and extended in isolation.
 - The new app preserves current user-facing behavior where intended.
 - The legacy app remains available under `src/monitor/` throughout the migration.
-- Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are preserved within the isolated runtime design.
+- Multi-call tool handling, envelope bookkeeping, turn-scoped tool lifecycle management, and batched follow-up payload support are preserved within the isolated runtime design.
 - The latest tool-calling implementation is reflected in the verification plan and in the test adjustments that exercise it.
 
 ## Starter Blueprint
@@ -193,8 +194,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - The weather tool is registered at startup through the app bootstrap.
   - `LLMService` enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - `LLMService` applies a defensive maximum tool loop cap of 16 total model calls.
-  - Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are part of the expected tool workflow behavior in the new app.
-  - The latest tool-calling test coverage should verify normalization, repeated tool loops, envelope assembly, and follow-up payload dispatch without depending on legacy state.
+  - Multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped tool lifecycle management through `ToolTurnState` are part of the expected tool workflow behavior in the new app.
+  - The latest tool-calling test coverage should verify normalization, repeated tool loops, turn-state lifecycle, envelope assembly, and follow-up payload dispatch without depending on legacy state.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.

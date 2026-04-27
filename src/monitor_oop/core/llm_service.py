@@ -2,25 +2,15 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.models import Message
+from monitor_oop.core.tool_turn_state import ToolTurnState
 from monitor_oop.core.tools.tool_service import ToolService
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class ToolOutputEnvelope:
-    """Internal bookkeeping for tool outputs and their parent response linkage."""
-
-    call_id: str
-    response_item_id: str | None
-    parent_response_id: str | None
-    tool_result: Any
 
 
 class LLMService:
@@ -32,7 +22,7 @@ class LLMService:
         self.config_service = config_service
         self._tool_service = tool_service
         self.adapter = ResponsesLiteLLMAdapter()
-        self._tool_output_envelopes: list[ToolOutputEnvelope] = []
+        self._tool_turn_state = ToolTurnState()
         self._last_response_id: str | None = None
 
     def _build_request_input(self, user_input: str, history: list[str | Message]) -> list[dict[str, str]]:
@@ -98,24 +88,25 @@ class LLMService:
     def _append_tool_outputs_to_input(
         self,
         input_messages: list[dict[str, str]],
-        tool_outputs: list[tuple[str, str | None, Any]],
         parent_response_id: str | None,
     ) -> list[dict[str, str]]:
         """Append multiple tool outputs to request input for a follow-up model call."""
 
         if self._tool_service is None:
-            logger.info("Skipping multi-tool follow-up append: tool_service unavailable; tool count=%s.", len(tool_outputs))
+            logger.info("Skipping multi-tool follow-up append: tool_service unavailable; tool count=%s.", self._tool_turn_state.pending_count())
             return input_messages
-        if not tool_outputs:
+        if self._tool_turn_state.pending_count() == 0:
             return input_messages
         logger.info(
-            "Appending %s tool outputs to follow-up input with parent_response_id=%s.",
-            len(tool_outputs),
+            "Appending %s tool outputs to follow-up input with parent_response_id=%s; pending_count=%s.",
+            self._tool_turn_state.pending_count(),
             parent_response_id,
+            self._tool_turn_state.pending_count(),
         )
+        follow_up_entries = self._tool_turn_state.build_follow_up_entries()
         return self._tool_service.build_follow_up_payloads(
             input_messages,
-            tool_outputs,
+            follow_up_entries,
             parent_response_id,
         )
 
@@ -128,20 +119,18 @@ class LLMService:
     ) -> None:
         """Store an internal envelope for tool output bookkeeping."""
 
-        self._tool_output_envelopes.append(
-            ToolOutputEnvelope(
-                call_id=call_id,
-                response_item_id=response_item_id,
-                parent_response_id=parent_response_id,
-                tool_result=tool_result,
-            )
-        )
-        logger.info(
-            "Recorded tool output envelope for tool_call_id=%s, response_item_id=%s, parent_response_id=%s; envelope_count=%s.",
+        self._tool_turn_state.record_envelope(
             call_id,
             response_item_id,
             parent_response_id,
-            len(self._tool_output_envelopes),
+            tool_result,
+        )
+        logger.info(
+            "Recorded tool output envelope for tool_call_id=%s, response_item_id=%s, parent_response_id=%s; pending_count=%s.",
+            call_id,
+            response_item_id,
+            parent_response_id,
+            self._tool_turn_state.pending_count(),
         )
 
     def _get_finish_reason(self, response: Any) -> str | None:
@@ -177,7 +166,6 @@ class LLMService:
         if not tool_calls:
             return input_messages, False
         parent_response_id = getattr(response, "id", None)
-        tool_outputs: list[tuple[str, str | None, Any]] = []
         for tool_call in tool_calls:
             call_id = getattr(tool_call, "call_id", None)
             response_item_id = getattr(tool_call, "response_item_id", None)
@@ -201,13 +189,10 @@ class LLMService:
                 parent_response_id,
                 tool_result,
             )
-            if call_id is not None:
-                tool_outputs.append((call_id, response_item_id, tool_result))
-        if not tool_outputs:
+        if self._tool_turn_state.pending_count() == 0:
             return input_messages, False
         follow_up_input = self._append_tool_outputs_to_input(
             input_messages,
-            tool_outputs,
             parent_response_id,
         )
         should_continue = True
@@ -229,14 +214,17 @@ class LLMService:
         logger.info("Response inspection before tool parsing: finish_reason=%s, output=%r, text=%r, message=%r.", finish_reason, response_output, response_text, response_message)
         logger.info("Resolving response finish_reason=%s.", finish_reason)
         if finish_reason == "content_filter":
+            self._tool_turn_state.clear()
             raise ValueError("Model response was filtered by the provider.")
         if finish_reason == "length":
+            self._tool_turn_state.clear()
             raise ValueError("Model response stopped because it reached the length limit.")
         if self._tool_service is None:
             if finish_reason in ("stop", None):
                 logger.info("No tool follow-up required for finish_reason=%s.", finish_reason)
             else:
                 logger.info("Tool follow-up not attempted because tool_service is unavailable for finish_reason=%s.", finish_reason)
+            self._tool_turn_state.clear()
             return input_messages, False
         tool_calls = self._extract_tool_calls(response)
         logger.info("Parsed tool calls from response: count=%s.", len(tool_calls))
@@ -286,15 +274,19 @@ class LLMService:
             return follow_up_input, should_continue
         if finish_reason in ("stop", None):
             logger.info("No tool follow-up required for finish_reason=%s.", finish_reason)
+            self._tool_turn_state.clear()
             return input_messages, False
         if finish_reason == "tool_calls":
+            self._tool_turn_state.clear()
             raise ValueError("Model response indicated tool calls, but the tool call response was malformed.")
         logger.info("No parsable tool call found; ending tool handling for finish_reason=%s.", finish_reason)
+        self._tool_turn_state.clear()
         return input_messages, False
 
     def _complete_with_tool_calls(self, input_messages: list[dict[str, str]]) -> Any:
         """Loop through tool calls until the model produces a final assistant response, with a defensive cap on total model calls."""
 
+        self._tool_turn_state.begin_turn()
         request_input = input_messages
         total_model_calls = 1
         previous_response_id: str | None = self._last_response_id
@@ -303,26 +295,29 @@ class LLMService:
             len(request_input),
             previous_response_id,
         )
-        response = self.create_response(request_input, previous_response_id=previous_response_id)
-        self._last_response_id = getattr(response, "id", None)
-        logger.info("Captured response.id=%s for current request.", self._last_response_id)
-        while True:
-            request_input, should_continue = self._resolve_tool_call(request_input, response)
-            logger.info("Tool-call handling result: should_continue=%s, message_count=%s.", should_continue, len(request_input))
-            if not should_continue:
-                return response
-            total_model_calls += 1
-            if total_model_calls > self._MAX_TOOL_LOOP_ROUNDS:
-                raise RuntimeError("The maximum of 16 model calls was exceeded during tool-call completion.")
-            previous_response_id = self._last_response_id
-            logger.info(
-                "Requesting follow-up response: total_model_calls=%s, previous_response_id=%s.",
-                total_model_calls,
-                previous_response_id,
-            )
+        try:
             response = self.create_response(request_input, previous_response_id=previous_response_id)
             self._last_response_id = getattr(response, "id", None)
             logger.info("Captured response.id=%s for current request.", self._last_response_id)
+            while True:
+                request_input, should_continue = self._resolve_tool_call(request_input, response)
+                logger.info("Tool-call handling result: should_continue=%s, message_count=%s.", should_continue, len(request_input))
+                if not should_continue:
+                    return response
+                total_model_calls += 1
+                if total_model_calls > self._MAX_TOOL_LOOP_ROUNDS:
+                    raise RuntimeError("The maximum of 16 model calls was exceeded during tool-call completion.")
+                previous_response_id = self._last_response_id
+                logger.info(
+                    "Requesting follow-up response: total_model_calls=%s, previous_response_id=%s.",
+                    total_model_calls,
+                    previous_response_id,
+                )
+                response = self.create_response(request_input, previous_response_id=previous_response_id)
+                self._last_response_id = getattr(response, "id", None)
+                logger.info("Captured response.id=%s for current request.", self._last_response_id)
+        finally:
+            self._tool_turn_state.clear()
 
     def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
         """Create a response using the adapter completion API."""
