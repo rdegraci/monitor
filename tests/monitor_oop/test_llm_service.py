@@ -53,7 +53,11 @@ class RecordingAdapter:
 class RecordingToolService:
     """Minimal tool service stub for LLMService tests."""
 
-    def __init__(self, tool_call: ToolCall | None = None, result: ToolResult | None = None) -> None:
+    def __init__(
+        self,
+        tool_call: ToolCall | list[ToolCall] | None = None,
+        result: ToolResult | list[ToolResult] | None = None,
+    ) -> None:
         self.tool_call = tool_call
         self.result = result or ToolResult(tool_name="get_current_weather", success=True, output="done")
         self.executed_calls: list[ToolCall] = []
@@ -85,7 +89,7 @@ class RecordingToolService:
 
         return self.build_litellm_tools()
 
-    def parse_tool_call(self, value: object) -> ToolCall | None:
+    def parse_tool_call(self, value: object) -> ToolCall | list[ToolCall] | None:
         """Return the configured tool call."""
 
         return self.tool_call
@@ -94,6 +98,10 @@ class RecordingToolService:
         """Record the tool call and return the configured result."""
 
         self.executed_calls.append(tool_call)
+        if isinstance(self.result, list):
+            if not self.result:
+                raise AssertionError("RecordingToolService ran out of configured results")
+            return self.result.pop(0)
         return self.result
 
     def build_follow_up_payload(
@@ -114,6 +122,29 @@ class RecordingToolService:
             }
         )
         return messages
+
+
+class MultiCallToolService(RecordingToolService):
+    """Tool service stub that returns multiple parsed tool calls."""
+
+    def __init__(self, tool_calls: list[ToolCall], results: list[ToolResult]) -> None:
+        super().__init__(tool_call=None, result=results)
+        self._tool_calls = list(tool_calls)
+        self._results = list(results)
+        self._parse_calls = 0
+
+    def parse_tool_call(self, value: object) -> ToolCall | list[ToolCall] | None:
+        if self._parse_calls >= len(self._tool_calls):
+            return None
+        tool_call = self._tool_calls[self._parse_calls]
+        self._parse_calls += 1
+        return tool_call
+
+    def execute_tool_call(self, tool_call: ToolCall) -> ToolResult:
+        self.executed_calls.append(tool_call)
+        if not self._results:
+            raise AssertionError("MultiCallToolService ran out of configured results")
+        return self._results.pop(0)
 
 
 def build_response(finish_reason: str | None, response_id: str, output_text: str = "assistant text") -> object:
@@ -144,6 +175,30 @@ def build_final_response(response_id: str = "response_final", output_text: str =
         }
     ]
     response.output_text = output_text
+    return response
+
+
+def build_tool_call_response(
+    response_id: str,
+    call_id: str,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> object:
+    """Build a fake Responses API response with a single function call output item."""
+
+    response = type("Response", (), {})()
+    response.finish_reason = "tool_calls"
+    response.id = response_id
+    response.output = [
+        {
+            "type": "function_call",
+            "id": call_id,
+            "call_id": call_id,
+            "name": tool_name,
+            "arguments": arguments,
+        }
+    ]
+    response.output_text = ""
     return response
 
 
@@ -216,6 +271,24 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
             tool_name="get_current_weather",
             arguments={"location": "San Diego, CA", "unit": "F"},
         ),
+        result=[
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_1"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_2"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_3"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_4"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_5"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_6"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_7"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_8"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_9"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_10"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_11"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_12"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_13"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_14"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_15"),
+            ToolResult(tool_name="get_current_weather", success=True, output="turn_16"),
+        ],
     )
     service = LLMService(config_service, tool_service=tool_service)
 
@@ -261,3 +334,53 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
 
     assert len(adapter.complete_calls) == 16
     assert len(tool_service.executed_calls) == 16
+
+
+def test_complete_parses_and_executes_multiple_tool_calls() -> None:
+    """Verify multiple parsed tool calls are executed in order and the current completion text is returned."""
+
+    tool_calls = [
+        ToolCall(
+            call_id="call_1",
+            tool_name="get_current_weather",
+            arguments={"location": "San Diego, CA", "unit": "F"},
+        ),
+        ToolCall(
+            call_id="call_2",
+            tool_name="get_current_weather",
+            arguments={"location": "Portland, OR", "unit": "C"},
+        ),
+    ]
+    tool_service = MultiCallToolService(
+        tool_calls=tool_calls,
+        results=[
+            ToolResult(tool_name="get_current_weather", success=True, output="sunny"),
+            ToolResult(tool_name="get_current_weather", success=True, output="rainy"),
+        ],
+    )
+    service, adapter, _ = build_service(
+        [
+            build_tool_call_response(
+                response_id="response_1",
+                call_id="call_1",
+                tool_name="get_current_weather",
+                arguments={"location": "San Diego, CA", "unit": "F"},
+            ),
+            build_tool_call_response(
+                response_id="response_2",
+                call_id="call_2",
+                tool_name="get_current_weather",
+                arguments={"location": "Portland, OR", "unit": "C"},
+            ),
+            build_final_response(response_id="response_3", output_text="done"),
+        ],
+        ["assistant text", "assistant text", "final answer"],
+        tool_service=tool_service,
+    )
+
+    result = service.complete("hello", [])
+
+    assert len(adapter.complete_calls) == 3
+    assert len(tool_service.executed_calls) == 2
+    assert tool_service.executed_calls == tool_calls
+    assert result == "assistant text"

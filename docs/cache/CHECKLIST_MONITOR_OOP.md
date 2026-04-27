@@ -59,6 +59,7 @@
 - [x] Implement summary and history handling.
 - [x] Implement multi-call handling within a single turn.
 - [x] Implement follow-up payload submission using `call_id`.
+- [x] Adjust test coverage to match the current service behavior for multi-call handling and follow-up payload submission.
 
 ## Milestone 5: Server flow
 - [ ] Implement isolated Flask app creation.

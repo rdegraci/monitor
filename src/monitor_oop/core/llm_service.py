@@ -191,9 +191,9 @@ class LLMService:
             )
             tool_result = self._tool_service.execute_tool_call(tool_call)
             logger.info(
-                "Executed tool call id=%s name=%s; collecting follow-up input.",
+                "Executed tool call id=%s tool_name=%s; collecting follow-up input.",
                 call_id,
-                getattr(tool_call, "name", None),
+                getattr(tool_call, "tool_name", None),
             )
             self._record_tool_output_envelope(
                 call_id,
@@ -253,9 +253,9 @@ class LLMService:
             )
             tool_result = self._tool_service.execute_tool_call(tool_call)
             logger.info(
-                "Executed tool call id=%s name=%s; preparing follow-up input.",
+                "Executed tool call id=%s tool_name=%s; preparing follow-up input.",
                 getattr(tool_call, "call_id", None),
-                getattr(tool_call, "name", None),
+                getattr(tool_call, "tool_name", None),
             )
             parent_response_id = getattr(response, "id", None)
             logger.info(

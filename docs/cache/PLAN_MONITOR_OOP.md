@@ -122,6 +122,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Implement command classification and execution through `CommandProcessor`.
 - Ensure runtime state is owned by `RuntimeContext` and passed explicitly.
 - Track multi-call tool handling, envelope bookkeeping, and batched follow-up payload support as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
+- Validate the tool workflow against the current test adjustments so the latest tool-calling path, loop handling, and follow-up payload assembly remain covered under repeated runs.
 
 ### Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
@@ -132,7 +133,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
-- Confirm multi-call tool execution, envelope tracking, and batched follow-up payload handling remain stable under repeated tool loops and mixed command flows.
+- Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
+- Keep verification notes aligned with the latest tool-calling implementation so the plan tracks both runtime behavior and the corresponding test updates.
 
 ### Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
@@ -145,6 +147,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - A monolithic `MonitorApp` that absorbs responsibilities better handled by services.
 - Hidden coupling through imports, caches, or module-level initialization.
 - Regression in multi-call tool orchestration, envelope bookkeeping, or batched follow-up payload assembly if workflow boundaries are not kept explicit.
+- Tool-path test drift if the implementation and the latest assertions are not updated together.
 
 ## Success Criteria
 - The new app runs independently from the legacy app.
@@ -153,6 +156,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - The new app preserves current user-facing behavior where intended.
 - The legacy app remains available under `src/monitor/` throughout the migration.
 - Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are preserved within the isolated runtime design.
+- The latest tool-calling implementation is reflected in the verification plan and in the test adjustments that exercise it.
 
 ## Starter Blueprint
 - Recommended package layout:
@@ -190,6 +194,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `LLMService` enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - `LLMService` applies a defensive maximum tool loop cap of 16 total model calls.
   - Multi-call tool handling, envelope bookkeeping, and batched follow-up payload support are part of the expected tool workflow behavior in the new app.
+  - The latest tool-calling test coverage should verify normalization, repeated tool loops, envelope assembly, and follow-up payload dispatch without depending on legacy state.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.
