@@ -27,10 +27,15 @@ class CommandType(str, Enum):
 
 @dataclass(slots=True)
 class RuntimeConfig:
-    """Runtime configuration for a single app instance."""
+    """Runtime configuration for a single app instance.
+
+    Note:
+        Tracks the source YAML path when loaded from configuration.
+    """
 
     model_name: str = DEFAULT_MODEL
     context_window: int = 400_000
+    yaml_path: str = ""
 
 
 @dataclass(slots=True)

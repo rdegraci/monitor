@@ -9,6 +9,14 @@
 
 Phase 1 is complete: the foundation package, models, runtime context, and config service are in place.
 
+## Configuration Bootstrap
+- Next planned work is to add `config.yaml.example` in `src/monitor_oop/`.
+- Existing `appdirs.user_config_dir("monitor")/config.yaml` files are preserved.
+- Only missing `appdirs.user_config_dir("monitor")/config.yaml` files are seeded from `src/monitor_oop/config.yaml.example`.
+- On first run, copy it to `appdirs.user_config_dir("monitor")/config.yaml`.
+- Load `config.yaml` from the user config directory, with fallback to `~/.config/monitor/`.
+- Load `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks.
+
 ## Phase 2: Core services
 6. Add `history_service.py`.
 7. Add `macro_service.py`.

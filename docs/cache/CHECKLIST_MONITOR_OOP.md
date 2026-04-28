@@ -33,7 +33,8 @@
 - [x] Confirm the tool subsystem uses `tool_models.py` for tool-specific dataclasses.
 - [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
 - [x] Confirm parsing, normalization, and output-wrapping helpers remain free functions where appropriate.
-- [x] Decide which workflows remain as free functions.
+- [ ] Confirm the configuration bootstrap plan preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files and only seeds missing files from `src/monitor_oop/config.yaml.example`, loads `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, and loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks.
+- [ ] Decide which workflows remain as free functions.
 
 ## Milestone 3: Package and bootstrap
 - [x] Create the new package directory.

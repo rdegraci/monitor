@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import appdirs
+import yaml
 from dotenv import dotenv_values, find_dotenv, load_dotenv
 
 from .models import DEFAULT_MODEL, RuntimeConfig
@@ -16,65 +18,156 @@ class ConfigService:
     def __init__(self, initial_config: RuntimeConfig | None = None) -> None:
         self._config = initial_config or RuntimeConfig(model_name=DEFAULT_MODEL)
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self._logging_level = logging.INFO
 
     def load(self) -> None:
         """Load configuration for the current process."""
 
-        return None
-
-    def _get_user_env_paths(self) -> list[str]:
-        """Return candidate user configuration paths in lookup order."""
-
-        config_dir = appdirs.user_config_dir("monitor")
-        return [os.path.join(config_dir, ".env"), os.path.expanduser("~/.config/monitor/.env")]
-
-    def _get_effective_openai_api_key(self, project_env_path: str, env_path: str) -> str | None:
-        """Return the effective OPENAI_API_KEY from the environment or dotenv files."""
-
-        existing_key = os.environ.get("OPENAI_API_KEY")
-        if existing_key:
-            return existing_key
-
-        project_values = dotenv_values(project_env_path) if project_env_path else {}
-        if project_values.get("OPENAI_API_KEY"):
-            return project_values["OPENAI_API_KEY"]
-
-        for user_env_path in self._get_user_env_paths():
-            user_values = dotenv_values(user_env_path) if user_env_path and os.path.exists(user_env_path) else {}
-            if user_values.get("OPENAI_API_KEY"):
-                return user_values["OPENAI_API_KEY"]
-
-        return None
+        self._apply_defaults()
+        self._load_config_yaml()
+        self._load_env()
+        self._apply_environment_overrides()
 
     def load_env(self) -> None:
-        """Load environment variables in legacy order.
+        """Load dotenv files and apply environment overrides."""
 
-        This first loads a project-level `.env` from the current working
-        directory, if present, and then loads the Monitor user configuration
-        `.env` file with override enabled. Missing files are ignored.
-        """
+        self._load_env()
+        self._apply_environment_overrides()
+
+    def load_config_yaml(self) -> None:
+        """Load YAML configuration using defaults first, then user files."""
+
+        self._load_config_yaml()
+
+    def _apply_defaults(self) -> None:
+        """Reset the runtime configuration to deterministic defaults."""
+
+        self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
+        self._logging_level = logging.INFO
+        self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+
+    def _get_user_config_dir(self) -> Path:
+        """Return the user configuration directory for Monitor."""
+
+        return Path(appdirs.user_config_dir("monitor"))
+
+    def _get_user_env_paths(self) -> list[str]:
+        """Return candidate user .env paths in lookup order."""
+
+        config_dir = self._get_user_config_dir()
+        return [str(config_dir / ".env"), os.path.expanduser("~/.config/monitor/.env")]
+
+    def _get_user_config_paths(self) -> list[str]:
+        """Return candidate user config.yaml paths in lookup order."""
+
+        config_dir = self._get_user_config_dir()
+        return [str(config_dir / "config.yaml"), os.path.expanduser("~/.config/monitor/config.yaml")]
+
+    def _ensure_user_config_yaml(self) -> str | None:
+        """Create the user config.yaml from the example file on first run."""
+
+        config_dir = self._get_user_config_dir()
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        user_config_path = config_dir / "config.yaml"
+        if user_config_path.exists():
+            return str(user_config_path)
+
+        example_path = Path(__file__).with_name("config.yaml.example")
+        if example_path.exists():
+            user_config_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+            return str(user_config_path)
+
+        return None
+
+    def _load_yaml_values(self, yaml_path: str | None) -> dict[str, object]:
+        """Load configuration values from a YAML file."""
+
+        if not yaml_path or not os.path.exists(yaml_path):
+            return {}
+
+        with open(yaml_path, "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+
+        if not isinstance(data, dict):
+            return {}
+
+        return data
+
+    def _coerce_int(self, value: object, default: int) -> int:
+        """Coerce a configuration value to int with a safe default."""
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _load_config_yaml(self) -> None:
+        """Load YAML configuration using defaults first, then user files."""
+
+        self._ensure_user_config_yaml()
+        resolved_model = DEFAULT_MODEL
+        resolved_context_window = RuntimeConfig(model_name=DEFAULT_MODEL).context_window
+        resolved_logging_level = logging.INFO
+
+        for yaml_path in self._get_user_config_paths():
+            yaml_values = self._load_yaml_values(yaml_path)
+            if "model" in yaml_values and yaml_values["model"] is not None:
+                resolved_model = str(yaml_values["model"])
+            if "context_window" in yaml_values and yaml_values["context_window"] is not None:
+                resolved_context_window = self._coerce_int(
+                    yaml_values["context_window"],
+                    resolved_context_window,
+                )
+            if "logging_level" in yaml_values and yaml_values["logging_level"] is not None:
+                resolved_logging_level = self._coerce_int(yaml_values["logging_level"], resolved_logging_level)
+
+        self._config.model_name = resolved_model
+        self._config.context_window = resolved_context_window
+        self._logging_level = resolved_logging_level
+
+    def _load_env(self) -> None:
+        """Load dotenv files in deterministic precedence order."""
 
         project_env_path = find_dotenv(usecwd=True)
         if project_env_path:
-            load_dotenv(project_env_path)
+            load_dotenv(project_env_path, override=True)
 
-        config_dir = appdirs.user_config_dir("monitor")
-        env_path = os.path.join(config_dir, ".env")
-        if os.path.exists(env_path):
-            load_dotenv(env_path, override=True)
+        user_env_path = os.path.join(appdirs.user_config_dir("monitor"), ".env")
+        if os.path.exists(user_env_path):
+            load_dotenv(user_env_path, override=True)
 
         fallback_env_path = os.path.expanduser("~/.config/monitor/.env")
-        if fallback_env_path != env_path and os.path.exists(fallback_env_path):
+        if fallback_env_path != user_env_path and os.path.exists(fallback_env_path):
             load_dotenv(fallback_env_path, override=True)
 
-        self._openai_api_key = self._get_effective_openai_api_key(project_env_path, env_path)
-        if self._openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+    def _apply_environment_overrides(self) -> None:
+        """Apply environment variable overrides to the resolved configuration."""
+
+        env_model = os.environ.get("MODEL")
+        if env_model:
+            self._config.model_name = env_model
+
+        env_context_window = os.environ.get("CONTEXT_WINDOW")
+        if env_context_window:
+            self._config.context_window = self._coerce_int(env_context_window, self._config.context_window)
+
+        env_logging_level = os.environ.get("LOG_LEVEL")
+        if env_logging_level:
+            self._logging_level = self._coerce_int(env_logging_level, self._logging_level)
+
+        env_openai_api_key = os.environ.get("OPENAI_API_KEY")
+        if env_openai_api_key:
+            self._openai_api_key = env_openai_api_key
+        elif self._openai_api_key:
             os.environ["OPENAI_API_KEY"] = self._openai_api_key
 
     def reset(self, force: bool = False) -> None:
         """Reset configuration to defaults."""
 
         self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
+        self._logging_level = logging.INFO
+        self._openai_api_key = os.environ.get("OPENAI_API_KEY")
 
     def select_model(self, model_name: str) -> bool:
         """Select the active model for this runtime."""
@@ -114,5 +207,4 @@ class ConfigService:
             int: The resolved logging level constant.
         """
 
-        log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-        return logging._nameToLevel.get(log_level, logging.INFO)
+        return self._logging_level

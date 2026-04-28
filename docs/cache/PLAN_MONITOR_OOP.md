@@ -30,6 +30,7 @@ The new app should build a clear runtime graph at startup:
   - Serves as the explicit wiring point for CLI, script, and server modes.
 - `ConfigService`
   - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
+  - Planned config flow: package `config.yaml.example` in `src/monitor_oop`, preserve `appdirs.user_config_dir("monitor")/config.yaml` if it already exists, otherwise copy `config.yaml.example` there on first run, load `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, and load `.env` using `find_dotenv(usecwd=True)` before falling back to the user config directory and `~/.config/monitor/`.
 - `HistoryService`
   - Owns a `History` domain object for conversation state.
   - Manages history persistence, summarization, and flushing through `History`.

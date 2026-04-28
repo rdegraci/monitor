@@ -58,7 +58,7 @@ def build_app() -> MonitorApp:
     """Build a thin-slice application instance."""
     logger_service = LoggerService()
     config_service = ConfigService()
-    config_service.load_env()
+    config_service.load()
     logger_service.configure(level=config_service.get_logging_level())
     app_logger = logger_service.get_logger(__name__)
     app_logger.info("Starting application bootstrap")

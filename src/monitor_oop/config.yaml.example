@@ -1,0 +1,8 @@
+# Default model used by the assistant.
+model: openai/gpt-5.4-mini
+
+# Default token budget / context window.
+context_window: 400000
+
+# Default logging verbosity.
+logging_level: INFO
