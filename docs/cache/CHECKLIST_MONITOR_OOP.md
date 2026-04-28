@@ -61,6 +61,7 @@
 - [x] Implement follow-up payload submission using `call_id`.
 - [x] Adjust test coverage to match the current service behavior for multi-call handling and follow-up payload submission.
 - [x] Confirm the tool output envelope buffer was extracted into a dedicated `ToolTurnState` helper with turn-scoped lifecycle management.
+- [x] Update Responses API tool-call parsing to read directly from `response.output` and remove `parse_tool_call` / `parse_tool_calls`.
 
 ## Milestone 5: Server flow
 - [ ] Implement isolated Flask app creation.

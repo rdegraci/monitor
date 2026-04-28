@@ -8,6 +8,7 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.models import Message
 from monitor_oop.core.tool_turn_state import ToolTurnState
+from monitor_oop.core.tools.parsing import extract_tool_calls
 from monitor_oop.core.tools.tool_service import ToolService
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,10 @@ class LLMService:
         """Append multiple tool outputs to request input for a follow-up model call."""
 
         if self._tool_service is None:
-            logger.info("Skipping multi-tool follow-up append: tool_service unavailable; tool count=%s.", self._tool_turn_state.pending_count())
+            logger.info(
+                "Skipping multi-tool follow-up append: tool_service unavailable; tool count=%s.",
+                self._tool_turn_state.pending_count(),
+            )
             return input_messages
         if self._tool_turn_state.pending_count() == 0:
             return input_messages
@@ -142,17 +146,19 @@ class LLMService:
         return str(finish_reason)
 
     def _extract_tool_calls(self, response: Any) -> list[Any]:
-        """Extract tool calls from a response using the configured tool service parser."""
+        """Extract tool calls from response.output using the configured tool service parser."""
 
+        response_output = getattr(response, "output", None)
         if self._tool_service is None:
+            logger.info("Tool call parsing skipped: tool_service unavailable; response.output_type=%s.", type(response_output).__name__)
             return []
-        parse_tool_calls = getattr(self._tool_service, "parse_tool_calls", None)
-        if not callable(parse_tool_calls):
-            return []
-        tool_calls = parse_tool_calls(response)
+        tool_calls = extract_tool_calls(response_output)
         if tool_calls is None:
+            logger.info("Tool call parsing on response.output produced no calls; response.output_type=%s.", type(response_output).__name__)
             return []
-        return list(tool_calls)
+        tool_calls_list = list(tool_calls)
+        logger.info("Parsed tool calls from response.output: count=%s.", len(tool_calls_list))
+        return tool_calls_list
 
     def _execute_tool_calls(
         self,
@@ -164,6 +170,7 @@ class LLMService:
         tool_calls = self._extract_tool_calls(response)
         logger.info("Parsed tool calls from response: count=%s.", len(tool_calls))
         if not tool_calls:
+            self._tool_turn_state.clear()
             return input_messages, False
         parent_response_id = getattr(response, "id", None)
         for tool_call in tool_calls:
@@ -211,7 +218,13 @@ class LLMService:
         response_output = getattr(response, "output", None)
         response_text = getattr(response, "text", None)
         response_message = getattr(response, "message", None)
-        logger.info("Response inspection before tool parsing: finish_reason=%s, output=%r, text=%r, message=%r.", finish_reason, response_output, response_text, response_message)
+        logger.info(
+            "Response inspection before tool parsing: finish_reason=%s, output=%r, text=%r, message=%r.",
+            finish_reason,
+            response_output,
+            response_text,
+            response_message,
+        )
         logger.info("Resolving response finish_reason=%s.", finish_reason)
         if finish_reason == "content_filter":
             self._tool_turn_state.clear()
@@ -223,64 +236,21 @@ class LLMService:
             if finish_reason in ("stop", None):
                 logger.info("No tool follow-up required for finish_reason=%s.", finish_reason)
             else:
-                logger.info("Tool follow-up not attempted because tool_service is unavailable for finish_reason=%s.", finish_reason)
+                logger.info(
+                    "Tool follow-up not attempted because tool_service is unavailable for finish_reason=%s.",
+                    finish_reason,
+                )
             self._tool_turn_state.clear()
             return input_messages, False
         tool_calls = self._extract_tool_calls(response)
         logger.info("Parsed tool calls from response: count=%s.", len(tool_calls))
         if tool_calls:
             return self._execute_tool_calls(input_messages, response)
-        tool_call = self._tool_service.parse_tool_call(response)
-        logger.info("Parsed tool call from response: %s.", tool_call)
-        if tool_call is not None:
-            logger.info(
-                "Preparing to execute tool call with tool_call_id=%s, response_item_id=%s, response_id=%s.",
-                getattr(tool_call, "call_id", None),
-                getattr(tool_call, "response_item_id", None),
-                getattr(response, "id", None),
-            )
-            tool_result = self._tool_service.execute_tool_call(tool_call)
-            logger.info(
-                "Executed tool call id=%s tool_name=%s; preparing follow-up input.",
-                getattr(tool_call, "call_id", None),
-                getattr(tool_call, "tool_name", None),
-            )
-            parent_response_id = getattr(response, "id", None)
-            logger.info(
-                "Using response.id as parent_response_id for tool_call_id=%s; parent_response_id=%s.",
-                getattr(tool_call, "call_id", None),
-                parent_response_id,
-            )
-            self._record_tool_output_envelope(
-                getattr(tool_call, "call_id", None),
-                getattr(tool_call, "response_item_id", None),
-                parent_response_id,
-                tool_result,
-            )
-            follow_up_input = self._append_tool_output_to_input(
-                input_messages,
-                getattr(tool_call, "call_id", None),
-                getattr(tool_call, "response_item_id", None),
-                tool_result,
-                parent_response_id,
-            )
-            should_continue = True
-            logger.info(
-                "Tool follow-up decision: finish_reason=%s, should_continue=%s, follow_up_message_count=%s.",
-                finish_reason,
-                should_continue,
-                len(follow_up_input),
-            )
-            return follow_up_input, should_continue
+        self._tool_turn_state.clear()
         if finish_reason in ("stop", None):
             logger.info("No tool follow-up required for finish_reason=%s.", finish_reason)
-            self._tool_turn_state.clear()
             return input_messages, False
-        if finish_reason == "tool_calls":
-            self._tool_turn_state.clear()
-            raise ValueError("Model response indicated tool calls, but the tool call response was malformed.")
-        logger.info("No parsable tool call found; ending tool handling for finish_reason=%s.", finish_reason)
-        self._tool_turn_state.clear()
+        logger.info("No tool calls found; ending tool handling for finish_reason=%s.", finish_reason)
         return input_messages, False
 
     def _complete_with_tool_calls(self, input_messages: list[dict[str, str]]) -> Any:

@@ -55,13 +55,14 @@ class RecordingToolService:
 
     def __init__(
         self,
-        tool_call: ToolCall | list[ToolCall] | None = None,
+        tool_calls: list[ToolCall] | None = None,
         result: ToolResult | list[ToolResult] | None = None,
     ) -> None:
-        self.tool_call = tool_call
+        self.tool_calls = list(tool_calls or [])
         self.result = result or ToolResult(tool_name="get_current_weather", success=True, output="done")
         self.executed_calls: list[ToolCall] = []
         self.follow_up_payloads: list[dict[str, object]] = []
+        self.follow_up_payloads_multi: list[tuple[list[dict[str, str]], list[tuple[str, str, ToolResult]], str | None]] = []
 
     def build_litellm_tools(self) -> list[dict[str, object]]:
         """Return a tool schema compatible with LiteLLM."""
@@ -89,10 +90,10 @@ class RecordingToolService:
 
         return self.build_litellm_tools()
 
-    def parse_tool_call(self, value: object) -> ToolCall | list[ToolCall] | None:
-        """Return the configured tool call."""
+    def parse_tool_calls(self, value: object) -> list[ToolCall]:
+        """Return the configured tool calls."""
 
-        return self.tool_call
+        return list(self.tool_calls)
 
     def execute_tool_call(self, tool_call: ToolCall) -> ToolResult:
         """Record the tool call and return the configured result."""
@@ -123,22 +124,27 @@ class RecordingToolService:
         )
         return messages
 
+    def build_follow_up_payloads(
+        self,
+        messages: list[dict[str, str]],
+        tool_results: list[tuple[str, str, ToolResult]],
+        parent_response_id: str | None = None,
+    ) -> list[dict[str, str]]:
+        """Record multi-tool follow-up payload construction and return the original messages."""
+
+        self.follow_up_payloads_multi.append((messages, tool_results, parent_response_id))
+        return messages
+
 
 class MultiCallToolService(RecordingToolService):
     """Tool service stub that returns multiple parsed tool calls."""
 
     def __init__(self, tool_calls: list[ToolCall], results: list[ToolResult]) -> None:
-        super().__init__(tool_call=None, result=results)
-        self._tool_calls = list(tool_calls)
+        super().__init__(tool_calls=tool_calls, result=results)
         self._results = list(results)
-        self._parse_calls = 0
 
-    def parse_tool_call(self, value: object) -> ToolCall | list[ToolCall] | None:
-        if self._parse_calls >= len(self._tool_calls):
-            return None
-        tool_call = self._tool_calls[self._parse_calls]
-        self._parse_calls += 1
-        return tool_call
+    def parse_tool_calls(self, value: object) -> list[ToolCall]:
+        return list(self.tool_calls)
 
     def execute_tool_call(self, tool_call: ToolCall) -> ToolResult:
         self.executed_calls.append(tool_call)
@@ -230,14 +236,23 @@ def test_complete_returns_text_for_stop_response() -> None:
     assert adapter.complete_calls[0]["previous_response_id"] is None
 
 
-def test_complete_raises_for_malformed_tool_call() -> None:
-    """Verify malformed tool-call responses raise a clear error."""
+def test_complete_executes_single_tool_call_completion_path() -> None:
+    """Verify a single tool-call response executes one tool and returns assistant text."""
 
-    tool_service = RecordingToolService(tool_call=None)
-    service, _, _ = build_service([build_response("tool_calls", "response_1")], ["final answer"], tool_service=tool_service)
+    tool_service = RecordingToolService(tool_calls=[])
+    service, _, _ = build_service(
+        [
+            build_tool_call_response("response_1", "call_1", "get_current_weather", {"location": "San Diego, CA", "unit": "F"}),
+            build_response("stop", "response_2"),
+        ],
+        ["assistant text", "final answer"],
+        tool_service=tool_service,
+    )
 
-    with pytest.raises(ValueError, match="malformed"):
-        service.complete("hello", [])
+    result = service.complete("hello", [])
+
+    assert result == "assistant text"
+    assert len(tool_service.executed_calls) == 1
 
 
 def test_complete_raises_for_content_filter_response() -> None:
@@ -266,11 +281,13 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
     config_service.get_model = lambda: "openai/gpt-4o-mini"  # type: ignore[method-assign]
 
     tool_service = RecordingToolService(
-        tool_call=ToolCall(
-            call_id="call_1",
-            tool_name="get_current_weather",
-            arguments={"location": "San Diego, CA", "unit": "F"},
-        ),
+        tool_calls=[
+            ToolCall(
+                call_id="call_1",
+                tool_name="get_current_weather",
+                arguments={"location": "San Diego, CA", "unit": "F"},
+            )
+        ],
         result=[
             ToolResult(tool_name="get_current_weather", success=True, output="turn_1"),
             ToolResult(tool_name="get_current_weather", success=True, output="turn_2"),
@@ -321,7 +338,12 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
             self._count += 1
             if self._count > 16:
                 raise AssertionError("LoopingAdapter.complete() ran out of queued responses")
-            return build_response("tool_calls", f"response_{self._count}")
+            return build_tool_call_response(
+                response_id=f"response_{self._count}",
+                call_id="call_1",
+                tool_name="get_current_weather",
+                arguments={"location": "San Diego, CA", "unit": "F"},
+            )
 
         def extract_text(self, response: object) -> str:
             return "assistant text"
@@ -342,11 +364,13 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
     tool_calls = [
         ToolCall(
             call_id="call_1",
+            response_item_id="call_1",
             tool_name="get_current_weather",
             arguments={"location": "San Diego, CA", "unit": "F"},
         ),
         ToolCall(
             call_id="call_2",
+            response_item_id="call_2",
             tool_name="get_current_weather",
             arguments={"location": "Portland, OR", "unit": "C"},
         ),

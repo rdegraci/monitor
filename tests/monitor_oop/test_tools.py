@@ -4,10 +4,9 @@ from monitor_oop.core.tools import (
     ToolService,
     build_tool_call_output,
     build_weather_tool_definition,
+    extract_tool_calls,
     get_current_weather,
     normalize_tool_arguments,
-    parse_tool_call,
-    should_continue_after_tool_call,
 )
 
 
@@ -73,8 +72,8 @@ def test_tool_service_build_litellm_tools_exports_registered_schema() -> None:
     assert function_schema["parameters"]["type"] == "object"
 
 
-def test_parse_tool_call_extracts_function_call_from_object_output() -> None:
-    """Verify parse_tool_call handles Responses-style object-shaped output."""
+def test_extract_tool_calls_parses_single_function_call_from_object_output() -> None:
+    """Verify extract_tool_calls handles a single Responses-style object-shaped tool call."""
 
     response = type(
         "Response",
@@ -112,16 +111,18 @@ def test_parse_tool_call_extracts_function_call_from_object_output() -> None:
         },
     )()
 
-    tool_call = parse_tool_call(response)
+    tool_calls = extract_tool_calls(response.output)
 
-    assert tool_call is not None
+    assert isinstance(tool_calls, list)
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
     assert tool_call.tool_name == "get_current_weather"
     assert tool_call.arguments == {"location": "San Diego, CA", "unit": "F"}
     assert tool_call.call_id == "call_123"
 
 
-def test_parse_tool_call_extracts_function_call_from_dict_output() -> None:
-    """Verify parse_tool_call handles Responses-style dict-shaped output."""
+def test_extract_tool_calls_parses_multiple_function_calls_from_dict_output() -> None:
+    """Verify extract_tool_calls handles multiple Responses-style dict-shaped tool calls."""
 
     response = type(
         "Response",
@@ -143,16 +144,26 @@ def test_parse_tool_call_extracts_function_call_from_dict_output() -> None:
                     "arguments": '{"location": "San Diego, CA", "unit": "F"}',
                     "call_id": "call_456",
                 },
+                {
+                    "type": "function_call",
+                    "name": "get_current_weather",
+                    "arguments": '{"location": "New York, NY", "unit": "F"}',
+                    "call_id": "call_789",
+                },
             ],
         },
     )()
 
-    tool_call = parse_tool_call(response)
+    tool_calls = extract_tool_calls(response.output)
 
-    assert tool_call is not None
-    assert tool_call.tool_name == "get_current_weather"
-    assert tool_call.arguments == {"location": "San Diego, CA", "unit": "F"}
-    assert tool_call.call_id == "call_456"
+    assert isinstance(tool_calls, list)
+    assert len(tool_calls) == 2
+    assert tool_calls[0].tool_name == "get_current_weather"
+    assert tool_calls[0].arguments == {"location": "San Diego, CA", "unit": "F"}
+    assert tool_calls[0].call_id == "call_456"
+    assert tool_calls[1].tool_name == "get_current_weather"
+    assert tool_calls[1].arguments == {"location": "New York, NY", "unit": "F"}
+    assert tool_calls[1].call_id == "call_789"
 
 
 def test_tool_helpers_normalize_and_wrap_output() -> None:
@@ -166,12 +177,10 @@ def test_tool_helpers_normalize_and_wrap_output() -> None:
     assert payload["call_id"] == "call_123"
     assert payload["output"] == "ok"
     assert "id" not in payload
-    assert should_continue_after_tool_call(type("Response", (), {"output": []})()) is False
-    assert parse_tool_call(type("Response", (), {"output": []})()) is None
 
 
-def test_tool_service_supports_multi_round_tool_loop() -> None:
-    """Verify a tool loop can be driven by stubbed assistant responses."""
+def test_tool_service_supports_direct_tool_call_and_result_inputs() -> None:
+    """Verify the tool service helpers still work with direct ToolCall and ToolResult inputs."""
 
     registry = ToolRegistry()
     service = ToolService(registry)
@@ -179,77 +188,41 @@ def test_tool_service_supports_multi_round_tool_loop() -> None:
 
     assert service.register_tool(definition, get_current_weather) is True
 
-    first_response = type(
-        "Response",
+    tool_call = type(
+        "ToolCall",
         (),
         {
-            "output": [
-                type(
-                    "Message",
-                    (),
-                    {
-                        "type": "message",
-                        "content": [
-                            type(
-                                "Text",
-                                (),
-                                {
-                                    "type": "text",
-                                    "text": "I should check the weather before answering.",
-                                },
-                            )()
-                        ],
-                    },
-                )(),
-                type(
-                    "ToolCall",
-                    (),
-                    {
-                        "type": "function_call",
-                        "tool_name": "get_current_weather",
-                        "arguments": '{"location": "San Diego, CA", "unit": "F"}',
-                        "call_id": "call_123",
-                    },
-                )(),
-            ],
+            "tool_name": "get_current_weather",
+            "arguments": {"location": "San Diego, CA", "unit": "F"},
+            "call_id": "call_123",
         },
     )()
 
-    assert should_continue_after_tool_call(first_response) is True
-    tool_call = parse_tool_call(first_response)
-    assert tool_call is not None
-
     tool_result = service.execute(tool_call.tool_name, tool_call.arguments)
+    assert tool_result.success is True
+    assert tool_result.output == "The weather in San Diego, CA is 12F and cold."
+
     tool_output = build_tool_call_output(tool_call.call_id, tool_result)
     assert tool_output["call_id"] == "call_123"
     assert tool_output["output"] == "The weather in San Diego, CA is 12F and cold."
     assert "id" not in tool_output
 
-    follow_up_response = type(
-        "Response",
+
+def test_tool_service_builds_follow_up_payload_from_direct_tool_result() -> None:
+    """Verify follow-up payload building from a direct ToolResult input."""
+
+    tool_result = type(
+        "ToolResult",
         (),
         {
-            "output": [
-                type(
-                    "Message",
-                    (),
-                    {
-                        "type": "message",
-                        "content": [
-                            type(
-                                "Text",
-                                (),
-                                {
-                                    "type": "text",
-                                    "text": "The weather in San Diego, CA is 12F and cold.",
-                                },
-                            )()
-                        ],
-                    },
-                )(),
-            ],
+            "success": True,
+            "output": "The weather in San Diego, CA is 12F and cold.",
+            "error": "",
         },
     )()
 
-    assert should_continue_after_tool_call(follow_up_response) is False
-    assert parse_tool_call(follow_up_response) is None
+    payload = build_tool_call_output("call_123", tool_result)
+
+    assert payload["call_id"] == "call_123"
+    assert payload["output"] == "The weather in San Diego, CA is 12F and cold."
+    assert "id" not in payload

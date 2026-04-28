@@ -11,7 +11,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm logging is configured once at bootstrap through `LoggerService`, and runtime modules use standard logger access patterns without reconfiguring global logging state.
 - Confirm tool calling is verified for detection, normalization, execution, and follow-up payload construction using the new isolated registry/service design, isolated from legacy global tool registries or mutable shared state.
 - Confirm tool-calling verification now has a concrete tool package to exercise (`src/monitor_oop/core/tools/`), including the deterministic weather tool, registry/service boundaries, and parsing helpers.
-- Confirm tool calling is verified through multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing, a defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
+- Confirm tool calling is verified through direct `response.output` parsing with `extract_tool_calls`, multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing coverage focused on Responses API shapes, a defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
 - Confirm tool turn state is owned by the dedicated `ToolTurnState` helper with turn-scoped lifecycle management, including tool call accumulation, follow-up preparation, and cleanup at the end of each turn.
 - Confirm real LLM behavior remains a future work item.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
@@ -76,7 +76,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Server mode passes basic route and response tests where implemented.
 - Core behaviors match legacy expectations where intentionally preserved.
 - Real LLM behavior is deferred until the corresponding implementation exists.
-- Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing, the defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
+- Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, direct `response.output` parsing via `extract_tool_calls`, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing coverage focused on Responses API shapes, the defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
 - Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
 - Logging is configured once at bootstrap via `LoggerService`, and runtime modules use standard logger access patterns.
 

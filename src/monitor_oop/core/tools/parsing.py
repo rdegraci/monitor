@@ -83,32 +83,10 @@ def extract_tool_calls(output: object) -> list[ToolCall]:
     return tool_calls
 
 
-def extract_tool_calls_from_response(response_or_output: object) -> list[ToolCall]:
-    """Extract all tool calls from a response object or output list."""
-
-    output = getattr(response_or_output, "output", response_or_output)
-    return extract_tool_calls(output)
-
-
-def parse_tool_calls(response_or_output: object) -> list[ToolCall]:
-    """Parse all tool calls from a response object or output list."""
-
-    return extract_tool_calls_from_response(response_or_output)
-
-
 def extract_first_tool_call(output: object) -> ToolCall | None:
     """Extract the first tool call from a response output list."""
 
     tool_calls = extract_tool_calls(output)
-    if tool_calls:
-        return tool_calls[0]
-    return None
-
-
-def parse_tool_call(response: object) -> ToolCall | None:
-    """Parse a tool call from a model response if present."""
-
-    tool_calls = extract_tool_calls_from_response(response)
     if tool_calls:
         return tool_calls[0]
     return None
@@ -134,11 +112,3 @@ def build_tool_call_output(
     if not result.success:
         output_item["error"] = result.error
     return output_item
-
-
-def should_continue_after_tool_call(response_or_tool_call: object) -> bool:
-    """Return whether more tool work is needed from a response or tool call."""
-
-    if isinstance(response_or_tool_call, ToolCall):
-        return True
-    return parse_tool_call(response_or_tool_call) is not None
