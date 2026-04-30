@@ -61,7 +61,10 @@ class ConfigService:
         """Return candidate user config.yaml paths in lookup order."""
 
         config_dir = self._get_user_config_dir()
-        return [str(config_dir / "config.yaml"), os.path.expanduser("~/.config/monitor/config.yaml")]
+        return [
+            str(config_dir / "config.yaml"),
+            os.path.expanduser("~/.config/monitor/config.yaml"),
+        ]
 
     def _ensure_user_config_yaml(self) -> str | None:
         """Create the user config.yaml from the example file on first run."""
@@ -75,7 +78,10 @@ class ConfigService:
 
         example_path = Path(__file__).with_name("config.yaml.example")
         if example_path.exists():
-            user_config_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+            user_config_path.write_text(
+                example_path.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
             return str(user_config_path)
 
         return None
@@ -102,6 +108,15 @@ class ConfigService:
         except (TypeError, ValueError):
             return default
 
+    def _is_valid_history_dir(self, history_dir: object) -> bool:
+        """Return True when history_dir is a safe relative path segment."""
+
+        if not isinstance(history_dir, str) or not history_dir.strip():
+            return False
+
+        path = Path(history_dir)
+        return not path.is_absolute() and path.parts not in ((), ("..",))
+
     def _load_config_yaml(self) -> None:
         """Load YAML configuration using defaults first, then user files."""
 
@@ -109,6 +124,10 @@ class ConfigService:
         resolved_model = DEFAULT_MODEL
         resolved_context_window = RuntimeConfig(model_name=DEFAULT_MODEL).context_window
         resolved_logging_level = logging.INFO
+        resolved_prompt_history_filename = RuntimeConfig(
+            model_name=DEFAULT_MODEL
+        ).prompt_history_filename
+        resolved_history_dir = RuntimeConfig(model_name=DEFAULT_MODEL).history_dir
 
         for yaml_path in self._get_user_config_paths():
             yaml_values = self._load_yaml_values(yaml_path)
@@ -120,10 +139,27 @@ class ConfigService:
                     resolved_context_window,
                 )
             if "logging_level" in yaml_values and yaml_values["logging_level"] is not None:
-                resolved_logging_level = self._coerce_int(yaml_values["logging_level"], resolved_logging_level)
+                resolved_logging_level = self._coerce_int(
+                    yaml_values["logging_level"], resolved_logging_level
+                )
+            if (
+                "prompt_history_filename" in yaml_values
+                and yaml_values["prompt_history_filename"] is not None
+            ):
+                resolved_prompt_history_filename = str(
+                    yaml_values["prompt_history_filename"]
+                )
+            if "history_dir" in yaml_values and yaml_values["history_dir"] is not None:
+                candidate_history_dir = yaml_values["history_dir"]
+                if self._is_valid_history_dir(candidate_history_dir):
+                    resolved_history_dir = str(candidate_history_dir)
+                else:
+                    resolved_history_dir = "history"
 
         self._config.model_name = resolved_model
         self._config.context_window = resolved_context_window
+        self._config.prompt_history_filename = resolved_prompt_history_filename
+        self._config.history_dir = resolved_history_dir
         self._logging_level = resolved_logging_level
 
     def _load_env(self) -> None:
@@ -150,7 +186,9 @@ class ConfigService:
 
         env_context_window = os.environ.get("CONTEXT_WINDOW")
         if env_context_window:
-            self._config.context_window = self._coerce_int(env_context_window, self._config.context_window)
+            self._config.context_window = self._coerce_int(
+                env_context_window, self._config.context_window
+            )
 
         env_logging_level = os.environ.get("LOG_LEVEL")
         if env_logging_level:
@@ -194,6 +232,55 @@ class ConfigService:
         """Return the active context window size."""
 
         return self._config.context_window
+
+    def _ensure_history_dir(self, config_dir: Path) -> bool:
+        """Ensure the history directory exists and is writable."""
+
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
+
+        return os.access(config_dir, os.W_OK)
+
+    def _get_history_file_path(self, base_dir: Path) -> str:
+        """Return a writable prompt history file path rooted at base_dir."""
+
+        history_dir = base_dir / self._config.history_dir
+        if not self._ensure_history_dir(history_dir):
+            return ""
+
+        filename = self._config.prompt_history_filename or "prompt_history"
+        history_path = history_dir / filename
+        parent_dir = history_path.parent
+
+        try:
+            parent_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return ""
+
+        if not os.access(parent_dir, os.W_OK):
+            return ""
+
+        return str(history_path)
+
+    def get_persistent_history_file_path(self) -> str:
+        """Return the first writable persistent history file path."""
+
+        for candidate in (
+            self._get_user_config_dir(),
+            Path(os.path.expanduser("~/.config/monitor")),
+        ):
+            writable_path = self._get_history_file_path(candidate)
+            if writable_path:
+                return writable_path
+
+        return ""
+
+    def get_history_file_path(self) -> str:
+        """Return the persistent prompt history file path."""
+
+        return self.get_persistent_history_file_path()
 
     def get_openai_api_key(self) -> str | None:
         """Return the effective OPENAI_API_KEY for this runtime."""

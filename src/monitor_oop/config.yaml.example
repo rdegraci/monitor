@@ -6,3 +6,7 @@ context_window: 400000
 
 # Default logging verbosity.
 logging_level: INFO
+
+# Prompt history settings.
+history_dir: history
+prompt_history_filename: prompt_history

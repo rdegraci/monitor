@@ -27,8 +27,7 @@ def run_cli(app: MonitorApp) -> int:
 
     while True:
         try:
-            print(session.prompt_user(), end="")
-            user_input = input()
+            user_input = session.read_user_input()
         except (EOFError, KeyboardInterrupt):
             break
         if not session.process_user_input(user_input):

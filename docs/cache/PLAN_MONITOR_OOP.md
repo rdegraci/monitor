@@ -31,6 +31,7 @@ The new app should build a clear runtime graph at startup:
 - `ConfigService`
   - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
   - Planned config flow: package `config.yaml.example` in `src/monitor_oop`, preserve `appdirs.user_config_dir("monitor")/config.yaml` if it already exists, otherwise copy `config.yaml.example` there on first run, load `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, and load `.env` using `find_dotenv(usecwd=True)` before falling back to the user config directory and `~/.config/monitor/`.
+  - Resolves configurable persistent prompt history settings via `history_dir` and `prompt_history_filename`, with the default path `<user_config_dir>/history/prompt_history`, rather than introducing a separate `FileHistoryService`.
 - `HistoryService`
   - Owns a `History` domain object for conversation state.
   - Manages history persistence, summarization, and flushing through `History`.
@@ -47,6 +48,7 @@ The new app should build a clear runtime graph at startup:
   - Configures logging once at centralized startup and exposes module logger access patterns through standard Python logging.
 - `ConversationSession`
   - Owns a single interactive chat session and its state.
+  - Uses `prompt_toolkit` `PromptSession` configured with `FileHistory` backed by the prompt history path for up-arrow prompt recall.
   - Exposes `is_running` as a read-only view of session lifecycle state instead of a public running attribute.
 - `CommandProcessor`
   - Classifies commands and executes command-specific behavior.
@@ -183,6 +185,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `HistoryService` owns a `History` domain object, and history state is stored in `History` rather than a raw list.
   - `History` encapsulates messages privately behind its API, instead of exposing direct message storage.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.
+  - `ConversationSession` uses `prompt_toolkit` `PromptSession` configured with `FileHistory` backed by the prompt history path for up-arrow prompt recall.
   - `ConversationSession` exposes `is_running` as the read-only lifecycle indicator for the active session.
   - `CommandProcessor` classifies and dispatches commands through service calls.
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.

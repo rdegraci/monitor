@@ -31,11 +31,14 @@ class RuntimeConfig:
 
     Note:
         Tracks the source YAML path when loaded from configuration.
+        The history directory and prompt history filename are used to resolve a persistent FileHistory path.
     """
 
     model_name: str = DEFAULT_MODEL
     context_window: int = 400_000
     yaml_path: str = ""
+    history_dir: str = "history"
+    prompt_history_filename: str = "prompt_history"
 
 
 @dataclass(slots=True)
