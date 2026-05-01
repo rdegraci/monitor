@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.models import Message
@@ -22,33 +23,10 @@ class LLMService:
     def __init__(self, config_service: ConfigService, tool_service: ToolService | None = None) -> None:
         self.config_service = config_service
         self._tool_service = tool_service
+        self._request_builder = LLMRequestBuilder()
         self.adapter = ResponsesLiteLLMAdapter()
         self._tool_turn_state = ToolTurnState()
         self._last_response_id: str | None = None
-
-    def _build_request_input(self, user_input: str, history: list[str | Message]) -> list[dict[str, str]]:
-        """Build request input from conversation history and the current user input."""
-
-        input_messages: list[dict[str, str]] = []
-        for item in history:
-            if isinstance(item, Message):
-                input_messages.append({"role": item.role, "content": item.content})
-            elif isinstance(item, str):
-                input_messages.append({"role": "user", "content": item})
-        input_messages.append({"role": "user", "content": user_input})
-        return input_messages
-
-    def build_input(self, user_input: str, history: list[str | Message]) -> list[dict[str, str]]:
-        """Build input for the Responses-via-LiteLLM adapter boundary call."""
-
-        return self._build_request_input(user_input, history)
-
-    def _strip_provider_prefix(self, model: str) -> str:
-        """Strip the provider prefix from a configured model name."""
-
-        if "/" in model:
-            return model.split("/", 1)[1]
-        return model
 
     def _build_litellm_tools(self) -> list[dict[str, Any]]:
         """Return the current flat Responses-style tool schemas for the adapter."""
@@ -295,7 +273,7 @@ class LLMService:
         api_key = self.config_service.get_openai_api_key()
         if not api_key:
             raise ValueError("OpenAI API key is required to create a response.")
-        model = self._strip_provider_prefix(self.config_service.get_model())
+        model = self._request_builder.strip_provider_prefix(self.config_service.get_model())
         tools = self._build_litellm_tools()
         tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
@@ -320,5 +298,5 @@ class LLMService:
     def complete(self, user_input: str, history: list[str | Message]) -> str:
         """Call the configured model through the Responses-via-LiteLLM adapter boundary and return assistant text."""
 
-        response = self._complete_with_tool_calls(self._build_request_input(user_input, history))
+        response = self._complete_with_tool_calls(self._request_builder.build_input(user_input, history))
         return self.adapter.extract_text(response)

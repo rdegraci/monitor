@@ -1,6 +1,7 @@
 # monitor_oop Class Map
 
 This document defines the first-pass object model for the isolated Monitor rewrite.
+For the high-level architecture overview of the current `monitor_oop` design, see `ARCHITECTURE_OOP.md`.
 
 ## MonitorApp
 `src/monitor_oop/core/app.py`
@@ -48,6 +49,7 @@ Owns the isolated runtime services and per-run state for the staged implementati
 - Own the staged service wiring without reaching into module globals.
 - Supply shared services to sessions, server handlers, and workflows.
 - Track the current implementation structure alongside the mirrored test layout under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`.
+- Refer to `ARCHITECTURE_OOP.md` for the high-level architecture overview of this design.
 
 ## ConfigService
 `src/monitor_oop/core/config_service.py`
@@ -248,6 +250,8 @@ Owns LLM request/response orchestration and completion handling.
 - Keep LLM response flow isolated from command processing and session state.
 - Support batched tool-call handling within a single turn.
 - Consume tool envelopes and produce follow-up payloads through the tool service.
+- Delegate request shaping to `LLMRequestBuilder`.
+- Move toward a façade role over extracted collaborators as request construction, continuation handling, and completion orchestration are separated.
 
 ## ConversationSession
 `src/monitor_oop/core/conversation_session.py`

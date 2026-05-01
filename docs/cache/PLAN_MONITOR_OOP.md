@@ -21,7 +21,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Logging is configured once at centralized bootstrap, and runtime code uses standard module loggers.
 
 ## Runtime Object Graph
-The new app should build a clear runtime graph at startup:
+The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP.md` for the overview:
 
 - `MonitorApp`
   - Top-level coordinator for startup, mode selection, and lifecycle management.
@@ -62,6 +62,9 @@ The new app should build a clear runtime graph at startup:
 - `LLMService`
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
+- `LLMRequestBuilder`
+  - Extracts and shapes LLM request payloads from session, history, macro, tool, and context inputs.
+  - Keeps request construction isolated from execution, transport, and response handling concerns.
 
 Suggested ownership flow:
 - `MonitorApp` creates `RuntimeContext`.
@@ -109,6 +112,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `core/logger_service.py`
   - `core/server_app.py`
   - `core/workflow.py`
+  - `core/application/llm_request_builder.py`
   - `models.py`
   - `utils.py`
 - `tests/monitor_oop/`
@@ -240,6 +244,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 
 ## Tracking Documents
 - `PLAN_MONITOR_OOP`
+- `ARCHITECTURE_OOP.md`
 - `MONITOR_OOP_CLASS_MAP.md`
 - `MONITOR_OOP_IMPLEMENTATION_SEQUENCE.md`
 - `MONITOR_OOP_VERIFICATION_PLAN.md` as the verification reference

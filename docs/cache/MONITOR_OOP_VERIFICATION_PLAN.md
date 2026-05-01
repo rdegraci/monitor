@@ -1,6 +1,6 @@
 # MONITOR_OOP_VERIFICATION_PLAN
 
-This document defines how the isolated Monitor rewrite is validated against the legacy app as the thin-slice implementation stands today.
+This document defines how the isolated Monitor rewrite is validated against the legacy app as the thin-slice implementation stands today. See `ARCHITECTURE_OOP.md` for the architecture overview alongside these verification notes.
 
 ## Verification Goals
 - Confirm the new app runs independently for the current thin-slice CLI path.
@@ -10,6 +10,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm the new app preserves intended user-visible behavior where required.
 - Confirm logging is configured once at bootstrap through `LoggerService`, and runtime modules use standard logger access patterns without reconfiguring global logging state.
 - Confirm planned configuration bootstrap behavior for `monitor_oop` is implemented and verified: preserve existing `appdirs.user_config_dir("monitor")/config.yaml` files, seed only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, load `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, load `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and ensure prompt history uses `prompt_toolkit.PromptSession` with `FileHistory` while `ConfigService` resolves the persistent prompt history path via configurable `history_dir` and `prompt_history_filename` settings instead of introducing a separate `FileHistoryService`.
+- Confirm `LLMRequestBuilder` has dedicated tests under `tests/monitor_oop/core/application/test_llm_request_builder.py`, and request shaping is verified separately from `LLMService`.
 - Confirm tool calling is verified for detection, normalization, execution, and follow-up payload construction using the new isolated registry/service design, isolated from legacy global tool registries or mutable shared state.
 - Confirm tool-calling verification now has a concrete tool package to exercise (`src/monitor_oop/core/tools/`), including the deterministic weather tool, registry/service boundaries, and parsing helpers.
 - Confirm tool calling is verified through direct `response.output` parsing with `extract_tool_calls`, multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing coverage focused on Responses API shapes, a defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
