@@ -75,6 +75,7 @@
 - [x] Add startup tests for the new app.
 - [x] Add command processing tests.
 - [x] Add conversation loop tests.
+- [x] Confirm `tests/monitor_oop/` mirrors `src/monitor_oop/` with nested `core/` and `core/tools/` subdirectories.
 - [ ] Add server endpoint tests.
 - [ ] Add isolation tests confirming no shared mutable state.
 - [ ] Add tests confirming no legacy globals are touched.

@@ -47,6 +47,7 @@ Owns the isolated runtime services and per-run state for the staged implementati
 - Keep state local to the new app process.
 - Own the staged service wiring without reaching into module globals.
 - Supply shared services to sessions, server handlers, and workflows.
+- Track the current implementation structure alongside the mirrored test layout under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`.
 
 ## ConfigService
 `src/monitor_oop/core/config_service.py`
@@ -322,3 +323,4 @@ Define these in `models.py`:
 - `CommandProcessor` depends on services, not on module globals.
 - `ToolService` depends on `ToolRegistry`, not on module globals.
 - No class in `monitor_oop` should read state from `monitor` at runtime.
+- The test suite mirrors `src/monitor_oop/core/` under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/` so implementation and coverage stay aligned.

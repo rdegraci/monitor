@@ -111,6 +111,9 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `core/workflow.py`
   - `models.py`
   - `utils.py`
+- `tests/monitor_oop/`
+  - `core/`
+  - `core/tools/`
 
 ## Implementation-Ready Milestone Plan
 ### Milestone 1: Thin-slice bootstrap
@@ -137,6 +140,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
+- Confirm the test suite mirrors the source tree, including `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, so runtime modules and tool modules are exercised in parallel with the new package layout.
 - Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, turn-scoped tool lifecycle handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
 - Keep verification notes aligned with the latest tool-calling implementation so the plan tracks both runtime behavior and the corresponding test updates.
 

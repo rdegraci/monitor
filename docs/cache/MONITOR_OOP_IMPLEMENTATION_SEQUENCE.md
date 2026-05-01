@@ -52,7 +52,7 @@ The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-s
 21. Add server tests.
 22. Add isolation tests that confirm no legacy globals are touched.
 
-The new tests cover the first-stage flow, including startup, config service, command processor, conversation session, and isolation coverage.
+The new tests cover the first-stage flow, including startup, config service, command processor, conversation session, and isolation coverage. The test suite has been reorganized to mirror `src/monitor_oop/core/` and `src/monitor_oop/core/tools/` under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`.
 
 ## Implementation Notes
 - Prefer small constructors with explicit dependencies.

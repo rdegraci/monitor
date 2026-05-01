@@ -25,6 +25,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - App can start and stop cleanly.
 - Logging is initialized once during bootstrap via `LoggerService`, and application modules obtain loggers through standard logger access patterns.
 - Planned configuration bootstrap behavior for `monitor_oop` is covered by future verification: preserve existing `appdirs.user_config_dir("monitor")/config.yaml` files, seed only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, load `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, load `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and ensure prompt history uses `prompt_toolkit.PromptSession` with `FileHistory` while `ConfigService` resolves the persistent prompt history path via configurable `history_dir` and `prompt_history_filename` settings rather than introducing a separate `FileHistoryService`.
+- Verification tests now live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
 - Current tests and the runnable CLI partially verify startup behavior.
 
 ### Conversation Flow
@@ -61,6 +62,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Integration tests for server routes.
 - Regression comparisons against legacy behavior for key workflows.
 - Isolation tests to ensure separation from `src/monitor_oop/core/`.
+- Verification tests live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
 
 ## Suggested Verification Order
 1. Startup tests.
