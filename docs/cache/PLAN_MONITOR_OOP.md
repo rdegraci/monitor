@@ -60,6 +60,7 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Keeps tool-call metadata, adapters, and execution context isolated behind the service boundary.
   - Turn-scoped tool state is handled by the dedicated `ToolTurnState` helper, keeping per-turn lifecycle data isolated from the registry and service stores.
 - `LLMService`
+  - Acts as a façade over extracted collaborators for LLM request construction, response handling, and transport coordination.
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
 - `LLMRequestBuilder`
@@ -113,6 +114,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `core/server_app.py`
   - `core/workflow.py`
   - `core/application/llm_request_builder.py`
+  - `core/infrastructure/llm_response_client.py`
   - `models.py`
   - `utils.py`
 - `tests/monitor_oop/`

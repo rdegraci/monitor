@@ -251,7 +251,23 @@ Owns LLM request/response orchestration and completion handling.
 - Support batched tool-call handling within a single turn.
 - Consume tool envelopes and produce follow-up payloads through the tool service.
 - Delegate request shaping to `LLMRequestBuilder`.
+- Delegate provider invocation to `LLMResponseClient`.
 - Move toward a façade role over extracted collaborators as request construction, continuation handling, and completion orchestration are separated.
+
+## LLMResponseClient
+Owns provider-specific LLM response invocation and low-level completion transport.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `complete(request: object) -> object`
+- `stream(request: object) -> object`
+
+### Responsibilities
+- Invoke the configured model provider.
+- Keep provider transport isolated from response orchestration.
+- Serve as the low-level client used by `LLMService`.
 
 ## ConversationSession
 `src/monitor_oop/core/conversation_session.py`

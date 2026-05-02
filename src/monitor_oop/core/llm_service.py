@@ -6,6 +6,7 @@ from typing import Any
 
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.config_service import ConfigService
+from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.models import Message
 from monitor_oop.core.tool_turn_state import ToolTurnState
@@ -25,6 +26,7 @@ class LLMService:
         self._tool_service = tool_service
         self._request_builder = LLMRequestBuilder()
         self.adapter = ResponsesLiteLLMAdapter()
+        self._response_client = LLMResponseClient(config_service, tool_service)
         self._tool_turn_state = ToolTurnState()
         self._last_response_id: str | None = None
 
@@ -244,7 +246,10 @@ class LLMService:
             previous_response_id,
         )
         try:
-            response = self.create_response(request_input, previous_response_id=previous_response_id)
+            response = self._response_client.create_response(
+                request_input,
+                previous_response_id=previous_response_id,
+            )
             self._last_response_id = getattr(response, "id", None)
             logger.info("Captured response.id=%s for current request.", self._last_response_id)
             while True:
@@ -261,39 +266,14 @@ class LLMService:
                     total_model_calls,
                     previous_response_id,
                 )
-                response = self.create_response(request_input, previous_response_id=previous_response_id)
+                response = self._response_client.create_response(
+                    request_input,
+                    previous_response_id=previous_response_id,
+                )
                 self._last_response_id = getattr(response, "id", None)
                 logger.info("Captured response.id=%s for current request.", self._last_response_id)
         finally:
             self._tool_turn_state.clear()
-
-    def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
-        """Create a response using the adapter completion API."""
-
-        api_key = self.config_service.get_openai_api_key()
-        if not api_key:
-            raise ValueError("OpenAI API key is required to create a response.")
-        model = self._request_builder.strip_provider_prefix(self.config_service.get_model())
-        tools = self._build_litellm_tools()
-        tool_choice = "auto"
-        tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
-        logger.info(
-            "Creating response with model=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
-            model,
-            len(tools),
-            tool_names,
-            tool_choice,
-            len(input_messages),
-            previous_response_id,
-        )
-        return self.adapter.complete(
-            model,
-            input_messages,
-            api_key=api_key,
-            tools=tools,
-            tool_choice=tool_choice,
-            previous_response_id=previous_response_id,
-        )
 
     def complete(self, user_input: str, history: list[str | Message]) -> str:
         """Call the configured model through the Responses-via-LiteLLM adapter boundary and return assistant text."""

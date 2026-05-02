@@ -11,36 +11,8 @@ from monitor_oop.core.tools.tool_models import ToolCall, ToolResult
 class RecordingAdapter:
     """Minimal adapter stub for LLMService tests."""
 
-    def __init__(self, responses: list[object], texts: list[str]) -> None:
-        self.responses = list(responses)
+    def __init__(self, texts: list[str]) -> None:
         self.texts = list(texts)
-        self.complete_calls: list[dict[str, object]] = []
-
-    def complete(
-        self,
-        model: str,
-        messages: list[dict[str, str]],
-        api_key: str,
-        tools: list[dict[str, object]] | None = None,
-        tool_choice: str | None = None,
-        previous_response_id: str | None = None,
-    ) -> object:
-        """Return the next queued response and record the call."""
-
-        self.complete_calls.append(
-            {
-                "model": model,
-                "messages": messages,
-                "api_key": api_key,
-                "tools": tools,
-                "tool_choice": tool_choice,
-                "previous_response_id": previous_response_id,
-            }
-        )
-        if self.responses:
-            return self.responses.pop(0)
-
-        raise AssertionError("RecordingAdapter.complete() ran out of queued responses")
 
     def extract_text(self, response: object) -> str:
         """Return the next queued assistant text."""
@@ -48,6 +20,32 @@ class RecordingAdapter:
         if self.texts:
             return self.texts.pop(0)
         return ""
+
+
+class RecordingResponseClient:
+    """Minimal response client stub for LLMService tests."""
+
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = list(responses)
+        self.complete_calls: list[dict[str, object]] = []
+
+    def create_response(
+        self,
+        input_messages: list[dict[str, str]],
+        previous_response_id: str | None = None,
+    ) -> object:
+        """Return the next queued response and record the call."""
+
+        self.complete_calls.append(
+            {
+                "input_messages": input_messages,
+                "previous_response_id": previous_response_id,
+            }
+        )
+        if self.responses:
+            return self.responses.pop(0)
+
+        raise AssertionError("RecordingResponseClient.create_response() ran out of queued responses")
 
 
 class RecordingToolService:
@@ -212,35 +210,36 @@ def build_service(
     responses: list[object],
     texts: list[str],
     tool_service: RecordingToolService | None = None,
-) -> tuple[LLMService, RecordingAdapter, RecordingToolService | None]:
-    """Build an LLMService with faked adapter behavior."""
+) -> tuple[LLMService, RecordingAdapter, RecordingResponseClient, RecordingToolService | None]:
+    """Build an LLMService with faked response client behavior."""
 
     config_service = ConfigService()
-    config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_model = lambda: "openai/gpt-4o-mini"  # type: ignore[method-assign]
     service = LLMService(config_service, tool_service=tool_service)
-    fake_adapter = RecordingAdapter(responses, texts)
+    fake_adapter = RecordingAdapter(texts)
+    fake_response_client = RecordingResponseClient(responses)
     service.adapter = fake_adapter
-    return service, fake_adapter, tool_service
+    service._response_client = fake_response_client
+    return service, fake_adapter, fake_response_client, tool_service
 
 
 def test_complete_returns_text_for_stop_response() -> None:
     """Verify stop responses return assistant text without tool execution."""
 
-    service, adapter, _ = build_service([build_response("stop", "response_1")], ["final answer"])
+    service, adapter, response_client, _ = build_service([build_response("stop", "response_1")], ["final answer"])
 
     result = service.complete("hello", [])
 
     assert result == "final answer"
-    assert len(adapter.complete_calls) == 1
-    assert adapter.complete_calls[0]["previous_response_id"] is None
+    assert len(response_client.complete_calls) == 1
+    assert response_client.complete_calls[0]["previous_response_id"] is None
+    assert len(adapter.texts) == 0
 
 
 def test_complete_executes_single_tool_call_completion_path() -> None:
     """Verify a single tool-call response executes one tool and returns assistant text."""
 
     tool_service = RecordingToolService(tool_calls=[])
-    service, _, _ = build_service(
+    service, adapter, response_client, _ = build_service(
         [
             build_tool_call_response("response_1", "call_1", "get_current_weather", {"location": "San Diego, CA", "unit": "F"}),
             build_response("stop", "response_2"),
@@ -253,32 +252,36 @@ def test_complete_executes_single_tool_call_completion_path() -> None:
 
     assert result == "assistant text"
     assert len(tool_service.executed_calls) == 1
+    assert len(response_client.complete_calls) == 2
+    assert len(adapter.texts) == 1
 
 
 def test_complete_raises_for_content_filter_response() -> None:
     """Verify filtered responses raise a clear error."""
 
-    service, _, _ = build_service([build_response("content_filter", "response_1")], ["final answer"])
+    service, _, response_client, _ = build_service([build_response("content_filter", "response_1")], ["final answer"])
 
     with pytest.raises(ValueError, match="filtered"):
         service.complete("hello", [])
+
+    assert len(response_client.complete_calls) == 1
 
 
 def test_complete_raises_for_length_response() -> None:
     """Verify length-limited responses raise a clear error."""
 
-    service, _, _ = build_service([build_response("length", "response_1")], ["final answer"])
+    service, _, response_client, _ = build_service([build_response("length", "response_1")], ["final answer"])
 
     with pytest.raises(ValueError, match="length limit"):
         service.complete("hello", [])
+
+    assert len(response_client.complete_calls) == 1
 
 
 def test_complete_enforces_max_tool_loop_iterations() -> None:
     """Verify the defensive tool-loop cap prevents infinite retries."""
 
     config_service = ConfigService()
-    config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_model = lambda: "openai/gpt-4o-mini"  # type: ignore[method-assign]
 
     tool_service = RecordingToolService(
         tool_calls=[
@@ -309,35 +312,27 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
     )
     service = LLMService(config_service, tool_service=tool_service)
 
-    class LoopingAdapter:
-        """Adapter stub that repeatedly returns tool-call responses."""
+    class LoopingResponseClient:
+        """Response client stub that repeatedly returns tool-call responses."""
 
         def __init__(self) -> None:
             self.complete_calls: list[dict[str, object]] = []
             self._count = 0
 
-        def complete(
+        def create_response(
             self,
-            model: str,
-            messages: list[dict[str, str]],
-            api_key: str,
-            tools: list[dict[str, object]] | None = None,
-            tool_choice: str | None = None,
+            input_messages: list[dict[str, str]],
             previous_response_id: str | None = None,
         ) -> object:
             self.complete_calls.append(
                 {
-                    "model": model,
-                    "messages": messages,
-                    "api_key": api_key,
-                    "tools": tools,
-                    "tool_choice": tool_choice,
+                    "input_messages": input_messages,
                     "previous_response_id": previous_response_id,
                 }
             )
             self._count += 1
             if self._count > 16:
-                raise AssertionError("LoopingAdapter.complete() ran out of queued responses")
+                raise AssertionError("LoopingResponseClient.create_response() ran out of queued responses")
             return build_tool_call_response(
                 response_id=f"response_{self._count}",
                 call_id="call_1",
@@ -345,16 +340,15 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
                 arguments={"location": "San Diego, CA", "unit": "F"},
             )
 
-        def extract_text(self, response: object) -> str:
-            return "assistant text"
-
-    adapter = LoopingAdapter()
+    adapter = RecordingAdapter(["assistant text"])
+    response_client = LoopingResponseClient()
     service.adapter = adapter
+    service._response_client = response_client
 
     with pytest.raises(RuntimeError, match="maximum.*16"):
         service.complete("hello", [])
 
-    assert len(adapter.complete_calls) == 16
+    assert len(response_client.complete_calls) == 16
     assert len(tool_service.executed_calls) == 16
 
 
@@ -382,7 +376,7 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
             ToolResult(tool_name="get_current_weather", success=True, output="rainy"),
         ],
     )
-    service, adapter, _ = build_service(
+    service, adapter, response_client, _ = build_service(
         [
             build_tool_call_response(
                 response_id="response_1",
@@ -404,7 +398,8 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
 
     result = service.complete("hello", [])
 
-    assert len(adapter.complete_calls) == 3
+    assert len(response_client.complete_calls) == 3
     assert len(tool_service.executed_calls) == 2
     assert tool_service.executed_calls == tool_calls
     assert result == "assistant text"
+    assert len(adapter.texts) == 2

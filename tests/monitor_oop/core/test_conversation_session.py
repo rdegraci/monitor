@@ -163,6 +163,7 @@ def test_read_user_input_creates_prompt_history_under_configured_history_directo
 
 def test_conversation_session_process_non_exit_input_appends_history_and_prints_model_response(
     capsys,
+    monkeypatch,
 ) -> None:
     """Verify non-exit input is recorded and prints the model response."""
 
@@ -171,21 +172,11 @@ def test_conversation_session_process_non_exit_input_appends_history_and_prints_
 
     response_text = "mocked model response"
 
-    class MockMessage:
-        def __init__(self, content: str) -> None:
-            self.content = content
-
-    class MockChoice:
-        def __init__(self, content: str) -> None:
-            self.message = MockMessage(content)
-
-    class MockResponse:
-        def __init__(self, output_text: str) -> None:
-            self.choices = [MockChoice(output_text)]
-
-    session.context.llm_service.adapter.complete = lambda *args, **kwargs: MockResponse(
-        response_text
-    )  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        session.context.llm_service,
+        "complete",
+        lambda *args, **kwargs: response_text,
+    )
 
     assert session.process_user_input("hello") is True
     assert session.is_running is True

@@ -23,7 +23,7 @@ Phase 1 is complete: the foundation package, models, runtime context, and config
 8. Add `status_service.py`.
 9. Add `command_processor.py`.
 
-Phase 2 is complete: the core services and command processor are implemented, including tool-calling support for multi-call extraction, envelope recording, and batched follow-up payloads using `call_id`. The tool-calling refactor is complete and now uses direct Responses API parsing from `response.output`; `parse_tool_call` and `parse_tool_calls` were removed, and current coverage verifies `extract_tool_calls`, multi-call handling, batched follow-up payloads, and `ToolTurnState` lifecycle management. `LLMRequestBuilder` has been extracted into `src/monitor_oop/core/application/llm_request_builder.py` and is covered by dedicated tests.
+Phase 2 is complete: the core services and command processor are implemented, including tool-calling support for multi-call extraction, envelope recording, and batched follow-up payloads using `call_id`. The tool-calling refactor is complete and now uses direct Responses API parsing from `response.output`; `parse_tool_call` and `parse_tool_calls` were removed, and current coverage verifies `extract_tool_calls`, multi-call handling, batched follow-up payloads, and `ToolTurnState` lifecycle management. `LLMRequestBuilder` and `LLMResponseClient` have been extracted into `src/monitor_oop/core/application/`, and both are covered by dedicated tests.
 
 ## Phase 3: Session and workflows
 10. Add `conversation_session.py`.
