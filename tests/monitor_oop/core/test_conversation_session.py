@@ -11,6 +11,8 @@ from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.models import CommandType
+from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
 
@@ -23,6 +25,8 @@ def build_session() -> ConversationSession:
     macro_service = MacroService(config_service)
     status_service = StatusService()
     llm_service = LLMService(config_service)
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(prompt_store)
     command_processor = CommandProcessor(
         config_service,
         history_service,
@@ -36,6 +40,7 @@ def build_session() -> ConversationSession:
         status_service=status_service,
         command_processor=command_processor,
         llm_service=llm_service,
+        prompt_service=prompt_service,
     )
     return ConversationSession(context)
 

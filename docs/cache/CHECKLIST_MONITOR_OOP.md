@@ -35,6 +35,10 @@
 - [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
 - [x] Confirm parsing, normalization, and output-wrapping helpers remain free functions where appropriate.
 - [ ] Confirm the configuration bootstrap plan preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files and only seeds missing files from `src/monitor_oop/config.yaml.example`, loads `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and keeps prompt history design in `ConversationSession` via `prompt_toolkit.PromptSession` with `FileHistory` while `ConfigService` owns resolution of the persistent history file path instead of introducing a separate `FileHistoryService`.
+- [ ] Confirm the system prompt is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in LLM request construction.
+- [ ] Confirm prompt-specific tests or docs alignment in the OOP tracker.
+- [ ] Confirm prompt subsystem import-path alignment is tracked in the OOP docs and package layout.
+- [ ] Confirm prompt-related tests now exist.
 - [ ] Decide which workflows remain as free functions.
 
 ## Milestone 3: Package and bootstrap

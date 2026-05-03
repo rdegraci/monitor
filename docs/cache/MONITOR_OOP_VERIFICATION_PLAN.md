@@ -10,6 +10,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm the new app preserves intended user-visible behavior where required.
 - Confirm logging is configured once at bootstrap through `LoggerService`, and runtime modules use standard logger access patterns without reconfiguring global logging state.
 - Confirm planned configuration bootstrap behavior for `monitor_oop` is implemented and verified: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
+- Confirm prompt loading behavior is implemented and verified: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Confirm `LLMRequestBuilder` has dedicated tests under `tests/monitor_oop/core/application/test_llm_request_builder.py`, and request shaping is verified separately from `LLMService`.
 - Confirm `LLMResponseClient` has dedicated tests under `tests/monitor_oop/core/application/test_llm_response_client.py`, and provider-boundary behavior is verified separately from `LLMService`.
 - Confirm `ToolCallHandler` has dedicated tests, and tool-call execution behavior is verified separately from `LLMService`.
@@ -22,7 +23,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm real LLM behavior remains a future work item.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
 - Confirm adjusted tests assert the present tool-calling behavior as implemented today.
-- Confirm macro subsystem verification targets recursive macro expansion, delimiter-aware escaping, and JSON-backed macro loading/saving as parity goals.
+- Confirm macro subsystem verification targets recursive macro expansion, delimiter-aware escaping, JSON-backed macro loading/saving as parity goals, and prompt-specific docs alignment alongside those goals.
 - Confirm TCL macro behavior is tracked separately if it is not yet implemented.
 
 ## Verification Scope
@@ -32,6 +33,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - App can start and stop cleanly.
 - Logging is initialized once during bootstrap via `LoggerService`, and application modules obtain loggers through standard logger access patterns.
 - Planned configuration bootstrap behavior for `monitor_oop` is covered by future verification: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
+- Prompt loading behavior is covered by future verification: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Verification tests now live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
 - Current tests and the runnable CLI partially verify startup behavior.
 
@@ -70,6 +72,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Regression comparisons against legacy behavior for key workflows.
 - Isolation tests to ensure separation from `src/monitor_oop/core/`.
 - Verification tests live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
+- Prompt-loading tests for `system_prompt` seeding, loading, and request injection behavior.
 
 ## Suggested Verification Order
 1. Startup tests.

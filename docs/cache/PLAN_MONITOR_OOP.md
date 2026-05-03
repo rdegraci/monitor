@@ -16,7 +16,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Prefer explicit dependency injection over implicit module state.
 - Use classes to own state and subsystem behavior.
 - Use free functions for orchestration and workflow composition.
-- Each runtime instance must own its own config, history, macros, status, logger, and session state.
+- Each runtime instance must own its own config, history, macros, status, logger, prompt, and session state.
 - No new code path in `src/monitor_oop/` should mutate `src/monitor/` state.
 - Logging is configured once at centralized bootstrap, and runtime code uses standard module loggers.
 
@@ -32,6 +32,17 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Loads, validates, and exposes app configuration, including `OPENAI_API_KEY` from the process environment, the project `.env`, the appdirs user config path, and the fallback `~/.config/monitor/.env`.
   - Planned config flow: package `config.yaml.example` in `src/monitor_oop`, preserve `appdirs.user_config_dir("monitor")/config.yaml` if it already exists, otherwise copy `config.yaml.example` there on first run, load `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, and load `.env` using `find_dotenv(usecwd=True)` before falling back to the user config directory and `~/.config/monitor/`.
   - Resolves configurable persistent prompt history settings via `history_dir` and `prompt_history_filename`, with the default path `<user_config_dir>/history/prompt_history`, rather than introducing a separate `FileHistoryService`.
+  - Resolves `system_prompt` from `appdirs.user_config_dir("monitor")/system_prompt`, seeding it from `system_prompt.example` on first run and exposing the resolved prompt text to bootstrap and request construction.
+  - Coordinates with `PromptStore` so prompt resolution follows the current path-resolution approach without leaking prompt-file state into runtime code.
+- `PromptService`
+  - Owns prompt loading, default seeding, and prompt text access for the runtime instance.
+  - Provides the system prompt as an explicit dependency to the LLM request flow.
+  - Keeps prompt state private behind the service boundary.
+  - Relies on `ConfigService` and `PromptStore` for system-prompt path resolution and persistence.
+- `PromptStore`
+  - Persists the system prompt text and related prompt files under the user config directory.
+  - Encapsulates prompt file resolution, first-run seeding, and read/write operations behind a narrow API.
+  - Works with `ConfigService` to resolve `system_prompt` from the user config directory and maintain the current prompt-file layout.
 - `HistoryService`
   - Owns a `History` domain object for conversation state.
   - Manages history persistence, summarization, and flushing through `History`.
@@ -68,16 +79,19 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
 - `LLMRequestBuilder`
-  - Extracts and shapes LLM request payloads from session, history, macro, tool, and context inputs.
+  - Extracts and shapes LLM request payloads from session, history, macro, tool, prompt, and context inputs.
   - Keeps request construction isolated from execution, transport, and response handling concerns.
+  - Injects the system prompt as the first system message in the request payload.
 
 Suggested ownership flow:
 - `MonitorApp` creates `RuntimeContext`.
 - `RuntimeContext` creates or receives service instances.
-- `ConversationSession` depends on `ConfigService`, `HistoryService`, `MacroService`, and `CommandProcessor`.
+- `ConversationSession` depends on `ConfigService`, `HistoryService`, `MacroService`, `CommandProcessor`, and prompt access provided through the runtime.
 - `CommandProcessor` delegates to services rather than reaching into global state.
 - `ServerApp` uses the same `RuntimeContext` as CLI and script modes.
 - `LoggerService` is initialized during centralized bootstrap and shared through explicit context wiring, while runtime modules continue to use standard `logging.getLogger(__name__)` access.
+- `PromptService` and `PromptStore` provide a future-friendly seam for prompt specialization and subagent-oriented prompt variants without committing to subagent behavior yet.
+- Prompt-related tests and import paths have been added alongside the new prompt subsystem so prompt loading, seeding, and request injection are exercised through the new package layout.
 
 ## Free Functions
 Keep orchestration outside the classes where practical:
@@ -97,7 +111,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 ## Separation Rules
 - The new app must not import legacy module globals for runtime state.
 - The new app must not mutate legacy caches, singleton objects, or module-level configuration.
-- The new app must construct its own config, history, macros, status, logger, and session state per process or per app instance.
+- The new app must construct its own config, history, macros, status, logger, prompt, and session state per process or per app instance.
 - Any legacy behavior that is reused must be wrapped behind new interfaces.
 - Shared helpers must be stateless or pure unless explicitly isolated behind a service boundary.
 - Startup code in `src/monitor_oop/` must not depend on side effects from `src/monitor/`.
@@ -109,6 +123,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `core/app.py`
   - `core/runtime_context.py`
   - `core/config_service.py`
+  - `core/prompt_service.py`
+  - `core/prompt_store.py`
   - `core/conversation_session.py`
   - `core/command_processor.py`
   - `core/history_service.py`
@@ -132,15 +148,19 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Define the runtime object graph and constructor dependencies.
 - Add a minimal `main()` entrypoint that can instantiate `MonitorApp`.
 - Wire one end-to-end startup path for CLI mode using the new runtime only.
-- Keep the first slice narrow: config load, session creation, logging bootstrap, and a basic command dispatch path.
+- Keep the first slice narrow: config load, prompt loading, session creation, logging bootstrap, and a basic command dispatch path.
+- Seed `system_prompt` from `appdirs.user_config_dir("monitor")/system_prompt` using `system_prompt.example` on first run, and wire the resolved prompt into bootstrap so it can be passed through the LLM request path as the initial system message.
+- Add the `PromptService` / `PromptStore` seam early so prompt loading remains isolated and ready for future prompt specialization or subagent-oriented extensions without committing to those behaviors yet.
+- Add prompt-focused tests and import-path coverage early so the new prompt subsystem is exercised through `src/monitor_oop/` rather than legacy modules.
 
 ### Milestone 2: Core runtime ownership
-- Implement isolated config, history, macro, logger, and status services.
+- Implement isolated config, history, macro, logger, prompt, and status services.
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
 - Ensure runtime state is owned by `RuntimeContext` and passed explicitly.
 - Track multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped lifecycle management via `ToolTurnState` as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
 - Validate the tool workflow against the current test adjustments so the latest tool-calling path, loop handling, turn-state lifecycle, and follow-up payload assembly remain covered under repeated runs.
+- Keep prompt-resolution tests aligned with the current `ConfigService` and `PromptStore` path resolution so `system_prompt` loading and injection remain verified end to end.
 
 ### Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
@@ -149,13 +169,15 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 
 ### Milestone 4: Verification
 - Add regression tests comparing new behavior to legacy behavior.
-- Validate startup, chat flow, command flow, logging, and server flow.
+- Validate startup, chat flow, command flow, logging, prompt loading, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
 - Confirm the test suite mirrors the source tree, including `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, so runtime modules and tool modules are exercised in parallel with the new package layout.
 - Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, turn-scoped tool lifecycle handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
 - Keep verification notes aligned with the latest tool-calling implementation so the plan tracks both runtime behavior and the corresponding test updates.
+- Verify `system_prompt` loading, first-run seeding, and injection as the first system message in LLM request construction.
+- Verify prompt-related import paths and tests continue to resolve through the new prompt subsystem layout.
 
-### Milestone 5: Cutover decision
+## Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
 - Change defaults only after the new app is stable and behavior is verified.
 
@@ -167,6 +189,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Hidden coupling through imports, caches, or module-level initialization.
 - Regression in multi-call tool orchestration, envelope bookkeeping, turn-scoped tool lifecycle state, or batched follow-up payload assembly if workflow boundaries are not kept explicit.
 - Tool-path test drift if the implementation and the latest assertions are not updated together.
+- Prompt-loading drift if `system_prompt` bootstrap, request injection, and user-config persistence are not kept as a first-class path.
+- Prompt subsystem drift if `ConfigService`, `PromptStore`, prompt-specific tests, and package import paths diverge from the current resolution approach.
 
 ## Success Criteria
 - The new app runs independently from the legacy app.
@@ -176,6 +200,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - The legacy app remains available under `src/monitor/` throughout the migration.
 - Multi-call tool handling, envelope bookkeeping, turn-scoped tool lifecycle management, and batched follow-up payload support are preserved within the isolated runtime design.
 - The latest tool-calling implementation is reflected in the verification plan and in the test adjustments that exercise it.
+- `system_prompt` is loaded from the user config directory, seeded on first run, and injected as the first system message in the LLM request flow.
+- Prompt loading, seeding, and import paths are covered by the new prompt subsystem tests.
 
 ## Starter Blueprint
 - Recommended package layout:
@@ -183,6 +209,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `src/monitor_oop/core/app.py`
   - `src/monitor_oop/core/runtime_context.py`
   - `src/monitor_oop/core/config_service.py`
+  - `src/monitor_oop/core/prompt_service.py`
+  - `src/monitor_oop/core/prompt_store.py`
   - `src/monitor_oop/core/history_service.py`
   - `src/monitor_oop/core/macro_service.py`
   - `src/monitor_oop/core/status_service.py`
@@ -196,15 +224,18 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Runtime object graph:
   - `MonitorApp` owns startup and mode selection.
   - `RuntimeContext` owns process-local services and per-run state.
-  - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, and `LoggerService` own their own state.
+  - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, `LoggerService`, and `PromptService` own their own state.
   - `HistoryService` owns a `History` domain object, and history state is stored in `History` rather than a raw list.
   - `History` encapsulates messages privately behind its API, instead of exposing direct message storage.
+  - `PromptService` owns the resolved system prompt and uses `PromptStore` to persist and seed the prompt file under the user config directory.
+  - `PromptStore` resolves the prompt path under `appdirs.user_config_dir("monitor")/system_prompt`, seeds from `system_prompt.example` on first run, and exposes the current prompt text without leaking prompt-file state.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.
   - `ConversationSession` uses `prompt_toolkit` `PromptSession` configured with `FileHistory` backed by the prompt history path for up-arrow prompt recall.
   - `ConversationSession` exposes `is_running` as the read-only lifecycle indicator for the active session.
   - `CommandProcessor` classifies and dispatches commands through service calls.
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.
   - `LoggerService` configures logging once at centralized bootstrap, and runtime modules use standard module loggers.
+  - `PromptService` and `PromptStore` are explicit runtime dependencies so prompt loading, seeding, and request construction stay isolated from the rest of the bootstrap graph.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
   - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, `tool_call_handler.py`, and per-tool modules such as `weather.py`.
@@ -215,15 +246,17 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `LLMService` applies a defensive maximum tool loop cap of 16 total model calls.
   - Multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped tool lifecycle management through `ToolTurnState` are part of the expected tool workflow behavior in the new app.
   - The latest tool-calling test coverage should verify normalization, repeated tool loops, turn-state lifecycle, envelope assembly, and follow-up payload dispatch without depending on legacy state.
+  - `system_prompt` is loaded from the user config directory, seeded from `system_prompt.example` on first run, and supplied to LLM request construction as the initial system message.
+  - Prompt subsystem tests and import paths should target `src/monitor_oop/core/prompt_service.py` and `src/monitor_oop/core/prompt_store.py` directly to keep coverage aligned with the resolved layout.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.
   - Construct `RuntimeContext`.
-  - Initialize config first, then logger, history, macros, and status.
+  - Initialize config first, then prompt, logger, history, macros, and status.
   - Create `ConversationSession`.
   - Enter CLI, server, or script workflow.
 - Thin-slice first implementation:
-  - Start with config loading, a minimal runtime context, session creation, logging bootstrap, and one command dispatch path.
+  - Start with config loading, prompt loading, a minimal runtime context, session creation, logging bootstrap, and one command dispatch path.
   - Keep orchestration in free functions and keep services small.
   - Make the first runnable path CLI only.
 - Avoid early:
@@ -236,6 +269,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `models.py`
   - `core/runtime_context.py`
   - `core/config_service.py`
+  - `core/prompt_store.py`
+  - `core/prompt_service.py`
   - `core/history_service.py`
   - `core/macro_service.py`
   - `core/status_service.py`

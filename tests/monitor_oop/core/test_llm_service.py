@@ -5,6 +5,8 @@ import pytest
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_service import LLMService
+from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.tools.tool_models import ToolCall, ToolResult
 
 
@@ -214,7 +216,9 @@ def build_service(
     """Build an LLMService with faked response client behavior."""
 
     config_service = ConfigService()
-    service = LLMService(config_service, tool_service=tool_service)
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(prompt_store)
+    service = LLMService(config_service, prompt_service=prompt_service, tool_service=tool_service)
     fake_adapter = RecordingAdapter(texts)
     fake_response_client = RecordingResponseClient(responses)
     service.adapter = fake_adapter
@@ -310,7 +314,9 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
             ToolResult(tool_name="get_current_weather", success=True, output="turn_16"),
         ],
     )
-    service = LLMService(config_service, tool_service=tool_service)
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(prompt_store)
+    service = LLMService(config_service, prompt_service=prompt_service, tool_service=tool_service)
 
     class LoopingResponseClient:
         """Response client stub that repeatedly returns tool-call responses."""

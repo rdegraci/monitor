@@ -72,6 +72,45 @@ Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration
 - Manage model selection and config reset behavior.
 - Coordinate history path resolution through the appdirs-first user config dir, with explicit fallback to `~/.config/monitor` when needed.
 
+## PromptStore
+Owns file-backed persistence for the resolved system prompt.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `load() -> str`
+- `save(prompt_text: str) -> None`
+- `reload() -> str`
+- `seed_from_example() -> None`
+
+### Responsibilities
+- Depend on `ConfigService` for user config path resolution.
+- Persist the system prompt under `appdirs.user_config_dir("monitor")/system_prompt`.
+- Seed prompt storage from `system_prompt.example` when no stored prompt exists.
+- Keep prompt file handling isolated from higher-level services.
+- Provide the file-backed backing store used by `PromptService`.
+
+## PromptService
+Owns the resolved system prompt for the runtime.
+
+### Constructor
+- `config_service: ConfigService`
+- `prompt_store: PromptStore`
+
+### Public Methods
+- `load() -> None`
+- `get() -> str`
+- `reload() -> None`
+
+### Responsibilities
+- Own the runtime system prompt.
+- Resolve and hold the active system prompt for the runtime.
+- Load prompt content from `PromptStore` during bootstrap.
+- Reload the prompt when file-backed content changes.
+- Keep the runtime system prompt isolated from LLM request construction.
+- Provide the resolved system prompt to request-building collaborators.
+
 ## History
 Owns the ordered conversation messages.
 
@@ -253,6 +292,23 @@ Owns model-requested tool call handling and execution coordination.
 - Preserve the relationship between model tool requests and tool outputs.
 - Support follow-up payload processing after tool execution.
 - Keep tool-call orchestration isolated from `LLMService`.
+
+## LLMRequestBuilder
+Owns request shaping for LLM completions.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `build(messages: list[Message]) -> object`
+- `build_for_tools(messages: list[Message]) -> object`
+- `build_for_response(messages: list[Message]) -> object`
+
+### Responsibilities
+- Shape provider requests for staged model interactions.
+- Inject the resolved system prompt through the prompt service as the first system message.
+- Convert session messages into provider-compatible request payloads.
+- Keep request construction isolated from provider transport and completion handling.
 
 ## LLMService
 Owns LLM request/response orchestration and completion handling.

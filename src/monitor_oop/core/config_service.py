@@ -141,6 +141,22 @@ class ConfigService:
 
         return str(history_path)
 
+    def _get_system_prompt_file_path(self, base_dir: Path) -> str:
+        """Return a writable system prompt file path rooted at base_dir."""
+
+        system_prompt_path = base_dir / "system_prompt"
+        parent_dir = system_prompt_path.parent
+
+        try:
+            parent_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return ""
+
+        if not os.access(parent_dir, os.W_OK):
+            return ""
+
+        return str(system_prompt_path)
+
     def get_persistent_history_file_path(self) -> str:
         """Return the first writable persistent history file path."""
 
@@ -149,6 +165,19 @@ class ConfigService:
             Path(os.path.expanduser("~/.config/monitor")),
         ):
             writable_path = self._get_history_file_path(candidate)
+            if writable_path:
+                return writable_path
+
+        return ""
+
+    def get_system_prompt_file_path(self) -> str:
+        """Return the first writable system prompt file path."""
+
+        for candidate in (
+            self._get_user_config_dir(),
+            Path(os.path.expanduser("~/.config/monitor")),
+        ):
+            writable_path = self._get_system_prompt_file_path(candidate)
             if writable_path:
                 return writable_path
 

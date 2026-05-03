@@ -6,8 +6,10 @@
 3. Add `models.py` with enums and dataclasses.
 4. Add `context.py` with `RuntimeContext`.
 5. Add `config_service.py`.
+6. Add `prompt_store.py`.
+7. Add `prompt_service.py`.
 
-Phase 1 is complete: the foundation package, models, runtime context, and config service are in place.
+Phase 1 is complete: the foundation package, models, runtime context, and config service are in place, and prompt storage/loading is now part of the same early bootstrap layer.
 
 ## Configuration Bootstrap
 - Next planned work is to add `config.yaml.example` in `src/monitor_oop/`.
@@ -16,6 +18,12 @@ Phase 1 is complete: the foundation package, models, runtime context, and config
 - On first run, copy it to `appdirs.user_config_dir("monitor")/config.yaml`.
 - Load `config.yaml` from the user config directory, with fallback to `~/.config/monitor/`.
 - Load `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks.
+- Next planned work is to add `system_prompt.example` in `src/monitor_oop/`.
+- Existing `appdirs.user_config_dir("monitor")/system_prompt` files are preserved.
+- Only missing `appdirs.user_config_dir("monitor")/system_prompt` files are seeded from `src/monitor_oop/system_prompt.example`.
+- On first run, copy it to `appdirs.user_config_dir("monitor")/system_prompt`.
+- Load the resolved system prompt from the user config directory, with fallback to `~/.config/monitor/`.
+- Wire the resolved prompt into LLM request construction as the first system message.
 
 ## Phase 2: Core services
 6. Add `history_service.py`.
@@ -30,7 +38,7 @@ Phase 2 is complete: the core services and command processor are implemented, in
 11. Add `workflow.py` with orchestration functions.
 12. Add `app.py` with `MonitorApp`.
 
-Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`.
+Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. Prompt loading should happen early in this thin slice, before broader server work, so the first system message is available to the request builder from the start.
 
 ## Phase 4: Server
 13. Add `server_app.py`.
@@ -42,7 +50,7 @@ Phase 4 remains future work: server wiring is still pending.
 15. Make one CLI path runnable end to end.
 16. Keep the first version narrow: config load, session creation, prompt, one command, exit.
 
-The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback.
+The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback. Prompt loading is included in the early bootstrap path, and the resolved prompt is injected into LLM request construction as the first system message.
 
 ## Phase 6: Tests
 17. Add startup tests.
@@ -60,6 +68,7 @@ The new tests cover the first-stage flow, including startup, config service, com
 - Keep shared helpers pure where possible.
 - Avoid introducing circular imports between services.
 - Keep the legacy app unchanged during this sequence.
+- Load the resolved prompt early so request construction can consistently prepend it as the first system message.
 
 ## Future Work
 - Complete server work.

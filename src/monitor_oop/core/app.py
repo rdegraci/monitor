@@ -11,12 +11,14 @@ from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.logger_service import LoggerService
 from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.tools.weather import build_weather_tool_definition, get_current_weather
 from monitor_oop.core.tools.registry import ToolRegistry
 from monitor_oop.core.tools.tool_service import ToolService
 from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
 
 logger = getLogger(__name__)
 
@@ -66,12 +68,16 @@ def build_app() -> MonitorApp:
     macro_service = MacroService(config_service)
     app_logger.info("Loading macros during bootstrap")
     macro_service.load()
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(config_service, prompt_store)
+    app_logger.info("Loading prompts during bootstrap")
+    prompt_service.load()
     status_service = StatusService()
     tool_registry = ToolRegistry()
     tool_service = ToolService(tool_registry)
     app_logger.info("Registering weather tool")
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
-    llm_service = LLMService(config_service, tool_service)
+    llm_service = LLMService(config_service, tool_service, prompt_service)
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
         config_service=config_service,
@@ -82,6 +88,7 @@ def build_app() -> MonitorApp:
         status_service=status_service,
         command_processor=command_processor,
         tool_service=tool_service,
+        prompt_service=prompt_service,
     )
     app_logger.info("Application bootstrap complete after weather tool registration")
     return MonitorApp(context)

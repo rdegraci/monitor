@@ -9,6 +9,7 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.models import Message
+from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
 from monitor_oop.core.tools.tool_service import ToolService
 
@@ -20,10 +21,16 @@ class LLMService:
 
     _MAX_TOOL_LOOP_ROUNDS = 16
 
-    def __init__(self, config_service: ConfigService, tool_service: ToolService | None = None) -> None:
+    def __init__(
+        self,
+        config_service: ConfigService,
+        tool_service: ToolService | None = None,
+        prompt_service: PromptService | None = None,
+    ) -> None:
         self.config_service = config_service
         self._tool_service = tool_service
-        self._request_builder = LLMRequestBuilder()
+        self._prompt_service = prompt_service
+        self._request_builder = LLMRequestBuilder(prompt_service=prompt_service)
         self.adapter = ResponsesLiteLLMAdapter()
         self._response_client = LLMResponseClient(config_service, tool_service)
         self._tool_call_handler = ToolCallHandler(tool_service)
@@ -122,5 +129,7 @@ class LLMService:
     def complete(self, user_input: str, history: list[str | Message]) -> str:
         """Call the configured model through the Responses-via-LiteLLM adapter boundary and return assistant text."""
 
-        response = self._complete_with_tool_calls(self._request_builder.build_input(user_input, history))
+        response = self._complete_with_tool_calls(
+            self._request_builder.build_input(user_input, history)
+        )
         return self.adapter.extract_text(response)

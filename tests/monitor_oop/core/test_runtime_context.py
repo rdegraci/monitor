@@ -4,6 +4,8 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
 
@@ -15,6 +17,8 @@ def test_runtime_context_create_session() -> None:
     history_service = HistoryService(config_service)
     llm_service = LLMService(config_service)
     macro_service = MacroService(config_service)
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(config_service, prompt_store)
     status_service = StatusService()
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
@@ -22,6 +26,7 @@ def test_runtime_context_create_session() -> None:
         history_service=history_service,
         llm_service=llm_service,
         macro_service=macro_service,
+        prompt_service=prompt_service,
         status_service=status_service,
         command_processor=command_processor,
     )

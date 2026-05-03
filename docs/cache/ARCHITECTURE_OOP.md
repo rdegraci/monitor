@@ -30,6 +30,8 @@ Current examples:
 - `workflow.py`
 - `CommandProcessor`
 - `LLMService`
+- `PromptService`
+- `PromptStore`
 - planned extracted LLM collaborators such as request building and completion coordination
 - the macro subsystem, which is now loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
 
@@ -37,6 +39,7 @@ Responsibilities:
 - decide which workflow runs
 - coordinate command processing
 - coordinate LLM completion and tool handling
+- coordinate prompt loading and resolution
 - move data between services without owning low-level integration details
 
 ### Domain
@@ -60,6 +63,7 @@ Current examples:
 - `ConfigService`
 - `HistoryService`
 - `LoggerService`
+- `PromptStore`
 - `ToolRegistry`
 - `ToolService`
 - `ResponsesLiteLLMAdapter`
@@ -68,6 +72,7 @@ Current examples:
 Responsibilities:
 - load config from environment, YAML, and user paths
 - persist or recover history
+- load and seed the system prompt from `appdirs.user_config_dir("monitor")/system_prompt`, initializing it from `system_prompt.example` on first run
 - integrate with logging
 - execute tools
 - talk to external model providers
@@ -81,7 +86,9 @@ The runtime is composed explicitly at startup.
 
 ### RuntimeContext
 - `RuntimeContext` owns the process-local service graph.
-- It holds config, history, macro, status, logging, tool, command, and LLM services.
+- It holds config, history, macro, status, logging, tool, command, prompt, and LLM services.
+- `PromptService` and `PromptStore` are part of the runtime graph.
+- `system_prompt` is resolved through `ConfigService` and then persisted or loaded by `PromptStore`.
 - It acts as the explicit wiring point for CLI, server, and script modes.
 
 ### Session and server entry points
@@ -115,6 +122,8 @@ The server flow follows the same runtime ownership model.
 ## LLM Architecture
 `LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` have been extracted into separate collaborators. `LLMService` now coordinates request shaping, provider invocation, and tool-call handling through these collaborators rather than directly owning provider access or tool execution.
 
+`LLMRequestBuilder` prepends the resolved system prompt as the first system message before appending the conversational context.
+
 Extracted collaborators:
 - `LLMRequestBuilder` for input shaping
 - `LLMResponseClient` for provider invocation
@@ -147,6 +156,8 @@ Configuration and history are handled as runtime-owned services.
 - `ConfigService` resolves the persistent prompt history file path using appdirs-first, then falls back to `~/.config/monitor`.
 - `HistoryService` owns the conversation history domain object.
 - `ConversationSession` uses prompt history through the prompt toolkit layer, but does not own the persistence details itself.
+- `PromptService` owns prompt resolution and the runtime prompt file lifecycle.
+- `PromptStore` persists the system prompt at `appdirs.user_config_dir("monitor")/system_prompt` and seeds it from `system_prompt.example` on first run.
 
 ## Logging
 Logging is initialized once during bootstrap.
@@ -161,6 +172,7 @@ The tests mirror the source tree.
 Current structure:
 - `tests/monitor_oop/core/`
 - `tests/monitor_oop/core/tools/`
+- prompt-focused tests and import-path coverage for the prompt subsystem
 
 This keeps tests close to the implementation and makes refactors easier to track.
 

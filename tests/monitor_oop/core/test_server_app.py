@@ -4,6 +4,8 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.server_app import ServerApp
 from monitor_oop.core.status_service import StatusService
@@ -13,6 +15,8 @@ def build_server_app() -> ServerApp:
     """Build a server app for tests."""
 
     config_service = ConfigService()
+    prompt_store = PromptStore(config_service)
+    prompt_service = PromptService(config_service, prompt_store)
     history_service = HistoryService(config_service)
     macro_service = MacroService(config_service)
     status_service = StatusService()
@@ -24,6 +28,7 @@ def build_server_app() -> ServerApp:
         macro_service=macro_service,
         status_service=status_service,
         llm_service=llm_service,
+        prompt_service=prompt_service,
         command_processor=command_processor,
     )
     return ServerApp(context)

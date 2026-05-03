@@ -7,6 +7,7 @@ from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.logger_service import LoggerService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.models import AppState
+from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.tools.registry import ToolRegistry
 from monitor_oop.core.tools.tool_service import ToolService
@@ -22,6 +23,7 @@ class RuntimeContext:
         llm_service: LLMService | None,
         macro_service: MacroService,
         status_service: StatusService,
+        prompt_service: PromptService,
         command_processor,
         server_app=None,
         tool_service: ToolService | None = None,
@@ -32,6 +34,7 @@ class RuntimeContext:
         self.history_service = history_service
         self.macro_service = macro_service
         self.status_service = status_service
+        self.prompt_service = prompt_service
         self.logger_service = logger_service
         self.command_processor = command_processor
         self.server_app = server_app
