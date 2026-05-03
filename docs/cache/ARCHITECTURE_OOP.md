@@ -31,6 +31,7 @@ Current examples:
 - `CommandProcessor`
 - `LLMService`
 - planned extracted LLM collaborators such as request building and completion coordination
+- the macro subsystem, which is now loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
 
 Responsibilities:
 - decide which workflow runs
@@ -133,6 +134,7 @@ Tools are managed through a dedicated registry and service boundary.
 - `ToolService` executes registered tools.
 - `ToolTurnState` tracks per-turn tool envelopes and follow-up work.
 - Parsing helpers remain free functions where that keeps the code simpler and easier to test.
+- The macro subsystem is now loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior.
 
 The tool flow is intentionally modeled as a turn-scoped workflow rather than a global mutable cache.
 

@@ -124,9 +124,16 @@ Owns macro state and expansion workflows.
 - `reload() -> None`
 
 ### Responsibilities
+- Act as a façade over `MacroStore` and `MacroExpander`.
+- Load macro definitions from `MacroStore` during bootstrap.
+- Delegate macro expansion to `MacroExpander`.
+- Persist `add_definition` changes back through `MacroStore`.
+- Keep macro definitions private within the service boundary for the thin slice implementation.
+- Support simple runtime macro updates without recursive expansion logic in the service layer.
+- Preserve current behavior while future parity work introduces dedicated `MacroStore` and `MacroExpander` collaborators.
+- Likely future collaborator responsibilities include recursive macro expansion, delimiter handling, escape handling, TCL parity, and persistence.
 - Load macros.
 - Expand macro expressions.
-- Keep macro definitions private.
 - Handle runtime macro updates.
 
 ## StatusService

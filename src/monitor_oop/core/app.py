@@ -64,6 +64,8 @@ def build_app() -> MonitorApp:
     app_logger.info("Starting application bootstrap")
     history_service = HistoryService(config_service)
     macro_service = MacroService(config_service)
+    app_logger.info("Loading macros during bootstrap")
+    macro_service.load()
     status_service = StatusService()
     tool_registry = ToolRegistry()
     tool_service = ToolService(tool_registry)

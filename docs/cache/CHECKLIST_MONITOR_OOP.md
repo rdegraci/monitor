@@ -23,6 +23,7 @@
 - [x] Define `HistoryService` responsibilities.
 - [x] Confirm a dedicated History domain object exists and that `HistoryService` owns it.
 - [x] Define `MacroService` responsibilities.
+- [x] Confirm the macro subsystem currently loads macros from the user config directory during bootstrap, seeds `MacroStore` from `macros.json.example`, and `MacroExpander` handles recursive brace expansion while delimiter/escape/TCL parity remains future work.
 - [x] Define `StatusService` responsibilities.
 - [x] Define `ServerApp` responsibilities.
 - [x] Define the runtime object graph and ownership boundaries.

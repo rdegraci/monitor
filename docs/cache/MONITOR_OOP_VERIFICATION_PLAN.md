@@ -22,6 +22,8 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm real LLM behavior remains a future work item.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
 - Confirm adjusted tests assert the present tool-calling behavior as implemented today.
+- Confirm macro subsystem verification targets recursive macro expansion, delimiter-aware escaping, and JSON-backed macro loading/saving as parity goals.
+- Confirm TCL macro behavior is tracked separately if it is not yet implemented.
 
 ## Verification Scope
 ### Startup
