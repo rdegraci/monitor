@@ -59,8 +59,12 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Exposes a controlled API for listing, resolving, validating, and dispatching tools without leaking mutable tool state.
   - Keeps tool-call metadata, adapters, and execution context isolated behind the service boundary.
   - Turn-scoped tool state is handled by the dedicated `ToolTurnState` helper, keeping per-turn lifecycle data isolated from the registry and service stores.
+- `ToolCallHandler`
+  - Handles tool-call parsing, normalization, output wrapping, and orchestration.
+  - Delegates tool state and execution to `ToolRegistry` / `ToolService`.
 - `LLMService`
   - Acts as a façade over extracted collaborators for LLM request construction, response handling, and transport coordination.
+  - Delegates tool handling to `ToolCallHandler`.
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
 - `LLMRequestBuilder`
@@ -115,6 +119,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `core/workflow.py`
   - `core/application/llm_request_builder.py`
   - `core/infrastructure/llm_response_client.py`
+  - `core/tools/tool_call_handler.py`
   - `models.py`
   - `utils.py`
 - `tests/monitor_oop/`
@@ -202,7 +207,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `LoggerService` configures logging once at centralized bootstrap, and runtime modules use standard module loggers.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
-  - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and per-tool modules such as `weather.py`.
+  - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, `tool_call_handler.py`, and per-tool modules such as `weather.py`.
   - Tool definitions, adapters, and invocation metadata remain private to the tool service boundary.
   - Tool-call parsing, normalization, output wrapping, and orchestration are handled by free functions as needed, with service calls used for actual tool state and execution.
   - The weather tool is registered at startup through the app bootstrap.

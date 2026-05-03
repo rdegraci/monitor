@@ -112,7 +112,7 @@ The server flow follows the same runtime ownership model.
 6. Responses are returned through the HTTP boundary.
 
 ## LLM Architecture
-`LLMRequestBuilder` and `LLMResponseClient` have already been extracted into separate collaborators. `LLMService` now coordinates request shaping, provider invocation, and completion orchestration through these collaborators rather than directly owning provider calls.
+`LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` have been extracted into separate collaborators. `LLMService` now coordinates request shaping, provider invocation, and tool-call handling through these collaborators rather than directly owning provider access or tool execution.
 
 Extracted collaborators:
 - `LLMRequestBuilder` for input shaping

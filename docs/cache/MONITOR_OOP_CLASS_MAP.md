@@ -227,6 +227,25 @@ Owns tool execution workflows and tool invocation behavior.
 - Coordinate batched follow-up payloads for downstream processing.
 - Preserve the association between a model turn, its tool envelope, and the resulting tool outputs.
 
+## ToolCallHandler
+Owns model-requested tool call handling and execution coordination.
+
+### Constructor
+- `tool_service: ToolService`
+- `status_service: StatusService`
+
+### Public Methods
+- `handle_tool_calls(calls: list[dict[str, object]]) -> list[dict[str, object]]`
+- `handle_follow_up(payloads: list[dict[str, object]]) -> None`
+
+### Responsibilities
+- Coordinate tool execution requested by the model.
+- Delegate tool lookup and execution to `ToolService`.
+- Manage batched tool-call handling within a single assistant turn.
+- Preserve the relationship between model tool requests and tool outputs.
+- Support follow-up payload processing after tool execution.
+- Keep tool-call orchestration isolated from `LLMService`.
+
 ## LLMService
 Owns LLM request/response orchestration and completion handling.
 
@@ -250,6 +269,7 @@ Owns LLM request/response orchestration and completion handling.
 - Keep LLM response flow isolated from command processing and session state.
 - Support batched tool-call handling within a single turn.
 - Consume tool envelopes and produce follow-up payloads through the tool service.
+- Delegate tool execution coordination to `ToolCallHandler`.
 - Delegate request shaping to `LLMRequestBuilder`.
 - Delegate provider invocation to `LLMResponseClient`.
 - Move toward a façade role over extracted collaborators as request construction, continuation handling, and completion orchestration are separated.
