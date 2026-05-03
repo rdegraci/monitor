@@ -78,7 +78,7 @@ def test_read_user_input_uses_prompt_session(monkeypatch) -> None:
     assert session.read_user_input() == "hello"
     assert len(created_sessions) == 1
     assert isinstance(prompt_calls["history"], FileHistory)
-    assert prompt_calls["history"].filename == str(history_path)
+    assert Path(prompt_calls["history"].filename) == history_path
     assert prompt_calls["args"] == ("> ",)
     assert prompt_calls["kwargs"] == {}
 
@@ -155,8 +155,7 @@ def test_read_user_input_creates_prompt_history_under_configured_history_directo
     assert session.read_user_input() == "hello"
     assert len(created_sessions) == 1
     assert isinstance(prompt_calls["history"], FileHistory)
-    assert Path(prompt_calls["history"].filename).parent == history_dir
-    assert prompt_calls["history"].filename == str(history_path)
+    assert Path(prompt_calls["history"].filename) == history_path
     assert prompt_calls["args"] == ("> ",)
     assert prompt_calls["kwargs"] == {}
 

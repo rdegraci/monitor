@@ -54,7 +54,7 @@ Owns the isolated runtime services and per-run state for the staged implementati
 ## ConfigService
 `src/monitor_oop/core/config_service.py`
 
-Handles isolated configuration loading and access.
+Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration loading and access.
 
 ### Constructor
 - `initial_config: RuntimeConfig | None = None`
@@ -67,9 +67,10 @@ Handles isolated configuration loading and access.
 - `get_context_window() -> int`
 
 ### Responsibilities
-- Load and validate app configuration.
-- Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs user config `.env`, and `~/.config/monitor/.env`.
+- Load and validate app configuration through the loader collaborators.
+- Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs-first user config `.env`, and the explicit `~/.config/monitor/.env` fallback.
 - Manage model selection and config reset behavior.
+- Coordinate history path resolution through the appdirs-first user config dir, with explicit fallback to `~/.config/monitor` when needed.
 
 ## History
 Owns the ordered conversation messages.

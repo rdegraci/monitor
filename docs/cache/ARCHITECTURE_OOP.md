@@ -139,8 +139,10 @@ The tool flow is intentionally modeled as a turn-scoped workflow rather than a g
 ## Configuration and History
 Configuration and history are handled as runtime-owned services.
 
-- `ConfigService` loads config from YAML, `.env`, and environment variables.
-- It resolves the persistent prompt history file path from config.
+- `ConfigService` is a façade over `ConfigLoader` and `EnvLoader`.
+- `ConfigLoader` owns YAML bootstrap, loading, and validation.
+- `EnvLoader` owns dotenv loading and environment overrides.
+- `ConfigService` resolves the persistent prompt history file path using appdirs-first, then falls back to `~/.config/monitor`.
 - `HistoryService` owns the conversation history domain object.
 - `ConversationSession` uses prompt history through the prompt toolkit layer, but does not own the persistence details itself.
 
