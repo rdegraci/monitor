@@ -17,13 +17,13 @@ class ToolCallHandler:
     def __init__(
         self,
         tool_service: ToolService,
-        tool_turn_state: ToolTurnState | None = None,
+        tool_turn_state: ToolTurnState,
     ) -> None:
         """Initialize the handler.
 
         Args:
             tool_service: Tool execution service.
-            tool_turn_state: Per-turn state for tracking tool outputs.
+            tool_turn_state: Required per-turn state for tracking tool outputs.
         """
 
         self._tool_service = tool_service
@@ -39,9 +39,6 @@ class ToolCallHandler:
     ) -> list[dict[str, str]]:
         """Append one tool output to follow-up input when available."""
 
-        if self._tool_service is None:
-            logger.info("Skipping tool-output append: tool_service unavailable for tool_call_id=%s.", call_id)
-            return input_messages
         logger.info(
             "Appending tool output to follow-up input for tool_call_id=%s with parent_response_id=%s.",
             call_id,
@@ -61,12 +58,6 @@ class ToolCallHandler:
     ) -> list[dict[str, str]]:
         """Append multiple tool outputs to follow-up input when available."""
 
-        if self._tool_service is None:
-            logger.info(
-                "Skipping multi-tool follow-up append: tool_service unavailable; tool count=%s.",
-                self._tool_turn_state.pending_count(),
-            )
-            return input_messages
         if self._tool_turn_state.pending_count() == 0:
             return input_messages
         logger.info(
@@ -109,9 +100,6 @@ class ToolCallHandler:
         """Extract tool calls from a model response."""
 
         response_output = getattr(response, "output", None)
-        if self._tool_service is None:
-            logger.info("Tool call parsing skipped: tool_service unavailable; response.output_type=%s.", type(response_output).__name__)
-            return []
         tool_calls = extract_tool_calls(response_output)
         if tool_calls is None:
             logger.info("Tool call parsing on response.output produced no calls; response.output_type=%s.", type(response_output).__name__)
