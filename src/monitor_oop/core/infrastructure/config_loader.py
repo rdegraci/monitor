@@ -9,7 +9,7 @@ from pathlib import Path
 import appdirs
 import yaml
 
-from ..models import DEFAULT_MODEL, RuntimeConfig
+from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 
 
 @dataclass(slots=True)

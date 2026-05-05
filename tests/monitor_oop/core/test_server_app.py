@@ -5,10 +5,32 @@ from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.macro_expander import MacroExpander
+from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.server_app import ServerApp
 from monitor_oop.core.status_service import StatusService
+
+
+class _ToolService:
+    pass
+
+
+class _ToolRegistry:
+    pass
+
+
+class _LLMClient:
+    pass
+
+
+class _TokenCounter:
+    pass
+
+
+class _ChatFormatter:
+    pass
 
 
 def build_server_app() -> ServerApp:
@@ -18,9 +40,24 @@ def build_server_app() -> ServerApp:
     prompt_store = PromptStore(config_service)
     prompt_service = PromptService(config_service, prompt_store)
     history_service = HistoryService(config_service)
-    macro_service = MacroService(config_service)
+    macro_store = MacroStore()
+    macro_expander = MacroExpander()
+    macro_service = MacroService(config_service, macro_store, macro_expander)
     status_service = StatusService()
-    llm_service = LLMService(config_service)
+    tool_service = _ToolService()
+    tool_registry = _ToolRegistry()
+    llm_client = _LLMClient()
+    token_counter = _TokenCounter()
+    chat_formatter = _ChatFormatter()
+    llm_service = LLMService(
+        config_service,
+        prompt_service,
+        history_service,
+        macro_service,
+        llm_client,
+        token_counter,
+        chat_formatter,
+    )
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
         config_service=config_service,
@@ -30,6 +67,8 @@ def build_server_app() -> ServerApp:
         llm_service=llm_service,
         prompt_service=prompt_service,
         command_processor=command_processor,
+        tool_service=tool_service,
+        tool_registry=tool_registry,
     )
     return ServerApp(context)
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import appdirs
 from dotenv import find_dotenv, load_dotenv
 
-from ..models import RuntimeConfig
+from monitor_oop.core.models import RuntimeConfig
 
 
 @dataclass(frozen=True)

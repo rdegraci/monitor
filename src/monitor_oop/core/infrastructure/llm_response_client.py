@@ -8,6 +8,8 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
 from monitor_oop.core.tools.tool_service import ToolService
 
+ResponsesAdapter = ResponsesLiteLLMAdapter
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,19 +20,16 @@ class LLMResponseClient:
         self,
         config_service: ConfigService,
         tool_service: ToolService | None = None,
-        adapter: ResponsesLiteLLMAdapter | None = None,
     ) -> None:
         """Initialize the response client.
 
         Args:
             config_service: Runtime configuration access.
             tool_service: Optional tool service for response tool schemas.
-            adapter: Optional adapter override for testing.
         """
 
         self.config_service = config_service
         self._tool_service = tool_service
-        self.adapter = adapter or ResponsesLiteLLMAdapter()
 
     def _build_litellm_tools(self) -> list[dict[str, Any]]:
         """Return the current flat Responses-style tool schemas for the adapter."""
@@ -72,7 +71,9 @@ class LLMResponseClient:
             len(input_messages),
             previous_response_id,
         )
-        return self.adapter.complete(
+        logger.info("Instantiating LiteLLM adapter locally for response creation.")
+        adapter = ResponsesAdapter()
+        return adapter.complete(
             model,
             input_messages,
             api_key=api_key,

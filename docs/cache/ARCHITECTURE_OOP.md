@@ -184,4 +184,11 @@ The codebase is moving toward:
 - stable domain objects
 - infrastructure isolated behind narrow interfaces
 
+## Rules of Thumb
+- `build_app()` still owns construction during bootstrap.
+- `RuntimeContext` stores references to the process-local service graph.
+- Several services still allow fallback dependency creation, and that behavior should be eliminated.
+- Ownership is the next refactor target.
+- Prompt, config, and LLM boundaries should remain stable and explicit.
+
 The current implementation is already usable, but the architecture is still evolving toward a cleaner layered design.

@@ -30,13 +30,13 @@ def test_macro_service_loads_empty_or_missing_macros() -> None:
     """Verify empty and missing macro stores load deterministically."""
 
     empty_store = FakeMacroStore(loaded_macros={})
-    service = MacroService(ConfigService(), store=empty_store)
+    service = MacroService(ConfigService(), store=empty_store, expander=FakeMacroExpander())
 
     service.reload()
     assert service.list_macros() == {}
 
     missing_store = FakeMacroStore(loaded_macros=None)
-    service = MacroService(ConfigService(), store=missing_store)
+    service = MacroService(ConfigService(), store=missing_store, expander=FakeMacroExpander())
 
     service.reload()
     assert service.list_macros() == {}
@@ -46,7 +46,7 @@ def test_macro_service_add_definition_persists_via_store() -> None:
     """Verify macro definition storage is persisted through the store."""
 
     store = FakeMacroStore()
-    service = MacroService(ConfigService(), store=store)
+    service = MacroService(ConfigService(), store=store, expander=FakeMacroExpander())
 
     assert service.add_definition("hello=world") is True
     assert service.list_macros() == {"hello": "world"}
@@ -56,7 +56,7 @@ def test_macro_service_add_definition_persists_via_store() -> None:
 def test_macro_service_list_macros_returns_copy() -> None:
     """Verify callers cannot mutate internal macro state via list_macros."""
 
-    service = MacroService(ConfigService())
+    service = MacroService(ConfigService(), store=FakeMacroStore(), expander=FakeMacroExpander())
     assert service.add_definition("hello=world") is True
 
     macros = service.list_macros()
@@ -69,7 +69,7 @@ def test_macro_service_recursive_expansion_through_expander() -> None:
     """Verify recursive expansion is delegated through MacroExpander."""
 
     expander = FakeMacroExpander()
-    service = MacroService(ConfigService(), expander=expander)
+    service = MacroService(ConfigService(), store=FakeMacroStore(), expander=expander)
     assert service.add_definition("hello=world") is True
     assert service.add_definition("greeting={{hello}}") is True
 
@@ -81,7 +81,7 @@ def test_macro_service_reload_behavior() -> None:
     """Verify reloading refreshes macros from the store."""
 
     store = FakeMacroStore(loaded_macros={"hello": "world"})
-    service = MacroService(ConfigService(), store=store)
+    service = MacroService(ConfigService(), store=store, expander=FakeMacroExpander())
 
     service.reload()
     assert service.list_macros() == {"hello": "world"}
@@ -95,7 +95,7 @@ def test_macro_service_rejects_invalid_definition() -> None:
     """Verify invalid macro definitions are rejected without persistence."""
 
     store = FakeMacroStore()
-    service = MacroService(ConfigService(), store=store)
+    service = MacroService(ConfigService(), store=store, expander=FakeMacroExpander())
 
     assert service.add_definition("invalid-definition") is False
     assert service.list_macros() == {}

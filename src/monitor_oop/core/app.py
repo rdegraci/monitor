@@ -19,6 +19,13 @@ from monitor_oop.core.tools.registry import ToolRegistry
 from monitor_oop.core.tools.tool_service import ToolService
 from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
+from monitor_oop.core.infrastructure.macro_store import MacroStore
+from monitor_oop.core.infrastructure.macro_expander import MacroExpander
+from monitor_oop.core.tool_turn_state import ToolTurnState
+from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
+from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
+from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
+from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
 
 logger = getLogger(__name__)
 
@@ -65,10 +72,12 @@ def build_app() -> MonitorApp:
     app_logger = logger_service.get_logger(__name__)
     app_logger.info("Starting application bootstrap")
     history_service = HistoryService(config_service)
-    macro_service = MacroService(config_service)
+    prompt_store = PromptStore(config_service)
+    macro_store = MacroStore("Monitor OOP")
+    macro_expander = MacroExpander("{{", "}}")
+    macro_service = MacroService(config_service, macro_store, macro_expander)
     app_logger.info("Loading macros during bootstrap")
     macro_service.load()
-    prompt_store = PromptStore(config_service)
     prompt_service = PromptService(config_service, prompt_store)
     app_logger.info("Loading prompts during bootstrap")
     prompt_service.load()
@@ -77,7 +86,20 @@ def build_app() -> MonitorApp:
     tool_service = ToolService(tool_registry)
     app_logger.info("Registering weather tool")
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
-    llm_service = LLMService(config_service, tool_service, prompt_service)
+    tool_turn_state = ToolTurnState()
+    request_builder = LLMRequestBuilder(prompt_service)
+    response_client = LLMResponseClient(config_service, tool_service)
+    adapter = ResponsesLiteLLMAdapter()
+    tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
+    llm_service = LLMService(
+        config_service,
+        request_builder,
+        response_client,
+        tool_call_handler,
+        adapter,
+        tool_service,
+        prompt_service,
+    )
     command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
     context = RuntimeContext(
         config_service=config_service,
@@ -87,6 +109,7 @@ def build_app() -> MonitorApp:
         macro_service=macro_service,
         status_service=status_service,
         command_processor=command_processor,
+        tool_registry=tool_registry,
         tool_service=tool_service,
         prompt_service=prompt_service,
     )

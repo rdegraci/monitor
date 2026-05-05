@@ -36,7 +36,7 @@ def test_prompt_service_loads_prompt(monkeypatch, tmp_path) -> None:
 
     config_service = ConfigService()
     prompt_store = PromptStore(config_service=config_service)
-    service = PromptService(config_service, prompt_store)
+    service = PromptService(config_service=config_service, prompt_store=prompt_store)
     service.load()
 
     assert service.get_resolved_prompt_text() == "Hello prompt"
@@ -54,7 +54,7 @@ def test_prompt_service_reload_updates_prompt(monkeypatch, tmp_path) -> None:
 
     config_service = ConfigService()
     prompt_store = PromptStore(config_service=config_service)
-    service = PromptService(config_service, prompt_store)
+    service = PromptService(config_service=config_service, prompt_store=prompt_store)
     service.load()
     prompt_path.write_text("Second prompt", encoding="utf-8")
     service.reload()

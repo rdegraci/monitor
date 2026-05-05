@@ -1,7 +1,7 @@
 """Conversation history service for Monitor OOP."""
 from __future__ import annotations
 
-from .models import History, Message
+from monitor_oop.core.models import History, Message
 
 
 class HistoryService:

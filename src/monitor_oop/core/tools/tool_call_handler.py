@@ -16,17 +16,18 @@ class ToolCallHandler:
 
     def __init__(
         self,
-        tool_service: ToolService | None = None,
+        tool_service: ToolService,
+        tool_turn_state: ToolTurnState | None = None,
     ) -> None:
         """Initialize the handler.
 
         Args:
-            tool_service: Optional tool execution service.
-            tool_turn_state: Optional per-turn state override for testing.
+            tool_service: Tool execution service.
+            tool_turn_state: Per-turn state for tracking tool outputs.
         """
 
         self._tool_service = tool_service
-        self._tool_turn_state = ToolTurnState()
+        self._tool_turn_state = tool_turn_state
 
     def _append_tool_output_to_input(
         self,

@@ -17,31 +17,36 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Owns the Responses-via-LiteLLM adapter boundary for a single runtime instance."""
+    """Owns the Responses-via-LiteLLM adapter boundary for a single runtime instance.
+
+    Dependencies are injected explicitly so the service has no internal fallback
+    construction and remains easy to audit and test.
+    """
 
     _MAX_TOOL_LOOP_ROUNDS = 16
 
     def __init__(
         self,
         config_service: ConfigService,
-        tool_service: ToolService | None = None,
-        prompt_service: PromptService | None = None,
+        request_builder: LLMRequestBuilder,
+        response_client: LLMResponseClient,
+        tool_call_handler: ToolCallHandler,
+        adapter: ResponsesLiteLLMAdapter,
+        tool_service: ToolService,
+        prompt_service: PromptService,
     ) -> None:
         self.config_service = config_service
         self._tool_service = tool_service
         self._prompt_service = prompt_service
-        self._request_builder = LLMRequestBuilder(prompt_service=prompt_service)
-        self.adapter = ResponsesLiteLLMAdapter()
-        self._response_client = LLMResponseClient(config_service, tool_service)
-        self._tool_call_handler = ToolCallHandler(tool_service)
+        self._request_builder = request_builder
+        self.adapter = adapter
+        self._response_client = response_client
+        self._tool_call_handler = tool_call_handler
         self._last_response_id: str | None = None
 
     def _build_litellm_tools(self) -> list[dict[str, Any]]:
         """Return the current flat Responses-style tool schemas for the adapter."""
 
-        if self._tool_service is None:
-            logger.info("Building LiteLLM tools: tool_service unavailable; tool count=0.")
-            return []
         tools = self._tool_service.build_responses_tools()
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
         logger.info("Building LiteLLM tools: tool count=%s, tool names=%s.", len(tools), tool_names)
@@ -74,15 +79,6 @@ class LLMService:
             raise ValueError("Model response was filtered by the provider.")
         if finish_reason == "length":
             raise ValueError("Model response stopped because it reached the length limit.")
-        if self._tool_service is None:
-            if finish_reason in ("stop", None):
-                logger.info("No tool follow-up required for finish_reason=%s.", finish_reason)
-            else:
-                logger.info(
-                    "Tool follow-up not attempted because tool_service is unavailable for finish_reason=%s.",
-                    finish_reason,
-                )
-            return input_messages, False
         return self._tool_call_handler.execute_tool_calls(
             input_messages,
             response,

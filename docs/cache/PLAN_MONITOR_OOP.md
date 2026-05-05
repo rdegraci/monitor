@@ -153,7 +153,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add the `PromptService` / `PromptStore` seam early so prompt loading remains isolated and ready for future prompt specialization or subagent-oriented extensions without committing to those behaviors yet.
 - Add prompt-focused tests and import-path coverage early so the new prompt subsystem is exercised through `src/monitor_oop/` rather than legacy modules.
 
-### Milestone 2: Core runtime ownership
+## Milestone 2: Core runtime ownership
 - Implement isolated config, history, macro, logger, prompt, and status services.
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
@@ -161,21 +161,33 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Track multi-call tool handling, envelope bookkeeping, batched follow-up payload support, and turn-scoped lifecycle management via `ToolTurnState` as first-class runtime behaviors within the new tool workflow, keeping orchestration free-function driven and service state isolated.
 - Validate the tool workflow against the current test adjustments so the latest tool-calling path, loop handling, turn-state lifecycle, and follow-up payload assembly remain covered under repeated runs.
 - Keep prompt-resolution tests aligned with the current `ConfigService` and `PromptStore` path resolution so `system_prompt` loading and injection remain verified end to end.
+- Next refactor target: strict bootstrap ownership, with runtime constructors no longer creating fallback dependencies.
+- Checklist:
+  - build_app creates services
+  - RuntimeContext stores references
+  - services do not create other services
+  - prompt/config/LLM boundaries stay stable and explicit
 
-### Milestone 3: Server mode
+## Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
 - Ensure all request handling uses only `RuntimeContext` and new app services.
 - Verify server startup does not read or mutate legacy app state.
 
-### Milestone 4: Verification
+## Milestone 4: Verification
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, prompt loading, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
 - Confirm the test suite mirrors the source tree, including `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, so runtime modules and tool modules are exercised in parallel with the new package layout.
-- Confirm multi-call tool execution, envelope tracking, batched follow-up payload handling, turn-scoped tool lifecycle handling, and the associated test coverage remain stable under repeated tool loops and mixed command flows.
+- Confirm multi-call tool execution, envelope bookkeeping, turn-scoped tool lifecycle handling, and batched follow-up payload support are preserved within the isolated runtime design.
 - Keep verification notes aligned with the latest tool-calling implementation so the plan tracks both runtime behavior and the corresponding test updates.
 - Verify `system_prompt` loading, first-run seeding, and injection as the first system message in LLM request construction.
 - Verify prompt-related import paths and tests continue to resolve through the new prompt subsystem layout.
+- Apply the following rules-of-thumb during implementation and review:
+  - `build_app` creates services and other runtime dependencies.
+  - `RuntimeContext` stores references to the constructed services and per-run state.
+  - Services do not create other services; they consume injected dependencies instead.
+  - Prompt, config, and LLM boundaries remain stable and explicit across bootstrap, request construction, and runtime execution.
+- Bootstrap ownership should be explicit and strict, with runtime constructors avoiding fallback dependency creation.
 
 ## Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.

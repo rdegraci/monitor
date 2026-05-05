@@ -6,9 +6,9 @@ import logging
 import os
 from pathlib import Path
 
-from .infrastructure.config_loader import ConfigLoader
-from .infrastructure.env_loader import EnvLoader
-from .models import DEFAULT_MODEL, RuntimeConfig
+from monitor_oop.core.infrastructure.config_loader import ConfigLoader
+from monitor_oop.core.infrastructure.env_loader import EnvLoader
+from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 
 
 class ConfigService:

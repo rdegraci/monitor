@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
 from monitor_oop.core.tools.tool_models import ToolCall, ToolResult
+from monitor_oop.core.tool_turn_state import ToolTurnState
 
 
 class RecordingToolService:
@@ -87,7 +88,8 @@ def test_execute_tool_calls_single_call_records_follow_up_payload() -> None:
     """Verify a single tool call is executed and tracked."""
 
     tool_service = RecordingToolService(results=[ToolResult(tool_name="get_current_weather", success=True, output="sunny")])
-    handler = ToolCallHandler(tool_service=tool_service)
+    tool_turn_state = ToolTurnState()
+    handler = ToolCallHandler(tool_service=tool_service, tool_turn_state=tool_turn_state)
     response = build_response(
         response_id="response_1",
         tool_calls=[
@@ -120,7 +122,8 @@ def test_execute_tool_calls_multiple_calls_preserves_order() -> None:
             ToolResult(tool_name="get_current_weather", success=True, output="rainy"),
         ]
     )
-    handler = ToolCallHandler(tool_service=tool_service)
+    tool_turn_state = ToolTurnState()
+    handler = ToolCallHandler(tool_service=tool_service, tool_turn_state=tool_turn_state)
     response = build_response(
         response_id="response_1",
         tool_calls=[
@@ -159,7 +162,8 @@ def test_execute_tool_calls_without_calls_returns_false() -> None:
     """Verify no tool calls produces no continuation."""
 
     tool_service = RecordingToolService()
-    handler = ToolCallHandler(tool_service=tool_service)
+    tool_turn_state = ToolTurnState()
+    handler = ToolCallHandler(tool_service=tool_service, tool_turn_state=tool_turn_state)
     response = build_response(response_id="response_1", tool_calls=[], finish_reason="stop")
     input_messages = [{"role": "user", "content": "hello"}]
 
@@ -174,7 +178,8 @@ def test_tool_turn_state_does_not_leak_between_calls() -> None:
     """Verify tool turn state is reset when no tool calls are present."""
 
     tool_service = RecordingToolService()
-    handler = ToolCallHandler(tool_service=tool_service)
+    tool_turn_state = ToolTurnState()
+    handler = ToolCallHandler(tool_service=tool_service, tool_turn_state=tool_turn_state)
 
     first_response = build_response(
         response_id="response_1",

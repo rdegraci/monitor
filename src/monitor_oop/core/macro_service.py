@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 
-from .infrastructure.macro_expander import MacroExpander
-from .infrastructure.macro_store import MacroStore
+from monitor_oop.core.infrastructure.macro_expander import MacroExpander
+from monitor_oop.core.infrastructure.macro_store import MacroStore
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,13 @@ class MacroService:
     def __init__(
         self,
         config_service,
-        store: MacroStore | None = None,
-        expander: MacroExpander | None = None,
+        store: MacroStore,
+        expander: MacroExpander,
     ) -> None:
+        """Initialize the macro service with required dependencies."""
         self.config_service = config_service
-        self._store = store if store is not None else MacroStore()
-        self._expander = expander if expander is not None else MacroExpander()
+        self._store = store
+        self._expander = expander
         self._macros: dict[str, str] = {}
         logger.debug(
             "MacroService initialized with store=%s expander=%s",

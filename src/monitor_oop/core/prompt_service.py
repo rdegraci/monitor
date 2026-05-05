@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 class PromptService:
     """Owns the resolved system prompt for one runtime instance."""
 
-    def __init__(self, config_service: ConfigService, prompt_store: PromptStore | None = None) -> None:
+    def __init__(self, config_service: ConfigService, prompt_store: PromptStore) -> None:
         """Initialize the prompt service.
 
         Args:
             config_service: Runtime configuration service.
-            prompt_store: Optional prompt store dependency.
+            prompt_store: Prompt store dependency.
         """
         self.config_service = config_service
-        self._store = prompt_store if prompt_store is not None else PromptStore(config_service)
+        self._store = prompt_store
         self._prompt = ""
         logger.debug("PromptService initialized with store=%s", type(self._store).__name__)
 

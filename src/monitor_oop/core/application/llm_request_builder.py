@@ -1,18 +1,26 @@
 """Request-building helpers for Monitor OOP LLM flows."""
 from __future__ import annotations
 
+import logging
+
 from monitor_oop.core.models import Message
+
+logger = logging.getLogger(__name__)
 
 
 class LLMRequestBuilder:
     """Build adapter-ready request inputs for LLM completions."""
 
-    def __init__(self, prompt_service: object | None = None, prompt_text: str | None = None) -> None:
+    def __init__(
+        self,
+        prompt_service: object | None = None,
+        prompt_text: str | None = None,
+    ) -> None:
         """Initialize a request builder.
 
         Args:
-            prompt_service: Optional service used to resolve the system prompt.
-            prompt_text: Optional resolved system prompt text.
+            prompt_service: Optional prompt service used to resolve the system prompt.
+            prompt_text: Optional injected system prompt text.
         """
 
         self._prompt_service = prompt_service
@@ -23,13 +31,15 @@ class LLMRequestBuilder:
         user_input: str,
         history: list[str | Message],
         prompt_text: str | None = None,
+        prompt_service: object | None = None,
     ) -> list[dict[str, str]]:
         """Build request input from conversation history and the current user input.
 
         Args:
             user_input: The latest user message.
             history: Prior conversation items as strings or Message objects.
-            prompt_text: Optional resolved system prompt text.
+            prompt_text: Optional injected system prompt text.
+            prompt_service: Optional injected prompt service used to resolve the system prompt.
 
         Returns:
             A list of request messages suitable for adapter consumption.
@@ -37,12 +47,13 @@ class LLMRequestBuilder:
 
         input_messages: list[dict[str, str]] = []
         resolved_prompt_text = prompt_text if prompt_text is not None else self._prompt_text
-        if resolved_prompt_text is None and self._prompt_service is not None:
-            get_resolved_prompt_text = getattr(self._prompt_service, "get_resolved_prompt_text", None)
+        resolved_prompt_service = prompt_service if prompt_service is not None else self._prompt_service
+        if resolved_prompt_text is None and resolved_prompt_service is not None:
+            get_resolved_prompt_text = getattr(resolved_prompt_service, "get_resolved_prompt_text", None)
             if callable(get_resolved_prompt_text):
                 resolved_prompt_text = get_resolved_prompt_text()
             else:
-                get_prompt = getattr(self._prompt_service, "get_prompt", None)
+                get_prompt = getattr(resolved_prompt_service, "get_prompt", None)
                 if callable(get_prompt):
                     resolved_prompt_text = get_prompt()
         if resolved_prompt_text is not None:

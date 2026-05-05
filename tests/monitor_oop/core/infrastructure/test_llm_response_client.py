@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+import monitor_oop.core.infrastructure.llm_response_client as llm_response_client_module
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
 from monitor_oop.core.tools.tool_models import ToolDefinition
@@ -71,16 +72,18 @@ def test_create_response_requires_api_key(monkeypatch) -> None:
         client.create_response([{"role": "user", "content": "hello"}])
 
 
-def test_create_response_normalizes_model_and_passes_tools() -> None:
+def test_create_response_normalizes_model_and_passes_tools(monkeypatch) -> None:
     """Verify model normalization and tool schema wiring for the adapter boundary."""
+
+    fake_adapter = FakeAdapter()
+    monkeypatch.setattr(llm_response_client_module, "ResponsesAdapter", lambda: fake_adapter)
 
     config_service = ConfigService()
     config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
     config_service.get_model = lambda: "openai/gpt-4o-mini"  # type: ignore[method-assign]
 
     tool_service = FakeToolService()
-    adapter = FakeAdapter()
-    client = LLMResponseClient(config_service, tool_service=tool_service, adapter=adapter)
+    client = LLMResponseClient(config_service, tool_service=tool_service)
 
     response = client.create_response(
         [{"role": "user", "content": "hello"}],
@@ -89,8 +92,8 @@ def test_create_response_normalizes_model_and_passes_tools() -> None:
 
     assert response == {"ok": True}
     assert tool_service.called is True
-    assert len(adapter.calls) == 1
-    call = adapter.calls[0]
+    assert len(fake_adapter.calls) == 1
+    call = fake_adapter.calls[0]
     assert call["model"] == "gpt-4o-mini"
     assert call["api_key"] == "test-key"
     assert call["messages"] == [{"role": "user", "content": "hello"}]
@@ -104,17 +107,19 @@ def test_create_response_normalizes_model_and_passes_tools() -> None:
     assert function_schema["name"] == "get_current_weather"
 
 
-def test_create_response_uses_unprefixed_model_unchanged() -> None:
+def test_create_response_uses_unprefixed_model_unchanged(monkeypatch) -> None:
     """Verify unprefixed model names are passed through unchanged."""
+
+    fake_adapter = FakeAdapter()
+    monkeypatch.setattr(llm_response_client_module, "ResponsesAdapter", lambda: fake_adapter)
 
     config_service = ConfigService()
     config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
     config_service.get_model = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
 
-    adapter = FakeAdapter()
-    client = LLMResponseClient(config_service, adapter=adapter)
+    client = LLMResponseClient(config_service)
 
     client.create_response([{"role": "user", "content": "hello"}])
 
-    assert len(adapter.calls) == 1
-    assert adapter.calls[0]["model"] == "gpt-4o-mini"
+    assert len(fake_adapter.calls) == 1
+    assert fake_adapter.calls[0]["model"] == "gpt-4o-mini"
