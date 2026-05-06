@@ -1,6 +1,7 @@
 """Runtime context for the isolated Monitor application."""
 from __future__ import annotations
 
+from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.llm_service import LLMService
@@ -24,7 +25,7 @@ class RuntimeContext:
         macro_service: MacroService,
         status_service: StatusService,
         prompt_service: PromptService,
-        command_processor,
+        command_processor: CommandProcessor,
         tool_service: ToolService,
         tool_registry: ToolRegistry,
         server_app=None,
@@ -39,7 +40,7 @@ class RuntimeContext:
             macro_service: The macro service.
             status_service: The status service.
             prompt_service: The prompt service.
-            command_processor: The command processor.
+            command_processor: The command processor from monitor_oop.core.command_processor.
             tool_service: The tool service.
             tool_registry: The tool registry.
             server_app: Optional server application instance.
