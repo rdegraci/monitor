@@ -7,7 +7,7 @@ from typing import Any
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
-from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
+from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.models import Message
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
@@ -31,7 +31,7 @@ class LLMService:
         request_builder: LLMRequestBuilder,
         response_client: LLMResponseClient,
         tool_call_handler: ToolCallHandler,
-        adapter: ResponsesLiteLLMAdapter,
+        adapter: ResponsesOpenAiAdapter,
         tool_service: ToolService,
         prompt_service: PromptService,
     ) -> None:

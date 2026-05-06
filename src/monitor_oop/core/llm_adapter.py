@@ -10,7 +10,7 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
-class ResponsesLiteLLMAdapter:
+class ResponsesOpenAiAdapter:
     """Responses-via-LiteLLM adapter behind a stable boundary.
 
     This adapter owns the Responses-style LiteLLM call path.

@@ -24,7 +24,7 @@ from monitor_oop.core.infrastructure.macro_expander import MacroExpander
 from monitor_oop.core.tool_turn_state import ToolTurnState
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
-from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
+from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
 
 logger = getLogger(__name__)
@@ -88,8 +88,8 @@ def build_app() -> MonitorApp:
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
     tool_turn_state = ToolTurnState()
     request_builder = LLMRequestBuilder(prompt_service)
-    response_client = LLMResponseClient(config_service, tool_service)
-    adapter = ResponsesLiteLLMAdapter()
+    adapter = ResponsesOpenAiAdapter()
+    response_client = LLMResponseClient(config_service, adapter, tool_service)
     tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
     llm_service = LLMService(
         config_service,

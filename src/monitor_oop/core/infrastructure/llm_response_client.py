@@ -5,10 +5,8 @@ import logging
 from typing import Any
 
 from monitor_oop.core.config_service import ConfigService
-from monitor_oop.core.llm_adapter import ResponsesLiteLLMAdapter
+from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.tools.tool_service import ToolService
-
-ResponsesAdapter = ResponsesLiteLLMAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +17,19 @@ class LLMResponseClient:
     def __init__(
         self,
         config_service: ConfigService,
+        adapter: ResponsesOpenAiAdapter,
         tool_service: ToolService | None = None,
     ) -> None:
         """Initialize the response client.
 
         Args:
             config_service: Runtime configuration access.
+            adapter: Responses LiteLLM adapter used to create completions.
             tool_service: Optional tool service for response tool schemas.
         """
 
         self.config_service = config_service
+        self._adapter = adapter
         self._tool_service = tool_service
 
     def _build_litellm_tools(self) -> list[dict[str, Any]]:
@@ -71,9 +72,7 @@ class LLMResponseClient:
             len(input_messages),
             previous_response_id,
         )
-        logger.info("Instantiating LiteLLM adapter locally for response creation.")
-        adapter = ResponsesAdapter()
-        return adapter.complete(
+        return self._adapter.complete(
             model,
             input_messages,
             api_key=api_key,

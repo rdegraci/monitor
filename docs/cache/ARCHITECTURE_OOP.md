@@ -66,7 +66,7 @@ Current examples:
 - `PromptStore`
 - `ToolRegistry`
 - `ToolService`
-- `ResponsesLiteLLMAdapter`
+- `ResponsesOpenAiAdapter`
 - future extracted LLM response client
 
 Responsibilities:
