@@ -87,7 +87,7 @@ def build_app() -> MonitorApp:
     app_logger.info("Registering weather tool")
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
     tool_turn_state = ToolTurnState()
-    request_builder = LLMRequestBuilder(prompt_service)
+    request_builder = LLMRequestBuilder()
     adapter = ResponsesOpenAiAdapter()
     response_client = LLMResponseClient(config_service, adapter, tool_service)
     tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
