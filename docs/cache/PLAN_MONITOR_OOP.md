@@ -74,7 +74,7 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Handles tool-call parsing, normalization, output wrapping, and orchestration.
   - Delegates tool state and execution to `ToolRegistry` / `ToolService`.
 - `LLMService`
-  - Acts as a façade over extracted collaborators for LLM request construction, response handling, and transport coordination.
+  - Acts as a façade over the collaborators that build requests, parse responses, and coordinate transport for the current runtime.
   - Delegates tool handling to `ToolCallHandler`.
   - Enforces finish-reason handling for `stop`, `length`, `tool_calls`, `content_filter`, and `None`.
   - Applies a defensive maximum tool loop cap of 16 total model calls.
@@ -153,7 +153,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add the `PromptService` / `PromptStore` seam early so prompt loading remains isolated and ready for future prompt specialization or subagent-oriented extensions without committing to those behaviors yet.
 - Add prompt-focused tests and import-path coverage early so the new prompt subsystem is exercised through `src/monitor_oop/` rather than legacy modules.
 
-## Milestone 2: Core runtime ownership
+### Milestone 2: Core runtime ownership
 - Implement isolated config, history, macro, logger, prompt, and status services.
 - Move conversation lifecycle management into `ConversationSession`.
 - Implement command classification and execution through `CommandProcessor`.
@@ -168,12 +168,12 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - services do not create other services
   - prompt/config/LLM boundaries stay stable and explicit
 
-## Milestone 3: Server mode
+### Milestone 3: Server mode
 - Add an isolated HTTP server implementation in `ServerApp`.
 - Ensure all request handling uses only `RuntimeContext` and new app services.
 - Verify server startup does not read or mutate legacy app state.
 
-## Milestone 4: Verification
+### Milestone 4: Verification
 - Add regression tests comparing new behavior to legacy behavior.
 - Validate startup, chat flow, command flow, logging, prompt loading, and server flow.
 - Confirm there is no shared mutable state between `src/monitor/` and `src/monitor_oop/`.
@@ -189,7 +189,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - Prompt, config, and LLM boundaries remain stable and explicit across bootstrap, request construction, and runtime execution.
 - Bootstrap ownership should be explicit and strict, with runtime constructors avoiding fallback dependency creation.
 
-## Milestone 5: Cutover decision
+### Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
 - Change defaults only after the new app is stable and behavior is verified.
 
@@ -234,11 +234,10 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `src/monitor_oop/models.py`
   - `src/monitor_oop/utils.py`
 - Runtime object graph:
-  - `MonitorApp` owns startup and mode selection.
-  - `RuntimeContext` owns process-local services and per-run state.
-  - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, `LoggerService`, and `PromptService` own their own state.
-  - `HistoryService` owns a `History` domain object, and history state is stored in `History` rather than a raw list.
-  - `History` encapsulates messages privately behind its API, instead of exposing direct message storage.
+  - `MonitorApp` owns startup, mode selection, and lifecycle coordination.
+  - `RuntimeContext` owns process-local services and per-run state and acts as the explicit wiring point for CLI, server, and script modes.
+  - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, `LoggerService`, and `PromptService` own their own state and do not create each other.
+  - `HistoryService` owns a `History` domain object, and `History` encapsulates messages privately behind its API instead of exposing direct storage.
   - `PromptService` owns the resolved system prompt and uses `PromptStore` to persist and seed the prompt file under the user config directory.
   - `PromptStore` resolves the prompt path under `appdirs.user_config_dir("monitor")/system_prompt`, seeds from `system_prompt.example` on first run, and exposes the current prompt text without leaking prompt-file state.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.

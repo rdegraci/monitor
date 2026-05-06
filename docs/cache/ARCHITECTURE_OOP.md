@@ -32,8 +32,7 @@ Current examples:
 - `LLMService`
 - `PromptService`
 - `PromptStore`
-- planned extracted LLM collaborators such as request building and completion coordination
-- the macro subsystem, which is now loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
+- the macro subsystem, which is loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
 
 Responsibilities:
 - decide which workflow runs
@@ -83,9 +82,12 @@ The runtime is composed explicitly at startup.
 ### Root coordinator
 - `MonitorApp` is the top-level entry point.
 - It owns a `RuntimeContext` and selects the workflow to run.
+- `MonitorApp` exposes read-only accessors over its privately stored dependencies.
 
 ### RuntimeContext
 - `RuntimeContext` owns the process-local service graph.
+- It is constructed with explicit dependencies and stores the services needed by the application.
+- It exposes read-only accessors over its privately stored dependencies.
 - It holds config, history, macro, status, logging, tool, command, prompt, and LLM services.
 - `PromptService` and `PromptStore` are part of the runtime graph.
 - `system_prompt` is resolved through `ConfigService` and then persisted or loaded by `PromptStore`.
@@ -120,15 +122,17 @@ The server flow follows the same runtime ownership model.
 6. Responses are returned through the HTTP boundary.
 
 ## LLM Architecture
-`LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` have been extracted into separate collaborators. `LLMService` now coordinates request shaping, provider invocation, and tool-call handling through these collaborators rather than directly owning provider access or tool execution.
+`LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` are the collaborators used by `LLMService` to shape requests, invoke the provider, and handle tool calls.
 
-`LLMRequestBuilder` prepends the resolved system prompt as the first system message before appending the conversational context.
+`LLMRequestBuilder` accepts explicit prompt text and prepends it as the first system message before appending the conversational context. It no longer consults `PromptService` directly.
+
+`LLMService` keeps its response adapter private and uses it only through internal orchestration.
 
 Extracted collaborators:
 - `LLMRequestBuilder` for input shaping
 - `LLMResponseClient` for provider invocation
 - `ToolCallHandler` for tool-call parsing and execution
-- `ResponseCompletionCoordinator` for finish-reason handling and tool-loop policy
+- `LLMService` for orchestration of the LLM flow
 
 The desired result is:
 - `LLMService` acts as a façade
@@ -143,7 +147,7 @@ Tools are managed through a dedicated registry and service boundary.
 - `ToolService` executes registered tools.
 - `ToolTurnState` tracks per-turn tool envelopes and follow-up work.
 - Parsing helpers remain free functions where that keeps the code simpler and easier to test.
-- The macro subsystem is now loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior.
+- The macro subsystem is loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior.
 
 The tool flow is intentionally modeled as a turn-scoped workflow rather than a global mutable cache.
 
@@ -156,7 +160,7 @@ Configuration and history are handled as runtime-owned services.
 - `ConfigService` resolves the persistent prompt history file path using appdirs-first, then falls back to `~/.config/monitor`.
 - `HistoryService` owns the conversation history domain object.
 - `ConversationSession` uses prompt history through the prompt toolkit layer, but does not own the persistence details itself.
-- `PromptService` owns prompt resolution and the runtime prompt file lifecycle.
+- `PromptService` owns prompt resolution and the runtime prompt file lifecycle through explicitly injected collaborators.
 - `PromptStore` persists the system prompt at `appdirs.user_config_dir("monitor")/system_prompt` and seeds it from `system_prompt.example` on first run.
 
 ## Logging
@@ -187,7 +191,7 @@ The codebase is moving toward:
 ## Rules of Thumb
 - `build_app()` still owns construction during bootstrap.
 - `RuntimeContext` stores references to the process-local service graph.
-- Several services still allow fallback dependency creation, and that behavior should be eliminated.
+- Dependency creation should be explicit at the composition root.
 - Ownership is the next refactor target.
 - Prompt, config, and LLM boundaries should remain stable and explicit.
 

@@ -102,7 +102,6 @@ class CommandResult:
 
 @dataclass(slots=True)
 class AppState:
-    """Mutable application state owned by one runtime instance."""
+    """Application-wide state for one runtime instance."""
 
     mode: AppMode = AppMode.CLI
-    running: bool = False

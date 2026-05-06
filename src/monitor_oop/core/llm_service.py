@@ -39,7 +39,7 @@ class LLMService:
         self._tool_service = tool_service
         self._prompt_service = prompt_service
         self._request_builder = request_builder
-        self.adapter = adapter
+        self._adapter = adapter
         self._response_client = response_client
         self._tool_call_handler = tool_call_handler
         self._last_response_id: str | None = None
@@ -128,4 +128,4 @@ class LLMService:
         response = self._complete_with_tool_calls(
             self._request_builder.build_input(user_input, history)
         )
-        return self.adapter.extract_text(response)
+        return self._adapter.extract_text(response)

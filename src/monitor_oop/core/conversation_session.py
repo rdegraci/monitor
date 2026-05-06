@@ -53,7 +53,6 @@ class ConversationSession:
 
         logger.info("Starting conversation session")
         self._running = True
-        self.context.state.running = True
         return 0
 
     def step(self) -> bool:
@@ -80,7 +79,6 @@ class ConversationSession:
         if result.command_type is CommandType.EXIT:
             logger.info("Exit command received; stopping session")
             self._running = False
-            self.context.state.running = False
             return False
         self.context.history_service.append(Message(role="user", content=user_input))
         response_text = self.context.llm_service.complete(

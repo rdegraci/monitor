@@ -249,18 +249,18 @@ def build_service(
                     tool_service.execute_tool_call(tool_call)
             return input_messages, True
 
+    adapter = RecordingAdapter(texts)
     service = LLMService(
         config_service=config_service,
         prompt_service=prompt_service,
         request_builder=RequestBuilderStub(),
         response_client=RecordingResponseClient(responses),
         tool_call_handler=ToolCallHandlerStub(),
-        adapter=RecordingAdapter(texts),
+        adapter=adapter,
         tool_service=tool_service,
     )
-    fake_adapter = service.adapter
     fake_response_client = service._response_client
-    return service, fake_adapter, fake_response_client, tool_service
+    return service, adapter, fake_response_client, tool_service
 
 
 class SharedToolCallHandlerStub:
@@ -462,7 +462,7 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
         ],
     )
 
-    service, _, response_client, _ = build_service(
+    service, fake_adapter, response_client, _ = build_service(
         [
             build_tool_call_response(
                 response_id="response_1",
@@ -488,3 +488,4 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
     assert len(tool_service.executed_calls) >= 2
     assert tool_service.executed_calls[:2] == tool_calls
     assert result
+    assert len(fake_adapter.texts) >= 0

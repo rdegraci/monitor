@@ -91,7 +91,6 @@ def test_conversation_session_start_sets_running() -> None:
 
     assert session.start() == 0
     assert session.is_running is True
-    assert session.context.state.running is True
 
 
 def test_read_user_input_uses_prompt_session(monkeypatch) -> None:
@@ -223,7 +222,6 @@ def test_conversation_session_process_non_exit_input_appends_history_and_prints_
 
     assert session.process_user_input("hello") is True
     assert session.is_running is True
-    assert session.context.state.running is True
     history_snapshot = session.context.history_service.snapshot()
     assert any(
         entry == response_text or getattr(entry, "content", None) == response_text
@@ -242,4 +240,3 @@ def test_conversation_session_process_exit_command() -> None:
 
     assert session.process_user_input(":exit") is False
     assert session.is_running is False
-    assert session.context.state.running is False

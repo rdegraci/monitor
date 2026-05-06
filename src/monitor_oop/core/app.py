@@ -34,7 +34,12 @@ class MonitorApp:
     """Owns startup, mode selection, and lifecycle management."""
 
     def __init__(self, context: RuntimeContext) -> None:
-        self.context = context
+        self._context = context
+
+    @property
+    def context(self) -> RuntimeContext:
+        """Get the application runtime context."""
+        return self._context
 
     def _has_openai_api_key(self) -> bool:
         """Check whether the OpenAI API key is configured."""

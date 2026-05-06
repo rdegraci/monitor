@@ -75,4 +75,3 @@ def test_runtime_context_create_session() -> None:
     session = context.create_session()
 
     assert session.context is context
-    assert context.state.running is False

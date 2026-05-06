@@ -46,21 +46,69 @@ class RuntimeContext:
             server_app: Optional server application instance.
             logger_service: Optional logger service.
         """
-        self.config_service = config_service
-        self.history_service = history_service
-        self.llm_service = llm_service
-        self.macro_service = macro_service
-        self.status_service = status_service
-        self.prompt_service = prompt_service
-        self.logger_service = logger_service
-        self.command_processor = command_processor
-        self.server_app = server_app
-        self.tool_registry = tool_registry
-        self.tool_service = tool_service
-        self.state = AppState()
+        self._config_service = config_service
+        self._history_service = history_service
+        self._llm_service = llm_service
+        self._macro_service = macro_service
+        self._status_service = status_service
+        self._prompt_service = prompt_service
+        self._logger_service = logger_service
+        self._command_processor = command_processor
+        self._server_app = server_app
+        self._tool_registry = tool_registry
+        self._tool_service = tool_service
+        self._state = AppState()
 
-        if self.logger_service is not None:
-            self.logger_service.get_logger(__name__).info("RuntimeContext initialized.")
+        if self._logger_service is not None:
+            self._logger_service.get_logger(__name__).info("RuntimeContext initialized.")
+
+    @property
+    def config_service(self) -> ConfigService:
+        return self._config_service
+
+    @property
+    def history_service(self) -> HistoryService:
+        return self._history_service
+
+    @property
+    def llm_service(self) -> LLMService:
+        return self._llm_service
+
+    @property
+    def macro_service(self) -> MacroService:
+        return self._macro_service
+
+    @property
+    def status_service(self) -> StatusService:
+        return self._status_service
+
+    @property
+    def prompt_service(self) -> PromptService:
+        return self._prompt_service
+
+    @property
+    def logger_service(self) -> LoggerService | None:
+        return self._logger_service
+
+    @property
+    def command_processor(self) -> CommandProcessor:
+        return self._command_processor
+
+    @property
+    def server_app(self):
+        return self._server_app
+
+    @property
+    def tool_registry(self) -> ToolRegistry:
+        return self._tool_registry
+
+    @property
+    def tool_service(self) -> ToolService:
+        return self._tool_service
+
+    @property
+    def state(self) -> AppState:
+        return self._state
 
     def create_session(self):
         """Create a conversation session bound to this context."""

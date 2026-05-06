@@ -30,7 +30,7 @@
 - [x] Ensure config, history, macros, and status are instance-owned.
 - [x] Ensure stateful classes keep internal storage private and expose read-only or method-based access instead of public mutable fields.
 - [x] Ensure any reused legacy logic is adapted through explicit inputs.
-- [ ] Remove fallback dependency construction from `RuntimeContext`, `LLMService`, `PromptService`, and `MacroService`.
+- [x] Remove fallback dependency construction from `RuntimeContext`, `LLMService`, `PromptService`, and `MacroService`.
 - [x] Confirm a class-based tool registry/service with private storage for tool-calling design.
 - [x] Confirm the tool subsystem uses `tool_models.py` for tool-specific dataclasses.
 - [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
@@ -55,7 +55,7 @@
 - [x] Confirm current code lives under `src/monitor_oop/core/` rather than the package root.
 - [x] Confirm `LoggerService` is in place for centralized logging responsibilities.
 - [x] Confirm centralized logging bootstrap is in place and wired before app startup.
-- [ ] Confirm bootstrap ownership is strict and explicit.
+- [x] Confirm bootstrap ownership is strict and explicit.
 
 ## Milestone 4: Conversation flow
 - [x] Implement session startup.
