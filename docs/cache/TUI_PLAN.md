@@ -8,6 +8,7 @@ Build a terminal UI for `monitor_oop` with three sections:
 
 The TUI should stay responsive while background work, including subagent activity, is happening.
 The TUI should observe `TurnCoordinator` snapshots as the per-turn coordination boundary for internal context, subagent results, and background completion state, rather than directly owning request assembly logic or direct rendering callbacks.
+The current render path is a simple textual three-region view, and the `--tui` entrypoint flag now routes through `MonitorApp/run_tui`.
 
 ## TuiApp Core Fields
 The minimal `TuiApp` fields are:
@@ -62,6 +63,7 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - Internal context records should have a structured shape with `id`, `source`, `kind`, `text`, `timestamp`, and optional `metadata`.
 - The UI may show summaries or status notices derived from those records while the raw records remain mostly internal.
 - The TUI should consume `TurnCoordinator` snapshots with the interface `begin_turn/add_internal_context/add_subagent_result/add_background_event/mark_background_complete/snapshot/clear_turn`.
+- The basic UI contract is implemented as a simple textual three-region render path, with richer layout behavior reserved for later.
 
 ## Likely Requirements
 - A stable layout with three distinct regions.
@@ -71,6 +73,7 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - A clean way to represent internal context separately from user-visible output.
 - TurnCoordinator should expose the per-turn internal context and completion state that the TUI observes through snapshots, instead of having the TUI assemble requests directly.
 - The snapshot interface should provide `begin_turn`, `add_internal_context`, `add_subagent_result`, `add_background_event`, `mark_background_complete`, `snapshot`, and `clear_turn`.
+- The interactive loop, richer layout behavior, and subagent execution flow remain future work.
 
 ## Build Order
 1. Define the UI contract.

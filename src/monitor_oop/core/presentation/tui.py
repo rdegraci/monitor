@@ -61,6 +61,24 @@ class TuiApp:
         snapshot = self.turn_coordinator.snapshot()
         self.active_task_id = snapshot.active_task_id
 
+    def render(self) -> str:
+        """Render a simple three-region textual view."""
+
+        return self._build_rendered_view()
+
+    def _build_rendered_view(self) -> str:
+        """Build the textual view for the current TUI state."""
+
+        output_text = "\n".join(self.output_buffer)
+        return (
+            f"{self.layout.output_title}\n"
+            f"{output_text}\n\n"
+            f"{self.layout.status_title}\n"
+            f"{self.status_text}\n\n"
+            f"{self.layout.input_title}\n"
+            f"{self.input_draft}"
+        )
+
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""
 

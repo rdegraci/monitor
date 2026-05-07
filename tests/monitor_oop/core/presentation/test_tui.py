@@ -101,6 +101,7 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     tui.enqueue_event(ErrorEvent(text="boom"))
     tui.enqueue_event(InputDraftEvent(draft_text="draft"))
     tui.drain_events()
+    rendered = tui.render()
 
     snapshot = turn_coordinator.snapshot()
     assert tui.is_running is True
@@ -108,6 +109,12 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     assert tui.status_text == "error"
     assert tui.input_draft == "draft"
     assert tui.layout.output_title == "Output"
+    assert "Output" in rendered
+    assert "Status" in rendered
+    assert "Input" in rendered
+    assert "hello" in rendered
+    assert "error" in rendered
+    assert "draft" in rendered
     assert any(
         entry.text == "subagent result" and entry.kind == "subagent_result"
         for entry in snapshot.internal_context_entries

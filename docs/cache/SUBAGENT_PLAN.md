@@ -92,6 +92,8 @@ Build a TUI with three regions:
 - Status Line
 - Input
 
+The app now exposes the TUI through the `--tui` flag, and the basic app-level TUI integration is present. The scaffold keeps the main loop responsive while the UI is active and provides a visible surface for turn state and background activity.
+
 ### Output
 Used for:
 - assistant responses

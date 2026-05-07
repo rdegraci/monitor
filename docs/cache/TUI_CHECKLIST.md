@@ -35,24 +35,24 @@ This tracker covers:
 - [x] Add `layout` as a required `TuiApp` field.
 - [x] Add `event_queue` as a required `TuiApp` field.
 - [x] Add `is_running` as a required `TuiApp` field.
-- [ ] Add `output_buffer` as an optional later `TuiApp` field.
-- [ ] Add `status_text` as an optional later `TuiApp` field.
-- [ ] Add `input_draft` as an optional later `TuiApp` field.
-- [ ] Add `active_task_id` as an optional later `TuiApp` field.
+- [x] Add `output_buffer` as an optional later `TuiApp` field.
+- [x] Add `status_text` as an optional later `TuiApp` field.
+- [x] Add `input_draft` as an optional later `TuiApp` field.
+- [x] Add `active_task_id` as an optional later `TuiApp` field.
 
 ## Milestone 2: UI contract
-- [ ] Define the Output pane responsibilities.
-- [ ] Define the Status Line responsibilities.
-- [ ] Define the Input pane responsibilities.
-- [ ] Define how background events update the UI.
-- [ ] Define how subagent results are surfaced in the UI.
-- [ ] Define how the UI keeps the current user draft responsive.
-- [ ] Define how `OutputEvent` is rendered into the Output pane.
-- [ ] Define how `StatusEvent` is rendered into the Status Line.
-- [ ] Define how `BackgroundCompletionEvent` updates the UI when background work finishes.
-- [ ] Define how `SubagentResultEvent` is injected as explicit internal context.
-- [ ] Define how `ErrorEvent` is surfaced without blocking the main chat loop.
-- [ ] Define how optional `InputDraftEvent` keeps the current draft responsive.
+- [x] Define the Output pane responsibilities.
+- [x] Define the Status Line responsibilities.
+- [x] Define the Input pane responsibilities.
+- [x] Define how background events update the UI.
+- [x] Define how subagent results are surfaced in the UI.
+- [x] Define how the UI keeps the current user draft responsive.
+- [x] Define how `OutputEvent` is rendered into the Output pane.
+- [x] Define how `StatusEvent` is rendered into the Status Line.
+- [x] Define how `BackgroundCompletionEvent` updates the UI when background work finishes.
+- [x] Define how `SubagentResultEvent` is injected as explicit internal context.
+- [x] Define how `ErrorEvent` is surfaced without blocking the main chat loop.
+- [x] Define how optional `InputDraftEvent` keeps the current draft responsive.
 - [x] Define how TurnCoordinator owns internal context.
 - [x] Define how TurnCoordinator owns subagent results.
 - [x] Define how TurnCoordinator owns background completion state.
@@ -94,12 +94,12 @@ This tracker covers:
 - [x] Define how `clear_turn` removes turn-scoped data from TurnCoordinator snapshots.
 
 ## Milestone 3: Layout and rendering
-- [ ] Create the three-section layout.
-- [ ] Add a stable Output region.
-- [ ] Add a short Status Line region.
-- [ ] Add an Input region that remains editable.
-- [ ] Add event-driven redraws for Output and Status.
-- [ ] Ensure background work does not block the visible prompt.
+- [x] Create the three-section layout.
+- [x] Add a stable Output region.
+- [x] Add a short Status Line region.
+- [x] Add an Input region that remains editable.
+- [x] Add event-driven redraws for Output and Status.
+- [x] Ensure background work does not block the visible prompt.
 
 ## Milestone 4: Event model
 - [x] Define TUI event dataclasses.
@@ -116,11 +116,11 @@ This tracker covers:
 - [x] Add optional `InputDraftEvent` to the event model.
 
 ## Milestone 5: Integration with runtime
-- [ ] Connect the TUI to `MonitorApp` / `RuntimeContext`.
-- [ ] Keep `ConversationSession` as the session-oriented orchestration layer.
-- [ ] Route visible events to the Output pane.
-- [ ] Route runtime status to the Status Line.
-- [ ] Keep input handling separate from background event handling.
+- [x] Connect the TUI to `MonitorApp` / `RuntimeContext`.
+- [x] Keep `ConversationSession` as the session-oriented orchestration layer.
+- [x] Route visible events to the Output pane.
+- [x] Route runtime status to the Status Line.
+- [x] Keep input handling separate from background event handling.
 
 ## Milestone 6: Subagent compatibility
 - [ ] Allow background subagent results to be injected as explicit internal context.

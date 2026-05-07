@@ -5,27 +5,29 @@ import logging
 import sys
 from logging import getLogger
 
+from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
+from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
+from monitor_oop.core.infrastructure.macro_expander import MacroExpander
+from monitor_oop.core.infrastructure.macro_store import MacroStore
+from monitor_oop.core.infrastructure.prompt_store import PromptStore
+from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.logger_service import LoggerService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
-from monitor_oop.core.tools.weather import build_weather_tool_definition, get_current_weather
-from monitor_oop.core.tools.registry import ToolRegistry
-from monitor_oop.core.tools.tool_service import ToolService
-from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
-from monitor_oop.core.infrastructure.prompt_store import PromptStore
-from monitor_oop.core.infrastructure.macro_store import MacroStore
-from monitor_oop.core.infrastructure.macro_expander import MacroExpander
 from monitor_oop.core.tool_turn_state import ToolTurnState
-from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
-from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
-from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
+from monitor_oop.core.presentation.turn_coordinator import TurnCoordinator
+from monitor_oop.core.tools.registry import ToolRegistry
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
+from monitor_oop.core.tools.tool_service import ToolService
+from monitor_oop.core.tools.weather import build_weather_tool_definition, get_current_weather
+from monitor_oop.core.presentation.tui import TuiApp
+from monitor_oop.core.workflow import reset_config, run_cli, run_script, run_server
 
 logger = getLogger(__name__)
 
@@ -33,13 +35,19 @@ logger = getLogger(__name__)
 class MonitorApp:
     """Owns startup, mode selection, and lifecycle management."""
 
-    def __init__(self, context: RuntimeContext) -> None:
+    def __init__(self, context: RuntimeContext, tui_app: TuiApp | None = None) -> None:
         self._context = context
+        self._tui_app = tui_app
 
     @property
     def context(self) -> RuntimeContext:
         """Get the application runtime context."""
         return self._context
+
+    @property
+    def tui_app(self) -> TuiApp | None:
+        """Get the optional TUI application."""
+        return self._tui_app
 
     def _has_openai_api_key(self) -> bool:
         """Check whether the OpenAI API key is configured."""
@@ -62,6 +70,16 @@ class MonitorApp:
     def run_script(self, script_path: str) -> int:
         """Run a script workflow."""
         return run_script(self, script_path)
+
+    def run_tui(self) -> int:
+        """Run the TUI workflow."""
+        if self._tui_app is None:
+            return 1
+        self._tui_app.start()
+        self._tui_app.drain_events()
+        view = self._tui_app.render()
+        print(view, end="")
+        return 0
 
     def reset_config(self, force: bool = False) -> None:
         """Reset application configuration."""
@@ -105,7 +123,9 @@ def build_app() -> MonitorApp:
         tool_service,
         prompt_service,
     )
-    command_processor = CommandProcessor(config_service, history_service, macro_service, status_service)
+    command_processor = CommandProcessor(
+        config_service, history_service, macro_service, status_service
+    )
     context = RuntimeContext(
         config_service=config_service,
         history_service=history_service,
@@ -118,5 +138,7 @@ def build_app() -> MonitorApp:
         tool_service=tool_service,
         prompt_service=prompt_service,
     )
+    turn_coordinator = TurnCoordinator()
+    tui_app = TuiApp(context, turn_coordinator)
     app_logger.info("Application bootstrap complete after weather tool registration")
-    return MonitorApp(context)
+    return MonitorApp(context, tui_app=tui_app)
