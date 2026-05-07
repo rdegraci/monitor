@@ -8,7 +8,8 @@ Build a terminal UI for `monitor_oop` with three sections:
 
 The TUI should stay responsive while background work, including subagent activity, is happening.
 The TUI should observe `TurnCoordinator` snapshots as the per-turn coordination boundary for internal context, subagent results, and background completion state, rather than directly owning request assembly logic or direct rendering callbacks.
-The current render path is a simple textual three-region view, and the `--tui` entrypoint flag now routes through `MonitorApp/run_tui`.
+The current render path is a simple textual three-region view and is implemented, the `--tui` entrypoint flag now routes through `MonitorApp/run_tui`, and the TUI includes a simple loop that accepts draft input and quits on `q`/`quit`.
+The TUI should use injectable I/O helpers so input, output, and status plumbing can be swapped cleanly without coupling the core loop to a specific terminal backend.
 
 ## TuiApp Core Fields
 The minimal `TuiApp` fields are:
@@ -28,6 +29,7 @@ Optional later fields may include:
 - The Input area is where the user types prompts and commands.
 - The Output area shows assistant responses, progress messages, and other visible events.
 - The Status Line shows short-lived operational state such as mode, active work, and subagent progress.
+- The interactive loop reads draft input, updates the current turn state, and exits cleanly on `q` or `quit`.
 
 ## Event Model
 - `OutputEvent`: append visible assistant content, progress, and general output to the Output area.
@@ -38,6 +40,7 @@ Optional later fields may include:
 - `InputDraftEvent` (optional): represent transient input draft updates without mutating visible prompt text.
 
 The TUI currently handles queued events synchronously; background notifications are drained and applied on the main UI path rather than through a separate asynchronous rendering pipeline.
+The loop uses injectable I/O helpers to read input and emit output while keeping the core UI behavior testable and backend-agnostic.
 
 ## TurnCoordinator Snapshot Fields
 The TUI observes turn-scoped state through `TurnCoordinator` snapshots with these fields:
@@ -64,6 +67,7 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - The UI may show summaries or status notices derived from those records while the raw records remain mostly internal.
 - The TUI should consume `TurnCoordinator` snapshots with the interface `begin_turn/add_internal_context/add_subagent_result/add_background_event/mark_background_complete/snapshot/clear_turn`.
 - The basic UI contract is implemented as a simple textual three-region render path, with richer layout behavior reserved for later.
+- The interactive loop and injectable I/O helpers are implemented as the current control surface for the TUI.
 
 ## Likely Requirements
 - A stable layout with three distinct regions.

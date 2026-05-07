@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 from logging import getLogger
+from typing import Callable, TextIO
 
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.command_processor import CommandProcessor
@@ -71,14 +72,30 @@ class MonitorApp:
         """Run a script workflow."""
         return run_script(self, script_path)
 
-    def run_tui(self) -> int:
+    def run_tui(
+        self,
+        input_fn: Callable[[], str] | None = None,
+        output_fn: Callable[..., None] | None = None,
+    ) -> int:
         """Run the TUI workflow."""
         if self._tui_app is None:
             return 1
+        if input_fn is None:
+            input_fn = sys.stdin.readline
+        if output_fn is None:
+            output_fn = print
         self._tui_app.start()
-        self._tui_app.drain_events()
-        view = self._tui_app.render()
-        print(view, end="")
+        while True:
+            view = self._tui_app.render()
+            output_fn(view, end="")
+            line = input_fn()
+            if not line:
+                break
+            text = line.rstrip("\n")
+            if text in {"q", "quit"}:
+                break
+            self._tui_app.enqueue_input_draft_event(text)
+            self._tui_app.drain_events()
         return 0
 
     def reset_config(self, force: bool = False) -> None:

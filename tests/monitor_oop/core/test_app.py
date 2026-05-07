@@ -29,20 +29,30 @@ def test_run_tui_returns_zero_when_tui_app_present() -> None:
 
     app = build_app()
 
-    assert app.run_tui() == 0
+    assert (
+        app.run_tui(
+            input_fn=lambda: "quit\n",
+            output_fn=lambda *args, **kwargs: None,
+        )
+        == 0
+    )
 
 
 def test_main_uses_tui_entrypoint(monkeypatch) -> None:
     """Verify the --tui entry point routes to run_tui without external I/O."""
 
     class StubApp:
-        def run_tui(self) -> int:
+        def run_tui(self, input_fn=None, output_fn=None) -> int:
             return 0
 
         def run(self) -> int:
             return 1
 
+    inputs = iter(["draft message\n", "quit\n"])
     monkeypatch.setattr("monitor_oop.__main__.build_app", lambda: StubApp())
     monkeypatch.setattr("sys.argv", ["monitor", "--tui"])
 
-    assert main() == 0
+    assert main(
+        input_fn=lambda: next(inputs),
+        output_fn=lambda *args, **kwargs: None,
+    ) == 0

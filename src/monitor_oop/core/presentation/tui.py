@@ -48,6 +48,11 @@ class TuiApp:
 
         self.event_queue.append(event)
 
+    def enqueue_input_draft_event(self, draft_text: str) -> None:
+        """Enqueue an input draft event."""
+
+        self.enqueue_event(InputDraftEvent(draft_text=draft_text))
+
     def drain_events(self) -> None:
         """Drain queued events into the local presentation buffers."""
 

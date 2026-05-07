@@ -39,7 +39,7 @@ It owns:
 
 It is intentionally separate from `RuntimeContext` and `ConversationSession`.
 
-`RuntimeContext` should continue to represent broader application/runtime state, and `ConversationSession` should continue to represent the ongoing conversation history and session-level data. `TurnCoordinator` should only coordinate what is needed to assemble and complete one turn, including any subagent-derived internal context that must be injected into the request at request-construction time.
+`RuntimeContext` should continue to represent broader application/runtime state, and `ConversationSession` should continue to represent the ongoing conversation history and session-level data. `TurnCoordinator` should only coordinate what is needed to assemble and complete one turn, including any subagent-derived internal context that must be injected into the request-construction path.
 
 ### TurnCoordinator Intake and Reset Behavior
 `add_internal_context` appends structured records in order.
@@ -92,7 +92,7 @@ Build a TUI with three regions:
 - Status Line
 - Input
 
-The app now exposes the TUI through the `--tui` flag, and the basic app-level TUI integration is present. The scaffold keeps the main loop responsive while the UI is active and provides a visible surface for turn state and background activity.
+The app now exposes the TUI through the `--tui` flag, and the basic app-level TUI integration is present. The scaffold is wired through `MonitorApp/run_tui` with injectable I/O helpers, and the app now includes an interactive draft-input loop while the UI is active. The scaffold keeps the main loop responsive while the UI is active and provides a visible surface for turn state and background activity.
 
 ### Output
 Used for:
