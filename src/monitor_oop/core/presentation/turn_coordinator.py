@@ -31,6 +31,7 @@ class TurnSnapshot:
     turn_id: str
     background_status: str
     has_pending_work: bool
+    active_task_id: str | None = None
     internal_context_entries: list[InternalContextEntry] = field(default_factory=list)
     subagent_results: list[SubagentResultEvent] = field(default_factory=list)
     background_events: list[BaseEvent] = field(default_factory=list)
@@ -44,6 +45,7 @@ class TurnCoordinator:
 
     def __init__(self) -> None:
         self._turn_id = ""
+        self._active_task_id: str | None = None
         self._internal_context_entries: list[InternalContextEntry] = []
         self._subagent_results: list[SubagentResultEvent] = []
         self._background_events: list[BaseEvent] = []
@@ -53,10 +55,15 @@ class TurnCoordinator:
         self._error_state: ErrorEvent | None = None
         self._last_event_time: datetime | None = None
 
+    @property
+    def active_task_id(self) -> str | None:
+        return self._active_task_id
+
     def begin_turn(self) -> None:
         """Start a fresh turn and clear stale turn-scoped data."""
 
         self._turn_id = str(uuid4())
+        self._active_task_id = None
         self._internal_context_entries.clear()
         self._subagent_results.clear()
         self._background_events.clear()
@@ -64,6 +71,23 @@ class TurnCoordinator:
         self._has_pending_work = False
         self._request_context_ready = False
         self._error_state = None
+        self._last_event_time = datetime.now(timezone.utc)
+
+    def set_pending_work(self, is_pending: bool) -> None:
+        """Set whether the current turn has background work in progress."""
+
+        self._has_pending_work = is_pending
+
+    def begin_background_work(self, task_id: str) -> None:
+        """Mark a background task as active for the current turn.
+
+        Args:
+            task_id: Identifier of the background task now in progress.
+        """
+
+        self._active_task_id = task_id
+        self._background_status = "running"
+        self.set_pending_work(True)
         self._last_event_time = datetime.now(timezone.utc)
 
     def add_internal_context(self, entry: InternalContextEntry) -> None:
@@ -87,13 +111,25 @@ class TurnCoordinator:
             )
         )
 
+    def _set_background_completion_state(
+        self,
+        task_id: str,
+        success: bool,
+        exit_code: int | None = None,
+    ) -> None:
+        self._active_task_id = task_id
+        self.set_pending_work(False)
+        self._background_status = "completed" if success else "failed"
+        if exit_code is not None and not success:
+            self._background_status = f"failed:{exit_code}"
+
     def add_background_event(self, event: BaseEvent) -> None:
         """Append a turn-scoped background lifecycle event."""
 
         self._background_events.append(event)
         self._last_event_time = event.timestamp
         if isinstance(event, BackgroundCompletionEvent):
-            self.mark_background_complete(
+            self._set_background_completion_state(
                 task_id=event.task_id,
                 success=event.success,
                 exit_code=event.exit_code,
@@ -110,10 +146,11 @@ class TurnCoordinator:
     ) -> None:
         """Record task completion and update pending-work state."""
 
-        self._has_pending_work = False
-        self._background_status = "completed" if success else "failed"
-        if exit_code is not None and not success:
-            self._background_status = f"failed:{exit_code}"
+        self._set_background_completion_state(
+            task_id=task_id,
+            success=success,
+            exit_code=exit_code,
+        )
         self._background_events.append(
             BackgroundCompletionEvent(
                 task_id=task_id,
@@ -130,6 +167,7 @@ class TurnCoordinator:
             turn_id=self._turn_id,
             background_status=self._background_status,
             has_pending_work=self._has_pending_work,
+            active_task_id=self._active_task_id,
             internal_context_entries=list(self._internal_context_entries),
             subagent_results=list(self._subagent_results),
             background_events=list(self._background_events),
@@ -141,6 +179,7 @@ class TurnCoordinator:
     def clear_turn(self) -> None:
         """Strictly reset turn-local state for the next turn."""
 
+        self._active_task_id = None
         self._internal_context_entries.clear()
         self._subagent_results.clear()
         self._background_events.clear()

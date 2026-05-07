@@ -11,11 +11,11 @@ The TUI should observe `TurnCoordinator` snapshots as the per-turn coordination 
 
 ## TuiApp Core Fields
 The minimal `TuiApp` fields are:
-- `runtime_context`
-- `turn_coordinator`
-- `layout`
-- `event_queue`
-- `is_running`
+- `runtime_context` (implemented)
+- `turn_coordinator` (implemented)
+- `layout` (implemented)
+- `event_queue` (implemented)
+- `is_running` (implemented)
 
 Optional later fields may include:
 - `output_buffer`
@@ -36,15 +36,17 @@ Optional later fields may include:
 - `ErrorEvent`: report failures in the Output area and Status Line as needed.
 - `InputDraftEvent` (optional): represent transient input draft updates without mutating visible prompt text.
 
+The TUI currently handles queued events synchronously; background notifications are drained and applied on the main UI path rather than through a separate asynchronous rendering pipeline.
+
 ## TurnCoordinator Snapshot Fields
 The TUI observes turn-scoped state through `TurnCoordinator` snapshots with these fields:
-- `turn_id`
-- `background_status`
-- `has_pending_work`
-- `internal_context_entries`
-- `subagent_results`
-- `background_events`
-- `request_context_ready`
+- `turn_id` (implemented)
+- `background_status` (implemented)
+- `has_pending_work` (implemented)
+- `internal_context_entries` (implemented)
+- `subagent_results` (implemented)
+- `background_events` (implemented)
+- `request_context_ready` (implemented)
 
 Turn lifecycle notes: `begin_turn` assigns a new turn id and clears stale turn-scoped data; `mark_background_complete` records task completion, updates pending-work state, and advances the background status. `add_internal_context` appends structured records in order. `add_subagent_result` is a thin semantic wrapper that also stores a generic internal-context record. `add_background_event` is append-only for turn-scoped lifecycle events. `snapshot` returns a read-only view. `clear_turn` is a strict reset of turn-local state.
 After each turn, `clear_turn` removes turn-scoped data so the next turn starts with a clean snapshot boundary.

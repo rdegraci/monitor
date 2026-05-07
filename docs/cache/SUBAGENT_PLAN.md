@@ -59,7 +59,7 @@ It is intentionally separate from `RuntimeContext` and `ConversationSession`.
 - `snapshot`
 - `clear_turn`
 
-The TUI should consume `TurnCoordinator` snapshots rather than being coupled to rendering callbacks. This keeps the UI focused on presentation while the coordinator remains the source of truth for per-turn state.
+The TUI should consume `TurnCoordinator` snapshots rather than being coupled to rendering callbacks. This keeps the UI focused on presentation while the coordinator remains the source of truth for per-turn state. This scaffolding now exists at a basic level: the TUI owns snapshot-driven turn presentation and event handling, and TurnCoordinator owns the per-turn snapshot data that feeds it.
 
 ### TurnCoordinator Lifecycle Notes
 `begin_turn` assigns a new turn id and clears stale turn-scoped data before starting the turn.
@@ -114,7 +114,7 @@ Used for:
 - the user’s current draft prompt
 - normal interactive command entry
 
-The TUI should remain responsive while a subagent is running.
+The TUI should remain responsive while a subagent is running. The initial TUI scaffold now exists at a basic level, with the three regions in place and snapshot-driven updates wired into the turn flow.
 
 ## Event Flow
 The UI and background system exchange explicit events rather than implicit shared state.
@@ -137,7 +137,7 @@ Suggested flow:
 7. The UI receives `OutputEvent` and `StatusEvent` updates as needed.
 8. If anything fails, the system emits an `ErrorEvent`.
 
-This event model keeps the parent responsive and makes background activity visible without blocking input.
+This event model keeps the parent responsive and makes background activity visible without blocking input. The basic event-handling path is now in place through the TUI and TurnCoordinator snapshot updates, while richer background orchestration remains future work.
 
 ## Subagent Execution Model
 The parent app launches a second `monitor_oop` process with a task prompt.
@@ -154,6 +154,8 @@ The parent app should:
 - watch for subagent completion
 - inject the returned output into the LLM flow as explicit internal context
 - avoid waiting for the user to type again before handling subagent results
+
+The process-isolation and single-subagent execution goals remain future work for the full workflow, even though the initial TUI and turn-coordination scaffolding now exists.
 
 ## Completion Signaling
 Use a deterministic completion marker from the subagent output stream so the parent can detect when work is done.
@@ -185,7 +187,7 @@ Instead:
 4. Add the subagent launcher and completion watcher.
 5. Feed subagent output into the main LLM pipeline as internal context.
 
-The TUI should define the interaction contract before the subagent orchestration is finalized.
+The TUI-focused milestones are now implemented at a basic level, and the next steps are to deepen the background launcher and process-isolated subagent flow.
 
 ## TUI Requirements
 The TUI should support:
@@ -206,6 +208,8 @@ To keep the system predictable:
 - keep config/history/prompt files isolated if needed
 - prefer explicit environment variables or launch arguments for subagent configuration differences
 
+The full process-isolation boundary is still a future-work goal for the subagent workflow, even though the current scaffolding already separates turn coordination and UI event handling from request assembly.
+
 ## Open Questions
 - Should the subagent output be shown immediately in Output, or only after parent processing?
 - Should the parent queue multiple background events, or only allow one subagent at a time?
@@ -222,6 +226,8 @@ Start with a minimal TUI that has:
 
 Then add the single-subagent process launcher and completion detection.
 
+The minimal TUI milestone is now in place at a basic level, and the remaining work is to expand the launcher, completion detection, and process-isolated subagent handling.
+
 ## Success Criteria
 - The main chat loop remains responsive while a subagent runs.
 - The subagent runs as a separate `monitor_oop` process.
@@ -230,3 +236,5 @@ Then add the single-subagent process launcher and completion detection.
 - The TUI cleanly separates Output, Status Line, and Input.
 - The user’s visible draft prompt remains honest and unchanged.
 - The system stays simple enough to test with one subagent first.
+
+The TUI separation and snapshot-driven turn coordination are now established at a basic level, while the single-subagent and full process-isolation milestones remain the next major targets.

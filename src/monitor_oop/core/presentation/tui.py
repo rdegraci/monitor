@@ -36,6 +36,7 @@ class TuiApp:
 
         self.is_running = True
         self.turn_coordinator.begin_turn()
+        self.sync_active_task_id()
 
     def stop(self) -> None:
         """Stop the TUI loop."""
@@ -54,6 +55,12 @@ class TuiApp:
             event = self.event_queue.popleft()
             self._handle_event(event)
 
+    def sync_active_task_id(self) -> None:
+        """Mirror the coordinator's active task into the TUI state."""
+
+        snapshot = self.turn_coordinator.snapshot()
+        self.active_task_id = snapshot.active_task_id
+
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""
 
@@ -64,14 +71,20 @@ class TuiApp:
             self.status_text = event.text
             return
         if isinstance(event, BackgroundCompletionEvent):
+            self.turn_coordinator.mark_background_complete(event)
             self.status_text = "completed" if event.success else "failed"
+            self.sync_active_task_id()
             return
         if isinstance(event, SubagentResultEvent):
+            self.turn_coordinator.add_subagent_result(event)
             self.output_buffer.append(event.text)
+            self.sync_active_task_id()
             return
         if isinstance(event, ErrorEvent):
+            self.turn_coordinator.add_background_event(event)
             self.output_buffer.append(event.text)
             self.status_text = "error"
+            self.sync_active_task_id()
             return
         if isinstance(event, InputDraftEvent):
             self.input_draft = event.draft_text
