@@ -71,15 +71,18 @@ class ConversationSession:
 
         return None
 
-    def process_user_input(self, user_input: str) -> bool:
-        """Process one user input and update session state."""
+    def process_user_input(self, user_input: str) -> str | None:
+        """Process one user input and return the assistant response text.
+
+        Returns None for EXIT commands after stopping the session.
+        """
 
         logger.info("Processing user input")
         result = self.context.command_processor.process(user_input)
         if result.command_type is CommandType.EXIT:
             logger.info("Exit command received; stopping session")
             self._running = False
-            return False
+            return None
         self.context.history_service.append(Message(role="user", content=user_input))
         response_text = self.context.llm_service.complete(
             user_input, self.context.history_service.messages
@@ -87,5 +90,4 @@ class ConversationSession:
         self.context.history_service.append(
             Message(role="assistant", content=response_text)
         )
-        print(response_text)
-        return True
+        return response_text

@@ -9,6 +9,7 @@ from typing import Callable, TextIO
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
+from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.history_service import HistoryService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
 from monitor_oop.core.infrastructure.macro_expander import MacroExpander
@@ -54,6 +55,19 @@ class MonitorApp:
         """Check whether the OpenAI API key is configured."""
         return bool(self.context.config_service.get_openai_api_key())
 
+    def _append_tui_output(self, text: str) -> None:
+        """Append text to the TUI output buffer."""
+        if self._tui_app is not None:
+            self._tui_app.enqueue_input_draft_event(text)
+
+    def _process_tui_turn(
+        self, session: ConversationSession, text: str
+    ) -> None:
+        """Process one TUI user turn and append any assistant reply."""
+        response_text = session.process_user_input(text)
+        if response_text is not None:
+            self._append_tui_output(response_text)
+
     def run(self) -> int:
         """Run the default CLI workflow."""
         if not self._has_openai_api_key():
@@ -84,6 +98,8 @@ class MonitorApp:
             input_fn = sys.stdin.readline
         if output_fn is None:
             output_fn = print
+        session = ConversationSession(self.context)
+        session.start()
         self._tui_app.start()
         while True:
             view = self._tui_app.render()
@@ -94,8 +110,8 @@ class MonitorApp:
             text = line.rstrip("\n")
             if text in {"q", "quit"}:
                 break
-            self._tui_app.enqueue_input_draft_event(text)
-            self._tui_app.drain_events()
+            self._append_tui_output(f"> {text}")
+            self._process_tui_turn(session, text)
         return 0
 
     def reset_config(self, force: bool = False) -> None:

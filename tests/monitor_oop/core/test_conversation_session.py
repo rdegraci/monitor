@@ -203,11 +203,10 @@ def test_read_user_input_creates_prompt_history_under_configured_history_directo
     assert prompt_calls["kwargs"] == {}
 
 
-def test_conversation_session_process_non_exit_input_appends_history_and_prints_model_response(
-    capsys,
+def test_conversation_session_process_non_exit_input_appends_history_and_returns_model_response(
     monkeypatch,
 ) -> None:
-    """Verify non-exit input is recorded and prints the model response."""
+    """Verify non-exit input is recorded and returns the model response."""
 
     session = build_session()
     session.start()
@@ -220,16 +219,13 @@ def test_conversation_session_process_non_exit_input_appends_history_and_prints_
         lambda *args, **kwargs: response_text,
     )
 
-    assert session.process_user_input("hello") is True
+    assert session.process_user_input("hello") == response_text
     assert session.is_running is True
     history_snapshot = session.context.history_service.snapshot()
     assert any(
         entry == response_text or getattr(entry, "content", None) == response_text
         for entry in history_snapshot
     )
-
-    captured = capsys.readouterr()
-    assert response_text in captured.out
 
 
 def test_conversation_session_process_exit_command() -> None:
@@ -238,5 +234,5 @@ def test_conversation_session_process_exit_command() -> None:
     session = build_session()
     session.start()
 
-    assert session.process_user_input(":exit") is False
+    assert session.process_user_input(":exit") is None
     assert session.is_running is False

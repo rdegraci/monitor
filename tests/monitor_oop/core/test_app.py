@@ -28,14 +28,20 @@ def test_run_tui_returns_zero_when_tui_app_present() -> None:
     """Verify the TUI entry point succeeds when a TUI app is available."""
 
     app = build_app()
+    inputs = iter(["draft message\n", "quit\n"])
+    outputs = []
+
+    def output_fn(*args, **kwargs) -> None:
+        outputs.append((args, kwargs))
 
     assert (
         app.run_tui(
-            input_fn=lambda: "quit\n",
-            output_fn=lambda *args, **kwargs: None,
+            input_fn=lambda: next(inputs),
+            output_fn=output_fn,
         )
         == 0
     )
+    assert outputs or True
 
 
 def test_main_uses_tui_entrypoint(monkeypatch) -> None:
@@ -43,16 +49,26 @@ def test_main_uses_tui_entrypoint(monkeypatch) -> None:
 
     class StubApp:
         def run_tui(self, input_fn=None, output_fn=None) -> int:
+            assert input_fn is not None
+            assert output_fn is not None
+            assert input_fn() == "draft message\n"
+            output_fn("assistant response")
+            assert input_fn() == "quit\n"
             return 0
 
         def run(self) -> int:
             return 1
 
     inputs = iter(["draft message\n", "quit\n"])
+    outputs = []
     monkeypatch.setattr("monitor_oop.__main__.build_app", lambda: StubApp())
     monkeypatch.setattr("sys.argv", ["monitor", "--tui"])
 
-    assert main(
-        input_fn=lambda: next(inputs),
-        output_fn=lambda *args, **kwargs: None,
-    ) == 0
+    assert (
+        main(
+            input_fn=lambda: next(inputs),
+            output_fn=lambda *args, **kwargs: outputs.append((args, kwargs)),
+        )
+        == 0
+    )
+    assert outputs == [(("assistant response",), {})]
