@@ -39,6 +39,11 @@ This tracker covers:
 - [x] Add `status_text` as an optional later `TuiApp` field.
 - [x] Add `input_draft` as an optional later `TuiApp` field.
 - [x] Add `active_task_id` as an optional later `TuiApp` field.
+- [x] Wire the TUI around a `prompt_toolkit` `Application`.
+- [x] Delegate `run_tui` to the `Application`-backed TUI entrypoint.
+- [x] Use widget-backed output, status, and input handling.
+- [x] Quiet TUI bootstrap in `build_app`.
+- [x] Suppress runtime TUI logging during interactive execution.
 
 ## Milestone 2: UI contract
 - [x] Define the Output pane responsibilities.

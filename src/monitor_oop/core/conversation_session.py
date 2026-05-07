@@ -1,6 +1,7 @@
 """Conversation session handling for the isolated Monitor application."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import Optional
 
@@ -12,6 +13,19 @@ from monitor_oop.core.runtime_context import RuntimeContext
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ConversationTurnResult:
+    """Result of processing one conversation turn.
+
+    Attributes:
+        assistant_text: The assistant response text generated for the turn.
+        status_text: A short status string describing the UI state.
+    """
+
+    assistant_text: str
+    status_text: str
 
 
 class ConversationSession:
@@ -91,3 +105,22 @@ class ConversationSession:
             Message(role="assistant", content=response_text)
         )
         return response_text
+
+    def submit_input(self, user_input: str) -> ConversationTurnResult | None:
+        """Submit one user input and return a UI-friendly turn result.
+
+        Args:
+            user_input: The user input to process.
+
+        Returns:
+            A ConversationTurnResult containing the assistant response text and
+            status text, or None if the input ended the session.
+        """
+
+        assistant_text = self.process_user_input(user_input)
+        if assistant_text is None:
+            return None
+        return ConversationTurnResult(
+            assistant_text=assistant_text,
+            status_text="idle",
+        )

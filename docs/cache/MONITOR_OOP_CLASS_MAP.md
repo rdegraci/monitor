@@ -23,6 +23,27 @@ Top-level coordinator for startup, mode selection, and lifecycle management.
 - Select the workflow based on startup arguments.
 - Coordinate shutdown and process exit.
 
+## TuiApp
+`src/monitor_oop/core/tui_app.py`
+
+Prompt_toolkit-backed presentation controller for the interactive UI.
+
+### Constructor
+- `context: RuntimeContext`
+
+### Public Methods
+- `run() -> int`
+- `show_output(text: str) -> None`
+- `update_status(text: str) -> None`
+- `focus_input() -> None`
+
+### Responsibilities
+- Own the prompt_toolkit presentation layer.
+- Coordinate the `output_area`, `status_control`, and `input_area` widgets.
+- Integrate with `ConversationSession` for interactive chat flow.
+- Translate session events into UI updates.
+- Manage the TUI lifecycle and user interaction loop.
+
 ## RuntimeContext
 `src/monitor_oop/core/runtime_context.py`
 
@@ -367,6 +388,7 @@ Owns one interactive chat session.
 - `prompt_user() -> str`
 - `handle_model_switch() -> None`
 - `process_user_input(user_input: str) -> bool`
+- `submit_input(user_input: str) -> ConversationTurnResult`
 
 ### Responsibilities
 - Own the REPL/session lifecycle.
@@ -374,6 +396,7 @@ Owns one interactive chat session.
 - Coordinate with services through the runtime context.
 - Expose the session `is_running` read-only property for lifecycle state.
 - Handle the current placeholder non-LLM response flow used by the thin slice implementation.
+- Convert submitted input into a `ConversationTurnResult` for downstream UI and workflow handling.
 
 ## ServerApp
 `src/monitor_oop/core/server_app.py`
@@ -419,6 +442,7 @@ Define these in `models.py`:
 - `AppState`
 - `ToolDefinition`
 - `ToolResult`
+- `ConversationTurnResult`
 
 ## Dependency Rules
 - `MonitorApp` owns `RuntimeContext`.

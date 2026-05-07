@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
-import sys
 from logging import getLogger
-from typing import Callable, TextIO
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
 
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.command_processor import CommandProcessor
@@ -60,13 +61,18 @@ class MonitorApp:
         if self._tui_app is not None:
             self._tui_app.enqueue_input_draft_event(text)
 
+    def _append_tui_conversation(self, user_text: str, assistant_text: str) -> None:
+        """Append a user turn and assistant reply to the TUI buffer."""
+        self._append_tui_output(f"> {user_text}")
+        self._append_tui_output(assistant_text)
+
     def _process_tui_turn(
         self, session: ConversationSession, text: str
     ) -> None:
         """Process one TUI user turn and append any assistant reply."""
         response_text = session.process_user_input(text)
         if response_text is not None:
-            self._append_tui_output(response_text)
+            self._append_tui_conversation(text, response_text)
 
     def run(self) -> int:
         """Run the default CLI workflow."""
@@ -86,92 +92,88 @@ class MonitorApp:
         """Run a script workflow."""
         return run_script(self, script_path)
 
-    def run_tui(
-        self,
-        input_fn: Callable[[], str] | None = None,
-        output_fn: Callable[..., None] | None = None,
-    ) -> int:
+    def run_tui(self) -> int:
         """Run the TUI workflow."""
         if self._tui_app is None:
             return 1
-        if input_fn is None:
-            input_fn = sys.stdin.readline
-        if output_fn is None:
-            output_fn = print
-        session = ConversationSession(self.context)
-        session.start()
-        self._tui_app.start()
-        while True:
-            view = self._tui_app.render()
-            output_fn(view, end="")
-            line = input_fn()
-            if not line:
-                break
-            text = line.rstrip("\n")
-            if text in {"q", "quit"}:
-                break
-            self._append_tui_output(f"> {text}")
-            self._process_tui_turn(session, text)
-        return 0
+        root_logger = logging.getLogger()
+        previous_level = root_logger.level
+        root_logger.setLevel(logging.CRITICAL + 1)
+        try:
+            return self._tui_app.run()
+        finally:
+            root_logger.setLevel(previous_level)
 
     def reset_config(self, force: bool = False) -> None:
         """Reset application configuration."""
         reset_config(self, force=force)
 
 
-def build_app() -> MonitorApp:
-    """Build a thin-slice application instance."""
+def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
+    """Build a thin-slice application instance.
+
+    Args:
+        quiet_bootstrap: When True, suppress bootstrap log emission.
+    """
     logger_service = LoggerService()
     config_service = ConfigService()
     config_service.load()
     logger_service.configure(level=config_service.get_logging_level())
-    app_logger = logger_service.get_logger(__name__)
-    app_logger.info("Starting application bootstrap")
-    history_service = HistoryService(config_service)
-    prompt_store = PromptStore(config_service)
-    macro_store = MacroStore("Monitor OOP")
-    macro_expander = MacroExpander("{{", "}}")
-    macro_service = MacroService(config_service, macro_store, macro_expander)
-    app_logger.info("Loading macros during bootstrap")
-    macro_service.load()
-    prompt_service = PromptService(config_service, prompt_store)
-    app_logger.info("Loading prompts during bootstrap")
-    prompt_service.load()
-    status_service = StatusService()
-    tool_registry = ToolRegistry()
-    tool_service = ToolService(tool_registry)
-    app_logger.info("Registering weather tool")
-    tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
-    tool_turn_state = ToolTurnState()
-    request_builder = LLMRequestBuilder()
-    adapter = ResponsesOpenAiAdapter()
-    response_client = LLMResponseClient(config_service, adapter, tool_service)
-    tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
-    llm_service = LLMService(
-        config_service,
-        request_builder,
-        response_client,
-        tool_call_handler,
-        adapter,
-        tool_service,
-        prompt_service,
-    )
-    command_processor = CommandProcessor(
-        config_service, history_service, macro_service, status_service
-    )
-    context = RuntimeContext(
-        config_service=config_service,
-        history_service=history_service,
-        llm_service=llm_service,
-        logger_service=logger_service,
-        macro_service=macro_service,
-        status_service=status_service,
-        command_processor=command_processor,
-        tool_registry=tool_registry,
-        tool_service=tool_service,
-        prompt_service=prompt_service,
-    )
-    turn_coordinator = TurnCoordinator()
-    tui_app = TuiApp(context, turn_coordinator)
-    app_logger.info("Application bootstrap complete after weather tool registration")
-    return MonitorApp(context, tui_app=tui_app)
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    if quiet_bootstrap:
+        root_logger.setLevel(logging.CRITICAL + 1)
+    try:
+        app_logger = logger_service.get_logger(__name__)
+        app_logger.info("Starting application bootstrap")
+        history_service = HistoryService(config_service)
+        prompt_store = PromptStore(config_service)
+        macro_store = MacroStore("Monitor OOP")
+        macro_expander = MacroExpander("{{", "}}")
+        macro_service = MacroService(config_service, macro_store, macro_expander)
+        app_logger.info("Loading macros during bootstrap")
+        macro_service.load()
+        prompt_service = PromptService(config_service, prompt_store)
+        app_logger.info("Loading prompts during bootstrap")
+        prompt_service.load()
+        status_service = StatusService()
+        tool_registry = ToolRegistry()
+        tool_service = ToolService(tool_registry)
+        app_logger.info("Registering weather tool")
+        tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
+        tool_turn_state = ToolTurnState()
+        request_builder = LLMRequestBuilder()
+        adapter = ResponsesOpenAiAdapter()
+        response_client = LLMResponseClient(config_service, adapter, tool_service)
+        tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
+        llm_service = LLMService(
+            config_service,
+            request_builder,
+            response_client,
+            tool_call_handler,
+            adapter,
+            tool_service,
+            prompt_service,
+        )
+        command_processor = CommandProcessor(
+            config_service, history_service, macro_service, status_service
+        )
+        context = RuntimeContext(
+            config_service=config_service,
+            history_service=history_service,
+            llm_service=llm_service,
+            logger_service=logger_service,
+            macro_service=macro_service,
+            status_service=status_service,
+            command_processor=command_processor,
+            tool_registry=tool_registry,
+            tool_service=tool_service,
+            prompt_service=prompt_service,
+        )
+        turn_coordinator = TurnCoordinator()
+        tui_app = TuiApp(context, turn_coordinator)
+        app_logger.info("Application bootstrap complete after weather tool registration")
+        return MonitorApp(context, tui_app=tui_app)
+    finally:
+        if quiet_bootstrap:
+            root_logger.setLevel(previous_level)

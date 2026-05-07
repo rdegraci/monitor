@@ -14,6 +14,7 @@ The presentation layer owns terminal or HTTP interaction with the user.
 
 Current examples:
 - `ConversationSession` for CLI interaction
+- `TuiApp` for the `prompt_toolkit`-based TUI implementation
 - `ServerApp` for HTTP entry points
 
 Responsibilities:
@@ -33,6 +34,7 @@ Current examples:
 - `PromptService`
 - `PromptStore`
 - the macro subsystem, which is loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
+- `TuiApp`, which is Application-backed and owns the prompt_toolkit TUI flow
 
 Responsibilities:
 - decide which workflow runs
@@ -82,6 +84,7 @@ The runtime is composed explicitly at startup.
 ### Root coordinator
 - `MonitorApp` is the top-level entry point.
 - It owns a `RuntimeContext` and selects the workflow to run.
+- `MonitorApp` delegates TUI startup to the Application-backed `TuiApp`.
 - `MonitorApp` exposes read-only accessors over its privately stored dependencies.
 
 ### RuntimeContext
@@ -95,6 +98,7 @@ The runtime is composed explicitly at startup.
 
 ### Session and server entry points
 - `ConversationSession` owns one interactive CLI session.
+- `TuiApp` owns the `prompt_toolkit`-based TUI session lifecycle.
 - `ServerApp` owns HTTP startup and request conversion.
 - Both use the shared `RuntimeContext` instead of reaching into globals.
 
@@ -120,6 +124,17 @@ The server flow follows the same runtime ownership model.
 4. Requests are converted into command or message inputs.
 5. Application services perform the work.
 6. Responses are returned through the HTTP boundary.
+
+## TUI Flow
+The TUI flow follows the same runtime ownership model with `prompt_toolkit`.
+
+1. `build_app()` supports quiet bootstrap for TUI mode.
+2. `MonitorApp` delegates TUI startup to `TuiApp`.
+3. `TuiApp` creates and owns the `prompt_toolkit` session.
+4. Runtime TUI logging is suppressed while the TUI session is active.
+5. User input is read through the prompt toolkit layer.
+6. Command and message inputs are routed through application services.
+7. Output is rendered back to the user.
 
 ## LLM Architecture
 `LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` are the collaborators used by `LLMService` to shape requests, invoke the provider, and handle tool calls.
@@ -169,6 +184,7 @@ Logging is initialized once during bootstrap.
 - `LoggerService` owns logging setup.
 - Runtime modules use standard `logging.getLogger(__name__)` access patterns.
 - Logging configuration is not duplicated across feature modules.
+- Runtime TUI logging is suppressed while the TUI session is active.
 
 ## Test Layout
 The tests mirror the source tree.
@@ -187,6 +203,7 @@ The codebase is moving toward:
 - smaller LLM collaborators
 - stable domain objects
 - infrastructure isolated behind narrow interfaces
+- a consolidated `prompt_toolkit`-based TUI presentation path
 
 ## Rules of Thumb
 - `build_app()` still owns construction during bootstrap.
@@ -194,5 +211,8 @@ The codebase is moving toward:
 - Dependency creation should be explicit at the composition root.
 - Ownership is the next refactor target.
 - Prompt, config, and LLM boundaries should remain stable and explicit.
+- `MonitorApp` delegates TUI startup to `TuiApp`.
+- `build_app()` supports quiet bootstrap for TUI mode.
+- Runtime TUI logging should remain suppressed while the TUI session is active.
 
 The current implementation is already usable, but the architecture is still evolving toward a cleaner layered design.

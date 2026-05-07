@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
-from typing import TextIO
 
 from monitor_oop.core.app import build_app
 
@@ -23,9 +22,11 @@ def main(
     )
     args = parser.parse_args()
 
-    app = build_app()
     if args.tui:
-        return app.run_tui(input_fn=input_fn, output_fn=output_fn)
+        app = build_app(quiet_bootstrap=True)
+        return app.run_tui()
+
+    app = build_app()
 
     status = app.run()
     if status != 0:
