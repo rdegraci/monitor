@@ -30,8 +30,10 @@ def run_cli(app: MonitorApp) -> int:
             user_input = session.read_user_input()
         except (EOFError, KeyboardInterrupt):
             break
-        if session.process_user_input(user_input) is None:
+        assistant_response = session.process_user_input(user_input)
+        if assistant_response is None:
             break
+        print(assistant_response)
 
     return exit_code
 
