@@ -1,7 +1,7 @@
 # PLAN_MONITOR_OOP
 
 ## Goal
-Rewrite Monitor as a new, isolated Python application in an object-oriented style with free-function orchestration, while keeping the legacy app intact as the baseline reference.
+Rewrite Monitor as a new, isolated Python application in an object-oriented style with free-function orchestration, while keeping the legacy app intact as the baseline reference. The current codebase already includes the classic CLI REPL as the default interactive mode, and the prompt_toolkit-based TUI is available via `--tui` with quiet bootstrap during startup and suppressed runtime logs while active.
 
 ## Package Boundaries
 - Legacy application code stays under `src/monitor/`.
@@ -19,7 +19,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Each runtime instance must own its own config, history, macros, status, logger, prompt, and session state.
 - No new code path in `src/monitor_oop/` should mutate `src/monitor/` state.
 - Logging is configured once at centralized bootstrap, and runtime code uses standard module loggers.
-- The current `prompt_toolkit`-based TUI should continue to use quiet bootstrap during app construction, and runtime logs should be suppressed while the TUI is active.
+- The current prompt_toolkit-based TUI uses quiet bootstrap during app construction, and runtime logs are suppressed while the TUI is active.
 
 ## Runtime Object Graph
 The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP.md` for the overview:
@@ -92,7 +92,7 @@ Suggested ownership flow:
 - `CommandProcessor` delegates to services rather than reaching into global state.
 - `ServerApp` uses the same `RuntimeContext` as CLI and script modes.
 - `LoggerService` is initialized during centralized bootstrap and shared through explicit context wiring, while runtime modules continue to use standard `logging.getLogger(__name__)` access.
-- The prompt_toolkit-based TUI path should use quiet bootstrap during app construction and suppress runtime logs while the TUI is active.
+- The prompt_toolkit-based TUI uses quiet bootstrap during app construction and suppresses runtime logs while active.
 - `PromptService` and `PromptStore` provide a future-friendly seam for prompt specialization and subagent-oriented prompt variants without committing to subagent behavior yet.
 - Prompt-related tests and import paths have been added alongside the new prompt subsystem so prompt loading, seeding, and request injection are exercised through the new package layout.
 
@@ -119,7 +119,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Shared helpers must be stateless or pure unless explicitly isolated behind a service boundary.
 - Startup code in `src/monitor_oop/` must not depend on side effects from `src/monitor/`.
 - The legacy app remains the reference implementation until the new app is verified.
-- The TUI path should keep runtime logging quiet while active, using centralized bootstrap to avoid noisy output during interactive prompt handling.
+- The TUI path uses quiet bootstrap during construction, and runtime logging remains quiet while the TUI is active.
 
 ## Suggested Package Layout
 - `src/monitor_oop/`
@@ -193,7 +193,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - Services do not create other services; they consume injected dependencies instead.
   - Prompt, config, and LLM boundaries remain stable and explicit across bootstrap, request construction, and runtime execution.
 - Bootstrap ownership should be explicit and strict, with runtime constructors avoiding fallback dependency creation.
-- The prompt_toolkit-based TUI should remain covered by verification for quiet bootstrap and suppressed runtime logging while active.
+- The prompt_toolkit-based TUI is covered by verification for quiet bootstrap and suppressed runtime logging while active.
 
 ### Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
@@ -229,8 +229,8 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `src/monitor_oop/core/app.py`
   - `src/monitor_oop/core/runtime_context.py`
   - `src/monitor_oop/core/config_service.py`
-  - `src/monitor_oop/core/prompt_service.py`
   - `src/monitor_oop/core/prompt_store.py`
+  - `src/monitor_oop/core/prompt_service.py`
   - `src/monitor_oop/core/history_service.py`
   - `src/monitor_oop/core/macro_service.py`
   - `src/monitor_oop/core/status_service.py`
@@ -255,7 +255,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `ServerApp` reuses the same `RuntimeContext` as CLI and script modes.
   - `LoggerService` configures logging once at centralized bootstrap, and runtime modules use standard module loggers.
   - `PromptService` and `PromptStore` are explicit runtime dependencies so prompt loading, seeding, and request construction stay isolated from the rest of the bootstrap graph.
-  - The prompt_toolkit-based TUI should use quiet bootstrap during app construction and suppress runtime logs while active.
+  - The prompt_toolkit-based TUI uses quiet bootstrap during app construction and suppresses runtime logs while active.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
   - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, `tool_call_handler.py`, and per-tool modules such as `weather.py`.
@@ -268,7 +268,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - The latest tool-calling test coverage should verify normalization, repeated tool loops, turn-state lifecycle, envelope assembly, and follow-up payload dispatch without depending on legacy state.
   - `system_prompt` is loaded from the user config directory, seeded from `system_prompt.example` on first run, and supplied to LLM request construction as the initial system message.
   - Prompt subsystem tests and import paths should target `src/monitor_oop/core/prompt_service.py` and `src/monitor_oop/core/prompt_store.py` directly to keep coverage aligned with the resolved layout.
-  - The prompt_toolkit-based TUI should be configured for quiet bootstrap during app construction and suppress runtime logs while active.
+  - The prompt_toolkit-based TUI uses quiet bootstrap during app construction and suppresses runtime logs while active.
 - Startup order:
   - Parse entrypoint args in `main()`.
   - Build `MonitorApp`.
@@ -279,7 +279,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Thin-slice first implementation:
   - Start with config loading, prompt loading, a minimal runtime context, session creation, logging bootstrap, and one command dispatch path.
   - Keep orchestration in free functions and keep services small.
-  - Make the first runnable path CLI only.
+  - Make the first runnable path CLI only, with `--tui` as the alternate interactive mode using quiet bootstrap.
 - Avoid early:
   - Sharing module-level mutable state with `src/monitor/`.
   - Building server mode before CLI startup is verified.

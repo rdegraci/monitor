@@ -9,16 +9,16 @@
 6. Add `prompt_store.py`.
 7. Add `prompt_service.py`.
 
-Phase 1 is complete: the foundation package, models, runtime context, and config service are in place, and prompt storage/loading is now part of the same early bootstrap layer.
+Phase 1 is complete: the foundation package, models, runtime context, config service, and prompt loading/storage are in place, and the early bootstrap layer now seeds missing user config files from the packaged examples while preserving any existing `appdirs.user_config_dir("monitor")` files.
 
 ## Configuration Bootstrap
-- Next planned work is to add `config.yaml.example` in `src/monitor_oop/`.
+- `src/monitor_oop/config.yaml.example` is present and is used to seed missing `appdirs.user_config_dir("monitor")/config.yaml` files.
 - Existing `appdirs.user_config_dir("monitor")/config.yaml` files are preserved.
 - Only missing `appdirs.user_config_dir("monitor")/config.yaml` files are seeded from `src/monitor_oop/config.yaml.example`.
 - On first run, copy it to `appdirs.user_config_dir("monitor")/config.yaml`.
 - Load `config.yaml` from the user config directory, with fallback to `~/.config/monitor/`.
 - Load `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks.
-- Next planned work is to add `system_prompt.example` in `src/monitor_oop/`.
+- `src/monitor_oop/system_prompt.example` is present and is used to seed missing `appdirs.user_config_dir("monitor")/system_prompt` files.
 - Existing `appdirs.user_config_dir("monitor")/system_prompt` files are preserved.
 - Only missing `appdirs.user_config_dir("monitor")/system_prompt` files are seeded from `src/monitor_oop/system_prompt.example`.
 - On first run, copy it to `appdirs.user_config_dir("monitor")/system_prompt`.
@@ -38,7 +38,7 @@ Phase 2 is complete: the core services and command processor are implemented, in
 11. Add `workflow.py` with orchestration functions.
 12. Add `app.py` with `MonitorApp`.
 
-Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. Prompt loading should happen early in this thin slice, before broader server work, so the first system message is available to the request builder from the start.
+Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. The classic CLI REPL remains the default interactive mode, while the prompt_toolkit TUI is available as a separate `--tui` path. Prompt loading happens early in the thin slice so the first system message is available to the request builder from the start, and TUI startup uses a quiet bootstrap path so runtime logs stay suppressed while the TUI is active.
 
 ## Phase 4: Server
 13. Add `server_app.py`.
@@ -50,7 +50,7 @@ Phase 4 remains future work: server wiring is still pending.
 15. Make one CLI path runnable end to end.
 16. Keep the first version narrow: config load, session creation, prompt, one command, exit.
 
-The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback. Prompt loading is included in the early bootstrap path, and the resolved prompt is injected into LLM request construction as the first system message.
+The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback. Prompt loading is included in the early bootstrap path, and the resolved prompt is injected into LLM request construction as the first system message. The default interactive experience is the classic CLI REPL, and the separate `--tui` entry path uses quiet bootstrap so the TUI can start without emitting runtime logs; those logs remain suppressed while the TUI is active.
 
 ## Phase 6: Tests
 17. Add startup tests.
@@ -69,6 +69,10 @@ The new tests cover the first-stage flow, including startup, config service, com
 - Avoid introducing circular imports between services.
 - Keep the legacy app unchanged during this sequence.
 - Load the resolved prompt early so request construction can consistently prepend it as the first system message.
+- Keep the classic CLI REPL as the default interactive mode.
+- Treat the prompt_toolkit TUI as a separate `--tui` path.
+- Use quiet bootstrap for TUI startup.
+- Suppress runtime TUI logs while the TUI is active.
 
 ## Future Work
 - Complete server work.

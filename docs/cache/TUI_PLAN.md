@@ -7,8 +7,8 @@ Build a prompt_toolkit-based terminal UI for `monitor_oop` with three sections:
 - Input
 
 The TUI should stay responsive while background work, including subagent activity, is happening.
-The TUI should observe `TurnCoordinator` snapshots as the per-turn coordination boundary for internal context, subagent results, and background completion state, rather than directly owning request assembly logic or direct rendering callbacks.
-The current UI is prompt_toolkit-based and implemented: `MonitorApp/run_tui` now delegates into the Application-backed run path with `output_area`, `status_control`, and `input_area`, and the TUI includes a simple loop that accepts draft input and exits through the Application flow.
+The TUI observes `TurnCoordinator` snapshots as the per-turn coordination boundary for internal context, subagent results, and background completion state, rather than directly owning request assembly logic or direct rendering callbacks.
+The current UI is prompt_toolkit-based and implemented: `MonitorApp/run_tui` delegates into the Application-backed run path with `output_area`, `status_control`, and `input_area`, and the TUI includes a simple loop that accepts draft input and exits through the Application flow.
 The TUI uses injectable I/O helpers through prompt_toolkit UI components and session plumbing so input, output, and status behavior can be swapped cleanly without coupling the core loop to a specific terminal backend.
 The TUI uses `build_app(quiet_bootstrap=True)` for quiet startup, and runtime logging is suppressed while the TUI session is active.
 
@@ -66,8 +66,8 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - Ensure the parent remains responsive while background work runs.
 - Internal context records should have a structured shape with `id`, `source`, `kind`, `text`, `timestamp`, and optional `metadata`.
 - The UI may show summaries or status notices derived from those records while the raw records remain mostly internal.
-- The TUI should consume `TurnCoordinator` snapshots with the interface `begin_turn/add_internal_context/add_subagent_result/add_background_event/mark_background_complete/snapshot/clear_turn`.
-- The basic UI contract is implemented as a prompt_toolkit `Application` with distinct `output_area`, `status_control`, and `input_area` regions, with richer layout behavior reserved for later.
+- The TUI consumes `TurnCoordinator` snapshots with the interface `begin_turn/add_internal_context/add_subagent_result/add_background_event/mark_background_complete/snapshot/clear_turn`.
+- The basic UI contract is implemented as a prompt_toolkit `Application` with distinct `output_area`, `status_control`, and `input_area` regions, with richer layout behavior reserved for later enhancements.
 - The interactive loop and prompt_toolkit session plumbing are implemented as the current control surface for the TUI.
 
 ## Likely Requirements
