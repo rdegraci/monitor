@@ -8,7 +8,7 @@ class HistoryService:
     """Owns in-memory conversation history for one runtime."""
 
     def __init__(self, config_service) -> None:
-        self.config_service = config_service
+        self._config_service = config_service
         self._history = History()
 
     def _snapshot(self) -> list[Message]:
