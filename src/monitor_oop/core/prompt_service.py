@@ -19,7 +19,7 @@ class PromptService:
             config_service: Runtime configuration service.
             prompt_store: Prompt store dependency.
         """
-        self.config_service = config_service
+        self._config_service = config_service
         self._store = prompt_store
         self._prompt = ""
         logger.debug("PromptService initialized with store=%s", type(self._store).__name__)
