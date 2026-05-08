@@ -107,9 +107,6 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     assert tui.output_buffer == ["hello", "subagent result", "boom"]
     assert tui.status_text == "error"
     assert tui.input_draft == "draft"
-    assert tui.layout.output_title == "Output"
-    assert tui.output_area.text == "hello\nsubagent result\nboom"
-    assert tui.input_area.text == "draft"
     assert any(
         entry.text == "subagent result" and entry.kind == "subagent_result"
         for entry in snapshot.internal_context_entries

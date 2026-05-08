@@ -42,17 +42,17 @@ class TuiApp:
     status_text: str = "idle"
     input_draft: str = ""
     active_task_id: str = ""
-    conversation_session: ConversationSession = field(init=False)
-    application: Application | None = field(init=False, default=None)
-    output_area: TextArea = field(init=False)
-    status_control: FormattedTextControl = field(init=False)
-    input_area: TextArea = field(init=False)
+    _conversation_session: ConversationSession = field(init=False)
+    _application: Application | None = field(init=False, default=None)
+    _output_area: TextArea = field(init=False)
+    _status_control: FormattedTextControl = field(init=False)
+    _input_area: TextArea = field(init=False)
 
     def __post_init__(self) -> None:
         """Build the prompt_toolkit application shell."""
-        self.conversation_session = ConversationSession(self.runtime_context)
-        self.status_control = FormattedTextControl(text=self._get_status_text)
-        self.output_area = TextArea(
+        self._conversation_session = ConversationSession(self.runtime_context)
+        self._status_control = FormattedTextControl(text=self._get_status_text)
+        self._output_area = TextArea(
             text="",
             read_only=True,
             scrollbar=True,
@@ -60,15 +60,15 @@ class TuiApp:
             height=Dimension(min=8, weight=1),
             focusable=False,
         )
-        self.input_area = TextArea(
+        self._input_area = TextArea(
             text="",
             multiline=True,
             focus_on_click=True,
             height=Dimension(min=3, max=3),
         )
-        self.input_area.buffer.accept_handler = self._submit_input
-        self.application = Application(
-            layout=Layout(self._build_ui(), focused_element=self.input_area),
+        self._input_area.buffer.accept_handler = self._submit_input
+        self._application = Application(
+            layout=Layout(self._build_ui(), focused_element=self._input_area),
             key_bindings=self._build_key_bindings(),
             full_screen=True,
         )
@@ -82,14 +82,14 @@ class TuiApp:
     def run(self) -> None:
         """Run the prompt_toolkit application."""
         self.start()
-        assert self.application is not None
-        self.application.run()
+        assert self._application is not None
+        self._application.run()
 
     def stop(self) -> None:
         """Stop the TUI loop."""
         self.is_running = False
-        if self.application is not None and getattr(self.application, "is_running", False):
-            self.application.exit()
+        if self._application is not None and getattr(self._application, "is_running", False):
+            self._application.exit()
 
     def enqueue_event(self, event: object) -> None:
         """Add an event to the internal queue."""
@@ -120,14 +120,14 @@ class TuiApp:
                     height=1,
                     dont_extend_height=True,
                 ),
-                self.output_area,
+                self._output_area,
                 Window(
                     content=FormattedTextControl(text=self.layout.status_title),
                     height=1,
                     dont_extend_height=True,
                 ),
                 Window(
-                    content=self.status_control,
+                    content=self._status_control,
                     height=1,
                     dont_extend_height=True,
                 ),
@@ -136,7 +136,7 @@ class TuiApp:
                     height=1,
                     dont_extend_height=True,
                 ),
-                self.input_area,
+                self._input_area,
             ]
         )
 
@@ -161,8 +161,8 @@ class TuiApp:
 
     def _submit_current_draft(self) -> bool:
         """Submit the current draft and refresh the presentation state."""
-        draft_text = self.input_area.text
-        result = self.conversation_session.submit_input(draft_text)
+        draft_text = self._input_area.text
+        result = self._conversation_session.submit_input(draft_text)
         if result is None:
             self.stop()
             return True
@@ -171,16 +171,16 @@ class TuiApp:
         self.output_buffer.append(result.assistant_text)
         self.status_text = result.status_text
         self.input_draft = ""
-        self.input_area.text = ""
+        self._input_area.text = ""
         self.drain_events()
         self._refresh_ui()
         return True
 
     def _refresh_ui(self) -> None:
         """Synchronize prompt_toolkit widgets with the current state."""
-        self.output_area.text = "\n".join(self.output_buffer)
-        assert self.application is not None
-        self.application.invalidate()
+        self._output_area.text = "\n".join(self.output_buffer)
+        assert self._application is not None
+        self._application.invalidate()
 
     def _get_status_text(self) -> str:
         """Return the rendered status line."""
@@ -212,5 +212,5 @@ class TuiApp:
             return
         if isinstance(event, InputDraftEvent):
             self.input_draft = event.draft_text
-            self.input_area.text = event.draft_text
+            self._input_area.text = event.draft_text
             return
