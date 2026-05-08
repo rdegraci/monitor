@@ -9,12 +9,12 @@ class HistoryService:
 
     def __init__(self, config_service) -> None:
         self.config_service = config_service
-        self.history = History()
+        self._history = History()
 
     def _snapshot(self) -> list[Message]:
         """Return a snapshot of the stored conversation messages."""
 
-        return self.history.snapshot()
+        return self._history.snapshot()
 
     @property
     def messages(self) -> list[Message]:
@@ -35,12 +35,12 @@ class HistoryService:
     def append(self, item: Message) -> None:
         """Append a message to history."""
 
-        self.history.append(item)
+        self._history.append(item)
 
     def clear(self) -> None:
         """Clear stored history."""
 
-        self.history.clear()
+        self._history.clear()
 
     def flush(self) -> None:
         """Flush stored history."""
@@ -50,7 +50,7 @@ class HistoryService:
     def trim(self, count: int) -> None:
         """Trim messages to the newest ``count`` entries."""
 
-        self.history.trim(count)
+        self._history.trim(count)
 
     def summarize_if_needed(self) -> bool:
         """Summarize history when needed."""
@@ -60,8 +60,8 @@ class HistoryService:
     def _reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""
 
-        self.history.clear()
-        self.history.append(Message(role="system", content=summary_text))
+        self._history.clear()
+        self._history.append(Message(role="system", content=summary_text))
 
     def reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""

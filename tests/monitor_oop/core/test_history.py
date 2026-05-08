@@ -12,13 +12,15 @@ def test_history_defaults_to_empty_messages() -> None:
     assert history.snapshot() == []
 
 
-def test_history_service_owns_history_instance() -> None:
-    """Verify the history service owns a dedicated History object."""
+def test_history_service_behaves_as_dedicated_history_store() -> None:
+    """Verify the history service behaves like an isolated history store."""
 
     service = HistoryService(ConfigService())
 
-    assert isinstance(service.history, History)
     assert service.snapshot() == []
+    service.append(Message(role="user", content="hello"))
+
+    assert service.snapshot() == [Message(role="user", content="hello")]
 
 
 def test_history_service_snapshot_after_mutations() -> None:
