@@ -57,9 +57,14 @@ def count_message_tokens(message):
         def count_single(item, idx=None):
             try:
                 if isinstance(item, dict):
-                    content = item.get('content', '')
-                    if 'content' not in item:
+                    # Responses API function_call_output items use 'output' instead of 'content'.
+                    if 'content' in item:
+                        content = item.get('content', '')
+                    elif 'output' in item:
+                        content = item.get('output', '')
+                    else:
                         logger.warning("Message dict missing 'content' key; treating as empty string.")
+                        content = ''
                     if not isinstance(content, str):
                         logger.debug(f"Coercing non-str 'content' value to str for token counting: {type(content)}")
                         content = str(content)
