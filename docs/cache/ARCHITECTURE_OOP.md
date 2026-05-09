@@ -134,7 +134,8 @@ The TUI flow follows the same runtime ownership model with `prompt_toolkit`.
 4. Runtime TUI logging is suppressed while the TUI session is active.
 5. User input is read through the prompt toolkit layer.
 6. Command and message inputs are routed through application services.
-7. Output is rendered back to the user.
+7. The TUI is moving toward background turn execution for LLM submissions so the status line can visibly show working while the request is in flight.
+8. Output is rendered back to the user.
 
 ## LLM Architecture
 `LLMRequestBuilder`, `LLMResponseClient`, and `ToolCallHandler` are the collaborators used by `LLMService` to shape requests, invoke the provider, and handle tool calls.
@@ -204,6 +205,7 @@ The codebase is moving toward:
 - stable domain objects
 - infrastructure isolated behind narrow interfaces
 - a consolidated `prompt_toolkit`-based TUI presentation path
+- background turn execution for TUI LLM submissions so the status line can visibly show working while the request is in flight
 
 ## Rules of Thumb
 - `build_app()` still owns construction during bootstrap.

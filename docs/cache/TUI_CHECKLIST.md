@@ -126,6 +126,12 @@ This tracker covers:
 - [x] Route visible events to the Output pane.
 - [x] Route runtime status to the Status Line.
 - [x] Keep input handling separate from background event handling.
+- [ ] Define a turn completion result type.
+- [ ] Move LLM submission off the UI thread.
+- [ ] Wire completion callbacks to enqueue presentation events.
+- [ ] Restore idle on success.
+- [ ] Restore idle on failure.
+- [ ] Keep the UI thread as the only mutator of `TuiApp` state.
 
 ## Milestone 6: Subagent compatibility
 - [ ] Allow background subagent results to be injected as explicit internal context.

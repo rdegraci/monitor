@@ -27,6 +27,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm adjusted tests assert the present tool-calling behavior as implemented today.
 - Confirm macro subsystem verification targets recursive macro expansion, delimiter-aware escaping, JSON-backed macro loading/saving as parity goals, and prompt-specific docs alignment alongside those goals.
 - Confirm TCL macro behavior is tracked separately if it is not yet implemented.
+- Confirm TUI verification covers visible working status during submission, output/status updates after background completion, no direct widget-state mutation from worker threads, and the ability to reuse the same background turn pattern for future subagents.
 
 ## Verification Scope
 ### Startup
@@ -69,6 +70,13 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Tool turn lifecycle is turn-scoped, with state created at the start of a tool-enabled turn and cleared after the turn completes.
 - Tool call tracking, pending follow-up payload preparation, and multi-call sequencing are verified through the dedicated helper.
 - Current tests assert that the helper owns the per-turn tool state and that no stale tool turn state leaks across turns.
+- Background TUI turns reuse the same turn-state pattern for future subagent-style work, while keeping widget updates out of worker threads.
+
+### TUI Background Turn Handling
+- Visible working status is shown during submission so the user can see that the active turn is in progress.
+- Output and status are updated after background completion so the TUI reflects the final result of the submitted turn.
+- Worker threads do not mutate widget state directly, and UI changes happen through the appropriate handoff back to the TUI layer.
+- The same background turn pattern can be reused for future subagents without introducing new shared mutable state.
 
 ## Test Categories
 - Unit tests for services and helpers.
@@ -88,6 +96,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 6. Isolation tests.
 7. Regression comparison tests.
 8. Tool turn state tests.
+9. TUI background turn handling tests.
 
 ## Pass Criteria
 - No test depends on legacy mutable globals.
@@ -99,6 +108,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
 - Logging is configured once at bootstrap via `LoggerService`, and runtime modules use standard logger access patterns.
 - The classic CLI REPL remains the default interactive mode, the `--tui` path activates the prompt_toolkit TUI, TUI startup uses quiet bootstrap, and runtime TUI logging is suppressed while the TUI is active.
+- TUI verification covers visible working status during submission, output/status updates after background completion, no direct widget-state mutation from worker threads, and reuse of the same background turn pattern for future subagents.
 
 ## Failure Handling
 - Treat any accidental mutation of legacy globals as a blocking issue.

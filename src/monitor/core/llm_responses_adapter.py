@@ -634,7 +634,74 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     )
 
                     iw = getattr(config, "MODEL_INPUT_WINDOW", None)
-                    if isinstance(iw, int) and iw > 0:
+                    cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+                    input_window = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
+                    if input_window is not None:
+                        try:
+                            followup_input = followup_params.get(REQUEST_PARAM_INPUT)
+                            if isinstance(followup_input, list):
+                                followup_tokens = count_message_tokens(followup_input)
+                                logger.info(
+                                    "Pre-flight follow-up payload token check: original=%s tokens, limit=%s tokens",
+                                    followup_tokens,
+                                    input_window,
+                                )
+                                if followup_tokens > input_window:
+                                    trim_target = max(1, int(input_window * 0.8))
+                                    trimmed_input = []
+                                    running_tokens = 0
+                                    note_prefix = "[Trimmed to fit context window] "
+                                    note_tokens = count_message_tokens(note_prefix)
+                                    for idx, fc_item in enumerate(followup_input):
+                                        if not isinstance(fc_item, dict) or fc_item.get(TYPE_KEY) != FUNCTION_CALL_OUTPUT_TYPE:
+                                            continue
+                                        try:
+                                            call_id = fc_item.get("call_id")
+                                            output_text = fc_item.get("output")
+                                            if output_text is None:
+                                                output_text = ""
+                                            if not isinstance(output_text, str):
+                                                try:
+                                                    output_text = json.dumps(output_text)
+                                                except Exception:
+                                                    output_text = str(output_text)
+                                            if idx == 0:
+                                                output_text = note_prefix + output_text
+                                            candidate_item = {
+                                                TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE,
+                                                "call_id": call_id,
+                                                "output": output_text,
+                                            }
+                                            candidate_tokens = count_message_tokens(candidate_item)
+                                            if running_tokens + candidate_tokens > trim_target and trimmed_input:
+                                                break
+                                            trimmed_input.append(candidate_item)
+                                            running_tokens += candidate_tokens
+                                        except Exception:
+                                            logger.exception("Failed while trimming a follow-up function_call_output item")
+                                            continue
+                                    if trimmed_input:
+                                        logger.warning(
+                                            "Trimmed follow-up payload from %s tokens to approximately %s tokens (target %s tokens; note overhead %s tokens); retained %s tool outputs",
+                                            followup_tokens,
+                                            running_tokens + note_tokens,
+                                            trim_target,
+                                            note_tokens,
+                                            len(trimmed_input),
+                                        )
+                                        followup_params[REQUEST_PARAM_INPUT] = trimmed_input
+                                    else:
+                                        logger.warning(
+                                            "Follow-up payload exceeded context window (%s tokens > %s) but trimming produced no viable payload; continuing with original payload",
+                                            followup_tokens,
+                                            input_window,
+                                        )
+                            else:
+                                logger.debug(
+                                    "Skipping follow-up payload trimming because REQUEST_PARAM_INPUT is not a list"
+                                )
+                        except Exception:
+                            logger.exception("Failed during pre-flight token budget check for follow-up payload")
                         followup_params = token_budgeter(
                             followup_params, 
                             input_window=iw,
