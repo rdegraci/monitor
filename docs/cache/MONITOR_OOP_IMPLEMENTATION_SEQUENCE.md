@@ -38,7 +38,7 @@ Phase 2 is complete: the core services and command processor are implemented, in
 11. Add `workflow.py` with orchestration functions.
 12. Add `app.py` with `MonitorApp`.
 
-Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. The classic CLI REPL remains the default interactive mode, while the prompt_toolkit TUI is available as a separate `--tui` path. Prompt loading happens early in the thin slice so the first system message is available to the request builder from the start, and TUI startup uses a quiet bootstrap path so runtime logs stay suppressed while the TUI is active.
+Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. The classic CLI REPL remains the default interactive mode, while the prompt_toolkit TUI is available as a separate `--tui` path. Prompt loading happens early in the thin slice so the first system message is available to the request builder from the start, and the default REPL logs to both screen and file while `--tui` uses file-only logging. The log file path follows the user config directory convention under `log/monitor_<pid>.log`. TUI startup uses a quiet bootstrap path so the TUI can start with file-only logging while runtime output stays off the screen.
 
 ## Phase 4: Server
 13. Add `server_app.py`.
@@ -50,7 +50,7 @@ Phase 4 remains future work: server wiring is still pending.
 15. Make one CLI path runnable end to end.
 16. Keep the first version narrow: config load, session creation, prompt, one command, exit.
 
-The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback. Prompt loading is included in the early bootstrap path, and the resolved prompt is injected into LLM request construction as the first system message. The default interactive experience is the classic CLI REPL, and the separate `--tui` entry path uses quiet bootstrap so the TUI can start without emitting runtime logs; those logs remain suppressed while the TUI is active.
+The thin-slice CLI milestone is achieved in `src/monitor_oop/core/`: the first-stage flow now runs from config load through one command and exit, with OpenAI API key handling using the current environment lookup plus the `~/.config/monitor/.env` fallback. Prompt loading is included in the early bootstrap path, and the resolved prompt is injected into LLM request construction as the first system message. The default interactive experience is the classic CLI REPL, which logs to both screen and file, and the separate `--tui` entry path uses file-only logging so the TUI can start without screen output; the log file path follows the user config directory convention under `log/monitor_<pid>.log`. The TUI path still uses quiet bootstrap startup so the UI can initialize cleanly.
 
 ## Phase 6: Tests
 17. Add startup tests.
@@ -72,7 +72,8 @@ The new tests cover the first-stage flow, including startup, config service, com
 - Keep the classic CLI REPL as the default interactive mode.
 - Treat the prompt_toolkit TUI as a separate `--tui` path.
 - Use quiet bootstrap for TUI startup.
-- Suppress runtime TUI logs while the TUI is active.
+- The default REPL logs to both screen and file, while `--tui` uses file-only logging.
+- Write logs under the user config directory `log/` subdirectory as `monitor_<pid>.log`.
 
 ## Future Work
 - Complete server work.

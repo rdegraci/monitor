@@ -157,6 +157,31 @@ class ConfigService:
 
         return str(system_prompt_path)
 
+    def _ensure_log_dir(self, config_dir: Path) -> bool:
+        """Ensure the log directory exists and is writable."""
+
+        return self._ensure_history_dir(config_dir)
+
+    def _get_log_file_path(self, base_dir: Path) -> str:
+        """Return a writable per-process log file path rooted at base_dir."""
+
+        log_dir = base_dir / "log"
+        if not self._ensure_log_dir(log_dir):
+            return ""
+
+        log_file_path = log_dir / f"monitor_{os.getpid()}.log"
+        parent_dir = log_file_path.parent
+
+        try:
+            parent_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return ""
+
+        if not os.access(parent_dir, os.W_OK):
+            return ""
+
+        return str(log_file_path)
+
     def get_persistent_history_file_path(self) -> str:
         """Return the first writable persistent history file path."""
 
@@ -178,6 +203,19 @@ class ConfigService:
             Path(os.path.expanduser("~/.config/monitor")),
         ):
             writable_path = self._get_system_prompt_file_path(candidate)
+            if writable_path:
+                return writable_path
+
+        return ""
+
+    def get_log_file_path(self) -> str:
+        """Return the first writable per-process log file path."""
+
+        for candidate in (
+            self._get_user_config_dir(),
+            Path(os.path.expanduser("~/.config/monitor")),
+        ):
+            writable_path = self._get_log_file_path(candidate)
             if writable_path:
                 return writable_path
 

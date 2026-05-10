@@ -9,8 +9,8 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm behavior is stable for the first thin-slice implementation.
 - Confirm CLI, script, TUI, and server flows work in the new package where they are currently implemented.
 - Confirm the new app preserves intended user-visible behavior where required.
-- Confirm logging is configured once at bootstrap through `LoggerService`, and runtime modules use standard logger access patterns without reconfiguring global logging state.
-- Confirm quiet bootstrap is used for TUI startup, and runtime TUI logging is suppressed while the TUI is active as current verified behavior.
+- Confirm logging is configured once at bootstrap through `LoggerService`, runtime modules use standard logger access patterns without reconfiguring global logging state, the default REPL logs to screen and file, and the `--tui` path uses file-only logging without screen output.
+- Confirm quiet bootstrap is used for TUI startup, and runtime TUI logging uses file-only logging without screen output while the TUI is active as current verified behavior.
 - Confirm configuration bootstrap behavior for `monitor_oop` is implemented and verified: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
 - Confirm prompt loading behavior is implemented and verified: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Confirm `LLMRequestBuilder` has dedicated tests under `tests/monitor_oop/core/application/test_llm_request_builder.py`, and request shaping is verified separately from `LLMService`.
@@ -35,7 +35,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - App can load its own config, including the fallback `~/.config/monitor/.env`, and construct its runtime context.
 - App can start and stop cleanly.
 - Logging is initialized once during bootstrap via `LoggerService`, and application modules obtain loggers through standard logger access patterns.
-- Quiet bootstrap is used for TUI startup, and the active TUI suppresses runtime logging while it is displayed as current verified behavior.
+- Quiet bootstrap is used for TUI startup, and the active TUI uses file-only logging without screen output while it is displayed as current verified behavior.
 - Configuration bootstrap behavior for `monitor_oop` is covered by verification: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
 - Prompt loading behavior is covered by verification: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Verification tests now live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
@@ -63,7 +63,8 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - New app services own their state instance-local.
 - Logger configuration is centralized and performed once at bootstrap; runtime modules only acquire loggers through standard access patterns.
 - Current tests and the runnable CLI partially verify isolation behavior.
-- TUI startup uses quiet bootstrap, and TUI runtime logging is suppressed while the TUI is active as current verified behavior.
+- TUI startup uses quiet bootstrap, and TUI runtime uses file-only logging without screen output while the TUI is active as current verified behavior.
+- The per-process log file convention writes to the user config directory `log/` subdirectory with `monitor_<pid>.log`.
 
 ### Tool Turn State
 - Tool turn state is encapsulated in `ToolTurnState` rather than being managed ad hoc inside LLM/service code.
@@ -106,8 +107,8 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Real LLM behavior is deferred until the corresponding implementation exists.
 - Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, direct `response.output` parsing via `extract_tool_calls`, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing coverage focused on Responses API shapes, the defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
 - Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
-- Logging is configured once at bootstrap via `LoggerService`, and runtime modules use standard logger access patterns.
-- The classic CLI REPL remains the default interactive mode, the `--tui` path activates the prompt_toolkit TUI, TUI startup uses quiet bootstrap, and runtime TUI logging is suppressed while the TUI is active.
+- Logging is configured once at bootstrap via `LoggerService`, the default REPL logs to screen and file, and the `--tui` path uses file-only logging without screen output.
+- The classic CLI REPL remains the default interactive mode, the `--tui` path activates the prompt_toolkit TUI, TUI startup uses quiet bootstrap, and runtime TUI uses file-only logging without screen output while the TUI is active.
 - TUI verification covers visible working status during submission, output/status updates after background completion, no direct widget-state mutation from worker threads, and reuse of the same background turn pattern for future subagents.
 
 ## Failure Handling

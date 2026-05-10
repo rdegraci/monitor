@@ -134,7 +134,8 @@ Monitor connects to powerful tools:
 - Search:
   - Use `:rg <pattern>` for fast code search (faster than plain `grep` in many setups).
 - Logs and History:
-  - Application logs directory is configurable in your configuration file (see `logging.log_dir` in `~/.config/monitor/config.yaml`). The packaged default log directory is platform-specific; for example: `~/Library/Application Support/monitor/logs`.
+  - Application logs are written under your user config directory in the `log/` subdirectory, with one file per process named `monitor_<pid>.log`.
+  - The default path is platform-specific, but it lives under the Monitor config directory rather than a shared `logs/` directory.
   - You can change log and other configuration settings in `~/.config/monitor/config.yaml`.
 
 ---
@@ -183,7 +184,7 @@ macros
 :reasoning help
 ```
 - Configuration and logs:
-  - Logs: Application logs directory is configurable in your configuration file (see `logging.log_dir` in `~/.config/monitor/config.yaml`). The packaged default log directory is platform-specific; for example: `~/Library/Application Support/monitor/logs`.
+  - Logs: Application logs are written under your user config directory in the `log/` subdirectory, with one file per process named `monitor_<pid>.log`.
   - Configuration file: `~/.config/monitor/config.yaml`
 - Issues: Check logs for errors or reach out at support@monitorcli.com.
 

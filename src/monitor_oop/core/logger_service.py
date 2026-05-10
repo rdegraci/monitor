@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
-from logging import Logger, getLogger
+from logging import FileHandler, Logger, StreamHandler, getLogger
 from os import getenv
+from pathlib import Path
 from typing import TextIO
 
 
@@ -36,21 +37,64 @@ class LoggerService:
                 return resolved
         return logging.INFO
 
-    def configure(self, level: int | str | None = None, stream: TextIO | None = None) -> None:
+    def _build_logger_directory(self, log_file_path: str | Path) -> Path:
+        """Build the directory path for a log file.
+
+        Args:
+            log_file_path: File path used for logging output.
+
+        Returns:
+            The parent directory for the provided log file path.
+        """
+
+        return self._log_file_parent_directory(log_file_path)
+
+    def _log_file_parent_directory(self, log_file_path: str | Path) -> Path:
+        """Return the parent directory for a writable log file path."""
+
+        return Path(log_file_path).expanduser().parent
+
+    def configure(
+        self,
+        level: int | str | None = None,
+        log_file_path: str | Path | None = None,
+        stream: TextIO | None = None,
+        stream_output: bool = False,
+    ) -> None:
         """Configure application-wide logging once.
 
         Args:
             level: Explicit logging level or level name to apply.
+            log_file_path: Optional file path for log output.
             stream: Optional stream to send log output to.
+            stream_output: Whether to attach a stream handler when stream is provided.
         """
 
         if self._configured:
             return
-        logging.basicConfig(
-            level=self._resolve_level(level),
-            stream=stream,
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        )
+
+        root_logger = logging.getLogger()
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
+            handler.close()
+
+        handlers: list[logging.Handler] = []
+
+        if log_file_path is not None:
+            log_path = Path(log_file_path).expanduser()
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handlers.append(FileHandler(log_path))
+
+        if stream_output and stream is not None:
+            handlers.append(StreamHandler(stream))
+
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        for handler in handlers:
+            handler.setLevel(self._resolve_level(level))
+            handler.setFormatter(formatter)
+            root_logger.addHandler(handler)
+
+        root_logger.setLevel(self._resolve_level(level))
         self._configured = True
 
     def get_logger(self, name: str) -> Logger:
