@@ -9,7 +9,9 @@ from typing import Deque
 from typing import Literal
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension
 from prompt_toolkit.layout import Layout
@@ -17,6 +19,9 @@ from prompt_toolkit.layout.containers import HSplit
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea
+from pygments import highlight
+from pygments.formatters import TerminalFormatter
+from pygments.lexers import BashLexer
 
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.conversation_session import ConversationTurnResult
@@ -63,31 +68,62 @@ class _TranscriptBuffer:
 class _TranscriptRenderer:
     """Render transcript entries for the output pane."""
 
-    def render(self, transcript_buffer: _TranscriptBuffer) -> str:
-        """Render the transcript buffer to display text."""
-        return "\n".join(
-            self._render_entry(entry) for entry in transcript_buffer.snapshot()
-        )
+    def render(self, transcript_buffer: _TranscriptBuffer) -> list[tuple[str, str]]:
+        """Render the transcript buffer to display fragments."""
+        fragments: list[tuple[str, str]] = []
+        for index, entry in enumerate(transcript_buffer.snapshot()):
+            if index > 0:
+                fragments.append(("", "\n"))
+            fragments.extend(self._render_entry(entry))
+        return fragments
 
-    def _render_entry(self, entry: _TranscriptEntry) -> str:
-        """Render a single transcript entry as plain text."""
+    def render_text(self, transcript_buffer: _TranscriptBuffer) -> str:
+        """Render the transcript buffer to plain text for buffer-backed output."""
+        fragments = self.render(transcript_buffer)
+        return "".join(fragment for _, fragment in fragments)
+
+    def _render_entry(self, entry: _TranscriptEntry) -> list[tuple[str, str]]:
+        """Render a single transcript entry as formatted fragments."""
         if entry.role == "user":
-            return f"> {entry.text}"
+            return [("", f"> {entry.text}")]
         if entry.role == "assistant":
             return self._render_assistant_entry(entry)
         if entry.role == "error":
-            return f"ERROR: {entry.text}"
+            return [("", f"ERROR: {entry.text}")]
         if entry.role == "subagent":
-            return f"SUBAGENT: {entry.text}"
-        return entry.text
+            return [("", f"SUBAGENT: {entry.text}")]
+        return [("", entry.text)]
 
-    def _render_assistant_entry(self, entry: _TranscriptEntry) -> str:
+    def _render_assistant_entry(self, entry: _TranscriptEntry) -> list[tuple[str, str]]:
         """Render an assistant entry at the formatting boundary.
 
         This keeps the output plain-text for now while leaving a seam for
         later Pygments-based highlighting of assistant content.
         """
-        return f"\nSTX\n{entry.text}\nETX\n"
+        highlighted_stx = [("fg:yellow", "STX")]
+        highlighted_etx = [("fg:yellow", "ETX")]
+        highlighted_text = self._highlight_assistant_text(entry.text)
+        return [
+            *highlighted_stx,
+            ("\n", "\n"),
+            *highlighted_text,
+            ("\n", "\n"),
+            *highlighted_etx,
+        ]
+
+    def _highlight_assistant_text(self, text: str) -> list[tuple[str, str]]:
+        """Apply Bash syntax highlighting to assistant transcript text."""
+        highlighted_text = highlight(text, BashLexer(), TerminalFormatter())
+        return to_formatted_text(ANSI(highlighted_text))
+
+    def _highlight_marker(self, marker_text: str) -> list[tuple[str, str]]:
+        """Apply terminal highlighting to a visible transcript marker."""
+        highlighted_marker = highlight(
+            marker_text,
+            BashLexer(),
+            TerminalFormatter(),
+        )
+        return to_formatted_text(ANSI(highlighted_marker))
 
 
 @dataclass(slots=True)
@@ -104,7 +140,7 @@ class TuiApp:
     active_task_id: str = ""
     _conversation_session: ConversationSession = field(init=False)
     _application: Application | None = field(init=False, default=None)
-    _output_area: TextArea = field(init=False)
+    _output_area: Window = field(init=False)
     _status_control: FormattedTextControl = field(init=False)
     _input_area: TextArea = field(init=False)
     _executor: ThreadPoolExecutor = field(init=False)
@@ -119,13 +155,11 @@ class TuiApp:
         self._status_control = FormattedTextControl(text=self._get_status_formatted_text)
         self._transcript_buffer = _TranscriptBuffer()
         self._transcript_renderer = _TranscriptRenderer()
-        self._output_area = TextArea(
-            text="",
-            read_only=True,
-            scrollbar=True,
+        self._output_area = Window(
+            content=FormattedTextControl(text=self._get_output_formatted_text),
             wrap_lines=True,
-            height=Dimension(min=8, weight=1),
-            focusable=False,
+            dont_extend_height=False,
+            height=Dimension(weight=1, min=24),
         )
         self._input_area = TextArea(
             text="",
@@ -359,7 +393,6 @@ class TuiApp:
     def _refresh_ui(self) -> None:
         """Synchronize prompt_toolkit widgets with the current state."""
         self._flush_pending_completions_if_needed()
-        self._output_area.text = self._transcript_renderer.render(self._transcript_buffer)
         assert self._application is not None
         self._application.invalidate()
 
@@ -374,6 +407,10 @@ class TuiApp:
     def _get_status_formatted_text(self) -> FormattedText:
         """Return the rendered status line as formatted text."""
         return FormattedText([(self._get_status_style(), self.status_text)])
+
+    def _get_output_formatted_text(self) -> FormattedText:
+        """Return the transcript pane as formatted text."""
+        return FormattedText(self._transcript_renderer.render(self._transcript_buffer))
 
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""

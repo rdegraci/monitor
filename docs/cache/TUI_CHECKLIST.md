@@ -104,7 +104,12 @@ This tracker covers:
 - [x] Add an Input region that remains editable.
 - [x] Add event-driven redraws for Output and Status.
 - [x] Ensure background work does not block the visible prompt.
-- [x] Render assistant transcript output with visible STX/ETX markers.
+- [x] Render the Output pane with a `FormattedTextControl` inside a `Window`.
+- [x] Give the Output pane a minimum height of 24.
+- [x] Let the Output pane grow using weight-based layout.
+- [x] Render assistant transcript entries with visible STX/ETX markers.
+- [x] Highlight STX/ETX markers in yellow.
+- [x] Highlight assistant transcript output with Bash syntax highlighting.
 - [x] Render subagent transcript entries as plain text.
 - [x] Render error transcript entries as plain text.
 - [x] Keep transcript helper rendering aligned with the cached TUI checklist.

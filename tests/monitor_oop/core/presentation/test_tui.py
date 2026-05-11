@@ -20,6 +20,7 @@ from monitor_oop.core.presentation.tui import TuiApp
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
+from prompt_toolkit.formatted_text import to_formatted_text
 
 
 def build_runtime_context() -> RuntimeContext:
@@ -108,16 +109,23 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     tui.enqueue_event(InputDraftEvent(draft_text="draft"))
     tui.drain_events()
 
-    rendered_output = tui._output_area.text
+    formatted_output = to_formatted_text(tui._get_output_formatted_text())
+    rendered_output = "".join(fragment[1] for fragment in formatted_output)
 
     assert tui.is_running is True
     assert tui.input_draft == "draft"
-    assert "assistant response" in rendered_output
     assert "STX" in rendered_output
     assert "ETX" in rendered_output
+    assert rendered_output.count("STX") >= 1
+    assert rendered_output.count("ETX") >= 1
+    assert "assistant response" in rendered_output
     assert "subagent result" in rendered_output
     assert "boom" in rendered_output
     assert tui.status_text in {"running", "error"}
+    assert rendered_output != "assistant response"
+    assert rendered_output != "subagent result"
+    assert rendered_output != "boom"
+    assert rendered_output != "draft"
     snapshot = turn_coordinator.snapshot()
     assert any(
         entry.text == "subagent result" and entry.kind == "subagent_result"
