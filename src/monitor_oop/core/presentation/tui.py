@@ -1,17 +1,14 @@
 """Top-level TUI coordinator for the Monitor OOP presentation layer."""
 from __future__ import annotations
 
-from collections import deque
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque
-from typing import Literal
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension
 from prompt_toolkit.layout import Layout
@@ -19,12 +16,10 @@ from prompt_toolkit.layout.containers import HSplit
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
-from pygments.lexers import BashLexer
 
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.conversation_session import ConversationTurnResult
+from monitor_oop.core.presentation.completion_queue import CompletionQueue
 from monitor_oop.core.presentation.events import AssistantTranscriptEvent
 from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 from monitor_oop.core.presentation.events import ErrorEvent
@@ -36,94 +31,12 @@ from monitor_oop.core.presentation.events import SubagentTranscriptEvent
 from monitor_oop.core.presentation.events import UserTranscriptEvent
 from monitor_oop.core.presentation.layout import TuiLayout
 from monitor_oop.core.presentation.layout import build_layout
+from monitor_oop.core.presentation.transcript_buffer import TranscriptBuffer
+from monitor_oop.core.presentation.transcript_renderer import TranscriptRenderer
+from monitor_oop.core.presentation.transcript_viewport import TranscriptViewport
 from monitor_oop.core.presentation.turn_coordinator import TurnCoordinator
 from monitor_oop.core.presentation.turn_results import TurnCompletionResult
 from monitor_oop.core.runtime_context import RuntimeContext
-
-
-@dataclass(slots=True)
-class _TranscriptEntry:
-    """A single transcript line for the output pane."""
-
-    role: Literal["user", "assistant", "error", "subagent"]
-    text: str
-
-
-@dataclass(slots=True)
-class _TranscriptBuffer:
-    """Own transcript state and append operations."""
-
-    _entries: list[_TranscriptEntry] = field(default_factory=list)
-
-    def append(self, role: str, text: str) -> None:
-        """Append a transcript line."""
-        self._entries.append(_TranscriptEntry(role=role, text=text))
-
-    def snapshot(self) -> list[_TranscriptEntry]:
-        """Return a renderable snapshot of transcript entries."""
-        return list(self._entries)
-
-
-@dataclass(slots=True)
-class _TranscriptRenderer:
-    """Render transcript entries for the output pane."""
-
-    def render(self, transcript_buffer: _TranscriptBuffer) -> list[tuple[str, str]]:
-        """Render the transcript buffer to display fragments."""
-        fragments: list[tuple[str, str]] = []
-        for index, entry in enumerate(transcript_buffer.snapshot()):
-            if index > 0:
-                fragments.append(("", "\n"))
-            fragments.extend(self._render_entry(entry))
-        return fragments
-
-    def render_text(self, transcript_buffer: _TranscriptBuffer) -> str:
-        """Render the transcript buffer to plain text for buffer-backed output."""
-        fragments = self.render(transcript_buffer)
-        return "".join(fragment for _, fragment in fragments)
-
-    def _render_entry(self, entry: _TranscriptEntry) -> list[tuple[str, str]]:
-        """Render a single transcript entry as formatted fragments."""
-        if entry.role == "user":
-            return [("", f"> {entry.text}")]
-        if entry.role == "assistant":
-            return self._render_assistant_entry(entry)
-        if entry.role == "error":
-            return [("", f"ERROR: {entry.text}")]
-        if entry.role == "subagent":
-            return [("", f"SUBAGENT: {entry.text}")]
-        return [("", entry.text)]
-
-    def _render_assistant_entry(self, entry: _TranscriptEntry) -> list[tuple[str, str]]:
-        """Render an assistant entry at the formatting boundary.
-
-        This keeps the output plain-text for now while leaving a seam for
-        later Pygments-based highlighting of assistant content.
-        """
-        highlighted_stx = [("fg:yellow", "STX")]
-        highlighted_etx = [("fg:yellow", "ETX")]
-        highlighted_text = self._highlight_assistant_text(entry.text)
-        return [
-            *highlighted_stx,
-            ("\n", "\n"),
-            *highlighted_text,
-            ("\n", "\n"),
-            *highlighted_etx,
-        ]
-
-    def _highlight_assistant_text(self, text: str) -> list[tuple[str, str]]:
-        """Apply Bash syntax highlighting to assistant transcript text."""
-        highlighted_text = highlight(text, BashLexer(), TerminalFormatter())
-        return to_formatted_text(ANSI(highlighted_text))
-
-    def _highlight_marker(self, marker_text: str) -> list[tuple[str, str]]:
-        """Apply terminal highlighting to a visible transcript marker."""
-        highlighted_marker = highlight(
-            marker_text,
-            BashLexer(),
-            TerminalFormatter(),
-        )
-        return to_formatted_text(ANSI(highlighted_marker))
 
 
 @dataclass(slots=True)
@@ -140,26 +53,33 @@ class TuiApp:
     active_task_id: str = ""
     _conversation_session: ConversationSession = field(init=False)
     _application: Application | None = field(init=False, default=None)
-    _output_area: Window = field(init=False)
+    _output_area: TextArea = field(init=False)
     _status_control: FormattedTextControl = field(init=False)
     _input_area: TextArea = field(init=False)
     _executor: ThreadPoolExecutor = field(init=False)
-    _completion_results: Deque[TurnCompletionResult] = field(init=False)
-    _pending_completion_flush: bool = field(init=False, default=False)
-    _transcript_buffer: _TranscriptBuffer = field(init=False)
-    _transcript_renderer: _TranscriptRenderer = field(init=False)
+    _transcript_buffer: TranscriptBuffer = field(init=False)
+    _transcript_renderer: TranscriptRenderer = field(init=False)
+    _transcript_viewport: TranscriptViewport = field(init=False)
+    _completion_queue: CompletionQueue = field(init=False)
 
     def __post_init__(self) -> None:
         """Build the prompt_toolkit application shell."""
         self._conversation_session = ConversationSession(self.runtime_context)
         self._status_control = FormattedTextControl(text=self._get_status_formatted_text)
-        self._transcript_buffer = _TranscriptBuffer()
-        self._transcript_renderer = _TranscriptRenderer()
-        self._output_area = Window(
-            content=FormattedTextControl(text=self._get_output_formatted_text),
+        self._transcript_buffer = TranscriptBuffer()
+        self._transcript_renderer = TranscriptRenderer()
+        self._transcript_viewport = TranscriptViewport(
+            buffer=self._transcript_buffer,
+            renderer=self._transcript_renderer,
+        )
+        self._output_area = TextArea(
+            text="",
+            multiline=True,
+            read_only=True,
+            focus_on_click=True,
             wrap_lines=True,
-            dont_extend_height=False,
-            height=Dimension(weight=1, min=24),
+            scrollbar=True,
+            line_numbers=False,
         )
         self._input_area = TextArea(
             text="",
@@ -169,11 +89,12 @@ class TuiApp:
         )
         self._input_area.buffer.accept_handler = self._submit_input
         self._executor = ThreadPoolExecutor(max_workers=1)
-        self._completion_results = deque()
+        self._completion_queue = CompletionQueue()
         self._application = Application(
             layout=Layout(self._build_ui(), focused_element=self._input_area),
             key_bindings=self._build_key_bindings(),
             full_screen=True,
+            mouse_support=True,
         )
 
     def start(self) -> None:
@@ -256,6 +177,16 @@ class TuiApp:
         @key_bindings.add("enter")
         def _submit(event: object) -> None:
             self._submit_input(event)
+
+        @key_bindings.add("pageup")
+        def _page_up(event: object) -> None:
+            self._transcript_viewport.scroll_up()
+            self._refresh_ui()
+
+        @key_bindings.add("pagedown")
+        def _page_down(event: object) -> None:
+            self._transcript_viewport.scroll_down()
+            self._refresh_ui()
 
         return key_bindings
 
@@ -363,25 +294,25 @@ class TuiApp:
 
     def _request_completion_flush(self) -> None:
         """Mark that pending completion results should be applied by the UI thread."""
-        self._pending_completion_flush = True
+        self._completion_queue.request_flush()
 
     def _enqueue_turn_completion_result(self, completion_result: TurnCompletionResult) -> None:
         """Capture a background turn result for later UI-thread processing."""
-        self._completion_results.append(completion_result)
+        self._completion_queue.enqueue(completion_result)
         self._request_completion_flush()
         self._request_ui_refresh()
 
     def drain_pending_completions(self) -> None:
         """Flush pending background completion results into presentation events."""
-        while self._completion_results:
-            completion_result = self._completion_results.popleft()
+        while self._completion_queue:
+            completion_result = self._completion_queue.popleft()
             self._enqueue_completion_events(completion_result)
-        self._pending_completion_flush = False
+        self._completion_queue.clear_flush_request()
         self.drain_events()
 
     def _flush_pending_completions_if_needed(self) -> None:
         """Apply background completion results from the UI thread when needed."""
-        if not self._pending_completion_flush:
+        if not self._completion_queue.needs_flush:
             return
         self.drain_pending_completions()
 
@@ -394,6 +325,12 @@ class TuiApp:
         """Synchronize prompt_toolkit widgets with the current state."""
         self._flush_pending_completions_if_needed()
         assert self._application is not None
+        self._transcript_viewport.sync_from_buffer()
+        self._output_area.text = self._transcript_viewport.visible_text()
+        if self._transcript_viewport.follow_tail:
+            buffer = getattr(self._output_area, "buffer", None)
+            if buffer is not None and hasattr(buffer, "cursor_position"):
+                buffer.cursor_position = len(getattr(buffer, "text", ""))
         self._application.invalidate()
 
     def _get_status_style(self) -> str:
@@ -410,21 +347,25 @@ class TuiApp:
 
     def _get_output_formatted_text(self) -> FormattedText:
         """Return the transcript pane as formatted text."""
-        return FormattedText(self._transcript_renderer.render(self._transcript_buffer))
+        return self._transcript_viewport.get_formatted_text()
 
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""
         if isinstance(event, UserTranscriptEvent):
             self._transcript_buffer.append("user", event.text)
+            self._transcript_viewport.note_appended_entry()
             return
         if isinstance(event, AssistantTranscriptEvent):
             self._transcript_buffer.append("assistant", event.text)
+            self._transcript_viewport.note_appended_entry()
             return
         if isinstance(event, ErrorTranscriptEvent):
             self._transcript_buffer.append("error", event.text)
+            self._transcript_viewport.follow_newest()
             return
         if isinstance(event, SubagentTranscriptEvent):
             self._transcript_buffer.append("subagent", event.text)
+            self._transcript_viewport.note_appended_entry()
             return
         if isinstance(event, StatusEvent):
             self.status_text = event.text
@@ -433,17 +374,20 @@ class TuiApp:
             self.turn_coordinator.mark_background_complete(event)
             self.status_text = "completed" if event.success else "failed"
             self.sync_active_task_id()
+            self._transcript_viewport.follow_newest()
             return
         if isinstance(event, ErrorEvent):
             self.turn_coordinator.add_background_event(event)
             self._transcript_buffer.append("error", event.text)
             self.status_text = "error"
             self.sync_active_task_id()
+            self._transcript_viewport.follow_newest()
             return
         if isinstance(event, SubagentResultEvent):
             self.turn_coordinator.add_subagent_result(event)
             self._transcript_buffer.append("subagent", event.text)
             self.sync_active_task_id()
+            self._transcript_viewport.note_appended_entry()
             return
         if isinstance(event, InputDraftEvent):
             self.input_draft = event.draft_text

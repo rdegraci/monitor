@@ -71,6 +71,11 @@
 - [x] Adjust test coverage to match the current service behavior for multi-call handling and follow-up payload submission.
 - [x] Confirm the tool output envelope buffer was extracted into a dedicated `ToolTurnState` helper with turn-scoped lifecycle management.
 - [x] Update Responses API tool-call parsing to read directly from `response.output` and remove `parse_tool_call` / `parse_tool_calls`.
+- [x] Confirm the TUI transcript buffer/renderer/viewport split is implemented in the OOP app.
+- [x] Confirm transcript buffering, rendering, and viewport ownership are separated across dedicated TUI components.
+- [x] Confirm the TUI transcript plumbing is implemented where the conversation loop hands off transcript state to the renderer and viewport.
+- [x] Confirm transcript rendering stays isolated from command processing and tool execution concerns.
+- [x] Confirm viewport state is owned by the TUI layer rather than shared mutable globals.
 
 ## Milestone 5: Server flow
 - [ ] Implement isolated Flask app creation.

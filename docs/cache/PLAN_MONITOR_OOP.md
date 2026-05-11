@@ -22,6 +22,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Log files follow a per-process convention under the user config directory `log/` subdirectory as `monitor_<pid>.log`.
 - The current prompt_toolkit-based TUI uses file-only logging during startup and while active, and the default CLI REPL logs to both screen and file.
 - The TUI status line color mapping is idle green and working yellow.
+- The current TUI implementation uses a transcript pipeline split into a transcript buffer, renderer, and viewport rather than a single private helper-only path, and the remaining interaction and verification polish is still in progress.
 
 ## Runtime Object Graph
 The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP.md` for the overview:
@@ -163,6 +164,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add prompt-focused tests and import-path coverage early so the new prompt subsystem is exercised through `src/monitor_oop/` rather than legacy modules.
 - Ensure the prompt_toolkit-based TUI can be brought up with file-only logging during app construction, with runtime logs kept out of the terminal while the interactive session is active.
 - The TUI status line color mapping is idle green and working yellow.
+- The current TUI transcript pipeline uses the transcript buffer, renderer, and viewport split, and there is still verification and interaction polish remaining around that flow.
 
 ### Milestone 2: Core runtime ownership
 - Implement isolated config, history, macro, logger, prompt, and status services.
@@ -200,6 +202,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - Prompt, config, and LLM boundaries remain stable and explicit across bootstrap, request construction, and runtime execution.
 - Bootstrap ownership should be explicit and strict, with runtime constructors avoiding fallback dependency creation.
 - The prompt_toolkit-based TUI is covered by verification for file-only logging during construction and suppressed terminal logging while active.
+- Verify the transcript buffer, renderer, and viewport split, along with the remaining TUI interaction and polish work, before treating the TUI flow as complete.
 
 ### Milestone 5: Cutover decision
 - Decide whether to keep both apps or promote the new app to primary.
@@ -216,6 +219,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Prompt-loading drift if `system_prompt` bootstrap, request injection, and user-config persistence are not kept as a first-class path.
 - Prompt subsystem drift if `ConfigService`, `PromptStore`, prompt-specific tests, and package import paths diverge from the current resolution approach.
 - Noisy runtime logging while the prompt_toolkit-based TUI is active if file-only logging behavior is not preserved.
+- TUI interaction drift if the transcript buffer, renderer, and viewport split is not covered by the remaining verification work.
 
 ## Success Criteria
 - The new app runs independently from the legacy app.
@@ -229,6 +233,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Prompt loading, seeding, and import paths are covered by the new prompt subsystem tests.
 - The prompt_toolkit-based TUI continues to use file-only logging during construction and while active, and the default REPL logs to both screen and file.
 - The TUI status line color mapping is idle green and working yellow.
+- The TUI transcript buffer, renderer, and viewport split is documented and verified, with the remaining interaction polish work tracked to completion.
 
 ## Starter Blueprint
 - Recommended package layout:
@@ -264,6 +269,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `PromptService` and `PromptStore` are explicit runtime dependencies so prompt loading, seeding, and request construction stay isolated from the rest of the bootstrap graph.
   - The prompt_toolkit-based TUI uses file-only logging during app construction and suppresses terminal logs while active.
   - The TUI status line color mapping is idle green and working yellow.
+  - The current TUI transcript pipeline is split across a transcript buffer, renderer, and viewport, with some verification and interaction polish still outstanding.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
   - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, `tool_call_handler.py`, and per-tool modules such as `weather.py`.

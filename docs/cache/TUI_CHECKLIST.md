@@ -1,7 +1,7 @@
 # TUI_CHECKLIST
 
 ## Goal
-Track the work needed to add a responsive three-section TUI to `monitor_oop`:
+Track the work needed to keep the monitor_oop TUI aligned with the current implementation:
 - Output
 - Status Line
 - Input
@@ -18,6 +18,7 @@ This tracker covers:
 - compatibility with the future subagent workflow
 - TurnCoordinator as the per-turn coordination boundary
 - the TurnCoordinator snapshot interface
+- the transcript viewport architecture
 
 ## Milestone 1: Architecture and placement
 - [x] Choose `src/monitor_oop/core/presentation/` as the home for TUI code.
@@ -112,7 +113,12 @@ This tracker covers:
 - [x] Highlight assistant transcript output with Bash syntax highlighting.
 - [x] Render subagent transcript entries as plain text.
 - [x] Render error transcript entries as plain text.
-- [x] Keep transcript helper rendering aligned with the cached TUI checklist.
+- [x] Keep transcript rendering aligned with the current buffer/renderer/viewport split.
+- [x] Route transcript entries through a buffer model instead of private helper classes.
+- [x] Use a dedicated transcript renderer for visible line formatting.
+- [x] Drive scrolling through a viewport component.
+- [x] Keep the viewport updated as new output arrives.
+- [x] Preserve a stable visible transcript area while input remains editable.
 
 ## Milestone 4: Event model
 - [x] Define TUI event dataclasses.
@@ -127,6 +133,12 @@ This tracker covers:
 - [x] Add `SubagentResultEvent` to the event model.
 - [x] Add `ErrorEvent` to the event model.
 - [x] Add optional `InputDraftEvent` to the event model.
+- [x] Keep event handling centered on the UI event queue.
+- [x] Dispatch presentation updates from event handlers rather than rendering callbacks.
+- [ ] Add explicit scroll events for the transcript viewport.
+- [ ] Ensure scroll events do not interfere with draft editing.
+- [ ] Define keyboard-driven viewport navigation behavior.
+- [ ] Define how viewport position is preserved across output refreshes.
 
 ## Milestone 5: Integration with runtime
 - [x] Connect the TUI to `MonitorApp` / `RuntimeContext`.
@@ -140,6 +152,10 @@ This tracker covers:
 - [x] Restore idle on success.
 - [x] Restore idle on failure.
 - [x] Keep the UI thread as the only mutator of `TuiApp` state.
+- [x] Feed runtime updates into the current UI event pipeline.
+- [x] Keep background completions visible without blocking input.
+- [ ] Confirm transient runtime errors render through the status line and output pane.
+- [ ] Verify runtime shutdown clears any queued transient UI work.
 
 ## Milestone 6: Subagent compatibility
 - [x] Allow background subagent results to be injected as explicit internal context.
@@ -147,6 +163,9 @@ This tracker covers:
 - [x] Keep the main chat loop responsive while subagent work is running.
 - [x] Support a single subagent first.
 - [x] Emit a clear completion marker that the parent can detect.
+- [x] Keep subagent results visible through the current snapshot-driven workflow.
+- [ ] Define how future subagent scrollback is surfaced in the viewport.
+- [ ] Verify subagent result delivery preserves ordering with normal output.
 
 ## Milestone 7: Verification
 - [x] Add tests for TUI layout construction.
@@ -155,6 +174,12 @@ This tracker covers:
 - [x] Add tests for responsiveness while background activity is running.
 - [x] Add tests for subagent result injection as internal context.
 - [x] Confirm the TUI does not break the existing CLI flow.
+- [x] Add tests for transcript buffer assembly.
+- [x] Add tests for transcript renderer formatting.
+- [x] Add tests for viewport scroll behavior.
+- [ ] Add tests for keyboard scrolling and focus preservation.
+- [ ] Add tests for event ordering under concurrent background updates.
+- [ ] Add tests for status-line and output-pane error propagation.
 
 ## Notes
 - Start small and keep the first implementation thin.
