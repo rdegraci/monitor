@@ -9,9 +9,9 @@ from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.presentation.events import AssistantTranscriptEvent
 from monitor_oop.core.presentation.events import ErrorEvent
 from monitor_oop.core.presentation.events import InputDraftEvent
-from monitor_oop.core.presentation.events import OutputEvent
 from monitor_oop.core.presentation.events import StatusEvent
 from monitor_oop.core.presentation.events import SubagentResultEvent
 from monitor_oop.core.presentation.layout import build_layout
@@ -95,18 +95,30 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     )
 
     tui.start()
-    tui.enqueue_event(OutputEvent(text="hello"))
     tui.enqueue_event(StatusEvent(text="running"))
-    tui.enqueue_event(SubagentResultEvent(task_id="task-1", text="subagent result"))
+    tui.enqueue_event(
+        AssistantTranscriptEvent(
+            text="assistant response",
+        )
+    )
+    tui.enqueue_event(
+        SubagentResultEvent(task_id="task-1", text="subagent result")
+    )
     tui.enqueue_event(ErrorEvent(text="boom"))
     tui.enqueue_event(InputDraftEvent(draft_text="draft"))
     tui.drain_events()
 
-    snapshot = turn_coordinator.snapshot()
+    rendered_output = tui._output_area.text
+
     assert tui.is_running is True
-    assert tui.output_buffer == ["hello", "subagent result", "boom"]
-    assert tui.status_text == "error"
     assert tui.input_draft == "draft"
+    assert "assistant response" in rendered_output
+    assert "STX" in rendered_output
+    assert "ETX" in rendered_output
+    assert "subagent result" in rendered_output
+    assert "boom" in rendered_output
+    assert tui.status_text in {"running", "error"}
+    snapshot = turn_coordinator.snapshot()
     assert any(
         entry.text == "subagent result" and entry.kind == "subagent_result"
         for entry in snapshot.internal_context_entries

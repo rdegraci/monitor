@@ -12,7 +12,7 @@ The TUI observes `TurnCoordinator` snapshots as the per-turn coordination bounda
 The current UI is prompt_toolkit-based and implemented: `MonitorApp/run_tui` delegates into the Application-backed run path with `output_area`, `status_control`, and `input_area`, and the TUI includes a simple loop that accepts draft input and exits through the Application flow.
 The TUI uses injectable I/O helpers through prompt_toolkit UI components and session plumbing so input, output, and status behavior can be swapped cleanly without coupling the core loop to a specific terminal backend.
 The TUI uses `build_app(quiet_bootstrap=True)` for quiet startup, and runtime logging is suppressed while the TUI session is active.
-The next implementation step introduces an event-driven completion path that can restore the Status Line to idle after turn completion, rather than relying on synchronous UI-thread state changes.
+The current implementation routes visible output through transcript events handled by the private transcript helper classes in `tui.py`, and the next implementation step introduces an event-driven completion path that can restore the Status Line to idle after turn completion, rather than relying on synchronous UI-thread state changes.
 
 ## TuiApp Core Fields
 The minimal `TuiApp` fields are:
@@ -23,7 +23,6 @@ The minimal `TuiApp` fields are:
 - `is_running` (implemented)
 
 Optional later fields may include:
-- `output_buffer`
 - `status_text`
 - `input_draft`
 - `active_task_id`
@@ -33,10 +32,11 @@ Optional later fields may include:
 - The Output area shows assistant responses, progress messages, and other visible events.
 - The Status Line shows short-lived operational state such as mode, active work, and subagent progress.
 - The interactive loop reads draft input, updates the current turn state, and runs through the Application-backed TUI path.
+- The current output path uses transcript events rather than OutputEvent-driven rendering, and assistant transcript entries are rendered with visible STX/ETX markers while error and subagent transcript entries remain plain text.
 - The next turn execution model should submit the user turn to a background worker, capture its completion in a small result object such as `TurnCompletionResult`, and use that completion event to restore the Status Line to idle.
 
 ## Event Model
-- `OutputEvent`: append visible assistant content, progress, and general output to the Output area.
+- `TranscriptEvent`: append visible assistant content, progress, and general output to the Output area through the current transcript pipeline.
 - `StatusEvent`: update the Status Line without disturbing the current input draft.
 - `BackgroundCompletionEvent`: notify the UI that background work has completed.
 - `SubagentResultEvent`: surface subagent results as explicit internal context and, when appropriate, visible output.
@@ -46,6 +46,7 @@ Optional later fields may include:
 
 The TUI currently handles queued events synchronously; background notifications are drained and applied on the main UI path rather than through a separate asynchronous rendering pipeline.
 The loop uses prompt_toolkit Application state and ConversationSession integration to read input and emit output while keeping the core UI behavior testable and backend-agnostic.
+The transcript pipeline is implemented with private helper classes inside `tui.py`, which own the formatting and rendering details for assistant, error, and subagent transcript entries.
 
 ## TurnCoordinator Snapshot Fields
 The TUI observes turn-scoped state through `TurnCoordinator` snapshots with these fields:

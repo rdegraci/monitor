@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 
@@ -14,6 +14,42 @@ class BaseEvent:
     id: str = field(default_factory=lambda: str(uuid4()))
     source: str = "monitor_oop"
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass(slots=True)
+class TranscriptEvent(BaseEvent):
+    """Transcript entry intended for the presentation layer."""
+
+    role: Literal["user", "assistant", "error", "subagent"] = "assistant"
+    text: str = ""
+
+
+@dataclass(slots=True)
+class UserTranscriptEvent(TranscriptEvent):
+    """Transcript entry containing a user message."""
+
+    role: Literal["user"] = "user"
+
+
+@dataclass(slots=True)
+class AssistantTranscriptEvent(TranscriptEvent):
+    """Transcript entry containing an assistant message."""
+
+    role: Literal["assistant"] = "assistant"
+
+
+@dataclass(slots=True)
+class ErrorTranscriptEvent(TranscriptEvent):
+    """Transcript entry containing an error message."""
+
+    role: Literal["error"] = "error"
+
+
+@dataclass(slots=True)
+class SubagentTranscriptEvent(TranscriptEvent):
+    """Transcript entry containing a subagent message."""
+
+    role: Literal["subagent"] = "subagent"
 
 
 @dataclass(slots=True)

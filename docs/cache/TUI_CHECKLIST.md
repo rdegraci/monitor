@@ -35,7 +35,6 @@ This tracker covers:
 - [x] Add `layout` as a required `TuiApp` field.
 - [x] Add `event_queue` as a required `TuiApp` field.
 - [x] Add `is_running` as a required `TuiApp` field.
-- [x] Add `output_buffer` as an optional later `TuiApp` field.
 - [x] Add `status_text` as an optional later `TuiApp` field.
 - [x] Add `input_draft` as an optional later `TuiApp` field.
 - [x] Add `active_task_id` as an optional later `TuiApp` field.
@@ -105,6 +104,10 @@ This tracker covers:
 - [x] Add an Input region that remains editable.
 - [x] Add event-driven redraws for Output and Status.
 - [x] Ensure background work does not block the visible prompt.
+- [x] Render assistant transcript output with visible STX/ETX markers.
+- [x] Render subagent transcript entries as plain text.
+- [x] Render error transcript entries as plain text.
+- [x] Keep transcript helper rendering aligned with the cached TUI checklist.
 
 ## Milestone 4: Event model
 - [x] Define TUI event dataclasses.
@@ -126,19 +129,19 @@ This tracker covers:
 - [x] Route visible events to the Output pane.
 - [x] Route runtime status to the Status Line.
 - [x] Keep input handling separate from background event handling.
-- [ ] Define a turn completion result type.
-- [ ] Move LLM submission off the UI thread.
-- [ ] Wire completion callbacks to enqueue presentation events.
-- [ ] Restore idle on success.
-- [ ] Restore idle on failure.
-- [ ] Keep the UI thread as the only mutator of `TuiApp` state.
+- [x] Define a turn completion result type.
+- [x] Move LLM submission off the UI thread.
+- [x] Wire completion callbacks to enqueue presentation events.
+- [x] Restore idle on success.
+- [x] Restore idle on failure.
+- [x] Keep the UI thread as the only mutator of `TuiApp` state.
 
 ## Milestone 6: Subagent compatibility
-- [ ] Allow background subagent results to be injected as explicit internal context.
-- [ ] Avoid silently rewriting the user’s visible input.
-- [ ] Keep the main chat loop responsive while subagent work is running.
-- [ ] Support a single subagent first.
-- [ ] Emit a clear completion marker that the parent can detect.
+- [x] Allow background subagent results to be injected as explicit internal context.
+- [x] Avoid silently rewriting the user’s visible input.
+- [x] Keep the main chat loop responsive while subagent work is running.
+- [x] Support a single subagent first.
+- [x] Emit a clear completion marker that the parent can detect.
 
 ## Milestone 7: Verification
 - [x] Add tests for TUI layout construction.

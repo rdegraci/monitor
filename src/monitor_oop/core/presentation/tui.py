@@ -6,32 +6,88 @@ from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Deque
+from typing import Literal
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit
 from prompt_toolkit.layout.containers import Window
-from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import TextArea
 
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.conversation_session import ConversationTurnResult
+from monitor_oop.core.presentation.events import AssistantTranscriptEvent
 from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 from monitor_oop.core.presentation.events import ErrorEvent
+from monitor_oop.core.presentation.events import ErrorTranscriptEvent
 from monitor_oop.core.presentation.events import InputDraftEvent
-from monitor_oop.core.presentation.events import OutputEvent
 from monitor_oop.core.presentation.events import StatusEvent
 from monitor_oop.core.presentation.events import SubagentResultEvent
+from monitor_oop.core.presentation.events import SubagentTranscriptEvent
+from monitor_oop.core.presentation.events import UserTranscriptEvent
 from monitor_oop.core.presentation.layout import TuiLayout
 from monitor_oop.core.presentation.layout import build_layout
 from monitor_oop.core.presentation.turn_coordinator import TurnCoordinator
 from monitor_oop.core.presentation.turn_results import TurnCompletionResult
 from monitor_oop.core.runtime_context import RuntimeContext
+
+
+@dataclass(slots=True)
+class _TranscriptEntry:
+    """A single transcript line for the output pane."""
+
+    role: Literal["user", "assistant", "error", "subagent"]
+    text: str
+
+
+@dataclass(slots=True)
+class _TranscriptBuffer:
+    """Own transcript state and append operations."""
+
+    _entries: list[_TranscriptEntry] = field(default_factory=list)
+
+    def append(self, role: str, text: str) -> None:
+        """Append a transcript line."""
+        self._entries.append(_TranscriptEntry(role=role, text=text))
+
+    def snapshot(self) -> list[_TranscriptEntry]:
+        """Return a renderable snapshot of transcript entries."""
+        return list(self._entries)
+
+
+@dataclass(slots=True)
+class _TranscriptRenderer:
+    """Render transcript entries for the output pane."""
+
+    def render(self, transcript_buffer: _TranscriptBuffer) -> str:
+        """Render the transcript buffer to display text."""
+        return "\n".join(
+            self._render_entry(entry) for entry in transcript_buffer.snapshot()
+        )
+
+    def _render_entry(self, entry: _TranscriptEntry) -> str:
+        """Render a single transcript entry as plain text."""
+        if entry.role == "user":
+            return f"> {entry.text}"
+        if entry.role == "assistant":
+            return self._render_assistant_entry(entry)
+        if entry.role == "error":
+            return f"ERROR: {entry.text}"
+        if entry.role == "subagent":
+            return f"SUBAGENT: {entry.text}"
+        return entry.text
+
+    def _render_assistant_entry(self, entry: _TranscriptEntry) -> str:
+        """Render an assistant entry at the formatting boundary.
+
+        This keeps the output plain-text for now while leaving a seam for
+        later Pygments-based highlighting of assistant content.
+        """
+        return f"\nSTX\n{entry.text}\nETX\n"
 
 
 @dataclass(slots=True)
@@ -43,7 +99,6 @@ class TuiApp:
     layout: TuiLayout = field(default_factory=build_layout)
     event_queue: Deque[object] = field(default_factory=deque)
     is_running: bool = False
-    output_buffer: list[str] = field(default_factory=list)
     status_text: str = "idle"
     input_draft: str = ""
     active_task_id: str = ""
@@ -55,11 +110,15 @@ class TuiApp:
     _executor: ThreadPoolExecutor = field(init=False)
     _completion_results: Deque[TurnCompletionResult] = field(init=False)
     _pending_completion_flush: bool = field(init=False, default=False)
+    _transcript_buffer: _TranscriptBuffer = field(init=False)
+    _transcript_renderer: _TranscriptRenderer = field(init=False)
 
     def __post_init__(self) -> None:
         """Build the prompt_toolkit application shell."""
         self._conversation_session = ConversationSession(self.runtime_context)
         self._status_control = FormattedTextControl(text=self._get_status_formatted_text)
+        self._transcript_buffer = _TranscriptBuffer()
+        self._transcript_renderer = _TranscriptRenderer()
         self._output_area = TextArea(
             text="",
             read_only=True,
@@ -192,7 +251,7 @@ class TuiApp:
         draft_text = self._input_area.text
         self._input_area.text = ""
         self.status_text = "working"
-        self.enqueue_event(OutputEvent(text=draft_text))
+        self.enqueue_event(UserTranscriptEvent(text=draft_text))
         self.enqueue_event(StatusEvent(text="working"))
         self._request_ui_refresh()
         self._run_turn_async(draft_text)
@@ -245,7 +304,7 @@ class TuiApp:
         events: list[object] = []
         if completion_result.success:
             if completion_result.assistant_text:
-                events.append(OutputEvent(text=completion_result.assistant_text))
+                events.append(AssistantTranscriptEvent(text=completion_result.assistant_text))
             events.append(
                 BackgroundCompletionEvent(
                     task_id=completion_result.task_id,
@@ -253,7 +312,7 @@ class TuiApp:
                 )
             )
         else:
-            events.append(ErrorEvent(text=completion_result.status_text))
+            events.append(ErrorTranscriptEvent(text=completion_result.status_text))
             events.append(
                 BackgroundCompletionEvent(
                     task_id=completion_result.task_id,
@@ -300,7 +359,7 @@ class TuiApp:
     def _refresh_ui(self) -> None:
         """Synchronize prompt_toolkit widgets with the current state."""
         self._flush_pending_completions_if_needed()
-        self._output_area.text = "\n".join(self.output_buffer)
+        self._output_area.text = self._transcript_renderer.render(self._transcript_buffer)
         assert self._application is not None
         self._application.invalidate()
 
@@ -318,8 +377,17 @@ class TuiApp:
 
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""
-        if isinstance(event, OutputEvent):
-            self.output_buffer.append(event.text)
+        if isinstance(event, UserTranscriptEvent):
+            self._transcript_buffer.append("user", event.text)
+            return
+        if isinstance(event, AssistantTranscriptEvent):
+            self._transcript_buffer.append("assistant", event.text)
+            return
+        if isinstance(event, ErrorTranscriptEvent):
+            self._transcript_buffer.append("error", event.text)
+            return
+        if isinstance(event, SubagentTranscriptEvent):
+            self._transcript_buffer.append("subagent", event.text)
             return
         if isinstance(event, StatusEvent):
             self.status_text = event.text
@@ -331,13 +399,13 @@ class TuiApp:
             return
         if isinstance(event, ErrorEvent):
             self.turn_coordinator.add_background_event(event)
-            self.output_buffer.append(event.text)
+            self._transcript_buffer.append("error", event.text)
             self.status_text = "error"
             self.sync_active_task_id()
             return
         if isinstance(event, SubagentResultEvent):
             self.turn_coordinator.add_subagent_result(event)
-            self.output_buffer.append(event.text)
+            self._transcript_buffer.append("subagent", event.text)
             self.sync_active_task_id()
             return
         if isinstance(event, InputDraftEvent):
