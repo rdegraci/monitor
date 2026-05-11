@@ -38,7 +38,7 @@ Phase 2 is complete: the core services and command processor are implemented, in
 11. Add `workflow.py` with orchestration functions.
 12. Add `app.py` with `MonitorApp`.
 
-Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. The classic CLI REPL remains the default interactive mode, while the prompt_toolkit TUI is available as a separate `--tui` path. Prompt loading happens early in the thin slice so the first system message is available to the request builder from the start, and the default REPL logs to both screen and file while `--tui` uses file-only logging. The log file path follows the user config directory convention under `log/monitor_<pid>.log`. TUI startup uses a quiet bootstrap path so the TUI can start with file-only logging while runtime output stays off the screen.
+Phase 3 is complete: the session/workflow layer is implemented, and the current CLI thin slice is runnable end to end in `src/monitor_oop/core/`. The classic CLI REPL remains the default interactive mode, while the prompt_toolkit TUI is available as a separate `--tui` path. Prompt loading happens early in the thin slice so the first system message is available to the request builder from the start, and the default REPL logs to both screen and file while `--tui` uses file-only logging. The log file path follows the user config directory convention under `log/monitor_<pid>.log`. TUI startup uses a quiet bootstrap path so the TUI can start with file-only logging while runtime output stays off the screen. The colored TUI status line uses green for idle and yellow for working.
 
 ## Phase 4: Server
 13. Add `server_app.py`.
@@ -74,6 +74,7 @@ The new tests cover the first-stage flow, including startup, config service, com
 - Use quiet bootstrap for TUI startup.
 - The default REPL logs to both screen and file, while `--tui` uses file-only logging.
 - Write logs under the user config directory `log/` subdirectory as `monitor_<pid>.log`.
+- Use a colored TUI status line with green for idle and yellow for working.
 
 ## Future Work
 - Complete server work.

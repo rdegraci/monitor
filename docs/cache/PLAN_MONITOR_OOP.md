@@ -21,6 +21,7 @@ Rewrite Monitor as a new, isolated Python application in an object-oriented styl
 - Logging is configured once at centralized bootstrap, and runtime code uses standard module loggers.
 - Log files follow a per-process convention under the user config directory `log/` subdirectory as `monitor_<pid>.log`.
 - The current prompt_toolkit-based TUI uses file-only logging during startup and while active, and the default CLI REPL logs to both screen and file.
+- The TUI status line color mapping is idle green and working yellow.
 
 ## Runtime Object Graph
 The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP.md` for the overview:
@@ -123,6 +124,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Startup code in `src/monitor_oop/` must not depend on side effects from `src/monitor/`.
 - The legacy app remains the reference implementation until the new app is verified.
 - The TUI path uses file-only logging during construction and while active, and runtime logging remains quiet in the terminal while the TUI is active.
+- The TUI status line color mapping is idle green and working yellow.
 
 ## Suggested Package Layout
 - `src/monitor_oop/`
@@ -160,6 +162,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - Add the `PromptService` / `PromptStore` seam early so prompt loading remains isolated and ready for future prompt specialization or subagent-oriented extensions without committing to those behaviors yet.
 - Add prompt-focused tests and import-path coverage early so the new prompt subsystem is exercised through `src/monitor_oop/` rather than legacy modules.
 - Ensure the prompt_toolkit-based TUI can be brought up with file-only logging during app construction, with runtime logs kept out of the terminal while the interactive session is active.
+- The TUI status line color mapping is idle green and working yellow.
 
 ### Milestone 2: Core runtime ownership
 - Implement isolated config, history, macro, logger, prompt, and status services.
@@ -225,6 +228,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
 - `system_prompt` is loaded from the user config directory, seeded on first run, and injected as the first system message in the LLM request flow.
 - Prompt loading, seeding, and import paths are covered by the new prompt subsystem tests.
 - The prompt_toolkit-based TUI continues to use file-only logging during construction and while active, and the default REPL logs to both screen and file.
+- The TUI status line color mapping is idle green and working yellow.
 
 ## Starter Blueprint
 - Recommended package layout:
@@ -259,6 +263,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `LoggerService` configures logging once at centralized bootstrap, and runtime modules use standard module loggers.
   - `PromptService` and `PromptStore` are explicit runtime dependencies so prompt loading, seeding, and request construction stay isolated from the rest of the bootstrap graph.
   - The prompt_toolkit-based TUI uses file-only logging during app construction and suppresses terminal logs while active.
+  - The TUI status line color mapping is idle green and working yellow.
   - `ToolRegistry` / `ToolService` owns tool registration, resolution, and execution state behind a private internal store.
   - Tool-specific dataclasses live in `src/monitor_oop/core/tools/tool_models.py`.
   - The tool package exists under `src/monitor_oop/core/tools/`, with `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, `tool_call_handler.py`, and per-tool modules such as `weather.py`.

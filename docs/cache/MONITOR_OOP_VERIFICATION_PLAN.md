@@ -11,6 +11,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm the new app preserves intended user-visible behavior where required.
 - Confirm logging is configured once at bootstrap through `LoggerService`, runtime modules use standard logger access patterns without reconfiguring global logging state, the default REPL logs to screen and file, and the `--tui` path uses file-only logging without screen output.
 - Confirm quiet bootstrap is used for TUI startup, and runtime TUI logging uses file-only logging without screen output while the TUI is active as current verified behavior.
+- Confirm the TUI status line renders green when idle and yellow when working.
 - Confirm configuration bootstrap behavior for `monitor_oop` is implemented and verified: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
 - Confirm prompt loading behavior is implemented and verified: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Confirm `LLMRequestBuilder` has dedicated tests under `tests/monitor_oop/core/application/test_llm_request_builder.py`, and request shaping is verified separately from `LLMService`.
@@ -36,6 +37,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - App can start and stop cleanly.
 - Logging is initialized once during bootstrap via `LoggerService`, and application modules obtain loggers through standard logger access patterns.
 - Quiet bootstrap is used for TUI startup, and the active TUI uses file-only logging without screen output while it is displayed as current verified behavior.
+- The TUI status line renders green when idle and yellow when working.
 - Configuration bootstrap behavior for `monitor_oop` is covered by verification: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
 - Prompt loading behavior is covered by verification: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Verification tests now live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
@@ -109,6 +111,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
 - Logging is configured once at bootstrap via `LoggerService`, the default REPL logs to screen and file, and the `--tui` path uses file-only logging without screen output.
 - The classic CLI REPL remains the default interactive mode, the `--tui` path activates the prompt_toolkit TUI, TUI startup uses quiet bootstrap, and runtime TUI uses file-only logging without screen output while the TUI is active.
+- The TUI status line renders green when idle and yellow when working.
 - TUI verification covers visible working status during submission, output/status updates after background completion, no direct widget-state mutation from worker threads, and reuse of the same background turn pattern for future subagents.
 
 ## Failure Handling

@@ -9,6 +9,7 @@ from typing import Deque
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension
 from prompt_toolkit.layout import Layout
@@ -58,7 +59,7 @@ class TuiApp:
     def __post_init__(self) -> None:
         """Build the prompt_toolkit application shell."""
         self._conversation_session = ConversationSession(self.runtime_context)
-        self._status_control = FormattedTextControl(text=self._get_status_text)
+        self._status_control = FormattedTextControl(text=self._get_status_formatted_text)
         self._output_area = TextArea(
             text="",
             read_only=True,
@@ -303,9 +304,17 @@ class TuiApp:
         assert self._application is not None
         self._application.invalidate()
 
-    def _get_status_text(self) -> str:
-        """Return the rendered status line."""
-        return self.status_text
+    def _get_status_style(self) -> str:
+        """Return the style for the current status value."""
+        if self.status_text == "idle":
+            return "fg:ansigreen"
+        if self.status_text == "working":
+            return "fg:ansiyellow"
+        return ""
+
+    def _get_status_formatted_text(self) -> FormattedText:
+        """Return the rendered status line as formatted text."""
+        return FormattedText([(self._get_status_style(), self.status_text)])
 
     def _handle_event(self, event: object) -> None:
         """Handle a single presentation event."""
