@@ -44,7 +44,7 @@ Phase 3 is complete: the session/workflow layer is implemented, and the current 
 13. Add `server_app.py`.
 14. Wire the HTTP API through `RuntimeContext` only.
 
-Phase 4 remains future work: server wiring is still pending.
+Phase 4 is still pending: server wiring has not been implemented yet.
 
 ## Phase 5: Thin slice
 15. Make one CLI path runnable end to end.
@@ -77,6 +77,6 @@ The new tests cover the first-stage flow, including startup, config service, com
 - Use a colored TUI status line with green for idle and yellow for working.
 
 ## Future Work
-- Complete server work.
+- Complete server work once Phase 4 is implemented.
 - Add real LLM integration in a later phase.
-- Expand beyond the initial CLI thin slice once the server and model-backed paths are ready.
+- Expand beyond the initial CLI thin slice after the server and model-backed paths are ready.

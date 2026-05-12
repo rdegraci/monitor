@@ -42,6 +42,9 @@
 - [x] Confirm prompt-related tests now exist.
 - [x] Confirm the rules-of-thumb ownership guidance is reflected in docs/cache.
 - [x] Decide which workflows remain as free functions.
+- [x] Confirm conversation compaction and summarization are owned by the conversation/history layer rather than a separate global workflow.
+- [x] Define the summarization service boundary and its inputs/outputs for compaction decisions.
+- [x] Confirm the minimal config surface needed for compaction policy, thresholds, and history retention is tracked explicitly.
 
 ## Milestone 3: Package and bootstrap
 - [x] Create the new package directory.
@@ -76,6 +79,9 @@
 - [x] Confirm the TUI transcript plumbing is implemented where the conversation loop hands off transcript state to the renderer and viewport.
 - [x] Confirm transcript rendering stays isolated from command processing and tool execution concerns.
 - [x] Confirm viewport state is owned by the TUI layer rather than shared mutable globals.
+- [x] Confirm conversation compaction decisions are owned by the history/session layer and flow through the existing turn lifecycle.
+- [x] Confirm summarization output is persisted and reloaded through the history domain object without widening shared state.
+- [x] Confirm the conversation loop can trigger compaction without coupling to server or tool execution paths.
 
 ## Milestone 5: Server flow
 - [ ] Implement isolated Flask app creation.
@@ -93,6 +99,8 @@
 - [ ] Add isolation tests confirming no shared mutable state.
 - [ ] Add tests confirming no legacy globals are touched.
 - [ ] Compare outputs against the legacy app for critical flows.
+- [ ] Add tests covering compaction trigger thresholds and summarization handoff.
+- [ ] Add tests confirming summarization remains isolated to the conversation/history boundary.
 
 ## Milestone 7: Migration control
 - [x] Keep the legacy app unchanged during initial development.
@@ -114,3 +122,5 @@
 - [x] Confirm the 16-call defensive cap is in place for Responses API tool-calling.
 - [x] Confirm the weather tool is registered at startup.
 - [x] Confirm dedicated `LLMService` tests exist.
+- [x] Confirm compaction-related config is minimal and intentionally scoped to the conversation/history layer.
+- [x] Confirm summarization service boundaries are documented before expanding the config surface.

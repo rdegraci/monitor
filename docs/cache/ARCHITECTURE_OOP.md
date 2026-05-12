@@ -94,6 +94,8 @@ The runtime is composed explicitly at startup.
 - It holds config, history, macro, status, logging, tool, command, prompt, and LLM services.
 - `PromptService` and `PromptStore` are part of the runtime graph.
 - `system_prompt` is resolved through `ConfigService` and then persisted or loaded by `PromptStore`.
+- `ConfigService` also exposes the compaction configuration used by the conversation/history layer.
+- Conversation compaction is owned by the conversation/history layer: `ConversationSession` triggers deterministic compaction, `HistoryService` owns turn-budget tracking and compaction replacement, and `SummarizationService` owns LLM-backed summary generation using the configured prompt template and history contents.
 - It acts as the explicit wiring point for CLI, server, and script modes.
 
 ### Session and server entry points
@@ -112,7 +114,7 @@ A typical CLI flow looks like this:
 5. User input is read through the prompt layer.
 6. `CommandProcessor` classifies commands.
 7. `LLMService` handles conversational completion.
-8. `HistoryService` records conversation messages.
+8. `HistoryService` records conversation messages, tracks the turn budget, and performs conversation compaction in the conversation/history layer.
 9. Output is rendered back to the user.
 
 ## Server Flow
@@ -174,10 +176,15 @@ Configuration and history are handled as runtime-owned services.
 - `ConfigLoader` owns YAML bootstrap, loading, and validation.
 - `EnvLoader` owns dotenv loading and environment overrides.
 - `ConfigService` resolves the persistent prompt history file path using appdirs-first, then falls back to `~/.config/monitor`.
+- `ConfigService` exposes the compaction configuration used by the conversation/history layer.
 - `HistoryService` owns the conversation history domain object.
-- `ConversationSession` uses prompt history through the prompt toolkit layer, but does not own the persistence details itself.
+- `HistoryService` owns turn-budget tracking and compaction replacement.
+- `ConversationSession` uses prompt history through the prompt toolkit layer and triggers deterministic compaction when the configured budget is reached.
+- `ConversationSession` builds the summary text deterministically from the configured prompt template and history contents.
+- `SummarizationService` owns LLM-backed summary generation.
 - `PromptService` owns prompt resolution and the runtime prompt file lifecycle through explicitly injected collaborators.
 - `PromptStore` persists the system prompt at `appdirs.user_config_dir("monitor")/system_prompt` and seeds it from `system_prompt.example` on first run.
+- Conversation compaction is owned by the conversation/history layer.
 
 ## Logging
 Logging is initialized once during bootstrap.

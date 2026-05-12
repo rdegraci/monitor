@@ -92,6 +92,8 @@ Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration
 - Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs-first user config `.env`, and the explicit `~/.config/monitor/.env` fallback.
 - Manage model selection and config reset behavior.
 - Coordinate history path resolution through the appdirs-first user config dir, with explicit fallback to `~/.config/monitor` when needed.
+- Provide the configured history compaction template and history limits to the runtime services that use them.
+- Keep deterministic compaction inputs isolated from higher-level session flow.
 
 ## PromptStore
 Owns file-backed persistence for the resolved system prompt.
@@ -150,7 +152,7 @@ Owns the ordered conversation messages.
 - Keep the conversation message collection isolated from other app state.
 
 ## HistoryService
-Owns conversation history and persistence.
+Owns conversation history, turn-budget tracking, compaction replacement, and persistence.
 
 ### Constructor
 - `config_service: ConfigService`
@@ -165,10 +167,35 @@ Owns conversation history and persistence.
 
 ### Responsibilities
 - Own a `History` instance.
+- Track turn budget and decide when compaction should run.
+- Replace older history with the generated summary while preserving the active exchange.
 - Manage in-memory conversation state plus persistence and summarization behavior.
-- Persist and summarize history.
+- Own history compaction policy and determine when older messages should be summarized.
+- Preserve the newest assistant turn during compaction so the live exchange remains available.
+- Persist and summarize history deterministically.
 - Keep token-related behavior isolated.
-- Support the current temporary mixed storage flow where needed by the thin slice implementation.
+- Support the current mixed storage flow used by the thin slice implementation.
+
+## SummarizationService
+Proposed LLM-backed summary generator for compaction.
+
+### Constructor
+- `history_service: HistoryService`
+
+### Public Methods
+- `summarize(messages: list[Message]) -> str`
+- `summarize_history() -> str`
+
+### Responsibilities
+- Generate summaries from older conversation history using the LLM-backed compaction flow.
+- Consume `ConfigService.compaction_config` through the runtime configuration path.
+- Build summary requests through the request builder collaborators.
+- Send summary requests through the response client collaborators.
+- Adapt provider responses into compacted summary text through the adapter collaborators.
+- Work as the dedicated boundary for compaction-driven summarization.
+- Consume older history segments supplied by `HistoryService`.
+- Produce summary text suitable for reinsertion into compacted conversation state.
+- Keep summary generation isolated from the rest of the session and LLM orchestration flow.
 
 ## MacroService
 Owns macro state and expansion workflows.
@@ -395,6 +422,8 @@ Owns one interactive chat session.
 - Manage prompt state and session-scoped chat behavior.
 - Coordinate with services through the runtime context.
 - Expose the session `is_running` read-only property for lifecycle state.
+- Build the summary text from the configured template and the current history length before compaction.
+- Hand the generated summary text to `HistoryService` for deterministic compaction.
 - Handle the current placeholder non-LLM response flow used by the thin slice implementation.
 - Convert submitted input into a `ConversationTurnResult` for downstream UI and workflow handling.
 

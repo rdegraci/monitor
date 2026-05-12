@@ -11,6 +11,7 @@ from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.server_app import ServerApp
 from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.summarization_service import SummarizationService
 
 
 class _ToolService:
@@ -33,6 +34,26 @@ class _ChatFormatter:
     pass
 
 
+class _SummarizationRequestBuilder:
+    pass
+
+
+class _SummarizationResponseClient:
+    pass
+
+
+class _SummarizationAdapter:
+    pass
+
+
+class _ResponseAdapter:
+    pass
+
+
+class _CompactionStore:
+    pass
+
+
 def build_server_app() -> ServerApp:
     """Build a server app for tests."""
 
@@ -49,6 +70,17 @@ def build_server_app() -> ServerApp:
     llm_client = _LLMClient()
     token_counter = _TokenCounter()
     chat_formatter = _ChatFormatter()
+    summarization_request_builder = _SummarizationRequestBuilder()
+    summarization_response_client = _SummarizationResponseClient()
+    response_adapter = _ResponseAdapter()
+    summarization_adapter = _SummarizationAdapter()
+    compaction_store = _CompactionStore()
+    summarization_service = SummarizationService(
+        config_service,
+        summarization_request_builder,
+        summarization_response_client,
+        response_adapter,
+    )
     llm_service = LLMService(
         config_service,
         prompt_service,
@@ -69,6 +101,8 @@ def build_server_app() -> ServerApp:
         command_processor=command_processor,
         tool_service=tool_service,
         tool_registry=tool_registry,
+        summarization_service=summarization_service,
+        compaction_store=compaction_store,
     )
     return ServerApp(context)
 

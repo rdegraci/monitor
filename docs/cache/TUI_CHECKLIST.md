@@ -154,7 +154,7 @@ This tracker covers:
 - [x] Keep the UI thread as the only mutator of `TuiApp` state.
 - [x] Feed runtime updates into the current UI event pipeline.
 - [x] Keep background completions visible without blocking input.
-- [ ] Confirm transient runtime errors render through the status line and output pane.
+- [x] Confirm transient runtime errors render through the status line and output pane.
 - [ ] Verify runtime shutdown clears any queued transient UI work.
 
 ## Milestone 6: Subagent compatibility
@@ -164,7 +164,7 @@ This tracker covers:
 - [x] Support a single subagent first.
 - [x] Emit a clear completion marker that the parent can detect.
 - [x] Keep subagent results visible through the current snapshot-driven workflow.
-- [ ] Define how future subagent scrollback is surfaced in the viewport.
+- [x] Define how future subagent scrollback is surfaced in the viewport.
 - [ ] Verify subagent result delivery preserves ordering with normal output.
 
 ## Milestone 7: Verification

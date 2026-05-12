@@ -52,6 +52,35 @@ class LLMRequestBuilder:
         input_messages.append({"role": "user", "content": user_input})
         return input_messages
 
+    def build_summarization_input(
+        self,
+        prompt_text: str,
+        message_history: list[Message],
+        token_limit: int | None = None,
+    ) -> list[dict[str, str]]:
+        """Build request input for summary generation.
+
+        Args:
+            prompt_text: The summary prompt text.
+            message_history: Prior conversation messages to summarize.
+            token_limit: Optional token limit directive to include in the system prompt.
+
+        Returns:
+            A list of request messages suitable for adapter consumption.
+        """
+
+        input_messages: list[dict[str, str]] = [{"role": "system", "content": prompt_text}]
+        if token_limit is not None:
+            input_messages.append(
+                {
+                    "role": "system",
+                    "content": f"Token limit: {token_limit}",
+                }
+            )
+        for item in message_history:
+            input_messages.append({"role": item.role, "content": item.content})
+        return input_messages
+
     def strip_provider_prefix(self, model: str) -> str:
         """Remove a provider prefix from a model name when present.
 

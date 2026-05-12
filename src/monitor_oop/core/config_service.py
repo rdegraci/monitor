@@ -8,7 +8,7 @@ from pathlib import Path
 
 from monitor_oop.core.infrastructure.config_loader import ConfigLoader
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
-from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
+from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig, SummarizationSettings
 
 
 class ConfigService:
@@ -55,6 +55,15 @@ class ConfigService:
         self._config.context_window = config_values.context_window
         self._config.prompt_history_filename = config_values.prompt_history_filename
         self._config.history_dir = config_values.history_dir
+        self._config.summarization_settings = getattr(
+            config_values,
+            "summarization_settings",
+            getattr(
+                config_values,
+                "summarization",
+                SummarizationSettings(),
+            ),
+        )
         self._logging_level = config_values.logging_level
 
     def _load_env(self) -> None:
@@ -104,6 +113,21 @@ class ConfigService:
         """Return the active context window size."""
 
         return self._config.context_window
+
+    def get_summarization_prompt_template(self) -> str:
+        """Return the summarization prompt template for the active runtime."""
+
+        return self._config.summarization_settings.prompt_template
+
+    def get_summarization_token_limit(self) -> int:
+        """Return the summarization token limit for the active runtime."""
+
+        return self._config.summarization_settings.token_limit
+
+    def get_conversation_turn_budget(self) -> int:
+        """Return the conversation turn budget for the active runtime."""
+
+        return self._config.conversation_turn_budget
 
     def _get_user_config_dir(self) -> Path:
         """Return the user configuration directory."""

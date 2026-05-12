@@ -10,7 +10,7 @@ The TUI should stay responsive while background work, including subagent activit
 The UI is prompt_toolkit-based and implemented: `MonitorApp/run_tui` delegates into the Application-backed run path with `output_area`, `status_control`, and `input_area`, and the TUI includes a simple loop that accepts draft input and exits through the Application flow.
 The TUI uses injectable I/O helpers through prompt_toolkit UI components and session plumbing so input, output, and status behavior can be swapped cleanly without coupling the core loop to a specific terminal backend.
 The TUI uses `build_app(quiet_bootstrap=True)` for quiet startup, and runtime logging is suppressed while the TUI session is active.
-The current implementation routes visible output through the prompt_toolkit transcript pipeline, which is split into a transcript buffer, transcript renderer, and transcript viewport, and the next implementation step is to keep status restoration event-driven after turn completion rather than relying on synchronous UI-thread state changes.
+The current implementation routes visible output through the implemented prompt_toolkit transcript pipeline, which is split into a transcript buffer, transcript renderer, and transcript viewport, and remaining work focuses on polish, mouse support, and event-driven completion details rather than basic transcript rendering.
 
 ## TuiApp Core Fields
 The minimal `TuiApp` fields are:
@@ -30,7 +30,7 @@ Optional later fields may include:
 - The Output area shows assistant responses, progress messages, and other visible events.
 - The Status Line shows short-lived operational state such as mode, active work, and subagent progress.
 - The interactive loop reads draft input, updates the current turn state, and runs through the Application-backed TUI path.
-- The current output path uses the transcript buffer/renderer/viewport split rather than direct OutputEvent-driven rendering, and assistant transcript entries are rendered with visible STX/ETX markers while error and subagent transcript entries remain plain text.
+- The current output path uses the implemented transcript buffer/renderer/viewport split rather than direct OutputEvent-driven rendering, and assistant transcript entries are rendered with visible STX/ETX markers while error and subagent transcript entries remain plain text.
 - PageUp/PageDown move through the transcript viewport, while the follow-tail behavior keeps the view pinned to new output when the user is at the end of the transcript.
 - The current implementation updates the Status Line from the existing event flow and turn lifecycle state, and completion handling restores the UI to idle once the turn finishes.
 
@@ -83,7 +83,7 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - A clean way to represent internal context separately from user-visible output.
 - TurnCoordinator should expose the per-turn internal context and completion state that the TUI observes through snapshots, instead of having the TUI assemble requests directly.
 - The snapshot interface should provide `begin_turn`, `add_internal_context`, `add_subagent_result`, `add_background_event`, `mark_background_complete`, `snapshot`, and `clear_turn`.
-- The interactive loop, richer layout behavior, and subagent execution flow remain future work.
+- The interactive loop, richer layout behavior, mouse support, and subagent execution flow remain future work.
 - The next turn execution step should produce a compact completion result object, such as `TurnCompletionResult`, that can be consumed by the UI event loop to finalize the turn and transition the Status Line back to idle.
 
 ## Build Order
@@ -98,9 +98,11 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 - Should Output be append-only or support richer formatting?
 - Should Status be a single line or a small fixed-height area?
 - Should Input preserve history and editing shortcuts?
+- Should mouse interactions support transcript selection, wheel scrolling, or both?
 - Should background events be queued or shown immediately?
 - Should subagent results appear in Output before being injected into the LLM flow?
 - Should turn completion return a dedicated result object, such as `TurnCompletionResult`, or a broader turn state envelope?
+- Which event-driven completion details still need to be standardized for the current transcript pipeline?
 
 ## Success Criteria
 - The UI remains usable while background work runs.

@@ -59,7 +59,7 @@ It is intentionally separate from `RuntimeContext` and `ConversationSession`.
 - `snapshot`
 - `clear_turn`
 
-The TUI should consume `TurnCoordinator` snapshots rather than being coupled to rendering callbacks. This keeps the UI focused on presentation while the coordinator remains the source of truth for per-turn state. This scaffolding now exists at a basic level: the TUI owns snapshot-driven turn presentation and event handling, and TurnCoordinator owns the per-turn snapshot data that feeds it.
+The TUI consumes `TurnCoordinator` snapshots rather than being coupled to rendering callbacks. This keeps the UI focused on presentation while the coordinator remains the source of truth for per-turn state, and the existing snapshot-driven turn presentation and event handling now form the basic scaffolding for that flow.
 
 ### TurnCoordinator Lifecycle Notes
 `begin_turn` assigns a new turn id and clears stale turn-scoped data before starting the turn.
@@ -116,7 +116,7 @@ Used for:
 - the user’s current draft prompt
 - normal interactive command entry
 
-The TUI should remain responsive while a subagent is running. The initial TUI scaffold now exists at a basic level, with the three regions in place and snapshot-driven updates wired into the turn flow.
+The TUI remains responsive while a subagent is running, and the initial TUI scaffold now exists at a basic level, with the three regions in place and snapshot-driven updates wired into the turn flow.
 
 ## Event Flow
 The UI and background system exchange explicit events rather than implicit shared state.

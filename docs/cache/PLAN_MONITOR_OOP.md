@@ -49,7 +49,10 @@ The new app should build a clear runtime graph at startup; see `ARCHITECTURE_OOP
   - Works with `ConfigService` to resolve `system_prompt` from the user config directory and maintain the current prompt-file layout.
 - `HistoryService`
   - Owns a `History` domain object for conversation state.
-  - Manages history persistence, summarization, and flushing through `History`.
+  - Manages history persistence, deterministic compaction replacement, and flushing through `History`.
+  - `ConversationSession` triggers deterministic compaction, `HistoryService` performs replacement and turn tracking, and `SummarizationService` now generates the summary text as part of that boundary.
+  - Compaction is owned by the conversation/history layer, with `SummarizationService` generating summary text as part of that boundary.
+  - The current minimal config surface for compaction and summarization is `CONVERSATION_MAX_TURNS`, `summarization.maximum_summary_tokens`, and `summarization.prompt_template`.
 - `History`
   - Encapsulates conversation messages behind a private internal store.
   - Stores messages privately and exposes a controlled API for history access and mutation.
@@ -258,6 +261,7 @@ For tool calling workflows, free functions should also handle OpenAI Responses A
   - `RuntimeContext` owns process-local services and per-run state and acts as the explicit wiring point for CLI, server, and script modes.
   - `ConfigService`, `HistoryService`, `MacroService`, `StatusService`, `LoggerService`, and `PromptService` own their own state and do not create each other.
   - `HistoryService` owns a `History` domain object, and `History` encapsulates messages privately behind its API instead of exposing direct storage.
+  - `ConversationSession` triggers deterministic compaction, `HistoryService` performs replacement and turn tracking, and `SummarizationService` now generates the summary text.
   - `PromptService` owns the resolved system prompt and uses `PromptStore` to persist and seed the prompt file under the user config directory.
   - `PromptStore` resolves the prompt path under `appdirs.user_config_dir("monitor")/system_prompt`, seeds from `system_prompt.example` on first run, and exposes the current prompt text without leaking prompt-file state.
   - `ConversationSession` owns chat-session flow and depends on services through explicit injection.

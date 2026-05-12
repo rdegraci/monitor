@@ -20,6 +20,7 @@ from monitor_oop.core.presentation.tui import TuiApp
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.summarization_service import SummarizationService
 from prompt_toolkit.formatted_text import to_formatted_text
 
 
@@ -55,12 +56,25 @@ def build_runtime_context() -> RuntimeContext:
         def build_responses_tools(self):
             return []
 
+    class CompactionStoreStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    request_builder_stub = RequestBuilderStub()
+    response_client_stub = ResponseClientStub()
+    adapter_stub = AdapterStub()
+    summarization_service = SummarizationService(
+        config_service=config_service,
+        request_builder=request_builder_stub,
+        response_client=response_client_stub,
+        response_adapter=adapter_stub,
+    )
     llm_service = LLMService(
         config_service=config_service,
-        request_builder=RequestBuilderStub(),
-        response_client=ResponseClientStub(),
+        request_builder=request_builder_stub,
+        response_client=response_client_stub,
         tool_call_handler=ToolCallHandlerStub(),
-        adapter=AdapterStub(),
+        adapter=adapter_stub,
         tool_service=ToolServiceStub(),
         prompt_service=prompt_service,
     )
@@ -69,6 +83,7 @@ def build_runtime_context() -> RuntimeContext:
     )
     tool_service = ToolServiceStub()
     tool_registry = object()
+    compaction_store = CompactionStoreStub()
 
     return RuntimeContext(
         config_service=config_service,
@@ -77,9 +92,11 @@ def build_runtime_context() -> RuntimeContext:
         macro_service=macro_service,
         status_service=status_service,
         prompt_service=prompt_service,
+        summarization_service=summarization_service,
         command_processor=command_processor,
         tool_service=tool_service,
         tool_registry=tool_registry,
+        compaction_store=compaction_store,
     )
 
 

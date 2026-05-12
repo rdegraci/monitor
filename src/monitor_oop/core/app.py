@@ -8,6 +8,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from monitor_oop.core.application.llm_request_builder import LLMRequestBuilder
 from monitor_oop.core.command_processor import CommandProcessor
+from monitor_oop.core.compaction_store import CompactionStore
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.history_service import HistoryService
@@ -22,6 +23,7 @@ from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.summarization_service import SummarizationService
 from monitor_oop.core.tool_turn_state import ToolTurnState
 from monitor_oop.core.presentation.turn_coordinator import TurnCoordinator
 from monitor_oop.core.tools.registry import ToolRegistry
@@ -120,7 +122,8 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     )
     app_logger = logger_service.get_logger(__name__)
     app_logger.info("Starting application bootstrap")
-    history_service = HistoryService(config_service)
+    compaction_store = CompactionStore(config_service)
+    history_service = HistoryService(config_service, compaction_store)
     prompt_store = PromptStore(config_service)
     macro_store = MacroStore("Monitor OOP")
     macro_expander = MacroExpander("{{", "}}")
@@ -131,34 +134,43 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     app_logger.info("Loading prompts during bootstrap")
     prompt_service.load()
     status_service = StatusService()
+    llm_request_builder = LLMRequestBuilder()
+    adapter = ResponsesOpenAiAdapter()
     tool_registry = ToolRegistry()
     tool_service = ToolService(tool_registry)
     app_logger.info("Registering weather tool")
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
     tool_turn_state = ToolTurnState()
-    request_builder = LLMRequestBuilder()
-    adapter = ResponsesOpenAiAdapter()
     response_client = LLMResponseClient(config_service, adapter, tool_service)
-    tool_call_handler = ToolCallHandler(tool_service, tool_turn_state)
     llm_service = LLMService(
         config_service,
-        request_builder,
+        llm_request_builder,
         response_client,
-        tool_call_handler,
+        ToolCallHandler(tool_service, tool_turn_state),
         adapter,
         tool_service,
         prompt_service,
     )
+    summarization_prompt_template = config_service.get_summarization_prompt_template()
+    summarization_service = SummarizationService(
+        llm_request_builder,
+        response_client,
+        adapter,
+        summarization_prompt_template,
+    )
+    app_logger.info("Initializing summarization service during bootstrap")
     command_processor = CommandProcessor(
         config_service, history_service, macro_service, status_service
     )
     context = RuntimeContext(
         config_service=config_service,
         history_service=history_service,
+        compaction_store=compaction_store,
         llm_service=llm_service,
         logger_service=logger_service,
         macro_service=macro_service,
         status_service=status_service,
+        summarization_service=summarization_service,
         command_processor=command_processor,
         tool_registry=tool_registry,
         tool_service=tool_service,

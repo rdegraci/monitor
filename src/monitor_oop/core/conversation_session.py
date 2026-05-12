@@ -85,6 +85,26 @@ class ConversationSession:
 
         return None
 
+    def _build_compaction_summary(self) -> str:
+        """Build a deterministic summary string for history compaction.
+
+        The summary uses the configured summarization prompt template together
+        with the current history length so compaction remains deterministic and
+        does not depend on any external summarization call.
+        """
+
+        history_snapshot = tuple(self.context.history_service.messages)
+        logger.info("History compaction requested; running compaction flow")
+        return self.context.summarization_service.summarize(history_snapshot)
+
+    def _maybe_compact_history(self) -> None:
+        """Compact history when the history service requests it."""
+
+        history_service = self.context.history_service
+        if history_service.should_compact():
+            summary_text = self._build_compaction_summary()
+            history_service.compact(summary_text)
+
     def process_user_input(self, user_input: str) -> str | None:
         """Process one user input and return the assistant response text.
 
@@ -104,6 +124,7 @@ class ConversationSession:
         self.context.history_service.append(
             Message(role="assistant", content=response_text)
         )
+        self._maybe_compact_history()
         return response_text
 
     def submit_input(self, user_input: str) -> ConversationTurnResult | None:

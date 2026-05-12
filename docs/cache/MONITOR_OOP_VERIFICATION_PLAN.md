@@ -23,7 +23,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm tool-calling verification now has a concrete tool package to exercise (`src/monitor_oop/core/tools/`), including the deterministic weather tool, registry/service boundaries, and parsing helpers.
 - Confirm tool calling is verified through direct `response.output` parsing with `extract_tool_calls`, multi-tool single-turn scenarios, batched follow-up payload submission with matching `call_id` values, richer tool parsing coverage focused on Responses API shapes, a defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
 - Confirm tool turn state is owned by the dedicated `ToolTurnState` helper with turn-scoped lifecycle management, including tool call accumulation, follow-up preparation, and cleanup at the end of each turn.
-- Confirm real LLM behavior remains a future work item.
+- Confirm real LLM behavior is represented by the current `LLMService` service boundary and tests, while provider integration remains bounded by the current thin-slice implementation.
 - Confirm current LLM safeguards are covered, including defensive finish-reason handling and the 16-call tool-loop cap.
 - Confirm adjusted tests assert the present tool-calling behavior as implemented today.
 - Confirm macro subsystem verification targets recursive macro expansion, delimiter-aware escaping, JSON-backed macro loading/saving as parity goals, and prompt-specific docs alignment alongside those goals.
@@ -56,7 +56,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Flask app can be created from the new runtime context.
 - Request handling uses only new app services.
 - API responses are structurally correct.
-- Server flow remains future work beyond the current thin-slice coverage.
+- Server phase is still pending beyond the current thin-slice coverage.
 - Server-side modules use standard logger access patterns, with logging configured once at bootstrap.
 
 ### Isolation
@@ -73,7 +73,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Tool turn lifecycle is turn-scoped, with state created at the start of a tool-enabled turn and cleared after the turn completes.
 - Tool call tracking, pending follow-up payload preparation, and multi-call sequencing are verified through the dedicated helper.
 - Current tests assert that the helper owns the per-turn tool state and that no stale tool turn state leaks across turns.
-- Background TUI turns reuse the same turn-state pattern for future subagent-style work, while keeping widget updates out of worker threads.
+- Background TUI turns reuse the same turn-state pattern for future subagents, while keeping widget updates out of worker threads.
 
 ### TUI Background Turn Handling
 - Visible working status is shown during submission so the user can see that the active turn is in progress.
@@ -94,19 +94,19 @@ This document defines how the isolated Monitor rewrite is validated against the 
 1. Startup tests.
 2. Config service tests.
 3. Command processor tests.
-4. Conversation session tests.
-5. Server tests.
-6. Isolation tests.
-7. Regression comparison tests.
-8. Tool turn state tests.
-9. TUI background turn handling tests.
+3. Conversation session tests.
+4. Server tests.
+5. Isolation tests.
+6. Regression comparison tests.
+7. Tool turn state tests.
+8. TUI background turn handling tests.
 
 ## Pass Criteria
 - No test depends on legacy mutable globals.
 - The thin-slice CLI path passes end to end.
 - Server mode passes basic route and response tests where implemented.
 - Core behaviors match legacy expectations where intentionally preserved.
-- Real LLM behavior is deferred until the corresponding implementation exists.
+- Real LLM behavior is represented by the current `LLMService` service boundary and tests, with provider integration deferred to later implementation work.
 - Tool calling passes OpenAI Responses API finish-reason handling, deterministic weather tool execution, direct `response.output` parsing via `extract_tool_calls`, multi-tool single-turn batching, matching `call_id` follow-up payload submission, richer tool parsing coverage focused on Responses API shapes, the defensive 16-call tool-loop cap, and the current `LLMService` multi-call handling.
 - Tool turn state is owned by `ToolTurnState`, and per-turn lifecycle management prevents leakage across turns.
 - Logging is configured once at bootstrap via `LoggerService`, the default REPL logs to screen and file, and the `--tui` path uses file-only logging without screen output.

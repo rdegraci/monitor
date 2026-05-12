@@ -26,19 +26,65 @@ class CommandType(str, Enum):
 
 
 @dataclass(slots=True)
+class SummarizationSettings:
+    """Settings used to compact conversation history.
+
+    Attributes:
+        token_limit: Maximum tokens allowed in a generated summary.
+        prompt_template: Template used to instruct the summarizer.
+    """
+
+    token_limit: int = 4000
+    prompt_template: str = (
+        "Summarize the conversation history concisely while preserving important "
+        "context, decisions, constraints, and open tasks."
+    )
+
+    @property
+    def prompt(self) -> str:
+        """Return the summarization prompt template."""
+
+        return self.prompt_template
+
+
+@dataclass(slots=True)
 class RuntimeConfig:
     """Runtime configuration for a single app instance.
 
     Note:
+        Summarization settings include prompt and token limit configuration.
         Tracks the source YAML path when loaded from configuration.
         The history directory and prompt history filename are used to resolve a persistent FileHistory path.
+        The summary settings and conversation turn budget are used by deterministic compaction flows.
     """
 
     model_name: str = DEFAULT_MODEL
     context_window: int = 400_000
+    conversation_turn_budget: int = 128
+    summarization_settings: SummarizationSettings = field(
+        default_factory=SummarizationSettings
+    )
     yaml_path: str = ""
     history_dir: str = "history"
     prompt_history_filename: str = "prompt_history"
+
+    @property
+    def summarization(self) -> SummarizationSettings:
+        """Return the summarization settings object used for compaction."""
+
+        return self.summarization_settings
+
+    @property
+    def compaction_config(self) -> SummarizationSettings:
+        """Return the compaction settings alias used for compaction."""
+
+        return self.summarization_settings
+
+    @property
+    def conversation_max_turns(self) -> int:
+        """Return the maximum number of conversation turns to retain."""
+
+        return self.conversation_turn_budget
 
 
 @dataclass(slots=True)

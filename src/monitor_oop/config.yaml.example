@@ -10,3 +10,8 @@ logging_level: INFO
 # Prompt history settings.
 history_dir: history
 prompt_history_filename: prompt_history
+
+# Summarization settings used by the compaction flow.
+summarization:
+  token_limit: 4000
+  prompt_template: Summarize the conversation history concisely while preserving important context, decisions, constraints, and open tasks.

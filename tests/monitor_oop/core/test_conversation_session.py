@@ -8,6 +8,7 @@ from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.history_service import HistoryService
+from monitor_oop.core.compaction_store import CompactionStore
 from monitor_oop.core.infrastructure.macro_expander import MacroExpander
 from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
@@ -17,6 +18,8 @@ from monitor_oop.core.models import CommandType
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
+from monitor_oop.core.summarization_service import SummarizationService
+from monitor_oop.core.tools.registry import ToolRegistry
 
 
 def build_session() -> ConversationSession:
@@ -55,12 +58,26 @@ def build_session() -> ConversationSession:
         def get_tools(self, *args, **kwargs):
             return []
 
+    class FakeSummarizationService:
+        def summarize(self, *args, **kwargs):
+            return None
+
+    class FakeCompactionStore:
+        def get(self, *args, **kwargs):
+            return None
+
+        def set(self, *args, **kwargs):
+            return None
+
+    request_builder = FakeRequestBuilder()
+    response_client = FakeResponseClient()
+    adapter = FakeAdapter()
     llm_service = LLMService(
         config_service=config_service,
-        request_builder=FakeRequestBuilder(),
-        response_client=FakeResponseClient(),
+        request_builder=request_builder,
+        response_client=response_client,
         tool_call_handler=FakeToolCallHandler(),
-        adapter=FakeAdapter(),
+        adapter=adapter,
         tool_service=FakeToolService(),
         prompt_service=prompt_service,
     )
@@ -80,6 +97,8 @@ def build_session() -> ConversationSession:
         prompt_service=prompt_service,
         tool_service=FakeToolService(),
         tool_registry=FakeToolRegistry(),
+        summarization_service=FakeSummarizationService(),
+        compaction_store=FakeCompactionStore(),
     )
     return ConversationSession(context)
 
