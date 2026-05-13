@@ -9,6 +9,8 @@ from monitor_oop.core.logger_service import LoggerService
 from monitor_oop.core.macro_service import MacroService
 from monitor_oop.core.models import AppState
 from monitor_oop.core.prompt_service import PromptService
+from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.summarization_service import SummarizationService
 from monitor_oop.core.tools.registry import ToolRegistry
@@ -30,6 +32,8 @@ class RuntimeContext:
         command_processor: CommandProcessor,
         tool_service: ToolService,
         tool_registry: ToolRegistry,
+        request_capacity_service: RequestCapacityService,
+        rate_limit_service: RateLimitService,
         compaction_store,
         server_app=None,
         logger_service: LoggerService | None = None,
@@ -47,6 +51,8 @@ class RuntimeContext:
             command_processor: The command processor from monitor_oop.core.command_processor.
             tool_service: The tool service.
             tool_registry: The tool registry.
+            request_capacity_service: The request capacity service.
+            rate_limit_service: The rate limit service.
             compaction_store: The compaction store used for summarization and context compaction boundaries.
             server_app: Optional server application instance.
             logger_service: Optional logger service.
@@ -63,6 +69,8 @@ class RuntimeContext:
         self._server_app = server_app
         self._tool_registry = tool_registry
         self._tool_service = tool_service
+        self._request_capacity_service = request_capacity_service
+        self._rate_limit_service = rate_limit_service
         self._compaction_store = compaction_store
         self._state = AppState()
 
@@ -128,6 +136,16 @@ class RuntimeContext:
     def tool_service(self) -> ToolService:
         """Return the tool service."""
         return self._tool_service
+
+    @property
+    def request_capacity_service(self) -> RequestCapacityService:
+        """Return the request capacity service."""
+        return self._request_capacity_service
+
+    @property
+    def rate_limit_service(self) -> RateLimitService:
+        """Return the rate limit service."""
+        return self._rate_limit_service
 
     @property
     def compaction_store(self):

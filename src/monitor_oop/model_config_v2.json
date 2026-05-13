@@ -1,0 +1,65 @@
+{
+  "model_mapping": {
+      "xai/grok-4-fast": "grok4-fast",
+      "xai/grok-4-1-fast-reasoning": "grok41-fast",
+      "openai/gpt-5-mini-2025-08-07": "gpt5-mini",
+      "openai/gpt-5.4-mini": "gpt54-mini"
+  },
+  "conversation_history_mapping": {
+    "grok4-fast": 50,
+    "grok41-fast": 100,
+    "gpt5-mini": 50,
+    "gpt54-mini": 100
+  },
+  "context_window_mapping": {
+    "grok4-fast": 2000000,
+    "grok41-fast": 2000000,
+    "gpt5-mini": 400000,
+    "gpt54-mini": 400000
+  },
+  "output_window_mapping": {
+    "grok4-fast": 8192,
+    "grok41-fast": 30000,
+    "gpt5-mini": 128000,
+    "gpt54-mini": 128000
+  },
+  "model_max_tpm": {
+    "grok4-fast": "xai_model_tpm_tier/grok4-fast-1",
+    "grok41-fast": "xai_model_tpm_tier/grok41-fast-1",
+    "gpt5-mini": "openai_model_tpm_tier/chatgpt5-mini-4",
+    "gpt54-mini": "openai_model_tpm_tier/chatgpt54-mini-4"
+  },
+  "openai_model_tpm_tier": {
+    "1": 30000,
+    "2": 450000,
+    "3": 800000,
+    "4": 2000000,
+    "5": 30000000,
+    "chatgpt5-mini-1": 500000,
+    "chatgpt5-mini-2": 2000000,
+    "chatgpt5-mini-3": 4000000,
+    "chatgpt5-mini-4": 10000000,
+    "chatgpt5-mini-5": 180000000,
+    "chatgpt54-mini-4": 10000000
+  },
+  "anthropic_model_tpm_tier": {
+    "1": 20000,
+    "2": 40000,
+    "3": 80000,
+    "4": 200000
+  },
+  "xai_model_tpm_tier": {
+    "1": 2000000,
+    "2": 2000000,
+    "3": 2000000,
+    "4": 2000000,
+    "grok4-fast-1": 4000000,
+    "grok41-fast-1": 4000000
+  },
+  "google_model_tpm_tier": {
+    "1": 80000,
+    "2": 80000,
+    "3": 80000,
+    "4": 80000
+  }
+}

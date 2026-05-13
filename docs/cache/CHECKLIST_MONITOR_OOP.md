@@ -6,6 +6,7 @@
 - [x] Confirm `MONITOR_OOP_IMPLEMENTATION_SEQUENCE.md` is current and used for implementation ordering.
 - [x] Confirm `MONITOR_OOP_VERIFICATION_PLAN.md` is current and used as the verification reference.
 - [x] Confirm the first-pass class map and build sequence stay in sync with this tracker.
+- [x] Confirm the model config schema is documented in `docs/cache/PLAN_MODEL_CONFIG_V2.md` and tracked in `docs/cache/CHECKLIST_MODEL_CONFIG_V2.md`.
 
 ## Milestone 1: Scope and separation
 - [x] Confirm the new app package name and directory.
@@ -36,6 +37,8 @@
 - [x] Confirm the concrete tool package files now exist under `src/monitor_oop/core/tools/`, including `tool_models.py`, `registry.py`, `tool_service.py`, `parsing.py`, and a sample tool module such as `weather.py`.
 - [x] Confirm parsing, normalization, and output-wrapping helpers remain free functions where appropriate.
 - [x] Confirm the configuration bootstrap plan preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files and only seeds missing files from `src/monitor_oop/config.yaml.example`, loads `config.yaml` from the user config directory with fallback to `~/.config/monitor/`, loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and keeps prompt history design in `ConversationSession` via `prompt_toolkit.PromptSession` with `FileHistory` while `ConfigService` owns resolution of the persistent history file path instead of introducing a separate `FileHistoryService`.
+- [x] Confirm the intended startup order for bootstrap config loading is `config.yaml`, then `model_config_v2.json`, then `.env`, then `system_prompt`.
+- [x] Confirm first-run seeding for `model_config_v2.json` into the user app config directory when missing, sourced from the committed `src/monitor_oop/model_config_v2.json` file.
 - [x] Confirm the system prompt is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in LLM request construction.
 - [x] Confirm prompt-specific tests or docs alignment in the OOP tracker.
 - [x] Confirm prompt subsystem import-path alignment is tracked in the OOP docs and package layout.
@@ -45,6 +48,12 @@
 - [x] Confirm conversation compaction and summarization are owned by the conversation/history layer rather than a separate global workflow.
 - [x] Define the summarization service boundary and its inputs/outputs for compaction decisions.
 - [x] Confirm the minimal config surface needed for compaction policy, thresholds, and history retention is tracked explicitly.
+- [x] Confirm context/output window configuration is treated as model capacity data used for fit/headroom checks and not as the usage-rate limit itself.
+- [x] Confirm compaction can run before rate-limit preflight when context-window pressure requires resizing, while still remaining separate from the rate-limit policy itself.
+- [x] Confirm provider-aware LLM rate limiting is tracked in `docs/cache/PLAN_RATE_LIMITING.md` and that the future Anthropic LiteLLM adapter will reuse the same limiter boundary.
+- [x] Confirm the greenfield model config schema is tracked as `src/monitor_oop/model_config_v2.json` and that the schema uses explicit provider-table tier references for future rate limiting.
+- [ ] Confirm the initial rate-limiting policy defaults: TPM required, RPM optional/off by default, completion headroom reserved, and wait-then-fail for interactive modes with server-mode fail-fast or short-wait behavior.
+- [ ] Confirm the runtime graph now explicitly includes `RequestCapacityService` and `RateLimitService` in the first implementation slice and that `LLMResponseClient` uses them for preflight orchestration.
 
 ## Milestone 3: Package and bootstrap
 - [x] Create the new package directory.

@@ -5,6 +5,8 @@ Define how `monitor_oop` should compact long-running conversations before the co
 
 Compaction should keep the session usable over many turns without waiting for the hard limit to be hit. The current implementation triggers compaction deterministically inside `ConversationSession` when remaining turns fall at or below 10% of the configured budget, then uses `HistoryService` to preserve the newest turns verbatim while `SummarizationService` generates an LLM-backed summary through the request builder, response client, and adapter flow.
 
+Compaction is a capacity-management response to context-window pressure, and it remains separate from rate limiting while still cooperating with request fit checks and headroom planning. Compaction is already implemented in the conversation/history layer and continues to work alongside request-capacity planning and telemetry.
+
 ## Current Direction
 The compaction model stays intentionally small and opinionated:
 - `CONVERSATION_MAX_TURNS` defines the hard conversation budget in turns.
@@ -13,6 +15,8 @@ The compaction model stays intentionally small and opinionated:
 - `ConversationSession` owns the deterministic compaction trigger flow.
 - `HistoryService` owns turn tracking and replacement while keeping the newest turns intact.
 - `SummarizationService` performs LLM-backed summary generation through the current request builder/response client/adapter flow.
+- Compaction and rate limiting are separate concerns; see `docs/cache/PLAN_RATE_LIMITING.md` for send-path throttling policy.
+- Compaction config remains separate from the greenfield model/rate-limit config schema, and model resolution lives in `model_config_v2.json`.
 
 The current implementation favors a clear, deterministic workflow over a highly configurable policy surface.
 
@@ -44,7 +48,7 @@ The following behaviors should be internal implementation details unless the des
 - whether compaction may repeat in multiple passes
 
 ## UI Considerations
-The TUI status line should be able to reflect turn headroom, including a remaining-turns style indicator. If compaction is introduced, the status line can surface the relevant headroom information without exposing the underlying policy mechanics.
+The TUI status line should be able to reflect turn headroom, including a remaining-turns style indicator. If compaction is active, the status line can surface the relevant headroom information without exposing the underlying policy mechanics.
 
 ## Verification Focus
 Any implementation should be verified for:

@@ -12,6 +12,7 @@ from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.server_app import ServerApp
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.summarization_service import SummarizationService
+from unittest.mock import MagicMock
 
 
 class _ToolService:
@@ -103,6 +104,8 @@ def build_server_app() -> ServerApp:
         tool_registry=tool_registry,
         summarization_service=summarization_service,
         compaction_store=compaction_store,
+        request_capacity_service=MagicMock(),
+        rate_limit_service=MagicMock(),
     )
     return ServerApp(context)
 

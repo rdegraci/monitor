@@ -33,6 +33,8 @@ Current examples:
 - `LLMService`
 - `PromptService`
 - `PromptStore`
+- `RequestCapacityService`
+- `RateLimitService`
 - the macro subsystem, which is loaded during bootstrap by `MacroService` and delegates persistence to `MacroStore` and expansion to `MacroExpander`, while further legacy parity work may still be needed for delimiter, escape, and TCL behavior
 - `TuiApp`, which is Application-backed and owns the prompt_toolkit TUI flow
 
@@ -50,11 +52,12 @@ Current examples:
 - `models.py`
 - `History`
 - `ToolTurnState`
+- `RuntimeConfig`
 - command and message model objects
 
 Responsibilities:
 - model app state and results
-- represent messages, commands, tool state, and runtime config
+- represent messages, commands, tool state, runtime config, and runtime settings
 - keep business rules independent from transport and persistence details
 
 ### Infrastructure
@@ -91,10 +94,13 @@ The runtime is composed explicitly at startup.
 - `RuntimeContext` owns the process-local service graph.
 - It is constructed with explicit dependencies and stores the services needed by the application.
 - It exposes read-only accessors over its privately stored dependencies.
-- It holds config, history, macro, status, logging, tool, command, prompt, and LLM services.
+- It holds config, history, macro, status, logging, tool, request-capacity, rate-limit, command, prompt, and LLM services.
 - `PromptService` and `PromptStore` are part of the runtime graph.
+- `RequestCapacityService` and `RateLimitService` are part of the runtime graph.
 - `system_prompt` is resolved through `ConfigService` and then persisted or loaded by `PromptStore`.
 - `ConfigService` also exposes the compaction configuration used by the conversation/history layer.
+- `ConfigService` follows the explicit bootstrap order `config.yaml -> model_config_v2.json -> .env -> system_prompt`, and the committed packaged `model_config_v2.json` file is copied into the user config directory during bootstrap when needed.
+- `ConfigService` loads and applies `model_config_v2.json` during bootstrap, and the resolved model fields are carried in `RuntimeConfig`.
 - Conversation compaction is owned by the conversation/history layer: `ConversationSession` triggers deterministic compaction, `HistoryService` owns turn-budget tracking and compaction replacement, and `SummarizationService` owns LLM-backed summary generation using the configured prompt template and history contents.
 - It acts as the explicit wiring point for CLI, server, and script modes.
 
@@ -177,6 +183,8 @@ Configuration and history are handled as runtime-owned services.
 - `EnvLoader` owns dotenv loading and environment overrides.
 - `ConfigService` resolves the persistent prompt history file path using appdirs-first, then falls back to `~/.config/monitor`.
 - `ConfigService` exposes the compaction configuration used by the conversation/history layer.
+- `ConfigService` follows the explicit bootstrap order `config.yaml -> model_config_v2.json -> .env -> system_prompt`, and the committed packaged `model_config_v2.json` file is copied into the user config directory during bootstrap when needed.
+- `ConfigService` loads and applies `model_config_v2.json` during bootstrap, and the resolved model fields are carried in `RuntimeConfig`.
 - `HistoryService` owns the conversation history domain object.
 - `HistoryService` owns turn-budget tracking and compaction replacement.
 - `ConversationSession` uses prompt history through the prompt toolkit layer and triggers deterministic compaction when the configured budget is reached.

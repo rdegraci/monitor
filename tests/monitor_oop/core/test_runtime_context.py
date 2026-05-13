@@ -1,4 +1,6 @@
 """Tests for the isolated Monitor OOP runtime context."""
+from unittest.mock import MagicMock
+
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
@@ -84,6 +86,8 @@ def test_runtime_context_create_session() -> None:
         command_processor=command_processor,
         tool_service=tool_service,
         tool_registry=tool_registry,
+        request_capacity_service=MagicMock(),
+        rate_limit_service=MagicMock(),
         compaction_store=_CompactionStore(),
     )
 

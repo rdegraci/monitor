@@ -59,7 +59,9 @@ class RuntimeConfig:
     """
 
     model_name: str = DEFAULT_MODEL
+    model_alias: str | None = None
     context_window: int = 400_000
+    output_window: int = 32_000
     conversation_turn_budget: int = 128
     summarization_settings: SummarizationSettings = field(
         default_factory=SummarizationSettings
@@ -67,6 +69,13 @@ class RuntimeConfig:
     yaml_path: str = ""
     history_dir: str = "history"
     prompt_history_filename: str = "prompt_history"
+    rate_limit_requests: int | None = None
+    rate_limit_tokens: int | None = None
+    rate_limit_window_seconds: int | None = None
+    tokens_per_minute: int | None = None
+    requests_per_minute: int | None = None
+    provider: str | None = None
+    full_model_name: str | None = None
 
     @property
     def summarization(self) -> SummarizationSettings:

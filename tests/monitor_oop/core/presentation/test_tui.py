@@ -1,5 +1,6 @@
 """Tests for the TUI coordinator."""
 from collections import deque
+from unittest.mock import MagicMock
 
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
@@ -84,6 +85,8 @@ def build_runtime_context() -> RuntimeContext:
     tool_service = ToolServiceStub()
     tool_registry = object()
     compaction_store = CompactionStoreStub()
+    request_capacity_service = MagicMock()
+    rate_limit_service = MagicMock()
 
     return RuntimeContext(
         config_service=config_service,
@@ -97,6 +100,8 @@ def build_runtime_context() -> RuntimeContext:
         tool_service=tool_service,
         tool_registry=tool_registry,
         compaction_store=compaction_store,
+        request_capacity_service=request_capacity_service,
+        rate_limit_service=rate_limit_service,
     )
 
 

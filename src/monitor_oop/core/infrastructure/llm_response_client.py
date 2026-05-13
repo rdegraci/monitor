@@ -6,6 +6,8 @@ from typing import Any
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
+from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
 from monitor_oop.core.tools.tool_service import ToolService
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,8 @@ class LLMResponseClient:
         config_service: ConfigService,
         adapter: ResponsesOpenAiAdapter,
         tool_service: ToolService | None = None,
+        request_capacity_service: RequestCapacityService | None = None,
+        rate_limit_service: RateLimitService | None = None,
     ) -> None:
         """Initialize the response client.
 
@@ -26,11 +30,15 @@ class LLMResponseClient:
             config_service: Runtime configuration access.
             adapter: Responses LiteLLM adapter used to create completions.
             tool_service: Optional tool service for response tool schemas.
+            request_capacity_service: Optional request capacity service for preflight checks.
+            rate_limit_service: Optional rate limit service for preflight checks.
         """
 
         self.config_service = config_service
         self._adapter = adapter
         self._tool_service = tool_service
+        self._request_capacity_service = request_capacity_service
+        self._rate_limit_service = rate_limit_service
 
     def _build_litellm_tools(self) -> list[dict[str, Any]]:
         """Return the current flat Responses-style tool schemas for the adapter."""
@@ -63,6 +71,48 @@ class LLMResponseClient:
         tools = self._build_litellm_tools()
         tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
+        if self._request_capacity_service is not None:
+            logger.info(
+                "Performing request capacity preflight check: model=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                model,
+                len(input_messages),
+                len(tools),
+                previous_response_id,
+            )
+            request_fits = self._request_capacity_service.request_fits(
+                model=model,
+                input_messages=input_messages,
+                tools=tools,
+                previous_response_id=previous_response_id,
+            )
+            logger.info("Request capacity preflight check result: request_fits=%s.", request_fits)
+            if not request_fits:
+                raise ValueError("Request does not fit within the configured request capacity limits.")
+        if self._rate_limit_service is not None:
+            logger.info(
+                "Performing rate limit preflight check: model=%s, previous_response_id=%s.",
+                model,
+                previous_response_id,
+            )
+            estimated_tokens = self._rate_limit_service.estimate_token_usage(
+                model=model,
+                messages=input_messages,
+                tools=tools,
+                previous_response_id=previous_response_id,
+            )
+            logger.info(
+                "Rate limit preflight check estimated token usage: model=%s, estimated_tokens=%s, previous_response_id=%s.",
+                model,
+                estimated_tokens,
+                previous_response_id,
+            )
+            rate_limit_allows = self._rate_limit_service.request_allowed(
+                model=model,
+                estimated_tokens=estimated_tokens,
+            )
+            logger.info("Rate limit preflight check result: request_allowed=%s.", rate_limit_allows)
+            if not rate_limit_allows:
+                raise ValueError("Request is not allowed by the current rate limit policy.")
         logger.info(
             "Creating response with model=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
             model,

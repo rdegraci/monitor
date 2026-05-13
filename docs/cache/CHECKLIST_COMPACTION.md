@@ -14,6 +14,12 @@ This tracker covers:
 - remaining-turns / headroom reporting in the UI
 - verification of fallback behavior
 - shaping the summarizer service interface
+- compaction config staying separate from `src/monitor_oop/model_config_v2.json`
+- compaction not being part of model rate-limit resolution
+- rate limiting tracked separately in `docs/cache/CHECKLIST_RATELIMITING.md` and not conflated with compaction behavior
+- compaction triggered by context-window pressure / capacity management
+- compaction remaining separate from rate limiting
+- compaction cooperating with request fit checks and headroom planning
 
 ## Milestone 1: Policy definition
 - [x] Define `CONVERSATION_MAX_TURNS` as the conversation budget in turns.
@@ -23,9 +29,12 @@ This tracker covers:
 - [x] Define `summarization.prompt.template` as the configurable summary prompt.
 - [x] Define preservation of the most recent turns verbatim.
 - [x] Define fallback behavior when summarization fails.
+- [x] Define compaction as a response to context-window pressure and capacity management.
+- [x] Define compaction as separate from rate limiting.
+- [x] Define compaction as cooperating with request fit checks and headroom planning.
 
 ## Milestone 2: Runtime placement
-- [x] Compaction lives in `ConversationSession`, with `HistoryService` handling the summarized-history replacement.
+- [x] Compaction lives in `ConversationSession`, with `HistoryService` handling the summarized-history replacement and cooperating with request-capacity checks before rate limiting.
 - [x] Define the boundary between turn tracking and history summarization.
 - [x] Define how compacted summaries are reinserted into the active conversation state.
 - [x] Define how compaction interacts with snapshot/state reporting.
@@ -44,6 +53,9 @@ This tracker covers:
 - [x] Add tests for preserving recent turns verbatim.
 - [x] Add tests for compaction fallback behavior.
 - [x] Add tests for headroom reporting after compaction.
+- [x] Add tests confirming compaction is triggered by context-window pressure and capacity management.
+- [x] Add tests confirming compaction remains separate from rate limiting.
+- [x] Add tests confirming compaction cooperates with request fit checks and headroom planning.
 
 ## Notes
 - Keep the first implementation small and deterministic.

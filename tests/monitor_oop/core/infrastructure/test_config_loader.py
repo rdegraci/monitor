@@ -104,3 +104,142 @@ def test_load_config_yaml_prefers_last_valid_user_path(monkeypatch, tmp_path) ->
     assert result.model_name == "second"
 
     monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", original_get_user_config_paths)
+
+
+def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatch, tmp_path) -> None:
+    """Verify the committed schema maps a selected model to stable runtime config values."""
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_yaml = config_dir / "config.yaml"
+    config_yaml.write_text("model: provider-family/model-x\n", encoding="utf-8")
+
+    user_json = config_dir / "model_config_v2.json"
+    user_json.write_text(
+        """
+{
+  "model_mapping": {
+    "provider-family/model-x": "model-x-alias"
+  },
+  "conversation_history_mapping": {
+    "model-x-alias": 50
+  },
+  "context_window_mapping": {
+    "model-x-alias": 128000
+  },
+  "output_window_mapping": {
+    "model-x-alias": 16000
+  },
+  "model_max_tpm": {
+    "model-x-alias": 9000
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    packaged_json = tmp_path / "src" / "monitor_oop" / "core" / "model_config_v2.json"
+    packaged_json.parent.mkdir(parents=True)
+    packaged_json.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
+    monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
+    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
+    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
+
+    loader = ConfigLoader()
+    loaded_model_config = loader.load_model_config("provider-family/model-x")
+
+    assert loaded_model_config.model_alias == "model-x-alias"
+    assert loaded_model_config.full_model_name == "provider-family/model-x"
+    assert loaded_model_config.context_window == 128000
+    assert loaded_model_config.output_window == 16000
+    assert loaded_model_config.conversation_turn_budget == 50
+    assert loaded_model_config.tokens_per_minute == 9000
+
+
+def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_path) -> None:
+    """Verify user model_config_v2.json overrides the packaged schema file."""
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_yaml = config_dir / "config.yaml"
+    config_yaml.write_text("model: provider-family/model-x\n", encoding="utf-8")
+
+    user_json = config_dir / "model_config_v2.json"
+    user_json.write_text(
+        """
+{
+  "model_mapping": {
+    "provider-family/model-x": "user-alias"
+  },
+  "conversation_history_mapping": {
+    "user-alias": 75
+  },
+  "context_window_mapping": {
+    "user-alias": 256000
+  },
+  "output_window_mapping": {
+    "user-alias": 32000
+  },
+  "model_max_tpm": {
+    "user-alias": 12000
+  },
+  "xai_model_tpm_tier": {
+    "user-alias": {
+      "default": {
+        "tpm": 12000
+      }
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    packaged_json = tmp_path / "src" / "monitor_oop" / "core" / "model_config_v2.json"
+    packaged_json.parent.mkdir(parents=True)
+    packaged_json.write_text(
+        """
+{
+  "model_mapping": {
+    "provider-family/model-x": "packaged-alias"
+  },
+  "conversation_history_mapping": {
+    "packaged-alias": 25
+  },
+  "context_window_mapping": {
+    "packaged-alias": 64000
+  },
+  "output_window_mapping": {
+    "packaged-alias": 8000
+  },
+  "model_max_tpm": {
+    "packaged-alias": 4000
+  },
+  "openai_model_tpm_tier": {
+    "packaged-alias": {
+      "default": {
+        "tpm": 4000
+      }
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
+    monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
+    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
+    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
+
+    loader = ConfigLoader()
+    loaded_model_config = loader.load_model_config("provider-family/model-x")
+
+    assert loaded_model_config.model_alias == "user-alias"
+    assert loaded_model_config.full_model_name == "provider-family/model-x"
+    assert loaded_model_config.context_window == 256000
+    assert loaded_model_config.output_window == 32000
+    assert loaded_model_config.conversation_turn_budget == 75
+    assert loaded_model_config.tokens_per_minute == 12000

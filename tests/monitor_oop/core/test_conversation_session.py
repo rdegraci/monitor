@@ -1,5 +1,6 @@
 """Tests for the isolated Monitor OOP conversation session."""
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import appdirs
 from prompt_toolkit.history import FileHistory
@@ -99,6 +100,8 @@ def build_session() -> ConversationSession:
         tool_registry=FakeToolRegistry(),
         summarization_service=FakeSummarizationService(),
         compaction_store=FakeCompactionStore(),
+        request_capacity_service=MagicMock(),
+        rate_limit_service=MagicMock(),
     )
     return ConversationSession(context)
 

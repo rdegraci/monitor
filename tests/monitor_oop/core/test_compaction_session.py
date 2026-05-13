@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
@@ -136,6 +137,8 @@ def build_session(conversation_max_turns: int = 2) -> ConversationSession:
         tool_registry=_FakeToolRegistry(),
         compaction_store=_FakeCompactionStore(),
         summarization_service=summarization_service,
+        request_capacity_service=MagicMock(),
+        rate_limit_service=MagicMock(),
     )
     return ConversationSession(context)
 

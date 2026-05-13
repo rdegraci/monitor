@@ -5,8 +5,9 @@ import appdirs
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
-from monitor_oop.core.infrastructure.config_loader import ConfigLoader
+from monitor_oop.core.infrastructure.config_loader import ConfigLoader, LoadedModelConfig
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
 from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig, SummarizationSettings
 
@@ -26,6 +27,7 @@ class ConfigService:
 
         self._apply_defaults()
         self._load_config_yaml()
+        self._load_model_config()
         self._load_env()
         self._apply_environment_overrides()
 
@@ -39,6 +41,7 @@ class ConfigService:
         """Load YAML configuration using defaults first, then user files."""
 
         self._load_config_yaml()
+        self._load_model_config()
 
     def _apply_defaults(self) -> None:
         """Reset the runtime configuration to deterministic defaults."""
@@ -53,6 +56,11 @@ class ConfigService:
         config_values = self._config_loader.load_config_yaml()
         self._config.model_name = config_values.model_name
         self._config.context_window = config_values.context_window
+        self._config.output_window = getattr(
+            config_values,
+            "output_window",
+            self._config.output_window,
+        )
         self._config.prompt_history_filename = config_values.prompt_history_filename
         self._config.history_dir = config_values.history_dir
         self._config.summarization_settings = getattr(
@@ -65,6 +73,43 @@ class ConfigService:
             ),
         )
         self._logging_level = config_values.logging_level
+
+    def _load_model_config(self) -> None:
+        """Load JSON model configuration for the active model name."""
+
+        model_name = self._config.model_name
+        logger = logging.getLogger(__name__)
+        logger.info("Loading model config for %s", model_name)
+        model_config = self._config_loader.load_model_config(model_name)
+        logger.info(
+            "Resolved model config for %s: model_alias=%s full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s",
+            model_name,
+            model_config.model_alias,
+            model_config.full_model_name,
+            model_config.context_window,
+            model_config.output_window,
+            model_config.conversation_turn_budget,
+            model_config.tokens_per_minute,
+            model_config.requests_per_minute,
+        )
+
+        self._apply_loaded_model_config(model_config)
+
+    def _apply_loaded_model_config(self, model_config: LoadedModelConfig) -> None:
+        """Apply loaded model configuration values to the runtime config."""
+
+        self._config.model_alias = model_config.model_alias
+        self._config.full_model_name = model_config.full_model_name
+        self._config.provider = model_config.provider
+        self._config.context_window = model_config.context_window
+        self._config.output_window = model_config.output_window
+        self._config.conversation_turn_budget = model_config.conversation_turn_budget
+        self._config.tokens_per_minute = model_config.tokens_per_minute
+        self._config.requests_per_minute = model_config.requests_per_minute
+
+        resolved_model_name = model_config.model_alias or model_config.full_model_name
+        if resolved_model_name:
+            self._config.model_name = resolved_model_name
 
     def _load_env(self) -> None:
         """Load dotenv files in deterministic precedence order."""
@@ -87,6 +132,7 @@ class ConfigService:
         self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
         self._logging_level = logging.INFO
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self._load_model_config()
 
     def select_model(self, model_name: str) -> bool:
         """Select the active model for this runtime."""
@@ -104,15 +150,66 @@ class ConfigService:
     def get_provider(self) -> str:
         """Return the provider prefix for the active model name."""
 
+        provider = getattr(self._config, "provider", None)
+        if provider:
+            return provider
+
         model_name = self._config.model_name
         if "/" in model_name:
             return model_name.split("/", 1)[0]
         return "openai"
 
+    def estimate_token_usage(
+        self,
+        model: str,
+        messages: list[dict[str, Any]] | None,
+        tools: list[dict[str, Any]] | None,
+        previous_response_id: str | None,
+    ) -> int:
+        """Estimate token usage for a request.
+
+        Args:
+            model: The model name being used for the request.
+            messages: The request messages.
+            tools: The request tools.
+            previous_response_id: The previous response identifier, if any.
+
+        Returns:
+            int: A conservative estimate of token usage for the request.
+        """
+
+        del model
+        estimated_tokens = 0
+
+        if messages:
+            for message in messages:
+                for value in message.values():
+                    if isinstance(value, str):
+                        estimated_tokens += max(1, len(value) // 4)
+                    elif isinstance(value, list):
+                        estimated_tokens += len(value) * 4
+                    elif isinstance(value, dict):
+                        estimated_tokens += len(value) * 2
+                    elif value is not None:
+                        estimated_tokens += 1
+
+        if tools:
+            estimated_tokens += len(tools) * 20
+
+        if previous_response_id:
+            estimated_tokens += max(1, len(previous_response_id) // 4)
+
+        return max(1, estimated_tokens)
+
     def get_context_window(self) -> int:
         """Return the active context window size."""
 
         return self._config.context_window
+
+    def get_output_window(self) -> int:
+        """Return the active output window size."""
+
+        return self._config.output_window
 
     def get_summarization_prompt_template(self) -> str:
         """Return the summarization prompt template for the active runtime."""
@@ -128,6 +225,59 @@ class ConfigService:
         """Return the conversation turn budget for the active runtime."""
 
         return self._config.conversation_turn_budget
+
+    def _resolve_model_name(self, model_name: str | None) -> str:
+        """Return the requested model name or the current runtime model."""
+
+        if model_name:
+            return model_name
+        return self._config.model_name
+
+    def get_model_tpm_limit(self, model_name: str | None = None) -> int:
+        """Return the tokens-per-minute limit for a model.
+
+        The requested model name is used when provided; otherwise the current
+        runtime model is checked. If no model-specific TPM value is available,
+        return a small positive default.
+        """
+
+        resolved_model_name = self._resolve_model_name(model_name)
+
+        tpm_limit = getattr(self._config, "tokens_per_minute", None)
+        if tpm_limit is None:
+            tpm_limit = getattr(self._config, "tpm_limit", None)
+
+        if tpm_limit is None and resolved_model_name != self._config.model_name:
+            tpm_limit = getattr(self._config, f"{resolved_model_name}_tokens_per_minute", None)
+            if tpm_limit is None:
+                tpm_limit = getattr(self._config, f"{resolved_model_name}_tpm_limit", None)
+
+        if tpm_limit is None:
+            return 1
+        return tpm_limit
+
+    def get_model_rpm_limit(self, model_name: str | None = None) -> int:
+        """Return the requests-per-minute limit for a model.
+
+        The requested model name is used when provided; otherwise the current
+        runtime model is checked. If no model-specific RPM value is available,
+        return 0.
+        """
+
+        resolved_model_name = self._resolve_model_name(model_name)
+
+        rpm_limit = getattr(self._config, "requests_per_minute", None)
+        if rpm_limit is None:
+            rpm_limit = getattr(self._config, "rpm_limit", None)
+
+        if rpm_limit is None and resolved_model_name != self._config.model_name:
+            rpm_limit = getattr(self._config, f"{resolved_model_name}_requests_per_minute", None)
+            if rpm_limit is None:
+                rpm_limit = getattr(self._config, f"{resolved_model_name}_rpm_limit", None)
+
+        if rpm_limit is None:
+            return 0
+        return rpm_limit
 
     def _get_user_config_dir(self) -> Path:
         """Return the user configuration directory."""

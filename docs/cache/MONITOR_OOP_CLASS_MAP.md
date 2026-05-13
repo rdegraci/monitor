@@ -58,6 +58,8 @@ Owns the isolated runtime services and per-run state for the staged implementati
 - `command_processor: CommandProcessor`
 - `tool_registry: ToolRegistry`
 - `tool_service: ToolService`
+- `request_capacity_service: RequestCapacityService`
+- `rate_limit_service: RateLimitService`
 - `llm_service: LLMService`
 - `server_app: ServerApp | None = None`
 
@@ -89,6 +91,7 @@ Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration
 
 ### Responsibilities
 - Load and validate app configuration through the loader collaborators.
+- Apply `model_config_v2.json` during bootstrap.
 - Resolve `OPENAI_API_KEY` from the environment, the project `.env`, the appdirs-first user config `.env`, and the explicit `~/.config/monitor/.env` fallback.
 - Manage model selection and config reset behavior.
 - Coordinate history path resolution through the appdirs-first user config dir, with explicit fallback to `~/.config/monitor` when needed.
@@ -177,7 +180,7 @@ Owns conversation history, turn-budget tracking, compaction replacement, and per
 - Support the current mixed storage flow used by the thin slice implementation.
 
 ## SummarizationService
-Proposed LLM-backed summary generator for compaction.
+LLM-backed summary generator for compaction.
 
 ### Constructor
 - `history_service: HistoryService`
@@ -218,7 +221,6 @@ Owns macro state and expansion workflows.
 - Keep macro definitions private within the service boundary for the thin slice implementation.
 - Support simple runtime macro updates without recursive expansion logic in the service layer.
 - Preserve current behavior while future parity work introduces dedicated `MacroStore` and `MacroExpander` collaborators.
-- Likely future collaborator responsibilities include recursive macro expansion, delimiter handling, escape handling, TCL parity, and persistence.
 - Load macros.
 - Expand macro expressions.
 - Handle runtime macro updates.
@@ -341,6 +343,38 @@ Owns model-requested tool call handling and execution coordination.
 - Support follow-up payload processing after tool execution.
 - Keep tool-call orchestration isolated from `LLMService`.
 
+## RequestCapacityService
+Owns request sizing and capacity decisions for LLM traffic.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `get_capacity() -> int`
+- `set_capacity(capacity: int) -> None`
+- `reset() -> None`
+
+### Responsibilities
+- Track request capacity derived from runtime configuration.
+- Provide request sizing limits used by LLM response handling.
+- Keep capacity policy isolated from response orchestration.
+
+## RateLimitService
+Owns rate-limit state for provider-facing LLM calls.
+
+### Constructor
+- `config_service: ConfigService`
+
+### Public Methods
+- `acquire() -> None`
+- `release() -> None`
+- `reset() -> None`
+
+### Responsibilities
+- Track provider call rate limiting for the runtime.
+- Gate LLM response traffic through the runtime graph.
+- Keep rate-limit coordination isolated from request construction and command flow.
+
 ## LLMRequestBuilder
 Owns request shaping for LLM completions.
 
@@ -391,6 +425,8 @@ Owns provider-specific LLM response invocation and low-level completion transpor
 
 ### Constructor
 - `config_service: ConfigService`
+- `request_capacity_service: RequestCapacityService`
+- `rate_limit_service: RateLimitService`
 
 ### Public Methods
 - `complete(request: object) -> object`
@@ -399,6 +435,8 @@ Owns provider-specific LLM response invocation and low-level completion transpor
 ### Responsibilities
 - Invoke the configured model provider.
 - Keep provider transport isolated from response orchestration.
+- Use `RequestCapacityService` for request sizing decisions.
+- Use `RateLimitService` for provider call throttling.
 - Serve as the low-level client used by `LLMService`.
 
 ## ConversationSession
@@ -473,11 +511,14 @@ Define these in `models.py`:
 - `ToolResult`
 - `ConversationTurnResult`
 
+`RuntimeConfig` carries model config fields, including the selected model and model limits used during bootstrap and runtime.
+
 ## Dependency Rules
 - `MonitorApp` owns `RuntimeContext`.
 - `RuntimeContext` owns service instances.
 - `ConversationSession` and `ServerApp` use `RuntimeContext` only.
 - `CommandProcessor` depends on services, not on module globals.
 - `ToolService` depends on `ToolRegistry`, not on module globals.
+- `LLMResponseClient` uses `RequestCapacityService` and `RateLimitService` from the runtime graph.
 - No class in `monitor_oop` should read state from `monitor` at runtime.
 - The test suite mirrors `src/monitor_oop/core/` under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/` so implementation and coverage stay aligned.

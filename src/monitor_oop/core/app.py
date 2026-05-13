@@ -16,6 +16,8 @@ from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClien
 from monitor_oop.core.infrastructure.macro_expander import MacroExpander
 from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
+from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
 from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.logger_service import LoggerService
@@ -134,6 +136,8 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     app_logger.info("Loading prompts during bootstrap")
     prompt_service.load()
     status_service = StatusService()
+    request_capacity_service = RequestCapacityService(config_service)
+    rate_limit_service = RateLimitService(config_service)
     llm_request_builder = LLMRequestBuilder()
     adapter = ResponsesOpenAiAdapter()
     tool_registry = ToolRegistry()
@@ -141,7 +145,13 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     app_logger.info("Registering weather tool")
     tool_service.register_tool(build_weather_tool_definition(), get_current_weather)
     tool_turn_state = ToolTurnState()
-    response_client = LLMResponseClient(config_service, adapter, tool_service)
+    response_client = LLMResponseClient(
+        config_service,
+        adapter,
+        tool_service,
+        request_capacity_service,
+        rate_limit_service,
+    )
     llm_service = LLMService(
         config_service,
         llm_request_builder,
@@ -175,6 +185,8 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
         tool_registry=tool_registry,
         tool_service=tool_service,
         prompt_service=prompt_service,
+        request_capacity_service=request_capacity_service,
+        rate_limit_service=rate_limit_service,
     )
     turn_coordinator = TurnCoordinator()
     tui_app = TuiApp(context, turn_coordinator)
