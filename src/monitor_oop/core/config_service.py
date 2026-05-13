@@ -1,13 +1,12 @@
 """Isolated configuration service for Monitor OOP."""
 from __future__ import annotations
 
-import appdirs
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 from monitor_oop.core.infrastructure.config_loader import ConfigLoader, LoadedModelConfig
+from monitor_oop.core.config_path_service import ConfigPathService
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
 from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig, SummarizationSettings
 
@@ -21,6 +20,7 @@ class ConfigService:
         self._logging_level = logging.INFO
         self._config_loader = ConfigLoader()
         self._env_loader = EnvLoader()
+        self._path_service = ConfigPathService(self._config)
 
     def load(self) -> None:
         """Load configuration for the current process."""
@@ -49,6 +49,7 @@ class ConfigService:
         self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
         self._logging_level = logging.INFO
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self._path_service = ConfigPathService(self._config)
 
     def _load_config_yaml(self) -> None:
         """Load YAML configuration using defaults first, then user files."""
@@ -110,6 +111,7 @@ class ConfigService:
         resolved_model_name = model_config.model_alias or model_config.full_model_name
         if resolved_model_name:
             self._config.model_name = resolved_model_name
+            self._path_service = ConfigPathService(self._config)
 
     def _load_env(self) -> None:
         """Load dotenv files in deterministic precedence order."""
@@ -132,6 +134,7 @@ class ConfigService:
         self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
         self._logging_level = logging.INFO
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self._path_service = ConfigPathService(self._config)
         self._load_model_config()
 
     def select_model(self, model_name: str) -> bool:
@@ -139,6 +142,7 @@ class ConfigService:
 
         if model_name:
             self._config.model_name = model_name
+            self._path_service = ConfigPathService(self._config)
             return True
         return False
 
@@ -279,121 +283,20 @@ class ConfigService:
             return 0
         return rpm_limit
 
-    def _get_user_config_dir(self) -> Path:
-        """Return the user configuration directory."""
-
-        return Path(appdirs.user_config_dir("monitor"))
-
-    def _ensure_history_dir(self, config_dir: Path) -> bool:
-        """Ensure the history directory exists and is writable."""
-
-        try:
-            config_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return False
-
-        return os.access(config_dir, os.W_OK)
-
-    def _get_history_file_path(self, base_dir: Path) -> str:
-        """Return a writable prompt history file path rooted at base_dir."""
-
-        history_dir = base_dir / self._config.history_dir
-        if not self._ensure_history_dir(history_dir):
-            return ""
-
-        filename = self._config.prompt_history_filename or "prompt_history"
-        history_path = history_dir / filename
-        parent_dir = history_path.parent
-
-        try:
-            parent_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return ""
-
-        if not os.access(parent_dir, os.W_OK):
-            return ""
-
-        return str(history_path)
-
-    def _get_system_prompt_file_path(self, base_dir: Path) -> str:
-        """Return a writable system prompt file path rooted at base_dir."""
-
-        system_prompt_path = base_dir / "system_prompt"
-        parent_dir = system_prompt_path.parent
-
-        try:
-            parent_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return ""
-
-        if not os.access(parent_dir, os.W_OK):
-            return ""
-
-        return str(system_prompt_path)
-
-    def _ensure_log_dir(self, config_dir: Path) -> bool:
-        """Ensure the log directory exists and is writable."""
-
-        return self._ensure_history_dir(config_dir)
-
-    def _get_log_file_path(self, base_dir: Path) -> str:
-        """Return a writable per-process log file path rooted at base_dir."""
-
-        log_dir = base_dir / "log"
-        if not self._ensure_log_dir(log_dir):
-            return ""
-
-        log_file_path = log_dir / f"monitor_{os.getpid()}.log"
-        parent_dir = log_file_path.parent
-
-        try:
-            parent_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return ""
-
-        if not os.access(parent_dir, os.W_OK):
-            return ""
-
-        return str(log_file_path)
-
     def get_persistent_history_file_path(self) -> str:
         """Return the first writable persistent history file path."""
 
-        for candidate in (
-            self._get_user_config_dir(),
-            Path(os.path.expanduser("~/.config/monitor")),
-        ):
-            writable_path = self._get_history_file_path(candidate)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._path_service.get_persistent_history_file_path()
 
     def get_system_prompt_file_path(self) -> str:
         """Return the first writable system prompt file path."""
 
-        for candidate in (
-            self._get_user_config_dir(),
-            Path(os.path.expanduser("~/.config/monitor")),
-        ):
-            writable_path = self._get_system_prompt_file_path(candidate)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._path_service.get_system_prompt_file_path()
 
     def get_log_file_path(self) -> str:
         """Return the first writable per-process log file path."""
 
-        for candidate in (
-            self._get_user_config_dir(),
-            Path(os.path.expanduser("~/.config/monitor")),
-        ):
-            writable_path = self._get_log_file_path(candidate)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._path_service.get_log_file_path()
 
     def get_history_file_path(self) -> str:
         """Return the persistent prompt history file path."""
