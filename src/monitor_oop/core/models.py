@@ -97,6 +97,15 @@ class RuntimeConfig:
 
 
 @dataclass(slots=True)
+class ResolvedRuntimeConfig:
+    """Fully resolved runtime configuration state."""
+
+    config: RuntimeConfig
+    logging_level: int
+    openai_api_key: str | None
+
+
+@dataclass(slots=True)
 class Message:
     """A single conversation message."""
 

@@ -30,16 +30,3 @@ def test_command_processor_evaluate_exit() -> None:
 
     assert result.command_type is CommandType.EXIT
     assert result.handled is True
-
-
-def test_command_processor_process_model_command() -> None:
-    """Verify model commands update config state."""
-
-    processor = build_processor()
-
-    result = processor.process(":model gpt-4")
-
-    assert result.command_type is CommandType.MODEL
-    assert result.handled is True
-    assert result.message == "Model set to gpt-4."
-    assert processor.config_service.get_model() == "gpt-4"

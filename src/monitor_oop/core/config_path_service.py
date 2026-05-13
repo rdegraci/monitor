@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 import appdirs
+
+from monitor_oop.core.config_path_context import ConfigPathContext
 
 
 class ConfigPathService:
     """Resolve user-writable configuration paths for the runtime."""
 
-    def __init__(self, config: Any = None, app_name: str = "monitor") -> None:
+    def __init__(self, config: ConfigPathContext | None = None, app_name: str = "monitor") -> None:
         """Initialize the path service.
 
         Args:
@@ -19,7 +20,7 @@ class ConfigPathService:
             app_name: Application name used for user config lookup.
         """
 
-        self._config = config if hasattr(config, "history_dir") and hasattr(config, "prompt_history_filename") else None
+        self._config = config
         self._app_name = app_name
 
     def get_persistent_history_file_path(self, history_dir: str = "", filename: str = "") -> str:

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
-from monitor_oop.core.infrastructure.config_loader import ConfigLoader, LoadedModelConfig
-from monitor_oop.core.config_path_service import ConfigPathService
+from monitor_oop.core.config_accessor_service import ConfigAccessorService
+from monitor_oop.core.config_path_service import ConfigPathContext, ConfigPathService
+from monitor_oop.core.config_resolution_service import ConfigResolutionService
+from monitor_oop.core.infrastructure.config_loader import ConfigLoader
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
-from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig, SummarizationSettings
+from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 
 
 class ConfigService:
@@ -18,18 +19,21 @@ class ConfigService:
         self._config = initial_config or RuntimeConfig(model_name=DEFAULT_MODEL)
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
         self._logging_level = logging.INFO
-        self._config_loader = ConfigLoader()
         self._env_loader = EnvLoader()
-        self._path_service = ConfigPathService(self._config)
+        self._config_loader = ConfigLoader()
+        self._config_resolution_service = ConfigResolutionService(self._config_loader)
+        self._path_context = self._build_path_context(self._config)
+        self._path_service = ConfigPathService(self._path_context)
+        self._accessor_service = ConfigAccessorService(
+            self._config,
+            self._openai_api_key,
+            self._logging_level,
+        )
 
     def load(self) -> None:
         """Load configuration for the current process."""
 
-        self._apply_defaults()
-        self._load_config_yaml()
-        self._load_model_config()
-        self._load_env()
-        self._apply_environment_overrides()
+        self._load_resolved_configuration()
 
     def load_env(self) -> None:
         """Load dotenv files and apply environment overrides."""
@@ -40,8 +44,15 @@ class ConfigService:
     def load_config_yaml(self) -> None:
         """Load YAML configuration using defaults first, then user files."""
 
-        self._load_config_yaml()
-        self._load_model_config()
+        self._load_resolved_configuration()
+
+    def _build_path_context(self, config: RuntimeConfig) -> ConfigPathContext:
+        """Build a path context from the current runtime configuration."""
+
+        return ConfigPathContext(
+            history_dir=config.history_dir,
+            prompt_history_filename=config.prompt_history_filename,
+        )
 
     def _apply_defaults(self) -> None:
         """Reset the runtime configuration to deterministic defaults."""
@@ -49,69 +60,20 @@ class ConfigService:
         self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
         self._logging_level = logging.INFO
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
-        self._path_service = ConfigPathService(self._config)
+        self._path_context = self._build_path_context(self._config)
+        self._path_service = ConfigPathService(self._path_context)
+        self._config_loader = ConfigLoader()
+        self._config_resolution_service = ConfigResolutionService(self._config_loader)
+        self._refresh_accessor_service()
 
-    def _load_config_yaml(self) -> None:
-        """Load YAML configuration using defaults first, then user files."""
+    def _refresh_accessor_service(self) -> None:
+        """Rebuild the accessor service from the current runtime state."""
 
-        config_values = self._config_loader.load_config_yaml()
-        self._config.model_name = config_values.model_name
-        self._config.context_window = config_values.context_window
-        self._config.output_window = getattr(
-            config_values,
-            "output_window",
-            self._config.output_window,
+        self._accessor_service = ConfigAccessorService(
+            self._config,
+            self._openai_api_key,
+            self._logging_level,
         )
-        self._config.prompt_history_filename = config_values.prompt_history_filename
-        self._config.history_dir = config_values.history_dir
-        self._config.summarization_settings = getattr(
-            config_values,
-            "summarization_settings",
-            getattr(
-                config_values,
-                "summarization",
-                SummarizationSettings(),
-            ),
-        )
-        self._logging_level = config_values.logging_level
-
-    def _load_model_config(self) -> None:
-        """Load JSON model configuration for the active model name."""
-
-        model_name = self._config.model_name
-        logger = logging.getLogger(__name__)
-        logger.info("Loading model config for %s", model_name)
-        model_config = self._config_loader.load_model_config(model_name)
-        logger.info(
-            "Resolved model config for %s: model_alias=%s full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s",
-            model_name,
-            model_config.model_alias,
-            model_config.full_model_name,
-            model_config.context_window,
-            model_config.output_window,
-            model_config.conversation_turn_budget,
-            model_config.tokens_per_minute,
-            model_config.requests_per_minute,
-        )
-
-        self._apply_loaded_model_config(model_config)
-
-    def _apply_loaded_model_config(self, model_config: LoadedModelConfig) -> None:
-        """Apply loaded model configuration values to the runtime config."""
-
-        self._config.model_alias = model_config.model_alias
-        self._config.full_model_name = model_config.full_model_name
-        self._config.provider = model_config.provider
-        self._config.context_window = model_config.context_window
-        self._config.output_window = model_config.output_window
-        self._config.conversation_turn_budget = model_config.conversation_turn_budget
-        self._config.tokens_per_minute = model_config.tokens_per_minute
-        self._config.requests_per_minute = model_config.requests_per_minute
-
-        resolved_model_name = model_config.model_alias or model_config.full_model_name
-        if resolved_model_name:
-            self._config.model_name = resolved_model_name
-            self._path_service = ConfigPathService(self._config)
 
     def _load_env(self) -> None:
         """Load dotenv files in deterministic precedence order."""
@@ -127,47 +89,63 @@ class ConfigService:
         )
         self._openai_api_key = env_values.openai_api_key
         self._logging_level = env_values.logging_level
+        self._refresh_accessor_service()
+
+    def _load_resolved_configuration(self) -> None:
+        """Resolve configuration and refresh runtime services."""
+
+        self._apply_defaults()
+        resolved_config = self._config_resolution_service.resolve(
+            self._config,
+        )
+        self._apply_resolved_configuration(resolved_config)
+        self._load_env()
+        self._apply_environment_overrides()
+
+    def _apply_resolved_configuration(
+        self,
+        resolved_config: RuntimeConfig,
+    ) -> None:
+        """Apply resolved runtime configuration to local state."""
+
+        self._config = resolved_config
+        self._path_context = self._build_path_context(self._config)
+        self._path_service = ConfigPathService(self._path_context)
+        self._refresh_accessor_service()
 
     def reset(self) -> None:
         """Reset configuration to defaults."""
 
-        self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
-        self._logging_level = logging.INFO
-        self._openai_api_key = os.environ.get("OPENAI_API_KEY")
-        self._path_service = ConfigPathService(self._config)
-        self._load_model_config()
+        self._load_resolved_configuration()
 
     def select_model(self, model_name: str) -> bool:
         """Select the active model for this runtime."""
 
-        if model_name:
-            self._config.model_name = model_name
-            self._path_service = ConfigPathService(self._config)
-            return True
-        return False
+        if not model_name:
+            return False
+
+        self._config.model_name = model_name
+        resolved_config = self._config_resolution_service.resolve(
+            self._config,
+        )
+        self._apply_resolved_configuration(resolved_config)
+        return True
 
     def get_model(self) -> str:
         """Return the active model name."""
 
-        return self._config.model_name
+        return self._accessor_service.get_model()
 
     def get_provider(self) -> str:
         """Return the provider prefix for the active model name."""
 
-        provider = getattr(self._config, "provider", None)
-        if provider:
-            return provider
-
-        model_name = self._config.model_name
-        if "/" in model_name:
-            return model_name.split("/", 1)[0]
-        return "openai"
+        return self._accessor_service.get_provider()
 
     def estimate_token_usage(
         self,
         model: str,
-        messages: list[dict[str, Any]] | None,
-        tools: list[dict[str, Any]] | None,
+        messages: list[dict[str, object]] | None,
+        tools: list[dict[str, object]] | None,
         previous_response_id: str | None,
     ) -> int:
         """Estimate token usage for a request.
@@ -182,60 +160,37 @@ class ConfigService:
             int: A conservative estimate of token usage for the request.
         """
 
-        del model
-        estimated_tokens = 0
-
-        if messages:
-            for message in messages:
-                for value in message.values():
-                    if isinstance(value, str):
-                        estimated_tokens += max(1, len(value) // 4)
-                    elif isinstance(value, list):
-                        estimated_tokens += len(value) * 4
-                    elif isinstance(value, dict):
-                        estimated_tokens += len(value) * 2
-                    elif value is not None:
-                        estimated_tokens += 1
-
-        if tools:
-            estimated_tokens += len(tools) * 20
-
-        if previous_response_id:
-            estimated_tokens += max(1, len(previous_response_id) // 4)
-
-        return max(1, estimated_tokens)
+        return self._accessor_service.estimate_token_usage(
+            model,
+            messages,
+            tools,
+            previous_response_id,
+        )
 
     def get_context_window(self) -> int:
         """Return the active context window size."""
 
-        return self._config.context_window
+        return self._accessor_service.get_context_window()
 
     def get_output_window(self) -> int:
         """Return the active output window size."""
 
-        return self._config.output_window
+        return self._accessor_service.get_output_window()
 
     def get_summarization_prompt_template(self) -> str:
         """Return the summarization prompt template for the active runtime."""
 
-        return self._config.summarization_settings.prompt_template
+        return self._accessor_service.get_summarization_prompt_template()
 
     def get_summarization_token_limit(self) -> int:
         """Return the summarization token limit for the active runtime."""
 
-        return self._config.summarization_settings.token_limit
+        return self._accessor_service.get_summarization_token_limit()
 
     def get_conversation_turn_budget(self) -> int:
         """Return the conversation turn budget for the active runtime."""
 
-        return self._config.conversation_turn_budget
-
-    def _resolve_model_name(self, model_name: str | None) -> str:
-        """Return the requested model name or the current runtime model."""
-
-        if model_name:
-            return model_name
-        return self._config.model_name
+        return self._accessor_service.get_conversation_turn_budget()
 
     def get_model_tpm_limit(self, model_name: str | None = None) -> int:
         """Return the tokens-per-minute limit for a model.
@@ -245,20 +200,7 @@ class ConfigService:
         return a small positive default.
         """
 
-        resolved_model_name = self._resolve_model_name(model_name)
-
-        tpm_limit = getattr(self._config, "tokens_per_minute", None)
-        if tpm_limit is None:
-            tpm_limit = getattr(self._config, "tpm_limit", None)
-
-        if tpm_limit is None and resolved_model_name != self._config.model_name:
-            tpm_limit = getattr(self._config, f"{resolved_model_name}_tokens_per_minute", None)
-            if tpm_limit is None:
-                tpm_limit = getattr(self._config, f"{resolved_model_name}_tpm_limit", None)
-
-        if tpm_limit is None:
-            return 1
-        return tpm_limit
+        return self._accessor_service.get_model_tpm_limit(model_name)
 
     def get_model_rpm_limit(self, model_name: str | None = None) -> int:
         """Return the requests-per-minute limit for a model.
@@ -268,20 +210,7 @@ class ConfigService:
         return 0.
         """
 
-        resolved_model_name = self._resolve_model_name(model_name)
-
-        rpm_limit = getattr(self._config, "requests_per_minute", None)
-        if rpm_limit is None:
-            rpm_limit = getattr(self._config, "rpm_limit", None)
-
-        if rpm_limit is None and resolved_model_name != self._config.model_name:
-            rpm_limit = getattr(self._config, f"{resolved_model_name}_requests_per_minute", None)
-            if rpm_limit is None:
-                rpm_limit = getattr(self._config, f"{resolved_model_name}_rpm_limit", None)
-
-        if rpm_limit is None:
-            return 0
-        return rpm_limit
+        return self._accessor_service.get_model_rpm_limit(model_name)
 
     def get_persistent_history_file_path(self) -> str:
         """Return the first writable persistent history file path."""
@@ -306,7 +235,7 @@ class ConfigService:
     def get_openai_api_key(self) -> str | None:
         """Return the effective OPENAI_API_KEY for this runtime."""
 
-        return self._openai_api_key
+        return self._accessor_service.get_openai_api_key()
 
     def get_logging_level(self) -> int:
         """Return the logging level from LOG_LEVEL with a safe INFO default.
@@ -315,4 +244,4 @@ class ConfigService:
             int: The resolved logging level constant.
         """
 
-        return self._logging_level
+        return self._accessor_service.get_logging_level()

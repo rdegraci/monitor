@@ -23,6 +23,33 @@
     "gpt5-mini": 128000,
     "gpt54-mini": 128000
   },
+  "model_max_rpm": {
+    "grok4-fast": "xai_model_rpm_tier/grok4-fast-1",
+    "grok41-fast": "xai_model_rpm_tier/grok41-fast-1",
+    "gpt5-mini": "openai_model_rpm_tier/chatgpt5-mini-4",
+    "gpt54-mini": "openai_model_rpm_tier/chatgpt54-mini-4"
+  },
+  "openai_model_rpm_tier": {
+    "1": 500,
+    "2": 5000,
+    "3": 5000,
+    "4": 10000,
+    "5": 30000,
+    "chatgpt5-mini-1": 500000,
+    "chatgpt5-mini-2": 2000000,
+    "chatgpt5-mini-3": 4000000,
+    "chatgpt5-mini-4": 10000000,
+    "chatgpt5-mini-5": 180000000,
+    "chatgpt54-mini-4": 10000
+  },
+  "xai_model_rpm_tier": {
+    "1": 1800,
+    "2": 2000000,
+    "3": 2000000,
+    "4": 2000000,
+    "grok4-fast-1": 1800,
+    "grok41-fast-1": 1800
+  },
   "model_max_tpm": {
     "grok4-fast": "xai_model_tpm_tier/grok4-fast-1",
     "grok41-fast": "xai_model_tpm_tier/grok41-fast-1",

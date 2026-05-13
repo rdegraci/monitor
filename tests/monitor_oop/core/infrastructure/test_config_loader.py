@@ -12,47 +12,8 @@ from monitor_oop.core.infrastructure.config_loader import ConfigLoader
 from monitor_oop.core.models import DEFAULT_MODEL
 
 
-def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) -> None:
-    """Verify YAML loading falls back to defaults when no files exist."""
-
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [])
-    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
-
-    loader = ConfigLoader()
-    result = loader.load_config_yaml()
-
-    assert result.model_name == DEFAULT_MODEL
-    assert result.context_window == 400_000
-    assert result.prompt_history_filename == "prompt_history"
-    assert result.history_dir == "history"
-    assert result.logging_level == 20
-
-
-def test_load_config_yaml_creates_example_copy(monkeypatch, tmp_path) -> None:
-    """Verify the example config is copied to the user config path on first run."""
-
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    example_path = tmp_path / "src" / "monitor_oop" / "core" / "config.yaml.example"
-    example_path.parent.mkdir(parents=True)
-    example_path.write_text("model: example-model\ncontext_window: 999\nlogging_level: 10\n", encoding="utf-8")
-
-    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
-
-    loader = ConfigLoader()
-    loader.load_config_yaml()
-
-    config_yaml = config_dir / "config.yaml"
-    assert config_yaml.exists()
-    assert config_yaml.read_text(encoding="utf-8") == example_path.read_text(encoding="utf-8")
-
-
-def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
-    """Verify YAML values are loaded and coerced correctly."""
+def test_load_config_yaml_delegates_to_yaml_loader_and_returns_loaded_values(monkeypatch, tmp_path) -> None:
+    """Verify the thin wrapper delegates YAML loading and returns loaded config values."""
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -63,8 +24,6 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
-    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
 
     loader = ConfigLoader()
     result = loader.load_config_yaml()
@@ -76,38 +35,26 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     assert result.history_dir == "history_dir"
 
 
-def test_load_config_yaml_prefers_last_valid_user_path(monkeypatch, tmp_path) -> None:
-    """Verify later user config paths override earlier ones when both exist."""
+def test_load_config_yaml_falls_back_to_defaults_when_no_user_config_exists(monkeypatch, tmp_path) -> None:
+    """Verify the thin wrapper returns default config values when no user config exists."""
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    first_yaml = config_dir / "config.yaml"
-    first_yaml.write_text("model: first\n", encoding="utf-8")
-
-    fallback_yaml = tmp_path / ".config" / "monitor" / "config.yaml"
-    fallback_yaml.parent.mkdir(parents=True)
-    fallback_yaml.write_text("model: second\n", encoding="utf-8")
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-
-    original_get_user_config_paths = ConfigLoader._get_user_config_paths
-
-    def fake_get_user_config_paths(self):
-        return [str(first_yaml), str(fallback_yaml)]
-
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", fake_get_user_config_paths)
-    monkeypatch.setattr(config_loader_module.os.path, "exists", lambda path: True)
 
     loader = ConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == "second"
+    assert result.model_name == DEFAULT_MODEL
+    assert result.context_window == 400_000
+    assert result.prompt_history_filename == "prompt_history"
+    assert result.history_dir == "history"
+    assert result.logging_level == 20
 
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", original_get_user_config_paths)
 
-
-def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatch, tmp_path) -> None:
-    """Verify the committed schema maps a selected model to stable runtime config values."""
+def test_load_model_config_delegates_to_model_loader_and_returns_runtime_values(monkeypatch, tmp_path) -> None:
+    """Verify the thin wrapper delegates model loading and returns resolved model config values."""
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -144,8 +91,6 @@ def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatc
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
     monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
-    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
 
     loader = ConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")
@@ -159,7 +104,7 @@ def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatc
 
 
 def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_path) -> None:
-    """Verify user model_config_v2.json overrides the packaged schema file."""
+    """Verify the wrapper honors user model_config_v2.json over the packaged schema file."""
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -231,8 +176,6 @@ def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_pa
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
     monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
-    monkeypatch.setattr(ConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
-    monkeypatch.setattr(ConfigLoader, "_ensure_user_config_yaml", lambda self: None)
 
     loader = ConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")
