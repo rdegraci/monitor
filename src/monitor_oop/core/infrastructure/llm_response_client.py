@@ -72,14 +72,14 @@ class LLMResponseClient:
                 previous_response_id,
             )
             raise ValueError("OpenAI API key is required to create a response.")
-        model_name = self.config_service.get_model()
-        api_model_name = self.config_service.get_api_model_name()
+        api_model_name = self.config_service.get_model()
+        outbound_api_model_name = self.config_service.get_api_model_name()
         full_model_name = self.config_service.get_full_model_name()
         if not full_model_name:
             logger.error(
-                "Cannot create response: full model name is missing; api_key_present=%s, internal_model_alias=%s, message_count=%s, previous_response_id=%s.",
+                "Cannot create response: full model name is missing; api_key_present=%s, api_model_name=%s, message_count=%s, previous_response_id=%s.",
                 api_key_present,
-                model_name,
+                api_model_name,
                 len(input_messages),
                 previous_response_id,
             )
@@ -88,10 +88,9 @@ class LLMResponseClient:
         tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
         logger.info(
-            "Create response model context: full_model_name=%s, api_model_name=%s, internal_model_alias=%s.",
+            "Create response model context: full_model_name=%s, api_model_name=%s.",
             full_model_name,
             api_model_name,
-            model_name,
         )
         if self._request_capacity_service is not None:
             logger.info(
@@ -180,10 +179,9 @@ class LLMResponseClient:
                 )
                 raise ValueError("Request is not allowed by the current rate limit policy.")
         logger.info(
-            "Creating response with full_model_name=%s, api_model_name=%s, internal_model_alias=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
+            "Creating response with full_model_name=%s, api_model_name=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
             full_model_name,
             api_model_name,
-            model_name,
             len(tools),
             tool_names,
             tool_choice,
@@ -191,10 +189,9 @@ class LLMResponseClient:
             previous_response_id,
         )
         logger.info(
-            "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, internal_model_alias=%s, previous_response_id=%s.",
-            api_model_name,
+            "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, previous_response_id=%s.",
+            outbound_api_model_name,
             full_model_name,
-            model_name,
             previous_response_id,
         )
         outbound_model_name = self.config_service.get_api_model_name()
