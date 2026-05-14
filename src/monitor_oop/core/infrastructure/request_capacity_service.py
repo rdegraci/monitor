@@ -89,47 +89,49 @@ class RequestCapacityService:
             A structured result describing the capacity decision.
         """
 
-        context_window = int(self._config_service.get_context_window())
-        output_window = int(self._config_service.get_output_window())
-        estimated_input_tokens = estimated_input_tokens if estimated_input_tokens is not None else self._estimate_input_tokens(
-            input_messages=input_messages,
-            tools=tools,
-            previous_response_id=previous_response_id,
-        )
-        completion_headroom = self._estimate_completion_headroom(estimated_input_tokens, output_window)
+        context_window, output_window = self._resolve_capacity_values()
+        if estimated_input_tokens is None:
+            token_estimate = self._estimate_input_tokens(
+                input_messages=input_messages,
+                tools=tools,
+                previous_response_id=previous_response_id,
+            )
+        else:
+            token_estimate = estimated_input_tokens
+        completion_headroom = self._estimate_completion_headroom(token_estimate, output_window)
         logger.info(
-            "Evaluating request capacity for model=%s, message_count=%s, estimated_input_tokens=%s, context_window=%s, output_window=%s, completion_headroom=%s.",
+            "Evaluating request capacity for model=%s, message_count=%s, resolved_context_window=%s, resolved_output_window=%s, estimated_input_tokens=%s, completion_headroom=%s.",
             model,
             len(input_messages),
-            estimated_input_tokens,
             context_window,
             output_window,
+            token_estimate,
             completion_headroom,
         )
-        if estimated_input_tokens > context_window:
+        if token_estimate > context_window:
             reason = (
-                f"Request exceeds context window: estimated_input_tokens={estimated_input_tokens}, "
+                f"Request exceeds context window: estimated_input_tokens={token_estimate}, "
                 f"context_window={context_window}, completion_headroom={completion_headroom}"
             )
             logger.warning(reason)
             return CapacityCheckResult(
                 fits=False,
-                estimated_input_tokens=estimated_input_tokens,
+                estimated_input_tokens=token_estimate,
                 context_window=context_window,
                 output_window=output_window,
                 completion_headroom=completion_headroom,
                 reason=reason,
             )
-        if completion_headroom > 0 and estimated_input_tokens + completion_headroom > context_window:
+        if completion_headroom > 0 and token_estimate + completion_headroom > context_window:
             reason = (
                 f"Request exceeds context window after reserving completion headroom: "
-                f"estimated_input_tokens={estimated_input_tokens}, context_window={context_window}, "
+                f"estimated_input_tokens={token_estimate}, context_window={context_window}, "
                 f"completion_headroom={completion_headroom}"
             )
             logger.warning(reason)
             return CapacityCheckResult(
                 fits=False,
-                estimated_input_tokens=estimated_input_tokens,
+                estimated_input_tokens=token_estimate,
                 context_window=context_window,
                 output_window=output_window,
                 completion_headroom=completion_headroom,
@@ -137,11 +139,38 @@ class RequestCapacityService:
             )
         return CapacityCheckResult(
             fits=True,
-            estimated_input_tokens=estimated_input_tokens,
+            estimated_input_tokens=token_estimate,
             context_window=context_window,
             output_window=output_window,
             completion_headroom=completion_headroom,
         )
+
+    def _resolve_capacity_values(self) -> tuple[int, int]:
+        """Resolve and validate capacity configuration values.
+
+        Returns:
+            A tuple containing the resolved context window and output window.
+
+        Raises:
+            ValueError: If the configured capacity values are invalid.
+        """
+
+        try:
+            context_window = int(self._config_service.get_context_window())
+            output_window = int(self._config_service.get_output_window())
+        except (TypeError, ValueError) as exc:
+            logger.error("Invalid capacity configuration values returned by config service.", exc_info=True)
+            raise ValueError("Invalid capacity configuration values returned by config service.") from exc
+        if context_window <= 0 or output_window < 0:
+            logger.error(
+                "Invalid capacity configuration values: context_window=%s, output_window=%s.",
+                context_window,
+                output_window,
+            )
+            raise ValueError(
+                f"Invalid capacity configuration values: context_window={context_window}, output_window={output_window}."
+            )
+        return context_window, output_window
 
     def _estimate_input_tokens(
         self,
@@ -160,18 +189,51 @@ class RequestCapacityService:
             An estimated token count for the request payload.
         """
 
-        estimate = 0
-        for message in input_messages:
-            content = message.get("content", "")
-            estimate += max(1, len(content) // 4)
-            estimate += 4
-            if message.get("role"):
-                estimate += 1
-        if tools:
-            estimate += sum(max(8, len(str(tool)) // 4) for tool in tools)
-        if previous_response_id:
-            estimate += max(4, len(previous_response_id) // 4)
-        return max(estimate, 1)
+        try:
+            estimate = 0
+            message_components: list[dict[str, Any]] = []
+            for message in input_messages:
+                content = message.get("content", "")
+                content_tokens = max(1, len(content) // 4)
+                role_tokens = 1 if message.get("role") else 0
+                message_tokens = content_tokens + 4 + role_tokens
+                message_components.append(
+                    {
+                        "role": message.get("role", ""),
+                        "content_length": len(content),
+                        "content_tokens": content_tokens,
+                        "role_tokens": role_tokens,
+                        "message_tokens": message_tokens,
+                    }
+                )
+                estimate += message_tokens
+            tool_components: list[dict[str, Any]] = []
+            if tools:
+                for tool in tools:
+                    tool_tokens = max(8, len(str(tool)) // 4)
+                    tool_components.append(
+                        {
+                            "tool_repr_length": len(str(tool)),
+                            "tool_tokens": tool_tokens,
+                        }
+                    )
+                    estimate += tool_tokens
+            previous_response_tokens = 0
+            if previous_response_id:
+                previous_response_tokens = max(4, len(previous_response_id) // 4)
+                estimate += previous_response_tokens
+            estimate = max(estimate, 1)
+            logger.info(
+                "Computed input token estimate with raw components: message_components=%s, tool_components=%s, previous_response_tokens=%s, estimated_input_tokens=%s.",
+                message_components,
+                tool_components,
+                previous_response_tokens,
+                estimate,
+            )
+            return estimate
+        except Exception:
+            logger.error("Token estimation failed unexpectedly.", exc_info=True)
+            raise
 
     def _estimate_completion_headroom(self, estimated_input_tokens: int, output_window: int) -> int:
         """Estimate reserved completion headroom for a request.

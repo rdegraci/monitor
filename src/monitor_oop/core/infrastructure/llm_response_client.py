@@ -63,7 +63,14 @@ class LLMResponseClient:
         """
 
         api_key = self.config_service.get_openai_api_key()
-        if not api_key:
+        api_key_present = bool(api_key)
+        if not api_key_present:
+            logger.error(
+                "Cannot create response: OpenAI API key is missing; api_key_present=%s, message_count=%s, previous_response_id=%s.",
+                api_key_present,
+                len(input_messages),
+                previous_response_id,
+            )
             raise ValueError("OpenAI API key is required to create a response.")
         model = self.config_service.get_model()
         if "/" in model:
@@ -71,12 +78,22 @@ class LLMResponseClient:
         tools = self._build_litellm_tools()
         tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
+        logger.info(
+            "Create response preflight context: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+            model,
+            api_key_present,
+            len(input_messages),
+            len(tools),
+            previous_response_id,
+        )
         if self._request_capacity_service is not None:
             logger.info(
-                "Performing request capacity preflight check: model=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                "Performing request capacity preflight check: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, tool_names=%s, previous_response_id=%s.",
                 model,
+                api_key_present,
                 len(input_messages),
                 len(tools),
+                tool_names,
                 previous_response_id,
             )
             request_fits = self._request_capacity_service.request_fits(
@@ -85,13 +102,35 @@ class LLMResponseClient:
                 tools=tools,
                 previous_response_id=previous_response_id,
             )
-            logger.info("Request capacity preflight check result: request_fits=%s.", request_fits)
-            if not request_fits:
+            if request_fits:
+                logger.info(
+                    "Request capacity preflight check passed: resolved_model=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                    model,
+                    len(input_messages),
+                    len(tools),
+                    previous_response_id,
+                )
+            else:
+                rejection_reason = getattr(self._request_capacity_service, "last_rejection_reason", None)
+                if rejection_reason is None:
+                    rejection_reason = getattr(self._request_capacity_service, "rejection_reason", None)
+                logger.error(
+                    "Request capacity preflight check failed: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s, rejection_reason=%s.",
+                    model,
+                    api_key_present,
+                    len(input_messages),
+                    len(tools),
+                    previous_response_id,
+                    rejection_reason,
+                )
                 raise ValueError("Request does not fit within the configured request capacity limits.")
         if self._rate_limit_service is not None:
             logger.info(
-                "Performing rate limit preflight check: model=%s, previous_response_id=%s.",
+                "Performing rate limit preflight check: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
                 model,
+                api_key_present,
+                len(input_messages),
+                len(tools),
                 previous_response_id,
             )
             estimated_tokens = self._rate_limit_service.estimate_token_usage(
@@ -101,7 +140,7 @@ class LLMResponseClient:
                 previous_response_id=previous_response_id,
             )
             logger.info(
-                "Rate limit preflight check estimated token usage: model=%s, estimated_tokens=%s, previous_response_id=%s.",
+                "Rate limit preflight check estimated token usage: resolved_model=%s, estimated_tokens=%s, previous_response_id=%s.",
                 model,
                 estimated_tokens,
                 previous_response_id,
@@ -110,8 +149,21 @@ class LLMResponseClient:
                 model=model,
                 estimated_tokens=estimated_tokens,
             )
-            logger.info("Rate limit preflight check result: request_allowed=%s.", rate_limit_allows)
-            if not rate_limit_allows:
+            if rate_limit_allows:
+                logger.info(
+                    "Rate limit preflight check passed: resolved_model=%s, estimated_tokens=%s, previous_response_id=%s.",
+                    model,
+                    estimated_tokens,
+                    previous_response_id,
+                )
+            else:
+                logger.warning(
+                    "Rate limit preflight check failed: resolved_model=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
+                    model,
+                    estimated_tokens,
+                    api_key_present,
+                    previous_response_id,
+                )
                 raise ValueError("Request is not allowed by the current rate limit policy.")
         logger.info(
             "Creating response with model=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
