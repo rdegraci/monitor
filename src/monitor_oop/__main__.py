@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Callable
 
 from monitor_oop.core.app import build_app
@@ -29,11 +28,6 @@ def main(
     app = build_app()
 
     status = app.run()
-    if status != 0:
-        print(
-            "OpenAI API key is missing. Set OPENAI_API_KEY and try again.",
-            file=sys.stderr,
-        )
     return status
 
 

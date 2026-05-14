@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import logging
-import sys
-from logging import FileHandler, Logger, StreamHandler, getLogger
+from logging import FileHandler, Logger, getLogger
 from os import getenv
 from pathlib import Path
-from typing import TextIO
 
 
 class LoggerService:
@@ -55,50 +53,16 @@ class LoggerService:
 
         return Path(log_file_path).expanduser().parent
 
-    def _build_stream_handler(self, stream: TextIO | None = None) -> StreamHandler:
-        """Create a stream handler for application bootstrap logging.
-
-        Args:
-            stream: Optional stream to send log output to.
-
-        Returns:
-            A configured stream handler.
-        """
-
-        return StreamHandler(stream if stream is not None else sys.stderr)
-
-    def _bootstrap_failure(self, message: str, exc: BaseException) -> None:
-        """Report a bootstrap failure to stderr before raising it.
-
-        Args:
-            message: The failure message to report.
-            exc: The exception that triggered the failure.
-        """
-
-        failure_handler = self._build_stream_handler(sys.stderr)
-        failure_handler.setLevel(logging.CRITICAL)
-        failure_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-
-        failure_logger = logging.getLogger(__name__)
-        failure_logger.handlers = [failure_handler]
-        failure_logger.setLevel(logging.CRITICAL)
-        failure_logger.propagate = False
-        failure_logger.critical("%s", message, exc_info=exc)
-
     def configure(
         self,
         level: int | str | None = None,
         log_file_path: str | Path | None = None,
-        stream: TextIO | None = None,
-        stream_output: bool = False,
     ) -> None:
         """Configure application-wide logging once.
 
         Args:
             level: Explicit logging level or level name to apply.
             log_file_path: Optional file path for log output.
-            stream: Optional stream to send log output to.
-            stream_output: Whether to attach a stream handler when stream is provided.
         """
 
         if self._configured:
@@ -109,42 +73,29 @@ class LoggerService:
 
         handlers: list[logging.Handler] = []
 
-        try:
-            resolved_level = self._resolve_level(level)
-            formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        resolved_level = self._resolve_level(level)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-            if log_file_path is not None:
-                log_path = Path(log_file_path).expanduser()
-                log_path.parent.mkdir(parents=True, exist_ok=True)
+        if log_file_path is None:
+            log_file_path = Path("logs") / "application.log"
 
-                file_handler = FileHandler(log_path)
-                file_handler.setLevel(logging.DEBUG)
-                file_handler.setFormatter(formatter)
-                handlers.append(file_handler)
+        log_path = Path(log_file_path).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
-                if stream_output:
-                    stream_handler = self._build_stream_handler(stream if stream is not None else sys.stderr)
-                    stream_handler.setLevel(logging.WARNING)
-                    stream_handler.setFormatter(formatter)
-                    handlers.append(stream_handler)
-            elif stream_output:
-                stream_handler = self._build_stream_handler(stream if stream is not None else sys.stderr)
-                stream_handler.setLevel(logging.WARNING)
-                stream_handler.setFormatter(formatter)
-                handlers.append(stream_handler)
+        file_handler = FileHandler(log_path)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
 
-            for handler in existing_handlers:
-                root_logger.removeHandler(handler)
-                handler.close()
+        for handler in existing_handlers:
+            root_logger.removeHandler(handler)
+            handler.close()
 
-            for handler in handlers:
-                root_logger.addHandler(handler)
+        for handler in handlers:
+            root_logger.addHandler(handler)
 
-            root_logger.setLevel(resolved_level)
-            self._configured = True
-        except Exception as exc:
-            self._bootstrap_failure("Logging configuration failed.", exc)
-            raise
+        root_logger.setLevel(resolved_level)
+        self._configured = True
 
     def get_logger(self, name: str) -> Logger:
         """Return a standard library logger for a module or component."""

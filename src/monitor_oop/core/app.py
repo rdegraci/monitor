@@ -120,14 +120,13 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     logger_service.configure(
         level=config_service.get_logging_level(),
         log_file_path=log_file_path,
-        stream_output=(not quiet_bootstrap),
     )
     app_logger = logger_service.get_logger(__name__)
     app_logger.info("Starting application bootstrap")
     if quiet_bootstrap:
-        app_logger.info("Bootstrap logging configured for TUI mode without stderr output")
+        app_logger.info("Bootstrap logging configured for TUI mode with file-only output")
     else:
-        app_logger.info("Bootstrap logging configured for REPL mode with stderr warnings and above")
+        app_logger.info("Bootstrap logging configured for REPL mode with file-only output")
     compaction_store = CompactionStore(config_service)
     history_service = HistoryService(config_service, compaction_store)
     prompt_store = PromptStore(config_service)
