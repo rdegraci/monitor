@@ -58,7 +58,6 @@ class RuntimeConfig:
         The summary settings and conversation turn budget are used by deterministic compaction flows.
     """
 
-    model_name: str = DEFAULT_MODEL
     model_alias: str | None = None
     context_window: int = 400_000
     output_window: int = 32_000
@@ -94,6 +93,14 @@ class RuntimeConfig:
         """Return the maximum number of conversation turns to retain."""
 
         return self.conversation_turn_budget
+
+    @property
+    def api_model_name(self) -> str | None:
+        """Return the API model name derived from the full model name."""
+
+        if self.full_model_name and "/" in self.full_model_name:
+            return self.full_model_name.split("/", 1)[1]
+        return self.full_model_name
 
 
 @dataclass(slots=True)

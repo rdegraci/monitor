@@ -43,7 +43,33 @@ class ConfigResolutionService:
 
         resolved_config = replace(config)
         config_values = self._config_loader.load_config_yaml()
-        resolved_config.model_name = config_values.model_name
+        logger.info(
+            "Loaded YAML-derived config values: full_model_name=%s context_window=%s output_window=%s prompt_history_filename=%s history_dir=%s summarization_settings=%s",
+            config_values.full_model_name,
+            config_values.context_window,
+            getattr(config_values, "output_window", None),
+            config_values.prompt_history_filename,
+            config_values.history_dir,
+            getattr(
+                config_values,
+                "summarization_settings",
+                getattr(config_values, "summarization", None),
+            ),
+        )
+        logger.info(
+            "Applying YAML-derived config fields to RuntimeConfig: full_model_name=%s context_window=%s output_window=%s prompt_history_filename=%s history_dir=%s summarization_settings=%s",
+            config_values.full_model_name,
+            config_values.context_window,
+            getattr(config_values, "output_window", None),
+            config_values.prompt_history_filename,
+            config_values.history_dir,
+            getattr(
+                config_values,
+                "summarization_settings",
+                getattr(config_values, "summarization", None),
+            ),
+        )
+        resolved_config.full_model_name = config_values.full_model_name
         resolved_config.context_window = config_values.context_window
         resolved_config.output_window = getattr(
             config_values, "output_window", resolved_config.output_window
@@ -54,6 +80,25 @@ class ConfigResolutionService:
             config_values,
             "summarization_settings",
             getattr(config_values, "summarization", resolved_config.summarization_settings),
+        )
+        logger.info(
+            "Applied YAML-derived config to RuntimeConfig: full_model_name=%s context_window=%s output_window=%s prompt_history_filename=%s history_dir=%s summarization_settings=%s",
+            resolved_config.full_model_name,
+            resolved_config.context_window,
+            resolved_config.output_window,
+            resolved_config.prompt_history_filename,
+            resolved_config.history_dir,
+            resolved_config.summarization_settings,
+        )
+        logger.info(
+            "RuntimeConfig after YAML load: full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s provider=%s",
+            resolved_config.full_model_name,
+            resolved_config.context_window,
+            resolved_config.output_window,
+            resolved_config.conversation_turn_budget,
+            resolved_config.tokens_per_minute,
+            resolved_config.requests_per_minute,
+            resolved_config.provider,
         )
         return resolved_config
 
@@ -68,11 +113,11 @@ class ConfigResolutionService:
         """
 
         resolved_config = replace(config)
-        model_name = resolved_config.model_name
+        model_name = resolved_config.full_model_name
         logger.info("Loading model config for %s", model_name)
         model_config = self._config_loader.load_model_config(model_name)
         logger.info(
-            "Resolved model config for %s: model_alias=%s full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s",
+            "Resolved model config for %s: model_alias=%s full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s provider=%s",
             model_name,
             model_config.model_alias,
             model_config.full_model_name,
@@ -81,10 +126,24 @@ class ConfigResolutionService:
             model_config.conversation_turn_budget,
             model_config.tokens_per_minute,
             model_config.requests_per_minute,
+            model_config.provider,
+        )
+        logger.info(
+            "Loaded model_config values before application: model_alias=%s full_model_name=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s provider=%s",
+            model_config.model_alias,
+            model_config.full_model_name,
+            model_config.context_window,
+            model_config.output_window,
+            model_config.conversation_turn_budget,
+            model_config.tokens_per_minute,
+            model_config.requests_per_minute,
+            model_config.provider,
         )
         return self._apply_loaded_model_config(resolved_config, model_config)
 
-    def _apply_loaded_model_config(self, config: RuntimeConfig, model_config: LoadedModelConfig) -> RuntimeConfig:
+    def _apply_loaded_model_config(
+        self, config: RuntimeConfig, model_config: LoadedModelConfig
+    ) -> RuntimeConfig:
         """Apply loaded model values to the runtime config.
 
         Args:
@@ -99,12 +158,77 @@ class ConfigResolutionService:
         resolved_config.model_alias = model_config.model_alias
         resolved_config.full_model_name = model_config.full_model_name
         resolved_config.provider = model_config.provider
-        resolved_config.context_window = model_config.context_window
-        resolved_config.output_window = model_config.output_window
+        yaml_context_window = resolved_config.context_window
+        yaml_output_window = resolved_config.output_window
+        yaml_tokens_per_minute = resolved_config.tokens_per_minute
+        yaml_requests_per_minute = resolved_config.requests_per_minute
+
+        if model_config.context_window not in (None, 0):
+            resolved_config.context_window = model_config.context_window
+            context_window_source = "model"
+        else:
+            context_window_source = "yaml"
+
+        if model_config.output_window not in (None, 0):
+            resolved_config.output_window = model_config.output_window
+            output_window_source = "model"
+        else:
+            output_window_source = "yaml"
+
+        if model_config.tokens_per_minute not in (None, 0):
+            resolved_config.tokens_per_minute = model_config.tokens_per_minute
+            tokens_per_minute_source = "model"
+        else:
+            tokens_per_minute_source = "yaml"
+
+        if model_config.requests_per_minute not in (None, 0):
+            resolved_config.requests_per_minute = model_config.requests_per_minute
+            requests_per_minute_source = "model"
+        else:
+            requests_per_minute_source = "yaml"
+
         resolved_config.conversation_turn_budget = model_config.conversation_turn_budget
-        resolved_config.tokens_per_minute = model_config.tokens_per_minute
-        resolved_config.requests_per_minute = model_config.requests_per_minute
-        resolved_model_name = model_config.model_alias or model_config.full_model_name
-        if resolved_model_name:
-            resolved_config.model_name = resolved_model_name
+        logger.info(
+            "Applied model config to RuntimeConfig: full_model_name=%s model_alias=%s provider=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s",
+            resolved_config.full_model_name,
+            resolved_config.model_alias,
+            resolved_config.provider,
+            resolved_config.context_window,
+            resolved_config.output_window,
+            resolved_config.conversation_turn_budget,
+            resolved_config.tokens_per_minute,
+            resolved_config.requests_per_minute,
+        )
+        logger.info(
+            "RuntimeConfig after model config application: full_model_name=%s model_alias=%s context_window=%s output_window=%s conversation_turn_budget=%s tokens_per_minute=%s requests_per_minute=%s provider=%s",
+            resolved_config.full_model_name,
+            resolved_config.model_alias,
+            resolved_config.context_window,
+            resolved_config.output_window,
+            resolved_config.conversation_turn_budget,
+            resolved_config.tokens_per_minute,
+            resolved_config.requests_per_minute,
+            resolved_config.provider,
+        )
+        logger.info(
+            "Final runtime config source selection: context_window=%s (source=%s yaml=%s model=%s) output_window=%s (source=%s yaml=%s model=%s) tokens_per_minute=%s (source=%s yaml=%s model=%s) requests_per_minute=%s (source=%s yaml=%s model=%s) conversation_turn_budget=%s (model=%s)",
+            resolved_config.context_window,
+            context_window_source,
+            yaml_context_window,
+            model_config.context_window,
+            resolved_config.output_window,
+            output_window_source,
+            yaml_output_window,
+            model_config.output_window,
+            resolved_config.tokens_per_minute,
+            tokens_per_minute_source,
+            yaml_tokens_per_minute,
+            model_config.tokens_per_minute,
+            resolved_config.requests_per_minute,
+            requests_per_minute_source,
+            yaml_requests_per_minute,
+            model_config.requests_per_minute,
+            resolved_config.conversation_turn_budget,
+            model_config.conversation_turn_budget,
+        )
         return resolved_config

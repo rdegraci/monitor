@@ -65,7 +65,7 @@ class EnvLoader:
 
         env_model = os.environ.get("MODEL")
         if env_model:
-            config.model_name = env_model
+            config.full_model_name = env_model
 
         env_context_window = os.environ.get("CONTEXT_WINDOW")
         if env_context_window:

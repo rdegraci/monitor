@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class LoadedConfig:
     """Resolved configuration values loaded from YAML sources."""
 
-    model_name: str
+    full_model_name: str
     context_window: int
     prompt_history_filename: str
     history_dir: str
@@ -45,26 +45,55 @@ class YamlConfigLoader:
         """
 
         self._ensure_user_config_yaml()
-        resolved_model = DEFAULT_MODEL
-        resolved_context_window = RuntimeConfig(model_name=DEFAULT_MODEL).context_window
-        resolved_logging_level = logging.INFO
-        resolved_prompt_history_filename = RuntimeConfig(
-            model_name=DEFAULT_MODEL
-        ).prompt_history_filename
-        resolved_history_dir = RuntimeConfig(model_name=DEFAULT_MODEL).history_dir
+        candidate_paths = self._get_user_config_paths()
+        logger.info("YAML config candidate paths: %s", candidate_paths)
 
-        for yaml_path in self._get_user_config_paths():
+        resolved_full_model_name = DEFAULT_MODEL
+        logger.info("Using default full_model_name: %s", resolved_full_model_name)
+        resolved_context_window = RuntimeConfig(
+            full_model_name=DEFAULT_MODEL
+        ).context_window
+        logger.info("Using default context_window: %s", resolved_context_window)
+        resolved_logging_level = logging.INFO
+        logger.info("Using default logging_level: %s", resolved_logging_level)
+        resolved_prompt_history_filename = RuntimeConfig(
+            full_model_name=DEFAULT_MODEL
+        ).prompt_history_filename
+        logger.info(
+            "Using default prompt_history_filename: %s",
+            resolved_prompt_history_filename,
+        )
+        resolved_history_dir = RuntimeConfig(full_model_name=DEFAULT_MODEL).history_dir
+        logger.info("Using default history_dir: %s", resolved_history_dir)
+
+        for yaml_path in candidate_paths:
             yaml_values = self._load_yaml_values(yaml_path)
+            logger.info("Loaded YAML file %s with raw mapping: %s", yaml_path, yaml_values)
             if "model" in yaml_values and yaml_values["model"] is not None:
-                resolved_model = str(yaml_values["model"])
+                resolved_full_model_name = str(yaml_values["model"])
+            else:
+                logger.info(
+                    "Using default full_model_name from current resolution: %s",
+                    resolved_full_model_name,
+                )
             if "context_window" in yaml_values and yaml_values["context_window"] is not None:
                 resolved_context_window = self._coerce_int(
                     yaml_values["context_window"],
                     resolved_context_window,
                 )
+            else:
+                logger.info(
+                    "Using default context_window from current resolution: %s",
+                    resolved_context_window,
+                )
             if "logging_level" in yaml_values and yaml_values["logging_level"] is not None:
                 resolved_logging_level = self._coerce_int(
                     yaml_values["logging_level"], resolved_logging_level
+                )
+            else:
+                logger.info(
+                    "Using default logging_level from current resolution: %s",
+                    resolved_logging_level,
                 )
             if (
                 "prompt_history_filename" in yaml_values
@@ -73,20 +102,32 @@ class YamlConfigLoader:
                 resolved_prompt_history_filename = str(
                     yaml_values["prompt_history_filename"]
                 )
+            else:
+                logger.info(
+                    "Using default prompt_history_filename from current resolution: %s",
+                    resolved_prompt_history_filename,
+                )
             if "history_dir" in yaml_values and yaml_values["history_dir"] is not None:
                 candidate_history_dir = yaml_values["history_dir"]
                 if self._is_valid_history_dir(candidate_history_dir):
                     resolved_history_dir = str(candidate_history_dir)
                 else:
                     resolved_history_dir = "history"
+            else:
+                logger.info(
+                    "Using default history_dir from current resolution: %s",
+                    resolved_history_dir,
+                )
 
-        return LoadedConfig(
-            model_name=resolved_model,
+        resolved_config = LoadedConfig(
+            full_model_name=resolved_full_model_name,
             context_window=resolved_context_window,
             prompt_history_filename=resolved_prompt_history_filename,
             history_dir=resolved_history_dir,
             logging_level=resolved_logging_level,
         )
+        logger.info("Final resolved LoadedConfig values: %s", resolved_config)
+        return resolved_config
 
     def _get_user_config_dir(self) -> Path:
         """Return the user configuration directory for Monitor."""

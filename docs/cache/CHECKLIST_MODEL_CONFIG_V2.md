@@ -34,14 +34,15 @@ This tracker covers:
 ## Milestone 3: Loader behavior
 - [x] Implement the loader for `model_config_v2.json`.
 - [x] Implement provider resolution from `model_tpm_mapping`.
-- [x] Implement model string resolution from `model_mapping`.
+- [x] Implement `full_model_name` resolution from `model_mapping`.
 - [x] Implement tier resolution from `model_max_tpm`.
 - [x] Implement provider-table lookup from the tier-reference string.
 - [x] Implement clear error reporting for invalid schema entries.
 - [x] Confirm first-run copy behavior seeds `model_config_v2.json` from the committed `src/monitor_oop/model_config_v2.json` when the user app config directory does not yet contain the file.
 - [x] Confirm `model_config_v2.json` is loaded during bootstrap after first-run seeding and before any model or rate-limit resolution is used.
 - [x] Confirm `ConfigService` applies the loaded model config into `RuntimeConfig`.
-- [x] Confirm `RuntimeConfig` carries `model_alias`, `provider`, `full_model_name`, `tokens_per_minute`, and `requests_per_minute`.
+- [x] Confirm `RuntimeConfig` carries `model_alias`, `provider`, `full_model_name`, `api_model_name`, `tokens_per_minute`, and `requests_per_minute`.
+- [x] Confirm `get_model()` remains compatibility behavior where referenced.
 
 ## Milestone 4: Verification
 - [ ] Add tests for valid schema loading.

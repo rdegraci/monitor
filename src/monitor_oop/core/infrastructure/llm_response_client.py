@@ -72,24 +72,32 @@ class LLMResponseClient:
                 previous_response_id,
             )
             raise ValueError("OpenAI API key is required to create a response.")
-        model = self.config_service.get_model()
-        if "/" in model:
-            model = model.split("/", 1)[1]
+        model_name = self.config_service.get_model()
+        api_model_name = self.config_service.get_api_model_name()
+        full_model_name = self.config_service.get_full_model_name()
+        if not full_model_name:
+            logger.error(
+                "Cannot create response: full model name is missing; api_key_present=%s, internal_model_alias=%s, message_count=%s, previous_response_id=%s.",
+                api_key_present,
+                model_name,
+                len(input_messages),
+                previous_response_id,
+            )
+            raise ValueError("Full model name is required to create a response.")
         tools = self._build_litellm_tools()
         tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
         logger.info(
-            "Create response preflight context: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
-            model,
-            api_key_present,
-            len(input_messages),
-            len(tools),
-            previous_response_id,
+            "Create response model context: full_model_name=%s, api_model_name=%s, internal_model_alias=%s.",
+            full_model_name,
+            api_model_name,
+            model_name,
         )
         if self._request_capacity_service is not None:
             logger.info(
-                "Performing request capacity preflight check: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, tool_names=%s, previous_response_id=%s.",
-                model,
+                "Performing request capacity preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, tool_names=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
                 api_key_present,
                 len(input_messages),
                 len(tools),
@@ -97,15 +105,16 @@ class LLMResponseClient:
                 previous_response_id,
             )
             request_fits = self._request_capacity_service.request_fits(
-                model=model,
+                model=full_model_name,
                 input_messages=input_messages,
                 tools=tools,
                 previous_response_id=previous_response_id,
             )
             if request_fits:
                 logger.info(
-                    "Request capacity preflight check passed: resolved_model=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
-                    model,
+                    "Request capacity preflight check passed: full_model_name=%s, api_model_name=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                    full_model_name,
+                    api_model_name,
                     len(input_messages),
                     len(tools),
                     previous_response_id,
@@ -115,8 +124,9 @@ class LLMResponseClient:
                 if rejection_reason is None:
                     rejection_reason = getattr(self._request_capacity_service, "rejection_reason", None)
                 logger.error(
-                    "Request capacity preflight check failed: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s, rejection_reason=%s.",
-                    model,
+                    "Request capacity preflight check failed: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s, rejection_reason=%s.",
+                    full_model_name,
+                    api_model_name,
                     api_key_present,
                     len(input_messages),
                     len(tools),
@@ -126,56 +136,70 @@ class LLMResponseClient:
                 raise ValueError("Request does not fit within the configured request capacity limits.")
         if self._rate_limit_service is not None:
             logger.info(
-                "Performing rate limit preflight check: resolved_model=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
-                model,
+                "Performing rate limit preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
                 api_key_present,
                 len(input_messages),
                 len(tools),
                 previous_response_id,
             )
             estimated_tokens = self._rate_limit_service.estimate_token_usage(
-                model=model,
+                model=full_model_name,
                 messages=input_messages,
                 tools=tools,
                 previous_response_id=previous_response_id,
             )
             logger.info(
-                "Rate limit preflight check estimated token usage: resolved_model=%s, estimated_tokens=%s, previous_response_id=%s.",
-                model,
+                "Rate limit preflight check estimated token usage: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
                 estimated_tokens,
                 previous_response_id,
             )
             rate_limit_allows = self._rate_limit_service.request_allowed(
-                model=model,
+                model=full_model_name,
                 estimated_tokens=estimated_tokens,
             )
             if rate_limit_allows:
                 logger.info(
-                    "Rate limit preflight check passed: resolved_model=%s, estimated_tokens=%s, previous_response_id=%s.",
-                    model,
+                    "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                    full_model_name,
+                    api_model_name,
                     estimated_tokens,
                     previous_response_id,
                 )
             else:
                 logger.warning(
-                    "Rate limit preflight check failed: resolved_model=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
-                    model,
+                    "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
+                    full_model_name,
+                    api_model_name,
                     estimated_tokens,
                     api_key_present,
                     previous_response_id,
                 )
                 raise ValueError("Request is not allowed by the current rate limit policy.")
         logger.info(
-            "Creating response with model=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
-            model,
+            "Creating response with full_model_name=%s, api_model_name=%s, internal_model_alias=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            model_name,
             len(tools),
             tool_names,
             tool_choice,
             len(input_messages),
             previous_response_id,
         )
+        logger.info(
+            "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, internal_model_alias=%s, previous_response_id=%s.",
+            api_model_name,
+            full_model_name,
+            model_name,
+            previous_response_id,
+        )
+        outbound_model_name = self.config_service.get_api_model_name()
         return self._adapter.complete(
-            model,
+            outbound_model_name,
             input_messages,
             api_key=api_key,
             tools=tools,

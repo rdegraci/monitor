@@ -87,10 +87,8 @@ class RateLimitService:
         self._purge_old_events()
         current_tokens = sum(event.tokens for event in self._usage_events)
         current_requests = len(self._request_count_events)
-        tpm_limit = self._config_service.get_model_tpm_limit(model)
-        rpm_limit = self._config_service.get_model_rpm_limit(model)
-        tpm_limit = max(tpm_limit, 1)
-        rpm_limit = max(rpm_limit, 0)
+        tpm_limit = self._get_tpm_limit(model)
+        rpm_limit = self._get_rpm_limit(model)
         logger.info(
             "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s.",
             model,
@@ -101,7 +99,9 @@ class RateLimitService:
             rpm_limit,
             self._window_seconds,
         )
-        if estimated_tokens + current_tokens > tpm_limit:
+        token_request_total = current_tokens + estimated_tokens
+        token_limit_exceeded = token_request_total > tpm_limit
+        if token_limit_exceeded:
             logger.warning(
                 "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
                 estimated_tokens,
@@ -109,7 +109,9 @@ class RateLimitService:
                 tpm_limit,
             )
             return False
-        if rpm_limit > 0 and current_requests + 1 > rpm_limit:
+        request_total = current_requests + 1
+        request_limit_exceeded = request_total > rpm_limit
+        if request_limit_exceeded:
             logger.warning(
                 "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
                 current_requests,
@@ -117,11 +119,13 @@ class RateLimitService:
             )
             return False
         logger.info(
-            "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s.",
+            "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
             model,
             estimated_tokens,
             current_tokens,
             current_requests,
+            tpm_limit,
+            rpm_limit,
         )
         return True
 
@@ -138,24 +142,45 @@ class RateLimitService:
         self._request_count_events.append(timestamp)
         logger.info("Recorded rate-limit usage event: tokens=%s, timestamp=%s.", tokens, timestamp)
 
-    def _get_tpm_limit(self) -> int:
+    def _get_tpm_limit(self, model: str) -> int:
         """Return the current TPM limit.
+
+        Args:
+            model: Model identifier for the request.
 
         Returns:
             The token-per-minute limit for the configured model.
         """
 
-        limit = self._config_service.get_model_tpm_limit()
-        return max(limit, 1)
+        limit = self._config_service.get_model_tpm_limit(model)
+        if limit is None:
+            logger.info(
+                "No TPM limit configured for model=%s; falling back to default value 1.",
+                model,
+            )
+            return 1
+        logger.info("Resolved TPM limit for model=%s: %s.", model, limit)
+        return limit
 
-    def _get_rpm_limit(self) -> int:
+    def _get_rpm_limit(self, model: str) -> int:
         """Return the current RPM limit.
 
+        Args:
+            model: Model identifier for the request.
+
         Returns:
-            The request-per-minute limit for the configured model, or 0 when disabled.
+            The request-per-minute limit for the configured model.
         """
 
-        return max(self._config_service.get_model_rpm_limit(), 0)
+        limit = self._config_service.get_model_rpm_limit(model)
+        if limit is None:
+            logger.info(
+                "No RPM limit configured for model=%s; falling back to default value 1.",
+                model,
+            )
+            return 1
+        logger.info("Resolved RPM limit for model=%s: %s.", model, limit)
+        return limit
 
     def _purge_old_events(self) -> None:
         """Drop usage events older than the rolling window."""

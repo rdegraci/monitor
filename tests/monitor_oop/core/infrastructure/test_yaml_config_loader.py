@@ -21,7 +21,7 @@ def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) ->
     loader = YamlConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == DEFAULT_MODEL
+    assert result.full_model_name == DEFAULT_MODEL
     assert result.context_window == 400_000
     assert result.prompt_history_filename == "prompt_history"
     assert result.history_dir == "history"
@@ -78,7 +78,7 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     loader = YamlConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == "yaml-model"
+    assert result.full_model_name == "yaml-model"
     assert result.context_window == 12345
     assert result.logging_level == 30
     assert result.prompt_history_filename == "custom_history"
@@ -108,4 +108,4 @@ def test_load_config_yaml_prefers_last_valid_user_path(monkeypatch, tmp_path) ->
     loader = YamlConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == "second"
+    assert result.full_model_name == "second"

@@ -191,6 +191,18 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
         request_capacity_service=request_capacity_service,
         rate_limit_service=rate_limit_service,
     )
+    app_logger.info(
+        "Runtime config: model=%s alias=%s context=%s output=%s turns=%s tpm=%s rpm=%s provider=%s full=%s",
+        config_service.get_api_model_name(),
+        config_service.get_model_alias(),
+        config_service.get_context_window(),
+        config_service.get_output_window(),
+        config_service.get_conversation_turn_budget(),
+        config_service.get_tokens_per_minute(),
+        config_service.get_requests_per_minute(),
+        config_service.get_provider(),
+        config_service.get_full_model_name(),
+    )
     turn_coordinator = TurnCoordinator()
     tui_app = TuiApp(context, turn_coordinator)
     app_logger.info("Application bootstrap complete after weather tool registration")

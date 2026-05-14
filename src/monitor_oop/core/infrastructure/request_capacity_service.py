@@ -137,6 +137,14 @@ class RequestCapacityService:
                 completion_headroom=completion_headroom,
                 reason=reason,
             )
+        logger.info(
+            "Request fits for model=%s: resolved_context_window=%s, resolved_output_window=%s, estimated_input_tokens=%s, completion_headroom=%s.",
+            model,
+            context_window,
+            output_window,
+            token_estimate,
+            completion_headroom,
+        )
         return CapacityCheckResult(
             fits=True,
             estimated_input_tokens=token_estimate,
@@ -159,7 +167,10 @@ class RequestCapacityService:
             context_window = int(self._config_service.get_context_window())
             output_window = int(self._config_service.get_output_window())
         except (TypeError, ValueError) as exc:
-            logger.error("Invalid capacity configuration values returned by config service.", exc_info=True)
+            logger.error(
+                "Invalid capacity configuration values returned by config service.",
+                exc_info=True,
+            )
             raise ValueError("Invalid capacity configuration values returned by config service.") from exc
         if context_window <= 0 or output_window < 0:
             logger.error(

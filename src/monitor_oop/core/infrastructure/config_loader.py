@@ -21,7 +21,7 @@ class ConfigLoader:
         """
 
         self._yaml_config_loader = YamlConfigLoader(app_name=app_name)
-        self._model_config_loader = ModelConfigLoader(app_name=app_name)
+        self._model_config_loader = ModelConfigLoader()
 
     def load_config_yaml(self) -> LoadedConfig:
         """Load YAML configuration using defaults first, then user files.
@@ -30,7 +30,10 @@ class ConfigLoader:
             The resolved configuration values.
         """
 
-        return self._yaml_config_loader.load_config_yaml()
+        logger.info("Requesting YAML config from YamlConfigLoader")
+        config = self._yaml_config_loader.load_config_yaml()
+        logger.info("Received YAML config from YamlConfigLoader: %r", config)
+        return config
 
     def load_model_config(self, model_name: str) -> LoadedModelConfig:
         """Load model configuration from JSON schema data.
@@ -43,4 +46,7 @@ class ConfigLoader:
         """
 
         resolved_model_name = model_name or DEFAULT_MODEL
-        return self._model_config_loader.load_model_config(resolved_model_name)
+        logger.info("Requesting model config from ModelConfigLoader for model_name=%r resolved_model_name=%r", model_name, resolved_model_name)
+        config = self._model_config_loader.load_model_config(resolved_model_name)
+        logger.info("Received model config from ModelConfigLoader for resolved_model_name=%r: %r", resolved_model_name, config)
+        return config

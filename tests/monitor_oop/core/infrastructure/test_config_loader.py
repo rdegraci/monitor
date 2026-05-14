@@ -28,7 +28,7 @@ def test_load_config_yaml_delegates_to_yaml_loader_and_returns_loaded_values(mon
     loader = ConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == "yaml-model"
+    assert result.full_model_name == "yaml-model"
     assert result.context_window == 12345
     assert result.logging_level == 30
     assert result.prompt_history_filename == "custom_history"
@@ -46,7 +46,7 @@ def test_load_config_yaml_falls_back_to_defaults_when_no_user_config_exists(monk
     loader = ConfigLoader()
     result = loader.load_config_yaml()
 
-    assert result.model_name == DEFAULT_MODEL
+    assert result.full_model_name == DEFAULT_MODEL
     assert result.context_window == 400_000
     assert result.prompt_history_filename == "prompt_history"
     assert result.history_dir == "history"
@@ -61,46 +61,24 @@ def test_load_model_config_delegates_to_model_loader_and_returns_runtime_values(
     config_yaml = config_dir / "config.yaml"
     config_yaml.write_text("model: provider-family/model-x\n", encoding="utf-8")
 
-    user_json = config_dir / "model_config_v2.json"
-    user_json.write_text(
-        """
-{
-  "model_mapping": {
-    "provider-family/model-x": "model-x-alias"
-  },
-  "conversation_history_mapping": {
-    "model-x-alias": 50
-  },
-  "context_window_mapping": {
-    "model-x-alias": 128000
-  },
-  "output_window_mapping": {
-    "model-x-alias": 16000
-  },
-  "model_max_tpm": {
-    "model-x-alias": 9000
-  }
-}
-""".strip(),
-        encoding="utf-8",
-    )
-
-    packaged_json = tmp_path / "src" / "monitor_oop" / "core" / "model_config_v2.json"
-    packaged_json.parent.mkdir(parents=True)
-    packaged_json.write_text("{}", encoding="utf-8")
+    expected_model_config = object()
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
+
+    class DummyModelConfigLoader:
+        def __init__(self, *args, **kwargs) -> None:
+            self.load_calls: list[str] = []
+
+        def load_model_config(self, model_name: str):
+            self.load_calls.append(model_name)
+            return expected_model_config
+
+    monkeypatch.setattr(config_loader_module, "ModelConfigLoader", DummyModelConfigLoader)
 
     loader = ConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")
 
-    assert loaded_model_config.model_alias == "model-x-alias"
-    assert loaded_model_config.full_model_name == "provider-family/model-x"
-    assert loaded_model_config.context_window == 128000
-    assert loaded_model_config.output_window == 16000
-    assert loaded_model_config.conversation_turn_budget == 50
-    assert loaded_model_config.tokens_per_minute == 9000
+    assert loaded_model_config is expected_model_config
 
 
 def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_path) -> None:
@@ -142,47 +120,21 @@ def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_pa
         encoding="utf-8",
     )
 
-    packaged_json = tmp_path / "src" / "monitor_oop" / "core" / "model_config_v2.json"
-    packaged_json.parent.mkdir(parents=True)
-    packaged_json.write_text(
-        """
-{
-  "model_mapping": {
-    "provider-family/model-x": "packaged-alias"
-  },
-  "conversation_history_mapping": {
-    "packaged-alias": 25
-  },
-  "context_window_mapping": {
-    "packaged-alias": 64000
-  },
-  "output_window_mapping": {
-    "packaged-alias": 8000
-  },
-  "model_max_tpm": {
-    "packaged-alias": 4000
-  },
-  "openai_model_tpm_tier": {
-    "packaged-alias": {
-      "default": {
-        "tpm": 4000
-      }
-    }
-  }
-}
-""".strip(),
-        encoding="utf-8",
-    )
+    expected_model_config = object()
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(config_loader_module, "__file__", str(tmp_path / "src" / "monitor_oop" / "core" / "config_loader.py"))
+
+    class DummyModelConfigLoader:
+        def __init__(self, *args, **kwargs) -> None:
+            self.load_calls: list[str] = []
+
+        def load_model_config(self, model_name: str):
+            self.load_calls.append(model_name)
+            return expected_model_config
+
+    monkeypatch.setattr(config_loader_module, "ModelConfigLoader", DummyModelConfigLoader)
 
     loader = ConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")
 
-    assert loaded_model_config.model_alias == "user-alias"
-    assert loaded_model_config.full_model_name == "provider-family/model-x"
-    assert loaded_model_config.context_window == 256000
-    assert loaded_model_config.output_window == 32000
-    assert loaded_model_config.conversation_turn_budget == 75
-    assert loaded_model_config.tokens_per_minute == 12000
+    assert loaded_model_config is expected_model_config

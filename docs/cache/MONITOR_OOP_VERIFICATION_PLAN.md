@@ -13,7 +13,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Confirm quiet bootstrap is used for TUI startup, and runtime TUI logging uses file-only logging without screen output while the TUI is active as current verified behavior.
 - Confirm the TUI status line renders green when idle and yellow when working.
 - Confirm configuration bootstrap behavior for `monitor_oop` is implemented and verified: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
-- Confirm `model_config_v2.json` loading and application are implemented and verified for the current thin-slice flows.
+- Confirm `model_config_v2.json` loading and application are implemented and verified for the current thin-slice flows, with `full_model_name` as the stored runtime config field, `api_model_name` as the adapter-facing value, and `get_model()` retained as compatibility behavior.
 - Confirm prompt loading behavior is implemented and verified: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Confirm `LLMRequestBuilder` has dedicated tests under `tests/monitor_oop/core/application/test_llm_request_builder.py`, and request shaping is verified separately from `LLMService`.
 - Confirm `LLMResponseClient` has dedicated tests under `tests/monitor_oop/core/application/test_llm_response_client.py`, and provider-boundary behavior is verified separately from `LLMService`.
@@ -40,7 +40,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - Quiet bootstrap is used for TUI startup, and the active TUI uses file-only logging without screen output while it is displayed as current verified behavior.
 - The TUI status line renders green when idle and yellow when working.
 - Configuration bootstrap behavior for `monitor_oop` is covered by verification: `ConfigLoader` preserves existing `appdirs.user_config_dir("monitor")/config.yaml` files, seeds only missing files from `src/monitor_oop/config.yaml.example` into the user config directory when needed, `EnvLoader` loads `.env` with `find_dotenv(usecwd=True)` plus user config fallbacks, and `ConfigService` acts as a façade that resolves the persistent prompt history path with an `appdirs`-first lookup and `~/.config/monitor/` fallback while continuing to use `prompt_toolkit.PromptSession` with `FileHistory`.
-- `model_config_v2.json` loading and application are covered by verification for the current thin-slice flows.
+- `model_config_v2.json` loading and application are covered by verification for the current thin-slice flows, with `full_model_name` as the stored runtime config field, `api_model_name` as the adapter-facing value, and `get_model()` retained as compatibility behavior.
 - Prompt loading behavior is covered by verification: `system_prompt` is loaded from `appdirs.user_config_dir("monitor")/system_prompt`, seeded from `system_prompt.example` on first run, and injected as the first system message in request construction.
 - Verification tests now live under `tests/monitor_oop/core/` and `tests/monitor_oop/core/tools/`, mirroring the production package structure.
 - Current tests and the runnable CLI partially verify startup behavior.
@@ -115,7 +115,7 @@ This document defines how the isolated Monitor rewrite is validated against the 
 - The classic CLI REPL remains the default interactive mode, the `--tui` path activates the prompt_toolkit TUI, TUI startup uses quiet bootstrap, and runtime TUI uses file-only logging without screen output while the TUI is active.
 - The TUI status line renders green when idle and yellow when working.
 - TUI verification covers visible working status during submission, output/status updates after background completion, no direct widget-state mutation from worker threads, and reuse of the same background turn pattern for future subagents.
-- `model_config_v2.json` loading and application are implemented and verified for the current thin-slice flows.
+- `model_config_v2.json` loading and application are implemented and verified for the current thin-slice flows, with `full_model_name` as the stored runtime config field, `api_model_name` as the adapter-facing value, and `get_model()` retained as compatibility behavior.
 
 ## Failure Handling
 - Treat any accidental mutation of legacy globals as a blocking issue.

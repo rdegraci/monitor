@@ -61,10 +61,10 @@ def test_apply_environment_overrides_updates_runtime_config(monkeypatch) -> None
     monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
     loader = EnvLoader()
-    config = RuntimeConfig()
+    config = RuntimeConfig(full_model_name="fallback-model")
     result = loader.apply_environment_overrides(config, current_openai_api_key="fallback-key")
 
-    assert config.model_name == "anthropic/claude"
+    assert config.full_model_name == "anthropic/claude"
     assert config.context_window == 999
     assert result.openai_api_key == "env-key"
     assert result.logging_level == 30
@@ -79,7 +79,7 @@ def test_apply_environment_overrides_falls_back_to_current_api_key(monkeypatch) 
     monkeypatch.delenv("LOG_LEVEL", raising=False)
 
     loader = EnvLoader()
-    config = RuntimeConfig()
+    config = RuntimeConfig(full_model_name="fallback-model")
     result = loader.apply_environment_overrides(config, current_openai_api_key="fallback-key")
 
     assert result.openai_api_key == "fallback-key"

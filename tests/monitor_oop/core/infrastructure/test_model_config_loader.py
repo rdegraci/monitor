@@ -30,7 +30,16 @@ def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatc
     "model-x-alias": 16000
   },
   "model_max_tpm": {
-    "model-x-alias": 9000
+    "model-x-alias": "tpm-tiers/standard"
+  },
+  "model_max_rpm": {
+    "model-x-alias": "rpm-tiers/standard"
+  },
+  "tpm-tiers": {
+    "standard": 9000
+  },
+  "rpm-tiers": {
+    "standard": 120
   }
 }
 """.strip(),
@@ -39,6 +48,7 @@ def test_load_model_config_resolves_model_mapping_and_runtime_windows(monkeypatc
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(ModelConfigLoader, "get_packaged_config_path", lambda self: user_json)
 
     loader = ModelConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")
@@ -73,7 +83,16 @@ def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_pa
     "user-alias": 32000
   },
   "model_max_tpm": {
-    "user-alias": 12000
+    "user-alias": "tpm-tiers/premium"
+  },
+  "model_max_rpm": {
+    "user-alias": "rpm-tiers/premium"
+  },
+  "tpm-tiers": {
+    "premium": 12000
+  },
+  "rpm-tiers": {
+    "premium": 180
   }
 }
 """.strip(),
@@ -82,6 +101,7 @@ def test_load_config_v2_prefers_user_json_over_packaged_json(monkeypatch, tmp_pa
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(ModelConfigLoader, "get_packaged_config_path", lambda self: user_json)
 
     loader = ModelConfigLoader()
     loaded_model_config = loader.load_model_config("provider-family/model-x")

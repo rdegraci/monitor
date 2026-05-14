@@ -85,7 +85,7 @@ Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration
 ### Public Methods
 - `load() -> None`
 - `reset(force: bool = False) -> None`
-- `select_model(model_name: str) -> bool`
+- `select_model(full_model_name: str) -> bool`
 - `get_model() -> str`
 - `get_context_window() -> int`
 
@@ -97,6 +97,8 @@ Acts as a façade over `ConfigLoader` and `EnvLoader` for isolated configuration
 - Coordinate history path resolution through the appdirs-first user config dir, with explicit fallback to `~/.config/monitor` when needed.
 - Provide the configured history compaction template and history limits to the runtime services that use them.
 - Keep deterministic compaction inputs isolated from higher-level session flow.
+- Expose `api_model_name` as the adapter-facing model accessor.
+- Preserve `get_model()` as compatibility behavior for callers that still expect the legacy model-name lookup.
 
 ## PromptStore
 Owns file-backed persistence for the resolved system prompt.
@@ -511,7 +513,7 @@ Define these in `models.py`:
 - `ToolResult`
 - `ConversationTurnResult`
 
-`RuntimeConfig` carries model config fields, including the selected model and model limits used during bootstrap and runtime.
+`RuntimeConfig` carries model config fields, including `full_model_name`, the adapter-facing `api_model_name`, and the model limits used during bootstrap and runtime. `api_model_name` is the adapter-facing accessor, while `get_model()` remains compatibility behavior for callers that still expect the legacy model-name lookup.
 
 ## Dependency Rules
 - `MonitorApp` owns `RuntimeContext`.

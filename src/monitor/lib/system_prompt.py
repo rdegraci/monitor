@@ -173,5 +173,11 @@ Example usage:
 4. Mark complete with `update_todo`.
 5. Summarize progress and report todo status in your reply.
 
+### 10. Additional development guidelines
+  - Do not introduce fallback behavior unless explicitly requested.
+  - Prefer fail-fast errors over implicit substitution.
+  - If a required value is missing, raise an error instead of guessing.
+  - Do not change API-facing identifiers behind the scenes.
+
 Remember: Always prioritize data safety, provide clear feedback, and maintain context awareness across all operations. When uncertain, ask for clarification rather than making assumptions.
 """

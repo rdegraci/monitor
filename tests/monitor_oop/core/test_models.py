@@ -5,12 +5,13 @@ from monitor_oop.core.models import AppMode, AppState, CommandResult, CommandTyp
 def test_models_default_values() -> None:
     """Verify the shared model defaults."""
 
-    config = RuntimeConfig()
+    config = RuntimeConfig(full_model_name=DEFAULT_MODEL)
     state = AppState()
     message = Message(role="user", content="hello")
     result = CommandResult(command_type=CommandType.UNKNOWN)
 
-    assert config.model_name == DEFAULT_MODEL
+    assert RuntimeConfig(full_model_name=DEFAULT_MODEL).full_model_name == DEFAULT_MODEL
+    assert RuntimeConfig(full_model_name=DEFAULT_MODEL).api_model_name == "gpt-5.4-mini"
     assert config.context_window == 400_000
     assert state.mode is AppMode.CLI
     assert message.role == "user"

@@ -18,7 +18,9 @@ class ConfigAccessorService:
         """Initialize the accessor service.
 
         Args:
-            config: Runtime config to read from.
+            config: Runtime configuration to read from.
+            openai_api_key: Effective OPENAI_API_KEY for this runtime.
+            logging_level: Effective logging level for this runtime.
         """
 
         self._config = config
@@ -28,18 +30,29 @@ class ConfigAccessorService:
     def get_model(self) -> str:
         """Return the active model name."""
 
-        return self._config.model_name
+        return self._config.api_model_name
+
+    def get_model_alias(self) -> str | None:
+        """Return the compatibility model alias, if configured."""
+
+        return getattr(self._config, "model_alias", None)
+
+    def get_full_model_name(self) -> str | None:
+        """Return the compatibility full model name, if configured."""
+
+        return getattr(self._config, "full_model_name", None)
 
     def get_provider(self) -> str:
         """Return the provider prefix for the active model name."""
+
+        full_model_name = self.get_full_model_name()
+        if full_model_name and "/" in full_model_name:
+            return full_model_name.split("/", 1)[0]
 
         provider = getattr(self._config, "provider", None)
         if provider:
             return provider
 
-        model_name = self._config.model_name
-        if "/" in model_name:
-            return model_name.split("/", 1)[0]
         return "openai"
 
     def estimate_token_usage(
@@ -110,7 +123,10 @@ class ConfigAccessorService:
 
         if model_name:
             return model_name
-        return self._config.model_name
+        full_model_name = self.get_full_model_name()
+        if full_model_name:
+            return full_model_name
+        return self._config.api_model_name
 
     def get_model_tpm_limit(self, model_name: str | None = None) -> int:
         """Return the tokens-per-minute limit for a model."""
@@ -119,7 +135,7 @@ class ConfigAccessorService:
         tpm_limit = getattr(self._config, "tokens_per_minute", None)
         if tpm_limit is None:
             tpm_limit = getattr(self._config, "tpm_limit", None)
-        if tpm_limit is None and resolved_model_name != self._config.model_name:
+        if tpm_limit is None and resolved_model_name != self._config.api_model_name:
             tpm_limit = getattr(
                 self._config, f"{resolved_model_name}_tokens_per_minute", None
             )
@@ -136,7 +152,7 @@ class ConfigAccessorService:
         rpm_limit = getattr(self._config, "requests_per_minute", None)
         if rpm_limit is None:
             rpm_limit = getattr(self._config, "rpm_limit", None)
-        if rpm_limit is None and resolved_model_name != self._config.model_name:
+        if rpm_limit is None and resolved_model_name != self._config.api_model_name:
             rpm_limit = getattr(
                 self._config, f"{resolved_model_name}_requests_per_minute", None
             )

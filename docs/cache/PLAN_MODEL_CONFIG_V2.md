@@ -88,5 +88,7 @@ It should not absorb unrelated concerns such as:
 - This schema should support the upcoming Anthropic LiteLLM adapter without special-casing it in transport code.
 - The committed `src/monitor_oop/model_config_v2.json` is the packaged source copied into the user app config directory on first run if the user copy does not exist.
 - `ConfigService` now loads and applies `model_config_v2.json` during bootstrap, and `RuntimeConfig` carries the resolved model fields used by the running application.
+- `RuntimeConfig` stores the runtime model configuration using `full_model_name`, while `api_model_name` is the adapter-facing value used for transport integration.
+- `get_model()` is retained as compatibility behavior for callers that still expect the older access pattern.
 - Remaining work is limited to validation refinement, error reporting polish, and any schema tightening needed as additional provider tables are introduced.
 - The first code slice still uses conservative runtime fallbacks for model limit values while the full `model_config_v2.json`-backed schema loader remains future work.

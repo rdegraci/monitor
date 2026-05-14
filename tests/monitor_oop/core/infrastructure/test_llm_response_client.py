@@ -70,14 +70,14 @@ def test_create_response_requires_api_key() -> None:
         client.create_response([{"role": "user", "content": "hello"}])
 
 
-def test_create_response_normalizes_model_and_passes_tools() -> None:
-    """Verify model normalization and tool schema wiring for the adapter boundary."""
+def test_create_response_uses_api_model_name_and_passes_tools() -> None:
+    """Verify API model name selection and tool schema wiring for the adapter boundary."""
 
     fake_adapter = FakeAdapter()
 
     config_service = ConfigService()
     config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_model = lambda: "openai/gpt-4o-mini"  # type: ignore[method-assign]
+    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
 
     tool_service = FakeToolService()
     client = LLMResponseClient(config_service, adapter=fake_adapter, tool_service=tool_service)
@@ -104,14 +104,14 @@ def test_create_response_normalizes_model_and_passes_tools() -> None:
     assert function_schema["name"] == "get_current_weather"
 
 
-def test_create_response_uses_unprefixed_model_unchanged() -> None:
-    """Verify unprefixed model names are passed through unchanged."""
+def test_create_response_uses_unprefixed_api_model_name_unchanged() -> None:
+    """Verify unprefixed API model names are passed through unchanged."""
 
     fake_adapter = FakeAdapter()
 
     config_service = ConfigService()
     config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_model = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
+    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
 
     client = LLMResponseClient(config_service, adapter=fake_adapter)
 

@@ -11,12 +11,14 @@ from monitor_oop.core.infrastructure.config_loader import ConfigLoader
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
 from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 
+logger = logging.getLogger(__name__)
+
 
 class ConfigService:
     """Owns runtime configuration for a single application instance."""
 
     def __init__(self, initial_config: RuntimeConfig | None = None) -> None:
-        self._config = initial_config or RuntimeConfig(model_name=DEFAULT_MODEL)
+        self._config = initial_config or RuntimeConfig(full_model_name=DEFAULT_MODEL)
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
         self._logging_level = logging.INFO
         self._env_loader = EnvLoader()
@@ -57,9 +59,14 @@ class ConfigService:
     def _apply_defaults(self) -> None:
         """Reset the runtime configuration to deterministic defaults."""
 
-        self._config = RuntimeConfig(model_name=DEFAULT_MODEL)
+        self._config = RuntimeConfig(full_model_name=DEFAULT_MODEL)
+        logger.info("Applied default runtime configuration: %s", self._config)
         self._logging_level = logging.INFO
         self._openai_api_key = os.environ.get("OPENAI_API_KEY")
+        logger.info(
+            "OPENAI_API_KEY present in environment during defaults reset: %s",
+            self._openai_api_key is not None,
+        )
         self._path_context = self._build_path_context(self._config)
         self._path_service = ConfigPathService(self._path_context)
         self._config_loader = ConfigLoader()
@@ -87,8 +94,18 @@ class ConfigService:
             self._config,
             current_openai_api_key=self._openai_api_key,
         )
+        logger.info(
+            "OPENAI_API_KEY present after environment overrides: %s",
+            env_values.openai_api_key is not None,
+        )
         self._openai_api_key = env_values.openai_api_key
         self._logging_level = env_values.logging_level
+        logger.info(
+            "Applied environment overrides to runtime configuration: config=%s, openai_api_key=%s, logging_level=%s",
+            self._config,
+            bool(self._openai_api_key),
+            self._logging_level,
+        )
         self._refresh_accessor_service()
 
     def _load_resolved_configuration(self) -> None:
@@ -98,6 +115,7 @@ class ConfigService:
         resolved_config = self._config_resolution_service.resolve(
             self._config,
         )
+        logger.info("Loaded resolved runtime configuration: %s", resolved_config)
         self._apply_resolved_configuration(resolved_config)
         self._load_env()
         self._apply_environment_overrides()
@@ -124,22 +142,71 @@ class ConfigService:
         if not model_name:
             return False
 
-        self._config.model_name = model_name
+        self._config.full_model_name = model_name
         resolved_config = self._config_resolution_service.resolve(
             self._config,
         )
         self._apply_resolved_configuration(resolved_config)
         return True
 
+    def get_api_model_name(self) -> str:
+        """Return the API-facing model name."""
+
+        api_model_name = self._config.api_model_name
+        logger.info("Returning api_model_name for adapter: %s", api_model_name)
+        return api_model_name
+
     def get_model(self) -> str:
         """Return the active model name."""
 
-        return self._accessor_service.get_model()
+        api_model_name = self.get_api_model_name()
+        return api_model_name
+
+    def get_model_alias(self) -> str:
+        """Return the alias for the active model name."""
+
+        model_alias = self._accessor_service.get_model_alias()
+        return model_alias
+
+    def get_full_model_name(self) -> str:
+        """Return the fully resolved model name for the active runtime."""
+
+        full_model_name = self._accessor_service.get_full_model_name()
+        logger.info("Returning full model name: %s", full_model_name)
+        return full_model_name
 
     def get_provider(self) -> str:
         """Return the provider prefix for the active model name."""
 
-        return self._accessor_service.get_provider()
+        provider = self._accessor_service.get_provider()
+        logger.info("Returning provider prefix: %s", provider)
+        return provider
+
+    def get_tokens_per_minute(self, model_name: str | None = None) -> int:
+        """Return the tokens-per-minute limit for a model.
+
+        Args:
+            model_name: The optional model name to inspect.
+
+        Returns:
+            int: The tokens-per-minute limit for the resolved model.
+        """
+
+        tokens_per_minute = self._accessor_service.get_model_tpm_limit(model_name)
+        return tokens_per_minute
+
+    def get_requests_per_minute(self, model_name: str | None = None) -> int:
+        """Return the requests-per-minute limit for a model.
+
+        Args:
+            model_name: The optional model name to inspect.
+
+        Returns:
+            int: The requests-per-minute limit for the resolved model.
+        """
+
+        requests_per_minute = self._accessor_service.get_model_rpm_limit(model_name)
+        return requests_per_minute
 
     def estimate_token_usage(
         self,
@@ -170,12 +237,16 @@ class ConfigService:
     def get_context_window(self) -> int:
         """Return the active context window size."""
 
-        return self._accessor_service.get_context_window()
+        context_window = self._accessor_service.get_context_window()
+        logger.info("Returning context window: %s", context_window)
+        return context_window
 
     def get_output_window(self) -> int:
         """Return the active output window size."""
 
-        return self._accessor_service.get_output_window()
+        output_window = self._accessor_service.get_output_window()
+        logger.info("Returning output window: %s", output_window)
+        return output_window
 
     def get_summarization_prompt_template(self) -> str:
         """Return the summarization prompt template for the active runtime."""
@@ -235,7 +306,15 @@ class ConfigService:
     def get_openai_api_key(self) -> str | None:
         """Return the effective OPENAI_API_KEY for this runtime."""
 
-        return self._accessor_service.get_openai_api_key()
+        openai_api_key = self._accessor_service.get_openai_api_key()
+        if openai_api_key is None or not openai_api_key.strip():
+            raise ValueError("OPENAI_API_KEY is required and must not be empty.")
+        logger.info(
+            "Accessor returned OPENAI_API_KEY present=%s length=%s",
+            openai_api_key is not None,
+            len(openai_api_key) if openai_api_key is not None else 0,
+        )
+        return openai_api_key
 
     def get_logging_level(self) -> int:
         """Return the logging level from LOG_LEVEL with a safe INFO default.
@@ -244,4 +323,5 @@ class ConfigService:
             int: The resolved logging level constant.
         """
 
-        return self._accessor_service.get_logging_level()
+        logging_level = self._accessor_service.get_logging_level()
+        return logging_level
