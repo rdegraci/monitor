@@ -92,8 +92,8 @@ class ModelConfigLoader:
             )
         return model_name.split("/", 1)[1]
 
-    def _load_model_mapping(self) -> dict[str, str]:
-        """Load the model mapping table from the packaged configuration."""
+    def _load_model_config_data(self) -> dict[str, object]:
+        """Load and validate the packaged JSON configuration data."""
         config_path = self.get_packaged_config_path()
         try:
             with config_path.open("r", encoding="utf-8") as config_file:
@@ -102,6 +102,16 @@ class ModelConfigLoader:
             raise ValueError(
                 f"Failed to read or parse model configuration file {config_path}: {exc}"
             ) from exc
+
+        if not isinstance(config_data, dict):
+            raise ValueError(f"model configuration must be a dictionary in {config_path}")
+
+        return config_data
+
+    def _load_model_mapping(self) -> dict[str, str]:
+        """Load the model mapping table from the packaged configuration."""
+        config_data = self._load_model_config_data()
+        config_path = self.get_packaged_config_path()
 
         try:
             model_mapping = config_data["model_mapping"]
@@ -115,7 +125,9 @@ class ModelConfigLoader:
 
         return model_mapping
 
-    def resolve_model_alias_value(self, model_name: str) -> str:
+    def resolve_model_alias_value(
+        self, model_name: str, config_data: dict[str, object] | None = None
+    ) -> str:
         """Return the canonical model alias for a provider/model string.
 
         Args:
@@ -128,7 +140,20 @@ class ModelConfigLoader:
         Raises:
             ValueError: If the configuration file cannot be read or parsed.
         """
-        model_mapping = self._load_model_mapping()
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
+        config_path = self.get_packaged_config_path()
+
+        try:
+            model_mapping = config_data["model_mapping"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"model_mapping is missing or invalid in {config_path}"
+            ) from exc
+
+        if not isinstance(model_mapping, dict):
+            raise ValueError(f"model_mapping must be a dictionary in {config_path}")
 
         mapped_value = model_mapping.get(model_name)
         if mapped_value is not None:
@@ -156,7 +181,9 @@ class ModelConfigLoader:
         )
         return model_name
 
-    def resolve_conversation_history_mapping_value(self, model_alias: str) -> int:
+    def resolve_conversation_history_mapping_value(
+        self, model_alias: str, config_data: dict[str, object] | None = None
+    ) -> int:
         """Return the conversation history budget for a model alias.
 
         Args:
@@ -169,14 +196,10 @@ class ModelConfigLoader:
             ValueError: If the configuration file cannot be read or parsed, or if
                 the model alias is missing from the conversation history mapping.
         """
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
         config_path = self.get_packaged_config_path()
-        try:
-            with config_path.open("r", encoding="utf-8") as config_file:
-                config_data = json.load(config_file)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed to read or parse model configuration file {config_path}: {exc}"
-            ) from exc
 
         try:
             conversation_history_mapping = config_data["conversation_history_mapping"]
@@ -193,7 +216,9 @@ class ModelConfigLoader:
                 f"Conversation history mapping value for {model_alias!r} must be an integer in {config_path}: {value!r}"
             ) from exc
 
-    def resolve_context_window_mapping_value(self, model_alias: str) -> int:
+    def resolve_context_window_mapping_value(
+        self, model_alias: str, config_data: dict[str, object] | None = None
+    ) -> int:
         """Return the context window for a model alias.
 
         Args:
@@ -206,14 +231,10 @@ class ModelConfigLoader:
             ValueError: If the configuration file cannot be read or parsed, or if
                 the model alias is missing from the context window mapping.
         """
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
         config_path = self.get_packaged_config_path()
-        try:
-            with config_path.open("r", encoding="utf-8") as config_file:
-                config_data = json.load(config_file)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed to read or parse model configuration file {config_path}: {exc}"
-            ) from exc
 
         try:
             context_window_mapping = config_data["context_window_mapping"]
@@ -230,7 +251,9 @@ class ModelConfigLoader:
                 f"Context window mapping value for {model_alias!r} must be an integer in {config_path}: {value!r}"
             ) from exc
 
-    def resolve_output_window_mapping_value(self, model_alias: str) -> int:
+    def resolve_output_window_mapping_value(
+        self, model_alias: str, config_data: dict[str, object] | None = None
+    ) -> int:
         """Return the output window for a model alias.
 
         Args:
@@ -243,14 +266,10 @@ class ModelConfigLoader:
             ValueError: If the configuration file cannot be read or parsed, or if
                 the model alias is missing from the output window mapping.
         """
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
         config_path = self.get_packaged_config_path()
-        try:
-            with config_path.open("r", encoding="utf-8") as config_file:
-                config_data = json.load(config_file)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed to read or parse model configuration file {config_path}: {exc}"
-            ) from exc
 
         try:
             output_window_mapping = config_data["output_window_mapping"]
@@ -267,7 +286,9 @@ class ModelConfigLoader:
                 f"Output window mapping value for {model_alias!r} must be an integer in {config_path}: {value!r}"
             ) from exc
 
-    def resolve_requests_per_minute_mapping_value(self, model_alias: str) -> int:
+    def resolve_requests_per_minute_mapping_value(
+        self, model_alias: str, config_data: dict[str, object] | None = None
+    ) -> int:
         """Return the requests-per-minute limit for a model alias.
 
         Args:
@@ -281,14 +302,10 @@ class ModelConfigLoader:
                 model alias is missing from model_max_rpm, if the tier table is
                 missing or invalid, or if the tier value is not an integer.
         """
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
         config_path = self.get_packaged_config_path()
-        try:
-            with config_path.open("r", encoding="utf-8") as config_file:
-                config_data = json.load(config_file)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed to read or parse model configuration file {config_path}: {exc}"
-            ) from exc
 
         try:
             model_max_rpm = config_data["model_max_rpm"]
@@ -316,7 +333,9 @@ class ModelConfigLoader:
                 f"Requests-per-minute mapping value for {model_alias!r} must be an integer in {config_path}: {config_data[tier_table_name][tier_key]!r}"
             ) from exc
 
-    def resolve_tokens_per_minute_mapping_value(self, model_alias: str) -> int:
+    def resolve_tokens_per_minute_mapping_value(
+        self, model_alias: str, config_data: dict[str, object] | None = None
+    ) -> int:
         """Return the tokens-per-minute limit for a model alias.
 
         Args:
@@ -330,14 +349,10 @@ class ModelConfigLoader:
                 model alias is missing from model_max_tpm, if the tier table is
                 missing or invalid, or if the tier value is not an integer.
         """
+        if config_data is None:
+            config_data = self._load_model_config_data()
+
         config_path = self.get_packaged_config_path()
-        try:
-            with config_path.open("r", encoding="utf-8") as config_file:
-                config_data = json.load(config_file)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Failed to read or parse model configuration file {config_path}: {exc}"
-            ) from exc
 
         try:
             model_max_tpm = config_data["model_max_tpm"]
@@ -374,20 +389,25 @@ class ModelConfigLoader:
         Returns:
             The resolved canonical model alias.
         """
+        config_data = self._load_model_config_data()
         self.provider = self.resolve_provider_value(model_name)
         self.full_model_name = model_name
-        model_alias = self.resolve_model_alias_value(model_name)
+        model_alias = self.resolve_model_alias_value(model_name, config_data=config_data)
         self.model_alias = model_alias
         self.conversation_turn_budget = self.resolve_conversation_history_mapping_value(
-            model_alias
+            model_alias, config_data=config_data
         )
-        self.context_window = self.resolve_context_window_mapping_value(model_alias)
-        self.output_window = self.resolve_output_window_mapping_value(model_alias)
+        self.context_window = self.resolve_context_window_mapping_value(
+            model_alias, config_data=config_data
+        )
+        self.output_window = self.resolve_output_window_mapping_value(
+            model_alias, config_data=config_data
+        )
         self.requests_per_minute = self.resolve_requests_per_minute_mapping_value(
-            model_alias
+            model_alias, config_data=config_data
         )
         self.tokens_per_minute = self.resolve_tokens_per_minute_mapping_value(
-            model_alias
+            model_alias, config_data=config_data
         )
         return LoadedModelConfig(
             model_alias=self.model_alias,
