@@ -70,11 +70,6 @@ class HistoryService:
 
         return self._snapshot()
 
-    def initialize(self) -> None:
-        """Initialize history storage."""
-
-        return None
-
     def append(self, item: Message) -> None:
         """Append a message to history."""
 
@@ -86,11 +81,6 @@ class HistoryService:
 
         self._history.clear()
         self._turn_budget_tracker.sync(self._history.snapshot())
-
-    def flush(self) -> None:
-        """Flush stored history."""
-
-        return None
 
     def trim(self, count: int) -> None:
         """Trim messages to the newest ``count`` entries."""
@@ -147,11 +137,6 @@ class HistoryService:
         """
 
         return self.compact_with_summary(summary_text)
-
-    def summarize_if_needed(self) -> bool:
-        """Summarize history when needed."""
-
-        return False
 
     def _reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""
