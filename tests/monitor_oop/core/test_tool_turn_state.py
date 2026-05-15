@@ -10,6 +10,7 @@ def test_begin_turn_clears_pending_envelopes() -> None:
     state = ToolTurnState()
     state.record_envelope(
         call_id="call_1",
+        response_id="response_1",
         response_item_id="item_1",
         parent_response_id="response_1",
         tool_result={"output": "sunny"},
@@ -30,12 +31,14 @@ def test_record_envelope_tracks_follow_up_entries() -> None:
 
     state.record_envelope(
         call_id="call_1",
+        response_id="response_1",
         response_item_id="item_1",
         parent_response_id="response_1",
         tool_result={"output": "sunny"},
     )
     state.record_envelope(
         call_id="call_2",
+        response_id="response_2",
         response_item_id=None,
         parent_response_id="response_2",
         tool_result={"output": "rainy"},
@@ -54,6 +57,7 @@ def test_clear_removes_all_pending_envelopes() -> None:
     state = ToolTurnState()
     state.record_envelope(
         call_id="call_1",
+        response_id="response_1",
         response_item_id="item_1",
         parent_response_id="response_1",
         tool_result={"output": "sunny"},

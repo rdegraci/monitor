@@ -15,7 +15,7 @@ from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
-from monitor_oop.core.models import CommandType
+from monitor_oop.core.models import CommandType, Message
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
@@ -233,19 +233,23 @@ def test_conversation_session_process_non_exit_input_appends_history_and_returns
     session = build_session()
     session.start()
 
+    class MockResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
     response_text = "mocked model response"
 
     monkeypatch.setattr(
         session.context.llm_service,
         "complete",
-        lambda *args, **kwargs: response_text,
+        lambda *args, **kwargs: MockResponse(response_text),
     )
 
     assert session.process_user_input("hello") == response_text
     assert session.is_running is True
     history_snapshot = session.context.history_service.snapshot()
     assert any(
-        entry == response_text or getattr(entry, "content", None) == response_text
+        isinstance(entry, Message) and entry.content == response_text
         for entry in history_snapshot
     )
 

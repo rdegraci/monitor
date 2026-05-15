@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from monitor_oop.core.models import Message, ToolCall
 from monitor_oop.core.tool_turn_state import ToolTurnState
 from monitor_oop.core.tools.parsing import extract_tool_calls
 from monitor_oop.core.tools.tool_service import ToolService
@@ -31,17 +32,19 @@ class ToolCallHandler:
 
     def _append_tool_output_to_input(
         self,
-        input_messages: list[dict[str, str]],
+        input_messages: list[Message],
         call_id: str,
         response_item_id: str,
         tool_result: Any,
+        response_id: str | None,
         parent_response_id: str | None,
-    ) -> list[dict[str, str]]:
+    ) -> list[Message]:
         """Append one tool output to follow-up input when available."""
 
         logger.info(
-            "Appending tool output to follow-up input for tool_call_id=%s with parent_response_id=%s.",
+            "Appending tool output to follow-up input for tool_call_id=%s with response_id=%s and parent_response_id=%s.",
             call_id,
+            response_id,
             parent_response_id,
         )
         return self._tool_service.build_follow_up_payload(
@@ -49,13 +52,15 @@ class ToolCallHandler:
             call_id,
             response_item_id,
             tool_result,
+            response_id=response_id,
+            parent_response_id=parent_response_id,
         )
 
     def _append_tool_outputs_to_input(
         self,
-        input_messages: list[dict[str, str]],
+        input_messages: list[Message],
         parent_response_id: str | None,
-    ) -> list[dict[str, str]]:
+    ) -> list[Message]:
         """Append multiple tool outputs to follow-up input when available."""
 
         if self._tool_turn_state.pending_count() == 0:
@@ -77,6 +82,7 @@ class ToolCallHandler:
         self,
         call_id: str,
         response_item_id: str | None,
+        response_id: str | None,
         parent_response_id: str | None,
         tool_result: Any,
     ) -> None:
@@ -85,18 +91,20 @@ class ToolCallHandler:
         self._tool_turn_state.record_envelope(
             call_id,
             response_item_id,
+            response_id,
             parent_response_id,
             tool_result,
         )
         logger.info(
-            "Recorded tool output envelope for tool_call_id=%s, response_item_id=%s, parent_response_id=%s; pending_count=%s.",
+            "Recorded tool output envelope for tool_call_id=%s, response_item_id=%s, response_id=%s, parent_response_id=%s; pending_count=%s.",
             call_id,
             response_item_id,
+            response_id,
             parent_response_id,
             self._tool_turn_state.pending_count(),
         )
 
-    def _extract_tool_calls(self, response: Any) -> list[Any]:
+    def _extract_tool_calls(self, response: Any) -> list[ToolCall]:
         """Extract tool calls from a model response."""
 
         response_output = getattr(response, "output", None)
@@ -110,9 +118,9 @@ class ToolCallHandler:
 
     def execute_tool_calls(
         self,
-        input_messages: list[dict[str, str]],
+        input_messages: list[Message],
         response: Any,
-    ) -> tuple[list[dict[str, str]], bool]:
+    ) -> tuple[list[Message], bool]:
         """Execute all parsed tool calls from a response when present."""
 
         tool_calls = self._extract_tool_calls(response)
@@ -120,7 +128,8 @@ class ToolCallHandler:
         if not tool_calls:
             self._tool_turn_state.clear()
             return input_messages, False
-        parent_response_id = getattr(response, "id", None)
+        response_id = getattr(response, "id", None)
+        parent_response_id = getattr(response, "parent_response_id", None)
         for tool_call in tool_calls:
             call_id = getattr(tool_call, "call_id", None)
             response_item_id = getattr(tool_call, "response_item_id", None)
@@ -130,7 +139,7 @@ class ToolCallHandler:
                 "Preparing to execute tool call with tool_call_id=%s, response_item_id=%s, response_id=%s.",
                 call_id,
                 response_item_id,
-                parent_response_id,
+                response_id,
             )
             tool_result = self._tool_service.execute_tool_call(tool_call)
             logger.info(
@@ -141,6 +150,7 @@ class ToolCallHandler:
             self._record_tool_output_envelope(
                 call_id,
                 response_item_id,
+                response_id,
                 parent_response_id,
                 tool_result,
             )
@@ -148,7 +158,7 @@ class ToolCallHandler:
             return input_messages, False
         follow_up_input = self._append_tool_outputs_to_input(
             input_messages,
-            parent_response_id,
+            response_id,
         )
         should_continue = True
         logger.info(

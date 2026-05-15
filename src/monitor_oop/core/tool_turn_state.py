@@ -10,6 +10,7 @@ class ToolOutputEnvelope:
     """Represent one executed tool call and its response linkage."""
 
     call_id: str
+    response_id: str | None
     response_item_id: str | None
     parent_response_id: str | None
     tool_result: Any
@@ -31,6 +32,7 @@ class ToolTurnState:
     def record_envelope(
         self,
         call_id: str,
+        response_id: str | None,
         response_item_id: str | None,
         parent_response_id: str | None,
         tool_result: Any,
@@ -39,6 +41,7 @@ class ToolTurnState:
 
         Args:
             call_id: The tool call identifier.
+            response_id: The response identifier for the tool output.
             response_item_id: The response item identifier for the tool output.
             parent_response_id: The parent response identifier for the tool output.
             tool_result: The tool result payload.
@@ -47,6 +50,7 @@ class ToolTurnState:
         self._tool_output_envelopes.append(
             ToolOutputEnvelope(
                 call_id=call_id,
+                response_id=response_id,
                 response_item_id=response_item_id,
                 parent_response_id=parent_response_id,
                 tool_result=tool_result,

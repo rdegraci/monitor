@@ -5,6 +5,9 @@ import logging
 
 from monitor_oop.core.models import History, Message
 from monitor_oop.core.turn_budget import TurnBudgetTracker
+from monitor_oop.core.conversation_boundary_tracker import (
+    ConversationBoundaryTracker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class HistoryService:
         self._compaction_store = compaction_store
         self._history = History()
         self._turn_budget_tracker = TurnBudgetTracker()
+        self._conversation_boundary_tracker = ConversationBoundaryTracker()
 
     def _snapshot(self) -> list[Message]:
         """Return a snapshot of the stored conversation messages."""
@@ -31,12 +35,19 @@ class HistoryService:
         return self._history.snapshot()
 
     def _recent_messages(self, keep_turns: int) -> list[Message]:
-        """Return the newest messages to preserve during compaction."""
+        """Return the newest messages to preserve during compaction.
+
+        Preserved tail entries should respect complete conversation units and
+        tool-call clusters when the boundary tracker can identify them.
+        """
 
         messages = self._history.snapshot()
         if keep_turns <= 0:
             return []
-        return messages[-keep_turns:]
+        return self._conversation_boundary_tracker.preserved_tail(
+            messages,
+            keep_turns,
+        )
 
     def _persist_compaction_summary(self, summary_text: str) -> None:
         """Persist a compacted summary when disk-backed storage is available."""
@@ -70,23 +81,34 @@ class HistoryService:
 
         return self._snapshot()
 
+    def append_message(self, message: Message) -> None:
+        """Append an enriched message to history."""
+
+        self._history.append(message)
+        snapshot = self._history.snapshot()
+        self._turn_budget_tracker.sync(snapshot)
+        self._conversation_boundary_tracker.sync(snapshot)
+
     def append(self, item: Message) -> None:
         """Append a message to history."""
 
-        self._history.append(item)
-        self._turn_budget_tracker.sync(self._history.snapshot())
+        self.append_message(item)
 
     def clear(self) -> None:
         """Clear stored history."""
 
         self._history.clear()
-        self._turn_budget_tracker.sync(self._history.snapshot())
+        snapshot = self._history.snapshot()
+        self._turn_budget_tracker.sync(snapshot)
+        self._conversation_boundary_tracker.sync(snapshot)
 
     def trim(self, count: int) -> None:
         """Trim messages to the newest ``count`` entries."""
 
         self._history.trim(count)
-        self._turn_budget_tracker.sync(self._history.snapshot())
+        snapshot = self._history.snapshot()
+        self._turn_budget_tracker.sync(snapshot)
+        self._conversation_boundary_tracker.sync(snapshot)
 
     def should_compact(self) -> bool:
         """Return whether the stored history should be compacted.
@@ -99,7 +121,9 @@ class HistoryService:
         if max_turns is None:
             return False
 
-        turns_remaining = self._turn_budget_tracker.turns_remaining(max_turns)
+        turns_remaining = self._conversation_boundary_tracker.turns_remaining(
+            max_turns
+        )
         compact_threshold = max_turns * 0.1
         return turns_remaining <= compact_threshold
 
@@ -119,13 +143,19 @@ class HistoryService:
         if not self.should_compact():
             return False
 
-        recent_messages = self._recent_messages(2)
+        keep_turns = 2
+        recent_messages = self._conversation_boundary_tracker.preserved_tail(
+            self._history.snapshot(),
+            keep_turns,
+        )
 
         self._history.clear()
         self._history.append(Message(role="system", content=summary_text))
         for message in recent_messages:
             self._history.append(message)
-        self._turn_budget_tracker.sync(self._history.snapshot())
+        snapshot = self._history.snapshot()
+        self._turn_budget_tracker.sync(snapshot)
+        self._conversation_boundary_tracker.sync(snapshot)
         self._persist_compaction_summary(summary_text)
         return True
 
@@ -143,7 +173,9 @@ class HistoryService:
 
         self._history.clear()
         self._history.append(Message(role="system", content=summary_text))
-        self._turn_budget_tracker.sync(self._history.snapshot())
+        snapshot = self._history.snapshot()
+        self._turn_budget_tracker.sync(snapshot)
+        self._conversation_boundary_tracker.sync(snapshot)
 
     def reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""

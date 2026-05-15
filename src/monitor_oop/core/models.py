@@ -113,11 +113,31 @@ class ResolvedRuntimeConfig:
 
 
 @dataclass(slots=True)
+class ToolCall:
+    """A tool call embedded in a conversation message.
+
+    Attributes:
+        id: Unique identifier for the tool call.
+        name: Tool name to invoke.
+        arguments: Tool arguments payload.
+    """
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(slots=True)
 class Message:
     """A single conversation message."""
 
     role: str
     content: str
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
+    response_id: str | None = None
+    parent_response_id: str | None = None
 
 
 @dataclass(slots=True)

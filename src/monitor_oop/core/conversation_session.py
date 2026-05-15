@@ -106,7 +106,7 @@ class ConversationSession:
             history_service.compact(summary_text)
 
     def process_user_input(self, user_input: str) -> str | None:
-        """Process one user input and return the assistant response text.
+        """Process one user input and return the assistant text.
 
         Returns None for EXIT commands after stopping the session.
         """
@@ -118,14 +118,14 @@ class ConversationSession:
             self._running = False
             return None
         self.context.history_service.append(Message(role="user", content=user_input))
-        response_text = self.context.llm_service.complete(
+        completion_result = self.context.llm_service.complete(
             user_input, self.context.history_service.messages
         )
         self.context.history_service.append(
-            Message(role="assistant", content=response_text)
+            Message(role="assistant", content=completion_result.text)
         )
         self._maybe_compact_history()
-        return response_text
+        return completion_result.text
 
     def submit_input(self, user_input: str) -> ConversationTurnResult | None:
         """Submit one user input and return a UI-friendly turn result.
@@ -141,6 +141,7 @@ class ConversationSession:
         assistant_text = self.process_user_input(user_input)
         if assistant_text is None:
             return None
+
         return ConversationTurnResult(
             assistant_text=assistant_text,
             status_text="idle",

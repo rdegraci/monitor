@@ -1,7 +1,6 @@
 """Tests for compaction orchestration in the conversation session."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 from monitor_oop.core.command_processor import CommandProcessor
@@ -20,7 +19,6 @@ from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.summarization_service import SummarizationService
 
 
-@dataclass(slots=True)
 class _FakeRequestBuilder:
     """Minimal request builder stub for session tests."""
 
@@ -31,7 +29,6 @@ class _FakeRequestBuilder:
         return [prompt_text, message_history, token_limit]
 
 
-@dataclass(slots=True)
 class _FakeResponseClient:
     """Minimal response client stub for session tests."""
 
@@ -39,7 +36,6 @@ class _FakeResponseClient:
         return type("Response", (), {"id": "response-1"})()
 
 
-@dataclass(slots=True)
 class _FakeToolCallHandler:
     """Minimal tool-call handler stub for session tests."""
 
@@ -47,15 +43,13 @@ class _FakeToolCallHandler:
         return request_input, False
 
 
-@dataclass(slots=True)
 class _FakeAdapter:
     """Minimal LLM adapter stub for session tests."""
 
     def extract_text(self, response):
-        return "assistant response"
+        return response
 
 
-@dataclass(slots=True)
 class _FakeToolService:
     """Minimal tool service stub for session tests."""
 
@@ -63,12 +57,10 @@ class _FakeToolService:
         return []
 
 
-@dataclass(slots=True)
 class _FakeToolRegistry:
     """Minimal tool registry stub for session tests."""
 
 
-@dataclass(slots=True)
 class _FakeCompactionStore:
     """Minimal compaction store stub for session tests."""
 
@@ -118,6 +110,9 @@ def build_session(conversation_max_turns: int = 2) -> ConversationSession:
         adapter=adapter,
         tool_service=_FakeToolService(),
         prompt_service=prompt_service,
+    )
+    llm_service.complete = MagicMock(
+        return_value=type("Completion", (), {"text": "assistant response"})()
     )
     command_processor = CommandProcessor(
         config_service,

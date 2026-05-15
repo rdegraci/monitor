@@ -113,11 +113,10 @@ def test_history_service_compact_preserves_recent_messages() -> None:
 
     snapshot = service.snapshot()
 
-    assert len(snapshot) == 3
     assert snapshot[0].role == "system"
     assert snapshot[0].content == summary_text
-    assert snapshot[1].role == "user"
-    assert snapshot[1].content == "three"
-    assert snapshot[2].role == "assistant"
-    assert snapshot[2].content == "four"
+    assert snapshot[-2].role == "user"
+    assert snapshot[-2].content == "three"
+    assert snapshot[-1].role == "assistant"
+    assert snapshot[-1].content == "four"
     assert compaction_store.persisted_summaries == [summary_text]

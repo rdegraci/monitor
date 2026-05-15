@@ -1,7 +1,9 @@
 """Background turn completion results for the Monitor OOP TUI."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from monitor_oop.core.models import Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +16,9 @@ class TurnCompletionResult:
         assistant_text: The assistant response text produced for the turn.
         success: Whether the turn completed successfully.
         status_text: The status text describing the completed turn outcome.
+        response_id: The assistant response identifier produced for the turn, if available.
+        parent_response_id: The parent response identifier associated with the turn, if available.
+        messages: Structured conversation messages available for history enrichment.
     """
 
     task_id: str
@@ -21,3 +26,10 @@ class TurnCompletionResult:
     success: bool
     assistant_text: str = ""
     status_text: str = ""
+    response_id: str | None = None
+    parent_response_id: str | None = None
+    messages: list[Message] = field(default_factory=list)
+
+    @property
+    def has_messages(self) -> bool:
+        return bool(self.messages)
