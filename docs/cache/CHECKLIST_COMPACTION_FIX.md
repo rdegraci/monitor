@@ -19,23 +19,26 @@
 - [ ] Confirm the final history append path for enriched `Message` objects.
 
 ## LLM / Tool Path
-- [ ] Ensure tool-call turns populate enriched assistant and tool messages.
+- [x] Structured completion wiring is complete for tool-call and plain-text turns.
+- [ ] Validate the exact tool-call history shape emitted by structured completions.
 - [ ] Ensure response lineage metadata is captured when available.
 - [ ] Keep plain text turns working.
 
 ## Session / History Path
-- [ ] Preserve REPL compatibility.
-- [ ] Preserve TUI compatibility.
+- [x] Preserve REPL compatibility.
+- [x] Preserve TUI compatibility.
+- [ ] Verify response lineage is retained through history writes and reloads.
 
 ## Compaction Behavior
-- [ ] Verify tool-call clusters remain attached to their assistant turn.
+- [ ] Verify tool-call clusters remain attached to their assistant turn in history.
 - [ ] Verify tool results are never orphaned after compaction.
 - [ ] Verify plain assistant/user turns still compact correctly.
 
 ## Tests
 - [ ] Add test for plain assistant completion.
-- [ ] Add test for tool-call completion history enrichment.
-- [ ] Add test for compaction preserving assistant/tool clusters.
+- [ ] Add test for tool-call completion history enrichment and validate the structured history shape for tool-call turns.
+- [ ] Add test for assistant turn history with response lineage metadata.
+- [ ] Add test for compaction preserving assistant/tool clusters in history.
 - [ ] Add test for backward compatibility with plain `Message(role, content)` usage.
 
 ## Cleanup

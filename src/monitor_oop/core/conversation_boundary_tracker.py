@@ -76,6 +76,25 @@ class ConversationBoundaryTracker:
             index -= 1
         if index < 0:
             return 0
+        if self._is_assistant_message(messages[index]):
+            start = index
+            while start - 1 >= 0 and self._is_tool_message(messages[start - 1]):
+                start -= 1
+            if start - 1 >= 0 and self._is_tool_call_assistant_message(messages[start - 1]):
+                start -= 1
+                expected_tool_call_ids = self._tool_call_ids(messages[start])
+                while start - 1 >= 0 and self._is_tool_message(messages[start - 1]):
+                    previous_tool_message = messages[start - 1]
+                    previous_tool_call_id = self._tool_result_id(previous_tool_message)
+                    if expected_tool_call_ids and previous_tool_call_id not in expected_tool_call_ids:
+                        break
+                    start -= 1
+                if start - 1 >= 0 and self._is_user_message(messages[start - 1]):
+                    return start - 1
+                return start
+            if start - 1 >= 0 and self._is_user_message(messages[start - 1]):
+                return start - 1
+            return start
         if self._is_tool_call_assistant_message(messages[index]):
             start = index
             expected_tool_call_ids = self._tool_call_ids(messages[index])
@@ -84,13 +103,6 @@ class ConversationBoundaryTracker:
                 previous_tool_call_id = self._tool_result_id(previous_tool_message)
                 if expected_tool_call_ids and previous_tool_call_id not in expected_tool_call_ids:
                     break
-                start -= 1
-            if start - 1 >= 0 and self._is_user_message(messages[start - 1]):
-                return start - 1
-            return start
-        if self._is_assistant_message(messages[index]):
-            start = index
-            while start - 1 >= 0 and self._is_tool_message(messages[start - 1]):
                 start -= 1
             if start - 1 >= 0 and self._is_user_message(messages[start - 1]):
                 return start - 1

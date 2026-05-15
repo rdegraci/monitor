@@ -8,7 +8,7 @@ from monitor_oop.core.models import Message
 
 @dataclass(frozen=True, slots=True)
 class TurnCompletionResult:
-    """Result of completing one background turn.
+    """Structured result of completing one background turn for history enrichment.
 
     Attributes:
         task_id: The task identifier associated with the turn.
@@ -18,7 +18,8 @@ class TurnCompletionResult:
         status_text: The status text describing the completed turn outcome.
         response_id: The assistant response identifier produced for the turn, if available.
         parent_response_id: The parent response identifier associated with the turn, if available.
-        messages: Structured conversation messages available for history enrichment.
+        messages: Structured conversation messages available for history enrichment, including
+            richer assistant and tool messages when available.
     """
 
     task_id: str

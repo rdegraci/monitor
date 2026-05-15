@@ -130,13 +130,22 @@ class LLMService:
             self._request_builder.build_input(user_input, history)
         )
         assistant_text = self._adapter.extract_text(response)
+        response_id = getattr(response, "id", None)
+        parent_response_id = getattr(response, "parent_response_id", None)
         return TurnCompletionResult(
             task_id="",
             input_text=user_input,
             success=True,
             status_text="",
             assistant_text=assistant_text,
+            response_id=response_id,
+            parent_response_id=parent_response_id,
             messages=[
-                Message(role="assistant", content=assistant_text),
+                Message(
+                    role="assistant",
+                    content=assistant_text,
+                    response_id=response_id,
+                    parent_response_id=parent_response_id,
+                ),
             ],
         )

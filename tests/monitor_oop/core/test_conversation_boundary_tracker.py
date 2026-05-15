@@ -65,10 +65,12 @@ def test_preserved_tail_keeps_tool_cluster_attached_to_assistant_turn() -> None:
 
     preserved = tracker.preserved_tail(messages, keep_units=1)
 
-    assert [message.role for message in preserved] == ["tool", "assistant"]
-    assert [message.content for message in preserved] == ["sunny", "it is sunny"]
-    assert preserved[0].tool_call_id == "call-1"
-    assert preserved[1].tool_calls is None
+    assert [message.role for message in preserved] == ["user", "assistant", "tool", "assistant"]
+    assert [message.content for message in preserved] == ["weather?", "calling tool", "sunny", "it is sunny"]
+    assert preserved[0].tool_call_id is None
+    assert preserved[1].tool_calls == [tool_call]
+    assert preserved[2].tool_call_id == "call-1"
+    assert preserved[3].tool_calls is None
 
 
 def test_group_tail_for_preservation_uses_configured_preserve_units() -> None:
@@ -85,3 +87,25 @@ def test_group_tail_for_preservation_uses_configured_preserve_units() -> None:
     preserved = tracker.group_tail_for_preservation(messages)
 
     assert [message.content for message in preserved] == ["one", "two", "three", "four"]
+
+
+def test_preserved_tail_keeps_tool_call_assistant_tool_result_final_assistant_intact() -> None:
+    """Verify a tool-call assistant turn with tool result and final assistant stays intact."""
+
+    tracker = ConversationBoundaryTracker(preserve_units=1)
+    tool_call = ToolCall(id="call-1", name="weather", arguments="{}")
+    messages = [
+        Message(role="user", content="weather?"),
+        Message(role="assistant", content="calling tool", tool_calls=[tool_call]),
+        Message(role="tool", content="sunny", tool_call_id="call-1"),
+        Message(role="assistant", content="it is sunny"),
+    ]
+
+    preserved = tracker.preserved_tail(messages, keep_units=1)
+
+    assert [message.role for message in preserved] == ["user", "assistant", "tool", "assistant"]
+    assert [message.content for message in preserved] == ["weather?", "calling tool", "sunny", "it is sunny"]
+    assert preserved[0].tool_call_id is None
+    assert preserved[1].tool_calls == [tool_call]
+    assert preserved[2].tool_call_id == "call-1"
+    assert preserved[3].tool_calls is None

@@ -292,10 +292,45 @@ def test_complete_returns_text_for_stop_response() -> None:
     result = service.complete("hello", [])
 
     assert result.assistant_text == "final answer"
-    assert result.messages == [Message(role="assistant", content="final answer")]
+    assert result.response_id == "response_1"
+    assert result.messages == [Message(role="assistant", content="final answer", response_id="response_1")]
     assert len(response_client.complete_calls) == 1
     assert response_client.complete_calls[0]["previous_response_id"] is None
     assert len(adapter.texts) == 0
+
+
+def test_complete_includes_response_ids_on_result_and_message() -> None:
+    """Verify stop responses propagate response IDs onto the completion result and assistant message."""
+
+    def build_response_with_parent(
+        response_id: str,
+        parent_response_id: str,
+        output_text: str,
+    ) -> object:
+        response = type("Response", (), {})()
+        response.id = response_id
+        response.parent_response_id = parent_response_id
+        response.finish_reason = "stop"
+        response.output_text = output_text
+        return response
+
+    service, _, _, _ = build_service(
+        [build_response_with_parent("response_1", "response_parent", "final answer")],
+        ["final answer"],
+    )
+
+    result = service.complete("hello", [])
+
+    assert result.response_id == "response_1"
+    assert result.parent_response_id == "response_parent"
+    assert result.messages == [
+        Message(
+            role="assistant",
+            content="final answer",
+            response_id="response_1",
+            parent_response_id="response_parent",
+        )
+    ]
 
 
 def test_complete_executes_single_tool_call_completion_path() -> None:
@@ -323,7 +358,8 @@ def test_complete_executes_single_tool_call_completion_path() -> None:
     result = service.complete("hello", [])
 
     assert result.assistant_text == "assistant text"
-    assert result.messages == [Message(role="assistant", content="assistant text")]
+    assert result.response_id == "response_2"
+    assert result.messages == [Message(role="assistant", content="assistant text", response_id="response_2")]
     assert len(tool_service.executed_calls) == 1
     assert len(response_client.complete_calls) == 2
     assert len(adapter.texts) == 1
