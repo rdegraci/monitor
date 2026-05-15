@@ -10,7 +10,7 @@ def test_config_service_defaults() -> None:
 
     service = ConfigService()
 
-    assert service.get_model() == "gpt-5.4-mini"
+    assert service.get_api_model_name() == "gpt-5.4-mini"
     assert service.get_context_window() == 400_000
     assert service.get_provider() == "openai"
 
@@ -21,7 +21,7 @@ def test_config_service_select_model_rejects_empty_name() -> None:
     service = ConfigService()
 
     assert service.select_model("") is False
-    assert service.get_model() == "gpt-5.4-mini"
+    assert service.get_api_model_name() == "gpt-5.4-mini"
 
 
 def test_config_service_get_provider_from_prefixed_model_name() -> None:
@@ -30,5 +30,5 @@ def test_config_service_get_provider_from_prefixed_model_name() -> None:
     service = ConfigService(initial_config=RuntimeConfig(full_model_name="anthropic/claude-3"))
 
     assert service.get_provider() == "anthropic"
-    assert service.get_model() == "claude-3"
+    assert service.get_api_model_name() == "claude-3"
     assert service.get_full_model_name() == "anthropic/claude-3"

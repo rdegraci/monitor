@@ -156,12 +156,6 @@ class ConfigService:
         logger.info("Returning api_model_name for adapter: %s", api_model_name)
         return api_model_name
 
-    def get_model(self) -> str:
-        """Return the active model name."""
-
-        api_model_name = self.get_api_model_name()
-        return api_model_name
-
     def get_model_alias(self) -> str:
         """Return the alias for the active model name."""
 

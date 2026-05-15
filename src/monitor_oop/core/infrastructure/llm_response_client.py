@@ -72,8 +72,7 @@ class LLMResponseClient:
                 previous_response_id,
             )
             raise ValueError("OpenAI API key is required to create a response.")
-        api_model_name = self.config_service.get_model()
-        outbound_api_model_name = self.config_service.get_api_model_name()
+        api_model_name = self.config_service.get_api_model_name()
         full_model_name = self.config_service.get_full_model_name()
         if not full_model_name:
             logger.error(
@@ -190,13 +189,12 @@ class LLMResponseClient:
         )
         logger.info(
             "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, previous_response_id=%s.",
-            outbound_api_model_name,
+            api_model_name,
             full_model_name,
             previous_response_id,
         )
-        outbound_model_name = self.config_service.get_api_model_name()
         return self._adapter.complete(
-            outbound_model_name,
+            api_model_name,
             input_messages,
             api_key=api_key,
             tools=tools,

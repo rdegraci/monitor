@@ -18,7 +18,8 @@ class LLMResponseClientPreflightTests(unittest.TestCase):
 
         self.config_service = MagicMock(spec=ConfigService)
         self.config_service.get_openai_api_key.return_value = "test-key"
-        self.config_service.get_model.return_value = "openai/gpt-4o-mini"
+        self.config_service.get_api_model_name.return_value = "gpt-4o-mini"
+        self.config_service.get_full_model_name.return_value = "openai/gpt-4o-mini"
         self.adapter = MagicMock()
         self.adapter.complete.return_value = {"id": "resp_1", "output": []}
         self.tool_service = MagicMock()
