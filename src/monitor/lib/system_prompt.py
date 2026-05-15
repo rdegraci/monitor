@@ -175,7 +175,6 @@ Ask yourself, 'Will I need to recall this specific information later, even in a 
   - When writing or updating tests, prefer behavior-focused assertions over implementation-detail assertions.
   - Use real temporary files and simple stub services where possible.
   - Avoid monkeypatching Path, __file__, or other filesystem internals unless there is no cleaner alternative.
-  - Keep seeding tests separate from loader tests.
   - Do not make tests depend on private helpers or exact call order unless that behavior is the contract being verified.
   - If a test setup starts to become brittle, simplify the fixture or split the test into smaller cases.
 
