@@ -9,6 +9,7 @@ from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
 from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.models import Message
+from monitor_oop.core.presentation.turn_results import TurnCompletionResult
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.tools.tool_call_handler import ToolCallHandler
 from monitor_oop.core.tools.tool_service import ToolService
@@ -122,10 +123,20 @@ class LLMService:
             self._last_response_id = getattr(response, "id", None)
             logger.info("Captured response.id=%s for current request.", self._last_response_id)
 
-    def complete(self, user_input: str, history: list[str | Message]) -> str:
+    def complete(self, user_input: str, history: list[str | Message]) -> TurnCompletionResult:
         """Call the configured model through the Responses-via-LiteLLM adapter boundary and return assistant text."""
 
         response = self._complete_with_tool_calls(
             self._request_builder.build_input(user_input, history)
         )
-        return self._adapter.extract_text(response)
+        assistant_text = self._adapter.extract_text(response)
+        return TurnCompletionResult(
+            task_id="",
+            input_text=user_input,
+            success=True,
+            status_text="",
+            assistant_text=assistant_text,
+            messages=[
+                Message(role="assistant", content=assistant_text),
+            ],
+        )

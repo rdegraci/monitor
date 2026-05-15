@@ -5,6 +5,8 @@ The following pieces of this fix have already been completed:
 - richer `Message` and `ToolCall` data now exist in the shared model layer
 - `ConversationBoundaryTracker` helper logic has been added to preserve safer history tails
 - `HistoryService.append_message(...)` now exists to accept enriched messages
+- `LLMService.complete(...)` now returns a `TurnCompletionResult`
+- `ConversationSession` consumes `TurnCompletionResult` and appends enriched history messages
 - supporting docs for this fix have already been created
 
 ## Goal
@@ -16,7 +18,7 @@ The current implementation now has the right direction in place: `HistoryService
 The next implementation pass should keep the architecture simple and explicit:
 - `TurnCompletionResult` is the structured result for completed turns.
 - `ConversationTurnResult` remains a thin REPL/UI convenience wrapper if needed.
-- `LLMService.complete(...)` should eventually return structured data instead of only plain text.
+- `LLMService.complete(...)` should return structured data instead of only plain text.
 - `ConversationSession` should append enriched `Message` instances through `HistoryService.append_message(...)`.
 - `ConversationBoundaryTracker` should preserve complete conversation units, including tool-call clusters, when compaction trims history.
 - Compaction remains separate from rate limiting; see `docs/cache/PLAN_RATE_LIMITING.md` for send-path throttling policy.

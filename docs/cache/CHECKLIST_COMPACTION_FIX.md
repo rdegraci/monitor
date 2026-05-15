@@ -7,23 +7,23 @@
 - [x] Verify `ConversationBoundaryTracker` preserves complete units.
 - [x] Verify `HistoryService.append_message(...)` accepts enriched `Message` objects.
 - [x] Revisit docs and comments to match the final data flow.
+- [x] Confirm the canonical structured turn result type for the LLM/tool path.
+- [x] Update `LLMService.complete(...)` to return a structured result.
+- [x] Update `ConversationSession` to consume the structured result.
 
 ## Notes
 - See `ROADMAP_COMPACTION_FIX.md` for the narrative overview of how this work progressed.
 
 ## Planning
-- [ ] Confirm the canonical structured turn result type for the LLM/tool path.
 - [ ] Confirm whether `ConversationTurnResult` remains REPL-only or becomes a thin adapter.
 - [ ] Confirm the final history append path for enriched `Message` objects.
 
 ## LLM / Tool Path
-- [ ] Update `LLMService.complete(...)` to return a structured result.
 - [ ] Ensure tool-call turns populate enriched assistant and tool messages.
 - [ ] Ensure response lineage metadata is captured when available.
 - [ ] Keep plain text turns working.
 
 ## Session / History Path
-- [ ] Update `ConversationSession` to consume the structured result.
 - [ ] Preserve REPL compatibility.
 - [ ] Preserve TUI compatibility.
 

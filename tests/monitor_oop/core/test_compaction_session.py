@@ -12,6 +12,7 @@ from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore
 from monitor_oop.core.llm_service import LLMService
 from monitor_oop.core.macro_service import MacroService
+from monitor_oop.core.models import Message
 from monitor_oop.core.models import RuntimeConfig
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
@@ -47,7 +48,11 @@ class _FakeAdapter:
     """Minimal LLM adapter stub for session tests."""
 
     def extract_text(self, response):
-        return response
+        if hasattr(response, "assistant_text"):
+            return response.assistant_text
+        if hasattr(response, "output_text"):
+            return response.output_text
+        return ""
 
 
 class _FakeToolService:
@@ -112,7 +117,14 @@ def build_session(conversation_max_turns: int = 2) -> ConversationSession:
         prompt_service=prompt_service,
     )
     llm_service.complete = MagicMock(
-        return_value=type("Completion", (), {"text": "assistant response"})()
+        return_value=type(
+            "Completion",
+            (),
+            {
+                "assistant_text": "assistant response",
+                "messages": [Message(role="assistant", content="assistant response")],
+            },
+        )()
     )
     command_processor = CommandProcessor(
         config_service,

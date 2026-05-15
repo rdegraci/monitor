@@ -233,16 +233,21 @@ def test_conversation_session_process_non_exit_input_appends_history_and_returns
     session = build_session()
     session.start()
 
-    class MockResponse:
-        def __init__(self, text: str) -> None:
-            self.text = text
+    class MockTurnCompletionResult:
+        def __init__(self, assistant_text: str, messages) -> None:
+            self.assistant_text = assistant_text
+            self.messages = messages
 
     response_text = "mocked model response"
+    assistant_message = Message(role="assistant", content=response_text)
 
     monkeypatch.setattr(
         session.context.llm_service,
         "complete",
-        lambda *args, **kwargs: MockResponse(response_text),
+        lambda *args, **kwargs: MockTurnCompletionResult(
+            assistant_text=response_text,
+            messages=[assistant_message],
+        ),
     )
 
     assert session.process_user_input("hello") == response_text

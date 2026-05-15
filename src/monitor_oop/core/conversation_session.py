@@ -121,11 +121,10 @@ class ConversationSession:
         completion_result = self.context.llm_service.complete(
             user_input, self.context.history_service.messages
         )
-        self.context.history_service.append(
-            Message(role="assistant", content=completion_result.text)
-        )
+        for message in completion_result.messages:
+            self.context.history_service.append_message(message)
         self._maybe_compact_history()
-        return completion_result.text
+        return completion_result.assistant_text
 
     def submit_input(self, user_input: str) -> ConversationTurnResult | None:
         """Submit one user input and return a UI-friendly turn result.

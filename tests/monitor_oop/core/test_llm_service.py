@@ -6,6 +6,7 @@ import pytest
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.llm_service import LLMService
+from monitor_oop.core.models import Message
 from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.tools.tool_models import ToolCall, ToolResult
 
@@ -290,7 +291,8 @@ def test_complete_returns_text_for_stop_response() -> None:
 
     result = service.complete("hello", [])
 
-    assert result == "final answer"
+    assert result.assistant_text == "final answer"
+    assert result.messages == [Message(role="assistant", content="final answer")]
     assert len(response_client.complete_calls) == 1
     assert response_client.complete_calls[0]["previous_response_id"] is None
     assert len(adapter.texts) == 0
@@ -320,7 +322,8 @@ def test_complete_executes_single_tool_call_completion_path() -> None:
 
     result = service.complete("hello", [])
 
-    assert result == "assistant text"
+    assert result.assistant_text == "assistant text"
+    assert result.messages == [Message(role="assistant", content="assistant text")]
     assert len(tool_service.executed_calls) == 1
     assert len(response_client.complete_calls) == 2
     assert len(adapter.texts) == 1

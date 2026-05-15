@@ -70,27 +70,28 @@ Completed docs include:
 
 These documents capture both the completed groundwork and the remaining structured-completion wiring.
 
-## Phase 7: Recognize the remaining gap
-The biggest remaining issue is not the compaction boundary itself. It is the lack of a fully wired structured completion path.
+## Phase 7: Wire the structured completion path
+The structured completion path is now wired through `LLMService.complete(...)` and `ConversationSession`.
 
-What still needs to happen:
-- the LLM/tool path must emit structured completion data
-- the session layer must append enriched messages into history
-- tool metadata must be populated at the source of truth, not inferred later
-- tests must validate that compaction preserves tool clusters end-to-end
+What that unlocked:
+- structured completion data now flows through the primary LLM completion entrypoint
+- the session layer can persist enriched messages into history
+- tool metadata is no longer blocked on initial wiring
+- compaction can be validated against real structured turns instead of only approximate raw-message tails
 
 ## Current State
 The foundation is now in place:
 - richer models exist
 - boundary tracking exists
 - history can accept enriched messages
+- the structured completion path is wired through `LLMService.complete(...)` and `ConversationSession`
 - docs explain the remaining work
 
 What is not yet complete:
-- the end-to-end structured completion flow that populates the metadata during real execution
+- the structured turn metadata still needs fuller enrichment, especially response lineage and tool-cluster preservation
 
 ## Next Roadmap Step
 The next implementation milestone should focus on one thing only:
-- make the LLM/tool completion path produce and persist enriched messages consistently
+- enrich structured turn metadata so response lineage is captured correctly and tool clusters are preserved end-to-end
 
-Once that is done, the compaction behavior can be verified against real tool-call histories rather than approximate raw-message tails.
+Once that is done, the compaction behavior can be verified against real tool-call histories with complete structured turn metadata rather than relying on partial linkage.
