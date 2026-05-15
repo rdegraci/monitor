@@ -82,6 +82,9 @@ class RateLimitService:
 
         Returns:
             True when the request fits within the active budget, otherwise False.
+
+        Raises:
+            ValueError: If the configured RPM limit is missing for the requested model.
         """
 
         self._purge_old_events()
@@ -170,15 +173,15 @@ class RateLimitService:
 
         Returns:
             The request-per-minute limit for the configured model.
+
+        Raises:
+            ValueError: If no RPM limit is configured for the model.
         """
 
         limit = self._config_service.get_model_rpm_limit(model)
         if limit is None:
-            logger.info(
-                "No RPM limit configured for model=%s; falling back to default value 1.",
-                model,
-            )
-            return 1
+            logger.error("No RPM limit configured for model=%s.", model)
+            raise ValueError(f"No RPM limit configured for model={model}.")
         logger.info("Resolved RPM limit for model=%s: %s.", model, limit)
         return limit
 
