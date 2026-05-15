@@ -9,6 +9,7 @@ from monitor_oop.core.config_path_service import ConfigPathContext, ConfigPathSe
 from monitor_oop.core.config_resolution_service import ConfigResolutionService
 from monitor_oop.core.infrastructure.config_loader import ConfigLoader
 from monitor_oop.core.infrastructure.env_loader import EnvLoader
+from monitor_oop.core.infrastructure.user_config_seeder import UserConfigSeeder
 from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ class ConfigService:
         self._path_service = ConfigPathService(self._path_context)
         self._config_loader = ConfigLoader()
         self._config_resolution_service = ConfigResolutionService(self._config_loader)
+        self._user_config_seeder = UserConfigSeeder(self._path_service)
+        self._user_config_seeder.seed_all()
         self._refresh_accessor_service()
 
     def _refresh_accessor_service(self) -> None:

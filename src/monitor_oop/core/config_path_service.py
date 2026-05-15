@@ -23,6 +23,11 @@ class ConfigPathService:
         self._config = config
         self._app_name = app_name
 
+    def get_user_config_dir_path(self) -> str:
+        """Return the user app config directory path for the current app name."""
+
+        return appdirs.user_config_dir(self._app_name)
+
     def get_persistent_history_file_path(self, history_dir: str = "", filename: str = "") -> str:
         """Return the first writable persistent history file path.
 

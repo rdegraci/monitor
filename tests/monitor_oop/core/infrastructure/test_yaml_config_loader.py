@@ -5,7 +5,9 @@ from pathlib import Path
 
 import appdirs
 
+import monitor_oop.core.infrastructure.user_config_seeder as user_config_seeder_module
 from monitor_oop.core.infrastructure.yaml_config_loader import YamlConfigLoader
+from monitor_oop.core.infrastructure.user_config_seeder import UserConfigSeeder
 from monitor_oop.core.models import DEFAULT_MODEL
 
 
@@ -15,7 +17,6 @@ def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) ->
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(YamlConfigLoader, "_ensure_user_config_yaml", lambda self: None)
     monkeypatch.setattr(YamlConfigLoader, "_get_user_config_paths", lambda self: [])
 
     loader = YamlConfigLoader()
@@ -28,7 +29,7 @@ def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) ->
     assert result.logging_level == 20
 
 
-def test_load_config_yaml_creates_example_copy(monkeypatch, tmp_path) -> None:
+def test_user_config_seeder_creates_example_copy(monkeypatch, tmp_path) -> None:
     """Verify the example config is copied to the user config path on first run."""
 
     config_dir = tmp_path / "config"
@@ -40,20 +41,18 @@ def test_load_config_yaml_creates_example_copy(monkeypatch, tmp_path) -> None:
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
+    class MockConfigPathService:
+        def get_user_config_dir_path(self) -> str:
+            return str(config_dir)
+
     monkeypatch.setattr(
-        YamlConfigLoader,
-        "__module__",
-        "monitor_oop.core.infrastructure.yaml_config_loader",
-    )
-    monkeypatch.setattr(
-        Path,
-        "with_name",
-        lambda self, name: example_path if name == "config.yaml.example" else self,
+        user_config_seeder_module,
+        "__file__",
+        str(tmp_path / "src" / "monitor_oop" / "core" / "user_config_seeder.py"),
     )
 
-    loader = YamlConfigLoader()
-    loader.load_config_yaml()
+    seeder = UserConfigSeeder(MockConfigPathService())
+    seeder.seed_yaml_config()
 
     config_yaml = config_dir / "config.yaml"
     assert config_yaml.exists()
@@ -72,7 +71,6 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(YamlConfigLoader, "_ensure_user_config_yaml", lambda self: None)
     monkeypatch.setattr(YamlConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
 
     loader = YamlConfigLoader()
@@ -98,7 +96,6 @@ def test_load_config_yaml_prefers_last_valid_user_path(monkeypatch, tmp_path) ->
     fallback_yaml.write_text("model: second\n", encoding="utf-8")
 
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
-    monkeypatch.setattr(YamlConfigLoader, "_ensure_user_config_yaml", lambda self: None)
     monkeypatch.setattr(
         YamlConfigLoader,
         "_get_user_config_paths",

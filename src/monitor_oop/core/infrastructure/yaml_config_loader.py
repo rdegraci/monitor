@@ -44,7 +44,6 @@ class YamlConfigLoader:
             The resolved configuration values.
         """
 
-        self._ensure_user_config_yaml()
         candidate_paths = self._get_user_config_paths()
         logger.info("YAML config candidate paths: %s", candidate_paths)
 
@@ -142,22 +141,6 @@ class YamlConfigLoader:
             str(config_dir / "config.yaml"),
             os.path.expanduser("~/.config/monitor/config.yaml"),
         ]
-
-    def _ensure_user_config_yaml(self) -> None:
-        """Seed the user config YAML from the packaged example on first run."""
-
-        config_dir = self._get_user_config_dir()
-        config_dir.mkdir(parents=True, exist_ok=True)
-        user_config_yaml_path = config_dir / "config.yaml"
-        if user_config_yaml_path.exists():
-            return
-
-        packaged_example_path = Path(__file__).with_name("config.yaml.example")
-        if packaged_example_path.exists():
-            user_config_yaml_path.write_text(
-                packaged_example_path.read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
 
     def _load_yaml_values(self, yaml_path: str) -> dict[str, object]:
         """Load a YAML config file into a mapping."""
