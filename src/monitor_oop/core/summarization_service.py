@@ -1,4 +1,4 @@
-"""Summarization service for deterministic compaction summaries."""
+"""Summarization service for LLM-assisted compaction summaries."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ from monitor_oop.core.models import Message
 
 
 class SummarizationService:
-    """Build summary text for compacted conversation history."""
+    """Build LLM-assisted summary text for compacted conversation history."""
 
     def __init__(
         self,
@@ -33,7 +33,7 @@ class SummarizationService:
         self._response_adapter = response_adapter
 
     def summarize(self, messages: Sequence[Message]) -> str:
-        """Build and submit a summary prompt for the provided history.
+        """Build and submit an LLM-assisted summary prompt for the provided history.
 
         Args:
             messages: The conversation messages being summarized.

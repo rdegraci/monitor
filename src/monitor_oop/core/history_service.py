@@ -1,8 +1,12 @@
 """Conversation history service for Monitor OOP."""
 from __future__ import annotations
 
+import logging
+
 from monitor_oop.core.models import History, Message
 from monitor_oop.core.turn_budget import TurnBudgetTracker
+
+logger = logging.getLogger(__name__)
 
 
 class HistoryService:
@@ -47,7 +51,13 @@ class HistoryService:
         if persist is None:
             return None
 
-        persist(summary_text)
+        try:
+            persist(summary_text)
+        except Exception:
+            logger.exception(
+                "Failed to persist compaction summary via %s",
+                type(compaction_store).__name__,
+            )
 
     @property
     def messages(self) -> list[Message]:
