@@ -29,34 +29,36 @@ def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) ->
     assert result.logging_level == 20
 
 
-def test_user_config_seeder_creates_example_copy(monkeypatch, tmp_path) -> None:
-    """Verify the example config is copied to the user config path on first run."""
+def test_user_config_seeder_creates_yaml_example_copy(monkeypatch, tmp_path) -> None:
+    """Verify the packaged YAML example config is copied to the user config path on first run."""
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    example_path = tmp_path / "src" / "monitor_oop" / "core" / "config.yaml.example"
-    example_path.parent.mkdir(parents=True)
-    example_path.write_text(
+    src_root = tmp_path / "src" / "monitor_oop" / "core"
+    example_yaml_path = src_root / "config.yaml.example"
+    example_yaml_path.parent.mkdir(parents=True)
+    example_yaml_path.write_text(
         "model: example-model\ncontext_window: 999\nlogging_level: 10\n",
         encoding="utf-8",
     )
 
-    class MockConfigPathService:
+    class StubConfigPathService:
         def get_user_config_dir_path(self) -> str:
             return str(config_dir)
 
     monkeypatch.setattr(
         user_config_seeder_module,
         "__file__",
-        str(tmp_path / "src" / "monitor_oop" / "core" / "user_config_seeder.py"),
+        str(src_root / "user_config_seeder.py"),
     )
 
-    seeder = UserConfigSeeder(MockConfigPathService())
-    seeder.seed_yaml_config()
+    seeder = UserConfigSeeder(StubConfigPathService())
+    created_paths = seeder.seed_user_config()
 
     config_yaml = config_dir / "config.yaml"
+    assert created_paths == [config_yaml]
     assert config_yaml.exists()
-    assert config_yaml.read_text(encoding="utf-8") == example_path.read_text(encoding="utf-8")
+    assert config_yaml.read_text(encoding="utf-8") == example_yaml_path.read_text(encoding="utf-8")
 
 
 def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:

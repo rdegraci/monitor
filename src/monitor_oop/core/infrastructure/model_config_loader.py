@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from monitor_oop.core.config_path_service import ConfigPathService
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +58,33 @@ class ModelConfigLoader:
         """
         return Path(__file__).resolve().parents[2] / "model_config_v2.json"
 
+    def get_user_config_path(self) -> Path:
+        """Return the user configuration file path.
+
+        Returns:
+            The user configuration file path in the user config directory.
+        """
+        return Path(ConfigPathService().get_user_config_dir_path()) / "model_config_v2.json"
+
+    def get_model_config_path(self) -> Path:
+        """Return the preferred model configuration file path.
+
+        Returns:
+            The user configuration file path when present, otherwise the
+            packaged configuration file path.
+        """
+        user_config_path = self.get_user_config_path()
+        if user_config_path.exists():
+            logger.info("Loading model configuration from user config path %s", user_config_path)
+            return user_config_path
+
+        packaged_config_path = self.get_packaged_config_path()
+        logger.info(
+            "Loading model configuration from packaged config path %s",
+            packaged_config_path,
+        )
+        return packaged_config_path
+
     def resolve_provider_value(self, model_name: str) -> str:
         """Return the provider name from a provider/model string.
 
@@ -94,7 +123,7 @@ class ModelConfigLoader:
 
     def _load_model_config_data(self) -> dict[str, object]:
         """Load and validate the packaged JSON configuration data."""
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
         try:
             with config_path.open("r", encoding="utf-8") as config_file:
                 config_data = json.load(config_file)
@@ -111,7 +140,7 @@ class ModelConfigLoader:
     def _load_model_mapping(self) -> dict[str, str]:
         """Load the model mapping table from the packaged configuration."""
         config_data = self._load_model_config_data()
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             model_mapping = config_data["model_mapping"]
@@ -143,7 +172,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             model_mapping = config_data["model_mapping"]
@@ -199,7 +228,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             conversation_history_mapping = config_data["conversation_history_mapping"]
@@ -234,7 +263,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             context_window_mapping = config_data["context_window_mapping"]
@@ -269,7 +298,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             output_window_mapping = config_data["output_window_mapping"]
@@ -305,7 +334,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             model_max_rpm = config_data["model_max_rpm"]
@@ -352,7 +381,7 @@ class ModelConfigLoader:
         if config_data is None:
             config_data = self._load_model_config_data()
 
-        config_path = self.get_packaged_config_path()
+        config_path = self.get_model_config_path()
 
         try:
             model_max_tpm = config_data["model_max_tpm"]
