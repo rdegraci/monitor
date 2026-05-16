@@ -20,16 +20,21 @@ def test_load_env_loads_project_then_user_then_fallback(monkeypatch, tmp_path) -
     monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(user_config_dir))
     monkeypatch.setattr(env_loader_module, "find_dotenv", lambda usecwd=True: str(project_env))
 
-    expected_fallback_env = os.path.expanduser("~/.config/monitor/.env")
+    expected_fallback_env = tmp_path / ".config" / "monitor" / ".env"
+    monkeypatch.setattr(
+        env_loader_module.os.path,
+        "expanduser",
+        lambda path: str(expected_fallback_env) if path == "~/.config/monitor/.env" else path,
+    )
 
-    fallback_env = tmp_path / ".config" / "monitor" / ".env"
+    fallback_env = expected_fallback_env
     fallback_env.parent.mkdir(parents=True)
     project_env.write_text("PROJECT=1\n", encoding="utf-8")
     user_env.write_text("USER=1\n", encoding="utf-8")
     fallback_env.write_text("FALLBACK=1\n", encoding="utf-8")
 
     def fake_exists(path):
-        return path in {str(user_env), str(fallback_env), expected_fallback_env}
+        return path in {str(user_env), str(fallback_env), str(expected_fallback_env)}
 
     monkeypatch.setattr(env_loader_module.os.path, "exists", fake_exists)
 
@@ -45,10 +50,10 @@ def test_load_env_loads_project_then_user_then_fallback(monkeypatch, tmp_path) -
     loader.load_env()
 
     assert [call[0] for call in calls].index(str(project_env)) < [call[0] for call in calls].index(str(user_env))
-    assert [call[0] for call in calls].index(str(user_env)) < [call[0] for call in calls].index(expected_fallback_env)
+    assert [call[0] for call in calls].index(str(user_env)) < [call[0] for call in calls].index(str(expected_fallback_env))
     assert str(project_env) in [call[0] for call in calls]
     assert str(user_env) in [call[0] for call in calls]
-    assert expected_fallback_env in [call[0] for call in calls]
+    assert str(expected_fallback_env) in [call[0] for call in calls]
     assert all(override is True for _, override in calls)
 
 

@@ -2,18 +2,18 @@
 
 ## Uncovered modules
 - [ ] `src/monitor_oop/core/application/llm_request_builder.py`
-- [ ] `src/monitor_oop/core/config_accessor_service.py`
+- [x] `src/monitor_oop/core/config_accessor_service.py`
 - [ ] `src/monitor_oop/core/config_path_context.py`
-- [ ] `src/monitor_oop/core/config_path_service.py`
+- [x] `src/monitor_oop/core/config_path_service.py`
 - [x] `src/monitor_oop/core/config_resolution_service.py`
-- [ ] `src/monitor_oop/core/infrastructure/env_loader.py`
+- [x] `src/monitor_oop/core/infrastructure/env_loader.py`
 - [ ] `src/monitor_oop/core/infrastructure/llm_response_client.py`
 - [ ] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
 - [ ] `src/monitor_oop/core/infrastructure/request_capacity_service.py`
 - [ ] `src/monitor_oop/core/llm_adapter.py`
 - [ ] `src/monitor_oop/core/logger_service.py`
 - [ ] `src/monitor_oop/core/resolved_runtime_config.py`
-- [ ] `src/monitor_oop/core/turn_budget.py`
+- [x] `src/monitor_oop/core/turn_budget.py`
 - [ ] `src/monitor_oop/core/workflow.py`
 - [ ] `src/monitor_oop/core/presentation/events.py`
 - [ ] `src/monitor_oop/core/presentation/layout.py`
