@@ -120,3 +120,29 @@ def test_history_service_compact_preserves_recent_messages() -> None:
     assert snapshot[-1].role == "assistant"
     assert snapshot[-1].content == "four"
     assert compaction_store.persisted_summaries == [summary_text]
+
+
+def test_history_service_compact_with_summary_preserves_plain_messages() -> None:
+    """Verify plain messages survive the compaction path without metadata requirements."""
+
+    compaction_store = _StubCompactionStore()
+    service = HistoryService(_StubConfig(conversation_max_turns=2), compaction_store=compaction_store)
+
+    service.append(Message(role="user", content="plain user"))
+    service.append(Message(role="assistant", content="plain assistant"))
+    service.append(Message(role="user", content="extra user"))
+
+    summary_text = "deterministic summary"
+    result = service.compact_with_summary(summary_text)
+
+    snapshot = service.snapshot()
+
+    assert result is True
+    assert snapshot[0].role == "system"
+    assert snapshot[0].content == summary_text
+    assert any(message.role == "user" and message.content == "plain user" for message in snapshot)
+    assert any(message.role == "assistant" and message.content == "plain assistant" for message in snapshot)
+    assert next(i for i, message in enumerate(snapshot) if message.role == "user" and message.content == "plain user") < next(
+        i for i, message in enumerate(snapshot) if message.role == "assistant" and message.content == "plain assistant"
+    )
+    assert compaction_store.persisted_summaries == [summary_text]

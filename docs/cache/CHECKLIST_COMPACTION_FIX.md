@@ -10,36 +10,40 @@
 - [x] Confirm the canonical structured turn result type for the LLM/tool path.
 - [x] Update `LLMService.complete(...)` to return a structured result.
 - [x] Update `ConversationSession` to consume the structured result.
+- [x] Validate the exact tool-call history shape emitted by structured completions.
+- [x] Ensure response lineage metadata is captured when available.
+- [x] Verify response lineage is retained through history writes and reloads.
+- [x] Verify tool-call clusters remain attached to their assistant turn in history.
+- [x] Verify tool results are never orphaned after compaction.
+- [x] Verify plain assistant/user turns still compact correctly.
 
 ## Notes
 - See `ROADMAP_COMPACTION_FIX.md` for the narrative overview of how this work progressed.
 
 ## Planning
-- [ ] Confirm whether `ConversationTurnResult` is now best treated as a thin REPL/UI adapter.
-- [ ] Confirm the final history append path for enriched `Message` objects.
+- [x] Confirm whether `ConversationTurnResult` is now best treated as a thin REPL/UI adapter.
+- [x] Confirm the final history append path for enriched `Message` objects.
 
 ## LLM / Tool Path
 - [x] Structured completion wiring is complete for tool-call and plain-text turns.
-- [ ] Validate the exact tool-call history shape emitted by structured completions.
-- [ ] Ensure response lineage metadata is captured when available.
-- [ ] Keep plain text turns working.
+- [x] Keep plain text turns working.
 
 ## Session / History Path
 - [x] Preserve REPL compatibility.
 - [x] Preserve TUI compatibility.
-- [ ] Verify response lineage is retained through history writes and reloads.
 
 ## Compaction Behavior
-- [ ] Verify tool-call clusters remain attached to their assistant turn in history.
-- [ ] Verify tool results are never orphaned after compaction.
-- [ ] Verify plain assistant/user turns still compact correctly.
+- [x] Verify tool-call clusters remain attached to their assistant turn in history.
+- [x] Verify tool results are never orphaned after compaction.
+- [x] Verify plain assistant/user turns still compact correctly.
+- [x] Verify plain `Message(role, content)` compaction remains covered by the new plain-message compaction test.
 
 ## Tests
-- [ ] Add test for plain assistant completion.
-- [ ] Add test for tool-call completion history enrichment and validate the structured history shape for tool-call turns.
-- [ ] Add test for assistant turn history with response lineage metadata.
-- [ ] Add test for compaction preserving assistant/tool clusters in history.
-- [ ] Add test for backward compatibility with plain `Message(role, content)` usage.
+- [x] Add test for plain assistant completion.
+- [x] Add test for tool-call completion history enrichment and validate the structured history shape for tool-call turns.
+- [x] Add test for assistant turn history with response lineage metadata.
+- [x] Add test for compaction preserving assistant/tool clusters in history.
+- [x] Add test covering plain `Message(role, content)` compaction behavior.
 
 ## Cleanup
 - [ ] Remove any temporary bridges or duplicate result types if they become redundant.
