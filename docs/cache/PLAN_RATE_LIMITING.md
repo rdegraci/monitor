@@ -1,57 +1,83 @@
 # PLAN_RATE_LIMITING
 
 ## Goal
-Define how `monitor_oop` should rate limit outbound LLM requests in a provider-aware way that works for the current OpenAI path and the near-future Anthropic path implemented through a LiteLLM-backed Responses API adapter.
+Document how `monitor_oop` rate limits outbound LLM requests in the current implementation, while clearly separating implemented behavior from planned work.
 
-The rate limiter should be centralized, deterministic, and adapter-agnostic. The request path should ask for permission before each LLM call, then record usage only after the request is actually dispatched. The same limiter must work for normal chat calls, tool-call follow-ups, summarization calls, retries, and future provider integrations.
+The current codebase uses a centralized rolling-window limiter in `RateLimitService`. `LLMResponseClient` performs preflight checks before adapter dispatch and records usage after a successful send. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
+
+The implementation is intentionally adapter-agnostic at the send boundary. Provider-specific behavior is still primarily driven through `ConfigService` and runtime configuration, but the broader provider-aware/tier-aware policy model described below is only partially implemented and should be treated as future-facing where noted.
+
+## Current status
+The current implementation includes:
+- a rolling-window `RateLimitService`
+- TPM checks driven by configuration through `ConfigService`
+- RPM checks where configured through `ConfigService`
+- `LLMResponseClient` preflight enforcement before adapter dispatch
+- post-send usage recording after successful requests
+- separate capacity checks in `RequestCapacityService`
+
+## Known gaps / implementation issues
+- Confirmed gap: provider-aware and tier-aware limit resolution is still only partially modeled through `ConfigService` and is not a full policy engine.
+- Design choice to confirm: TPM fallback to `1` when unset may be overly conservative and should be treated as behavior to confirm.
+- Confirmed gap or behavior inconsistency to resolve: RPM and TPM handling are asymmetric when values are missing.
+- Product decision needed: wait/retry behavior is not implemented in the current rate limiter.
+- Intentional separation: completion headroom is currently a capacity concern rather than a rate-limit concern.
+- Confirmed gap, if shared across concurrent execution: concurrency and thread-safety considerations have not been addressed explicitly.
+
+What is not fully implemented yet:
+- full provider-aware or tier-aware policy resolution
+- completion-headroom-based rate limiting as a first-class policy
+- wait-then-proceed or wait-then-fail policy handling in the rate limiter
+- any adapter-embedded rate limiting logic
 
 ## Current Direction
-The intended design is a shared runtime service that enforces token-based limits across providers:
-- `RateLimitService` owns policy evaluation and rolling-window accounting.
-- `TokenEstimator` estimates request cost before dispatch.
-- `ConfigService` provides model, provider, and configured budget information.
-- `LLMResponseClient` calls the limiter before invoking the adapter.
-- Provider adapters remain transport-only and do not embed rate limiting logic.
-- The future Anthropic adapter should reuse the same limiter through the same service boundary.
-
-The first implementation slice already includes `RequestCapacityService`, `RateLimitService`, and `LLMResponseClient` preflight orchestration. Capacity checks happen before rate limiting, and adapter dispatch happens only after both checks pass.
+The intended design remains a shared runtime service that enforces token-based limits across providers, but the current implementation should be described in terms of what it actually does today:
+- `RateLimitService` owns rolling-window accounting and limit evaluation
+- `ConfigService` provides model/config data used to determine the effective limits currently in use
+- `LLMResponseClient` calls the limiter before invoking the adapter
+- provider adapters remain transport-only and do not embed rate limiting logic
+- future provider adapters should reuse the same limiter through the same service boundary
 
 The schema-backed runtime config source is `RuntimeConfig` via `config_loader`, with the current greenfield rate-limit and config schema living in `src/monitor_oop/model_config_v2.json`.
 
-The limiter currently resolves TPM from the model config, with RPM kept minimal and optional.
+The limiter currently enforces token-per-minute behavior and may also enforce request-per-minute behavior when configured. This should be described as implemented behavior, not as a future design choice.
 
-The limiter should primarily enforce token-per-minute behavior, with optional request-per-minute checks if needed later.
-
-Note: `context_window_mapping` and `output_window_mapping` are capacity guardrails, not the rate limit itself. Context windows determine whether the request fits, output windows determine completion headroom, and TPM/RPM enforcement remains the time-based usage budget. Compaction is a separate capacity-management concern driven by context-window pressure; when a request needs resizing, compaction should occur before rate-limit preflight. The current code path preserves this separation by checking capacity first, then applying rate limiting, and only then dispatching to the adapter.
+`context_window_mapping` and `output_window_mapping` are capacity guardrails, not the rate limit itself. Context windows determine whether the request fits, output windows determine completion headroom, and TPM/RPM enforcement remains the time-based usage budget. Compaction is a separate capacity-management concern driven by context-window pressure; when a request needs resizing, compaction should occur before rate-limit preflight. The current code path preserves this separation by checking capacity first, then applying rate limiting, and only then dispatching to the adapter.
 
 ## Guiding Principles
 - Centralize all LLM send-path rate limiting in one service.
-- Keep provider-specific knowledge in configuration, not in adapter code.
+- Keep provider-specific knowledge in configuration where possible, rather than in adapter code.
 - Estimate tokens before each request using the full payload, not just the latest user message.
 - Record usage only after the request is approved and sent.
 - Make the policy easy to test in isolation.
 - Keep the design compatible with LiteLLM-based provider adapters.
-- Prefer fail-fast or wait-then-proceed behavior depending on configuration, but keep the choice consistent and explicit.
+- Make any wait-or-fail behavior explicit when it is implemented, rather than implied.
 
 ## Proposed Runtime Flow
 1. Build the request payload.
 2. Estimate the token cost for the full payload.
 3. Determine provider and model from runtime config.
 4. Ask `RateLimitService` whether the request may proceed.
-5. If the request is blocked, either wait until permitted or return a clear error, depending on policy.
+5. If the request is blocked, return a clear error or retry according to the configured behavior, where supported.
 6. Dispatch the request through the adapter.
 7. Record the actual or estimated usage after dispatch.
 8. Repeat the same flow for any follow-up tool calls or summarization requests.
 
 ## Policy Model
-The initial policy should be token-based and provider-aware:
-- track a rolling window of token usage per provider/model
-- apply a safety factor to stay below provider ceilings
-- optionally reserve completion headroom
-- optionally track request counts alongside token counts
-- optionally distinguish between primary requests and follow-up requests if later needed for observability
+The implemented policy is primarily token-based:
+- track a rolling window of token usage
+- enforce TPM based on configuration
+- enforce RPM when configured
+- keep the evaluation deterministic and per-request
 
-Suggested precedence for effective limits:
+Some of the broader policy concepts below are still partially implemented or planned:
+- provider-aware limit selection
+- model-aware tier resolution
+- safety-factor policy as a distinct abstraction
+- completion reserve as a rate-limit input
+- separate tracking for primary versus follow-up requests
+
+Suggested precedence for effective limits, where available in configuration:
 1. exact model limit
 2. provider-level limit
 3. global default limit
@@ -59,13 +85,13 @@ Suggested precedence for effective limits:
 
 ### Recommended Initial Policies
 - Enforce TPM by default.
-- Keep RPM optional and off by default.
-- Reserve modest completion headroom with a configurable factor and floor.
-- Prefer wait-then-fail behavior for interactive CLI/TUI usage.
-- Prefer fail-fast or short-wait behavior for server mode.
+- Keep RPM optional and off by default where the configuration does not define it.
+- Treat completion headroom as a capacity concern unless and until it is explicitly part of rate-limit policy.
+- Prefer explicit, deterministic failure behavior unless a wait/retry policy is added later.
+- Keep server-mode behavior and CLI/TUI behavior configurable if wait logic is introduced in the future.
 
 ## Config Surface
-The intended config surface should stay small but extensible:
+The config surface should stay small but extensible:
 - `rate_limiting.enabled`
 - `rate_limiting.window_seconds`
 - `rate_limiting.safety_factor`
@@ -75,10 +101,10 @@ The intended config surface should stay small but extensible:
 - optional completion reserve settings for headroom
 - optional wait-vs-fail policy selection
 
-The config should be loaded through `RuntimeConfig` and `config_loader`, backed by `src/monitor_oop/model_config_v2.json`, rather than embedded in adapters or free functions.
+The config is loaded through `RuntimeConfig` and `config_loader`, backed by `src/monitor_oop/model_config_v2.json`, rather than embedded in adapters or free functions.
 
 ## Canonical Future Loader Schema
-The recommended canonical schema for the future loader is an explicit model-to-provider-to-tier resolution format using `provider_table/tier_key`. See `docs/cache/PLAN_MODEL_CONFIG_V2.md` for the schema contract; `RateLimitService` depends on that contract to resolve effective limits deterministically.
+The recommended canonical schema for the future loader is an explicit model-to-provider-to-tier resolution format using `provider_table/tier_key`. See `docs/cache/PLAN_MODEL_CONFIG_V2.md` for the schema contract; `RateLimitService` can use that contract if and when the loader fully supports it.
 
 In that schema:
 - `model` resolves to a provider entry in `provider_table`
@@ -100,7 +126,7 @@ Expected boundaries:
 This keeps the transport layer simple and makes future provider support predictable.
 
 ## Accounting Model
-The limiter should treat each send as a reservation and then a commit:
+The limiter treats each send as a reservation and then a commit:
 - preflight: estimate cost and check budget
 - commit: record the request once it is sent
 - adjust: if actual usage is known later, update the rolling accounting accordingly
@@ -112,10 +138,10 @@ The limiter should account for:
 - tool schemas if they materially affect payload size
 - tool outputs returned to the model
 - summary prompts and follow-up requests
-- a completion reserve when appropriate
+- a completion reserve when appropriate, if that policy is enabled in the future
 
 ## Rolling Window Strategy
-Use a rolling-window structure keyed by provider and model:
+Use a rolling-window structure keyed by provider and model where applicable:
 - store timestamped token events
 - purge events older than `window_seconds`
 - compute current usage on demand
@@ -125,7 +151,7 @@ For a single-process desktop or CLI app, an in-memory deque-based implementation
 
 ## Recommendations for OOP Integration
 For `monitor_oop`, the most maintainable plan is:
-- add a dedicated `rate_limit_service.py` under `core/infrastructure/`
+- keep `rate_limit_service.py` under `core/infrastructure/`
 - inject it into `LLMResponseClient`
 - have `LLMResponseClient.create_response(...)` call it before every adapter invocation
 - keep provider/model resolution in `ConfigService`
@@ -135,17 +161,24 @@ For `monitor_oop`, the most maintainable plan is:
 ## Verification Focus
 Any implementation should be verified for:
 - preflight rate checks before every LLM send
-- correct provider/model resolution
+- correct provider/model resolution where supported by config
 - consistent token estimates across normal, follow-up, summary, and retry paths
-- safety-factor application
+- safety-factor application where configured
 - rolling-window expiration behavior
 - correct commit behavior after successful dispatch
 - no duplicate enforcement inside adapters
 - compatibility with a future Anthropic LiteLLM adapter
 
+## Remaining work
+- Expand provider-aware and tier-aware limit resolution if the config schema requires it.
+- Decide whether completion reserve should become part of rate-limit enforcement or remain a capacity concern.
+- Add explicit wait/retry semantics if interactive or server workflows need them.
+- Improve observability for effective limits, blocked requests, and usage adjustments.
+- Extend tests to cover follow-up, summary, and retry paths across all supported providers.
+
 ## Notes
 - Prefer a single shared enforcement point over scattered checks.
 - Keep the first version deterministic and well instrumented.
-- If waiting is supported, make the timeout and behavior explicit.
+- If waiting is supported later, make the timeout and behavior explicit.
 - Log the effective provider/model limit and the reason a request was delayed or blocked.
 - The design should remain easy to expand as more providers are added.

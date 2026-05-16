@@ -5,6 +5,9 @@ Track the work needed to add centralized, provider-aware LLM rate limiting to `m
 
 This tracker assumes the limiter will be shared by the current OpenAI path and the upcoming Anthropic path that will use a LiteLLM-backed Responses API adapter.
 
+## Implementation reality
+`RequestCapacityService` handles capacity checks separately from rate limiting; capacity preflight runs before rate-limit preflight when a request needs resizing due to context-window pressure.
+
 ## Scope
 This tracker covers:
 - centralized request gating before every LLM send
@@ -20,21 +23,29 @@ This tracker covers:
 - first-implementation slice includes `RequestCapacityService`, `RateLimitService`, and `LLMResponseClient` preflight orchestration
 - capacity is checked before rate limiting and adapter dispatch
 
+## Known gaps / bugs to address
+- [ ] Confirmed gap: provider-aware and tier-aware resolution is correct for the initial implementation path.
+- [ ] Design choice to confirm: TPM fallback-to-1 behavior is safe for production defaults.
+- [ ] Confirmed gap: reconcile the asymmetry between TPM missing-value behavior and RPM missing-value behavior.
+- [ ] Design choice to confirm: wait/retry behavior should be added now or deferred to a later iteration.
+- [ ] Design choice to confirm: completion headroom should remain explicitly separate from rate limiting or be intentionally folded into the limiter.
+- [ ] Confirmed gap: evaluate thread-safety and concurrency protection for the rolling-window state.
+
 ## Milestone 1: Policy definition
 - [x] Define rate limiting as a pre-send check rather than an adapter concern.
 - [x] Define the limiter as provider-aware and model-aware.
 - [x] Define token-per-minute enforcement as the primary mechanism.
-- [x] Define request-per-minute enforcement as optional future work.
-- [x] Define safety-factor application against provider ceilings.
+- [ ] Define request-per-minute enforcement as optional future work.
+- [ ] Define safety-factor application against provider ceilings.
 - [x] Define a single shared enforcement point for all LLM calls.
-- [ ] Make TPM enforcement mandatory in the initial policy.
+- [x] Make TPM enforcement mandatory in the initial policy.
 - [ ] Keep RPM enforcement optional and off by default in the initial policy.
 - [ ] Enable completion headroom by default with a configurable factor and floor.
 - [ ] Set wait-then-fail as the default interactive policy.
 - [ ] Define server-mode behavior as fail-fast or short-wait.
-- [ ] Confirm context windows and output windows are treated as capacity guardrails, not the rate limit itself.
-- [ ] Confirm the rate-limiting implementation uses context windows and output windows only for fit checks and completion headroom.
-- [ ] Confirm compaction remains separate from rate limiting, while allowing compaction to run before rate-limit preflight when a request needs resizing due to context-window pressure.
+- [x] Confirm context windows and output windows are treated as capacity guardrails, not the rate limit itself.
+- [x] Confirm the rate-limiting implementation uses context windows and output windows only for fit checks and completion headroom.
+- [x] Confirm compaction remains separate from rate limiting, while allowing compaction to run before rate-limit preflight when a request needs resizing due to context-window pressure.
 
 ## Milestone 2: Runtime placement
 - [x] Place rate limiting in a shared infrastructure service.
