@@ -1,7 +1,7 @@
 """Conversation boundary tracking for compaction."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from monitor_oop.core.models import Message
 
@@ -10,8 +10,14 @@ from monitor_oop.core.models import Message
 class ConversationBoundaryTracker:
     """Track safe compaction boundaries for conversational message history."""
 
-    preserve_units: int = 2
-    current_turns: int = 0
+    _preserve_units: int = field(default=2, repr=False)
+    _current_turns: int = field(default=0, init=False, repr=False)
+
+    def __init__(self, preserve_units: int = 2) -> None:
+        """Initialize the tracker with the configured preservation budget."""
+
+        self._preserve_units = preserve_units
+        self._current_turns = 0
 
     def _is_user_message(self, message: Message) -> bool:
         """Return whether the message starts a user turn."""
@@ -119,8 +125,8 @@ class ConversationBoundaryTracker:
             The number of user turns in the history.
         """
 
-        self.current_turns = self.count_user_turns(messages)
-        return self.current_turns
+        self._current_turns = self.count_user_turns(messages)
+        return self._current_turns
 
     def turns_remaining(self, budget: int) -> int:
         """Return how many turns can still be preserved within the budget.
@@ -132,7 +138,7 @@ class ConversationBoundaryTracker:
             The remaining number of turns after accounting for tracked turns.
         """
 
-        return max(0, budget - self.current_turns)
+        return max(0, budget - self._current_turns)
 
     def preserved_tail(self, messages: list[Message], keep_units: int) -> list[Message]:
         """Return the most recent complete units from the history.
@@ -170,7 +176,7 @@ class ConversationBoundaryTracker:
             A suffix of the history containing the most recent complete units.
         """
 
-        return self.preserved_tail(messages, self.preserve_units)
+        return self.preserved_tail(messages, self._preserve_units)
 
     def count_user_turns(self, messages: list[Message]) -> int:
         """Count user turns in the provided history.

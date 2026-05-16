@@ -15,7 +15,7 @@
 - See `ROADMAP_COMPACTION_FIX.md` for the narrative overview of how this work progressed.
 
 ## Planning
-- [ ] Confirm whether `ConversationTurnResult` remains REPL-only or becomes a thin adapter.
+- [ ] Confirm whether `ConversationTurnResult` is now best treated as a thin REPL/UI adapter.
 - [ ] Confirm the final history append path for enriched `Message` objects.
 
 ## LLM / Tool Path
