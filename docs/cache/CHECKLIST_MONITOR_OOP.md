@@ -54,6 +54,7 @@
 - [x] Confirm the greenfield model config schema is tracked as `src/monitor_oop/model_config_v2.json` and that the schema uses explicit provider-table tier references for future rate limiting.
 - [ ] Confirm the initial rate-limiting policy defaults: TPM required, RPM optional/off by default, completion headroom reserved, and wait-then-fail for interactive modes with server-mode fail-fast or short-wait behavior.
 - [ ] Confirm the runtime graph now explicitly includes `RequestCapacityService` and `RateLimitService` in the first implementation slice and that `LLMResponseClient` uses them for preflight orchestration.
+- [x] Confirm the current OOP infrastructure test work is driven by durable, non-brittle assertions, especially in request capacity, rate limit, and response client coverage.
 
 ## Milestone 3: Package and bootstrap
 - [x] Create the new package directory.

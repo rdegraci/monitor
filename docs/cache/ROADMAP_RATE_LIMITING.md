@@ -19,8 +19,8 @@ The initial design direction emphasized:
 
 As the OOP refactor landed, the implementation became more concrete:
 - `RateLimitService` was added as the shared enforcement point
-- `LLMResponseClient` began calling the limiter before adapter dispatch
-- `RequestCapacityService` stayed separate to handle context and output window checks
+- `LLMResponseClient` began orchestrating preflight enforcement before adapter dispatch
+- `RequestCapacityService` was explicitly kept separate to handle context and output window checks
 - post-send usage recording was added so the limiter tracks actual request activity over time
 
 ## What exists today
@@ -29,7 +29,7 @@ The current implementation includes:
 - token-per-minute checks with conservative fallback behavior
 - request-per-minute checks when configured, with conservative fallback behavior
 - optional waiting support for rate-limited requests when enabled by policy
-- preflight enforcement in `LLMResponseClient`
+- preflight orchestration in `LLMResponseClient`
 - usage recording after successful request dispatch
 - separate capacity gating in `RequestCapacityService`
 - integration through `RuntimeContext` and bootstrap wiring in `app.py`
@@ -70,7 +70,7 @@ A few important shifts happened during the design and implementation process:
    Context-window fit checks and completion-headroom logic were kept in `RequestCapacityService` instead of being folded into the limiter.
 
 3. **The implementation became request-centric**
-   `LLMResponseClient` now performs the preflight checks before calling the adapter, which makes the send path easier to reason about and test.
+   `LLMResponseClient` now performs the preflight orchestration before calling the adapter, which makes the send path easier to reason about and test.
 
 4. **Configuration resolution remained simple**
    The current code uses `ConfigService` and related accessors to determine the effective model limits instead of a full provider-tier policy engine. Provider-aware and tier-aware resolution exists only in partial form today.
@@ -83,7 +83,7 @@ The remaining work is mostly about policy depth, configurability, and verificati
 - validate the conservative TPM and RPM fallback rules and document the intended behavior
 - resolve the current asymmetric handling of missing TPM and RPM values
 - expand provider-aware or tier-aware limit resolution if required by future schemas
-- add stronger tests around edge cases, blocking, fallback policy, and rolling-window expiration
+- add stronger tests around edge cases, blocking, fallback policy, rolling-window expiration, and stable behavior under timing variability
 - improve observability around blocked requests, wait decisions, and effective limits
 - determine whether concurrency and thread-safety constraints need any additional explicit handling across the broader send path
 

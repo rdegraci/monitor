@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
 
 from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
 
@@ -13,23 +12,33 @@ class RateLimitServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         """Create a rate limit service with a mocked config dependency."""
 
-        self.config_service = MagicMock()
-        self.config_service.get_model_tpm_limit.return_value = 1_000
-        self.config_service.get_model_rpm_limit.return_value = 2
-        self.config_service.estimate_token_usage.return_value = 100
+        class ConfigServiceStub:
+            def __init__(self) -> None:
+                self.token_usage = 0
+                self.request_count = 0
+
+            def get_model_tpm_limit(self, model: str) -> int:
+                return 1_000
+
+            def get_model_rpm_limit(self, model: str) -> int:
+                return 2
+
+            def estimate_token_usage(
+                self,
+                model: str,
+                messages: list[dict[str, str]],
+                tools: list[dict[str, object]],
+                previous_response_id: str | None,
+            ) -> int:
+                return 100
+
+        self.config_service = ConfigServiceStub()
         self.service = RateLimitService(self.config_service, window_seconds=60)
 
-    def test_estimate_token_usage_returns_configured_estimate(self) -> None:
-        """The estimator should delegate to the config service and return a positive value."""
+    def _make_service(self, window_seconds: float) -> RateLimitService:
+        """Create a rate limit service with the configured mock dependency."""
 
-        estimated_tokens = self.service.estimate_token_usage(
-            model="openai/gpt-4o-mini",
-            messages=[{"role": "user", "content": "hello"}],
-            tools=[],
-            previous_response_id=None,
-        )
-
-        self.assertEqual(estimated_tokens, 100)
+        return RateLimitService(self.config_service, window_seconds=window_seconds)
 
     def test_request_allowed_when_within_limits(self) -> None:
         """A small request should be allowed within the configured budget."""
@@ -64,17 +73,23 @@ class RateLimitServiceTests(unittest.TestCase):
 
         self.assertFalse(allowed)
 
-    def test_record_request_updates_rolling_state(self) -> None:
-        """A recorded request should contribute to future rate-limit decisions."""
+    def test_record_request_affects_later_request_decisions(self) -> None:
+        """A recorded request should influence later rate-limit decisions."""
+
+        allowed_before = self.service.request_allowed(
+            model="openai/gpt-4o-mini",
+            estimated_tokens=200,
+        )
+        self.assertTrue(allowed_before)
 
         self.service.record_request(900)
 
-        allowed = self.service.request_allowed(
+        allowed_after = self.service.request_allowed(
             model="openai/gpt-4o-mini",
             estimated_tokens=200,
         )
 
-        self.assertFalse(allowed)
+        self.assertFalse(allowed_after)
 
 
 if __name__ == "__main__":

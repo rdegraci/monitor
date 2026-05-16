@@ -96,7 +96,7 @@ This tracker covers:
 ## Milestone 6: Verification
 - [ ] Add tests for preflight approval and rejection.
 - [ ] Add tests for wait behavior when enabled.
-- [ ] Add tests for rolling-window expiration.
+- [ ] Add tests for rolling-window expiration without brittle timing assumptions.
 - [ ] Add tests for provider/model limit selection.
 - [ ] Add tests for safety-factor application.
 - [ ] Add tests for follow-up and summarization request coverage.
@@ -105,6 +105,7 @@ This tracker covers:
 - [ ] Add tests for thread safety and concurrent rate-limit updates.
 - [ ] Add tests for fallback handling and policy validation.
 - [ ] Add tests for explicit wait-policy config accessors and schema-backed wait support.
+- [ ] Add durable behavior-focused tests for the response client and limiter integration.
 
 ## Notes
 - Prefer a deterministic first implementation.

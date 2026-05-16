@@ -25,9 +25,9 @@
 - [ ] `src/monitor_oop/core/tools/tool_service.py`
 
 ## Immediate test opportunities
-- [ ] Add service tests for request capacity decisions
-- [ ] Add rate limit rolling-window tests
-- [ ] Add LLM response client preflight tests
+- [x] Add service tests for request capacity decisions, with durable assertions around behavior and outcomes rather than brittle boundary math.
+- [x] Add rate limit rolling-window tests, focusing on observable throttling behavior instead of timing-sensitive internals.
+- [x] Add LLM response client preflight tests, covering in-progress response handling and stable decision paths.
 - [ ] Add config resolution override tests
 - [ ] Add tool registry and tool service behavior tests
 
@@ -35,5 +35,5 @@
 - [x] `src/monitor_oop/core/presentation/transcript_viewport.py` transcript viewport tests completed; stale assumptions were updated to match the current implementation.
 - [x] `src/monitor_oop/core/presentation/tui.py` transcript plumbing tests completed; stale assumptions were updated to match the current implementation.
 - [x] `src/monitor_oop/core/__init__.py` does not require dedicated coverage
-- [x] Core service boundaries have been encapsulation-refactored in preparation for new tests, including config resolution, request capacity, rate limit, response client, tool service, config path, env loader, config accessor, turn budget, and logger service.
+- [x] Core service boundaries have been encapsulation-refactored in preparation for durable tests, including config resolution, request capacity, rate limit, response client, tool service, config path, env loader, config accessor, turn budget, and logger service.
 - [x] The remaining presentation and utility modules have been encapsulation-refactored in preparation for tests, specifically llm_request_builder, llm_adapter, events, layout, transcript_buffer, tui, resolved_runtime_config, config_path_context, registry, tool_models, and workflow.

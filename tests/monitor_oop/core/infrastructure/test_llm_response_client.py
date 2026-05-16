@@ -59,6 +59,71 @@ class FakeToolService:
         ]
 
 
+class FakeRequestCapacityService:
+    """Minimal request capacity service stub for response client tests."""
+
+    def __init__(self, allowed: bool) -> None:
+        self.allowed = allowed
+        self.called = False
+
+    def request_fits(
+        self,
+        *,
+        model: str,
+        input_messages: list[dict[str, str]],
+        tools: list[dict[str, object]] | None = None,
+        previous_response_id: str | None = None,
+    ) -> bool:
+        """Record the call and return the configured capacity decision."""
+
+        self.called = True
+        return self.allowed
+
+
+class FakeRateLimitService:
+    """Minimal rate limit service stub for response client tests."""
+
+    def __init__(self, allowed: bool) -> None:
+        self.allowed = allowed
+        self.called_estimate = False
+        self.called_request_allowed = False
+
+    def estimate_token_usage(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, object]] | None = None,
+        previous_response_id: str | None = None,
+    ) -> int:
+        """Record the call and return a stable token estimate."""
+
+        self.called_estimate = True
+        return 42
+
+    def request_allowed(
+        self,
+        *,
+        model: str,
+        estimated_tokens: int,
+        wait_policy: object | None = None,
+        wait_timeout_seconds: int | None = None,
+    ) -> bool:
+        """Record the call and return the configured rate-limit decision."""
+
+        self.called_request_allowed = True
+        return self.allowed
+
+
+def build_config_service() -> ConfigService:
+    """Return a config service with stable test values."""
+
+    config_service = ConfigService()
+    config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
+    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
+    return config_service
+
+
 def test_create_response_requires_api_key() -> None:
     """Verify the client fails clearly when the API key is missing."""
 
@@ -75,9 +140,7 @@ def test_create_response_uses_api_model_name_and_passes_tools() -> None:
 
     fake_adapter = FakeAdapter()
 
-    config_service = ConfigService()
-    config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
+    config_service = build_config_service()
 
     tool_service = FakeToolService()
     client = LLMResponseClient(config_service, adapter=fake_adapter, tool_service=tool_service)
@@ -109,9 +172,7 @@ def test_create_response_uses_unprefixed_api_model_name_unchanged() -> None:
 
     fake_adapter = FakeAdapter()
 
-    config_service = ConfigService()
-    config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
+    config_service = build_config_service()
 
     client = LLMResponseClient(config_service, adapter=fake_adapter)
 
@@ -119,3 +180,44 @@ def test_create_response_uses_unprefixed_api_model_name_unchanged() -> None:
 
     assert len(fake_adapter.calls) == 1
     assert fake_adapter.calls[0]["model"] == "gpt-4o-mini"
+
+
+def test_create_response_raises_when_request_capacity_service_rejects_request() -> None:
+    """Verify request capacity rejections stop response creation with a clear error."""
+
+    fake_adapter = FakeAdapter()
+    request_capacity_service = FakeRequestCapacityService(allowed=False)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        request_capacity_service=request_capacity_service,
+    )
+
+    with pytest.raises(ValueError, match="request capacity"):
+        client.create_response([{"role": "user", "content": "hello"}])
+
+    assert request_capacity_service.called is True
+    assert fake_adapter.calls == []
+
+
+def test_create_response_raises_when_rate_limit_service_rejects_request() -> None:
+    """Verify rate limit rejections stop response creation with a clear error."""
+
+    fake_adapter = FakeAdapter()
+    rate_limit_service = FakeRateLimitService(allowed=False)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    with pytest.raises(ValueError, match="rate limit"):
+        client.create_response([{"role": "user", "content": "hello"}])
+
+    assert rate_limit_service.called_estimate is True
+    assert rate_limit_service.called_request_allowed is True
+    assert fake_adapter.calls == []
