@@ -164,3 +164,59 @@ def test_conversation_session_compacts_history_after_response() -> None:
     history_snapshot = session.context.history_service.snapshot()
     assert any(message.role == "system" for message in history_snapshot)
     assert any(message.role == "assistant" and message.content == "assistant response" for message in history_snapshot)
+
+
+def test_conversation_session_preserves_tool_call_cluster_during_compaction() -> None:
+    """ConversationSession should preserve tool-call clusters during compaction."""
+
+    session = build_session(conversation_max_turns=1)
+    session.start()
+
+    history_service = session.context.history_service
+    history_service.append_message(
+        Message(role="user", content="what is the weather?", response_id="user-response-1")
+    )
+    history_service.append_message(
+        Message(
+            role="assistant",
+            content="calling tool",
+            response_id="assistant-response-1",
+            parent_response_id="user-response-1",
+            tool_calls=[{"id": "tool-call-1", "name": "weather_lookup"}],
+        )
+    )
+    history_service.append_message(
+        Message(
+            role="tool",
+            content="sunny",
+            response_id="tool-response-1",
+            parent_response_id="assistant-response-1",
+            tool_call_id="tool-call-1",
+        )
+    )
+    history_service.append_message(
+        Message(
+            role="assistant",
+            content="it is sunny",
+            response_id="assistant-response-2",
+            parent_response_id="tool-response-1",
+        )
+    )
+
+    history_service.compact_with_summary("deterministic summary")
+
+    preserved_history = history_service.snapshot()
+    assert [message.role for message in preserved_history] == ["system", "user", "assistant", "tool", "assistant"]
+    assert preserved_history[1].content == "what is the weather?"
+    assert preserved_history[1].response_id == "user-response-1"
+    assert preserved_history[2].content == "calling tool"
+    assert preserved_history[2].response_id == "assistant-response-1"
+    assert preserved_history[2].parent_response_id == "user-response-1"
+    assert preserved_history[2].tool_calls == [{"id": "tool-call-1", "name": "weather_lookup"}]
+    assert preserved_history[3].content == "sunny"
+    assert preserved_history[3].response_id == "tool-response-1"
+    assert preserved_history[3].parent_response_id == "assistant-response-1"
+    assert preserved_history[3].tool_call_id == "tool-call-1"
+    assert preserved_history[4].content == "it is sunny"
+    assert preserved_history[4].response_id == "assistant-response-2"
+    assert preserved_history[4].parent_response_id == "tool-response-1"
