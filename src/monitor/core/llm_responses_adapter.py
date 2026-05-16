@@ -704,9 +704,31 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                             logger.exception("Failed during pre-flight token budget check for follow-up payload")
                         followup_params = token_budgeter(
                             followup_params, 
-                            input_window=iw,
+                            input_window=input_window,
                             model_name=getattr(config, "MODEL", None)
                         )
+                        try:
+                            followup_input = followup_params.get(REQUEST_PARAM_INPUT)
+                            if isinstance(followup_input, list):
+                                final_followup_tokens = count_message_tokens(followup_input)
+                                logger.info(
+                                    "Pre-flight follow-up payload token check after budgeting: final=%s tokens, limit=%s tokens",
+                                    final_followup_tokens,
+                                    input_window,
+                                )
+                                if final_followup_tokens > input_window:
+                                    logger.warning(
+                                        "Skipping follow-up responses.create because final payload still exceeds context window (%s tokens > %s)",
+                                        final_followup_tokens,
+                                        input_window,
+                                    )
+                                    break
+                            else:
+                                logger.debug(
+                                    "Skipping final follow-up payload token check because REQUEST_PARAM_INPUT is not a list"
+                                )
+                        except Exception:
+                            logger.exception("Failed during final pre-flight token budget check for follow-up payload")
                     else:
                         logger.debug(f"Skipping token budgeting: invalid MODEL_INPUT_WINDOW={iw!r}")
 
