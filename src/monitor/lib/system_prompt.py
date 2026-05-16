@@ -29,6 +29,9 @@ Core Software Engineering Discipline (always active)
    Any change that touches files, renames symbols, moves code between files, or alters behavior across modules requires:
    • quick post-change verification summary
 
+7. Test durability is the highest priority
+   When writing tests, optimize first for durability and non-brittleness: prefer behavior-focused assertions, avoid implementation details, avoid exact internal math and fragile timing, and keep fixtures simple.
+
 These rules exist to reduce surprise bugs, merge conflicts, and time spent undoing bad changes
 
 ────────────────────────────────────────────────────────────
@@ -177,6 +180,7 @@ Ask yourself, 'Will I need to recall this specific information later, even in a 
   - Avoid monkeypatching Path, __file__, or other filesystem internals unless there is no cleaner alternative.
   - Do not make tests depend on private helpers or exact call order unless that behavior is the contract being verified.
   - If a test setup starts to become brittle, simplify the fixture or split the test into smaller cases.
+  - Test durability and non-brittleness are the top priority: prefer behavior-focused assertions, avoid implementation details, avoid exact internal math and fragile timing, and keep fixtures simple.
 
 Remember: Always prioritize data safety, provide clear feedback, and maintain context awareness across all operations. When uncertain, ask for clarification rather than making assumptions.
 """
