@@ -6,21 +6,16 @@ Improve direct test coverage for the currently uncovered `src/monitor_oop/core` 
 The test suite should be deterministic, isolated, and non-brittle, avoiding timing dependence and implementation-detail coupling. For request capacity hardening, prefer durable behavior-focused assertions over internal math checks, and use clearly oversized inputs instead of borderline token estimates.
 
 ## Current refactor progress
-The next test-ready targets now include the refactored service boundaries. The following areas have been encapsulated to support upcoming tests: config resolution, request capacity, rate limiting, response client, tool service, config path, env loader, config accessor, turn budget, and logger service. Additional presentation and utility modules have also been encapsulation-refactored so test expansion can focus on clearer boundaries: llm_request_builder, llm_adapter, events, layout, transcript_buffer, tui, resolved_runtime_config, config_path_context, registry, tool_models, and workflow. Request capacity and rate limit tests now emphasize durable behavior over brittle boundary math, and LLM response client rejection-path coverage asserts the collaborator is invoked, the adapter is not called, and a clear error is raised.
+The next test-ready targets now include the refactored service boundaries. The following areas have been encapsulated to support upcoming tests: config resolution, request capacity, rate limiting, response client, tool service, config path, env loader, config accessor, turn budget, and logger service. Additional presentation and utility modules have also been encapsulation-refactored so test expansion can focus on clearer boundaries: llm_request_builder, llm_adapter, events, layout, transcript_buffer, tui, resolved_runtime_config, config_path_context, registry, tool_models, and workflow. Request capacity and rate limit tests now emphasize durable behavior over brittle boundary math, and LLM response client rejection-path coverage asserts the collaborator is invoked, the adapter is not called, and a clear error is raised. First-pass service coverage has landed for config resolution, tool service, request capacity, rate limiting, and response client behavior.
 
 ## High-priority targets
-1. `src/monitor_oop/core/config_resolution_service.py`
-2. `src/monitor_oop/core/infrastructure/request_capacity_service.py`
-3. `src/monitor_oop/core/infrastructure/rate_limit_service.py`
-4. `src/monitor_oop/core/infrastructure/llm_response_client.py`
-5. `src/monitor_oop/core/tools/tool_service.py`
-
-## Secondary targets
 1. `src/monitor_oop/core/config_path_service.py`
 2. `src/monitor_oop/core/infrastructure/env_loader.py`
-3. `src/monitor_oop/core/config_accessor_service.py`
-4. `src/monitor_oop/core/turn_budget.py`
-5. `src/monitor_oop/core/logger_service.py`
+
+## Secondary targets
+1. `src/monitor_oop/core/config_accessor_service.py`
+2. `src/monitor_oop/core/turn_budget.py`
+3. `src/monitor_oop/core/logger_service.py`
 
 ## Lower-priority targets
 1. `src/monitor_oop/core/presentation/events.py`
@@ -34,9 +29,6 @@ The next test-ready targets now include the refactored service boundaries. The f
 
 ## Suggested first pass
 Start with boundary-heavy services because they provide the most coverage value per test:
-- request capacity
-- rate limiting
-- response client
 - config resolution
 - tool execution
 

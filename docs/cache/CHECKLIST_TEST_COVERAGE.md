@@ -5,7 +5,7 @@
 - [ ] `src/monitor_oop/core/config_accessor_service.py`
 - [ ] `src/monitor_oop/core/config_path_context.py`
 - [ ] `src/monitor_oop/core/config_path_service.py`
-- [ ] `src/monitor_oop/core/config_resolution_service.py`
+- [x] `src/monitor_oop/core/config_resolution_service.py`
 - [ ] `src/monitor_oop/core/infrastructure/env_loader.py`
 - [ ] `src/monitor_oop/core/infrastructure/llm_response_client.py`
 - [ ] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
@@ -21,15 +21,15 @@
 - [ ] `src/monitor_oop/core/presentation/transcript_viewport.py`
 - [ ] `src/monitor_oop/core/presentation/tui.py`
 - [ ] `src/monitor_oop/core/tools/registry.py`
-- [ ] `src/monitor_oop/core/tools/tool_models.py`
-- [ ] `src/monitor_oop/core/tools/tool_service.py`
+- [x] `src/monitor_oop/core/tools/tool_models.py`
+- [x] `src/monitor_oop/core/tools/tool_service.py`
 
 ## Immediate test opportunities
 - [x] Add service tests for request capacity decisions, with durable assertions around behavior and outcomes rather than brittle boundary math.
 - [x] Add rate limit rolling-window tests, focusing on observable throttling behavior instead of timing-sensitive internals.
 - [x] Add LLM response client preflight tests, covering in-progress response handling and stable decision paths.
-- [ ] Add config resolution override tests
-- [ ] Add tool registry and tool service behavior tests
+- [x] Add config resolution override tests
+- [x] Add tool registry and tool service behavior tests
 
 ## Already improved or partially covered
 - [x] `src/monitor_oop/core/presentation/transcript_viewport.py` transcript viewport tests completed; stale assumptions were updated to match the current implementation.

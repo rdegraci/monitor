@@ -1,13 +1,9 @@
 # Test Coverage Roadmap
 
 ## Phase 1: critical service coverage
-Focus on the most logic-heavy and failure-prone modules first. The service-boundary refactors are complete, and the current test work is centered on durable behavior at the edges rather than brittle internal math, timing, or implementation details.
+Focus on the most logic-heavy and failure-prone modules first. The service-boundary refactors are complete, and the current test work is centered on durable behavior at the edges rather than brittle internal math, timing, or implementation details. Coverage has landed for config resolution, request capacity, rate limiting, response client, and tool service tests, so the remaining effort is concentrated on the still-open service boundaries.
 
-- `src/monitor_oop/core/config_resolution_service.py`
-- `src/monitor_oop/core/infrastructure/request_capacity_service.py`
-- `src/monitor_oop/core/infrastructure/rate_limit_service.py`
 - `src/monitor_oop/core/infrastructure/llm_response_client.py`
-- `src/monitor_oop/core/tools/tool_service.py`
 
 ## Phase 2: configuration and runtime support
 After the service boundaries are covered, test runtime glue and file/path helpers. The refactored modules in this phase also have cleaner boundaries for future coverage work, and the remaining OOP infrastructure boundaries are the main focus now.
