@@ -1,0 +1,43 @@
+# Test Coverage Plan
+
+## Goal
+Improve direct test coverage for the currently uncovered `src/monitor_oop/core` modules.
+
+The test suite should be deterministic, isolated, and non-brittle, avoiding timing dependence and implementation-detail coupling.
+
+## High-priority targets
+1. `src/monitor_oop/core/config_resolution_service.py`
+2. `src/monitor_oop/core/infrastructure/request_capacity_service.py`
+3. `src/monitor_oop/core/infrastructure/rate_limit_service.py`
+4. `src/monitor_oop/core/infrastructure/llm_response_client.py`
+5. `src/monitor_oop/core/tools/tool_service.py`
+
+## Secondary targets
+1. `src/monitor_oop/core/config_path_service.py`
+2. `src/monitor_oop/core/infrastructure/env_loader.py`
+3. `src/monitor_oop/core/config_accessor_service.py`
+4. `src/monitor_oop/core/turn_budget.py`
+5. `src/monitor_oop/core/logger_service.py`
+
+## Lower-priority targets
+1. `src/monitor_oop/core/presentation/events.py`
+2. `src/monitor_oop/core/presentation/layout.py`
+3. `src/monitor_oop/core/presentation/transcript_buffer.py`
+4. `src/monitor_oop/core/presentation/tui.py`
+5. `src/monitor_oop/core/application/llm_request_builder.py`
+6. `src/monitor_oop/core/llm_adapter.py`
+7. `src/monitor_oop/core/resolved_runtime_config.py`
+8. `src/monitor_oop/core/workflow.py`
+
+## Suggested first pass
+Start with boundary-heavy services because they provide the most coverage value per test:
+- request capacity
+- rate limiting
+- response client
+- config resolution
+- tool execution
+
+## Notes
+- `src/monitor_oop/core/__init__.py` does not need explicit coverage if it only re-exports symbols.
+- The transcript viewport and Tui transcript plumbing tests have already been refreshed and are no longer part of the immediate gap list.
+- The new transcript viewport tests already reduce some of the remaining presentation gap.

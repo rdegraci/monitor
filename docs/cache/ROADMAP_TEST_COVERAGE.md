@@ -1,0 +1,44 @@
+# Test Coverage Roadmap
+
+## Phase 1: critical service coverage
+Focus on the most logic-heavy and failure-prone modules first.
+
+- `src/monitor_oop/core/config_resolution_service.py`
+- `src/monitor_oop/core/infrastructure/request_capacity_service.py`
+- `src/monitor_oop/core/infrastructure/rate_limit_service.py`
+- `src/monitor_oop/core/infrastructure/llm_response_client.py`
+- `src/monitor_oop/core/tools/tool_service.py`
+
+## Phase 2: configuration and runtime support
+After the service boundaries are covered, test runtime glue and file/path helpers.
+
+- `src/monitor_oop/core/config_path_service.py`
+- `src/monitor_oop/core/infrastructure/env_loader.py`
+- `src/monitor_oop/core/config_accessor_service.py`
+- `src/monitor_oop/core/turn_budget.py`
+- `src/monitor_oop/core/logger_service.py`
+
+## Phase 3: presentation and orchestration
+These modules are useful to cover once the core logic is stabilized.
+
+- `src/monitor_oop/core/presentation/events.py`
+- `src/monitor_oop/core/presentation/layout.py`
+- `src/monitor_oop/core/presentation/transcript_buffer.py`
+- `src/monitor_oop/core/presentation/transcript_viewport.py` — refreshed successfully.
+- `src/monitor_oop/core/presentation/tui.py` — refreshed successfully; transcript plumbing is already completed.
+- `src/monitor_oop/core/application/llm_request_builder.py`
+- `src/monitor_oop/core/llm_adapter.py`
+- `src/monitor_oop/core/resolved_runtime_config.py`
+- `src/monitor_oop/core/workflow.py`
+
+## Phase 4: finish remaining gaps
+Use this phase to close out small data and registry modules.
+
+- `src/monitor_oop/core/config_path_context.py`
+- `src/monitor_oop/core/tools/registry.py`
+- `src/monitor_oop/core/tools/tool_models.py`
+
+## Success criteria
+- Every high-priority service has direct tests.
+- Coverage gaps are limited to trivial dataclasses or thin wrappers.
+- New tests are stable, deterministic, and isolated from network access.
