@@ -6,7 +6,7 @@ Improve direct test coverage for the currently uncovered `src/monitor_oop/core` 
 The test suite should be deterministic, isolated, and non-brittle, avoiding timing dependence and implementation-detail coupling.
 
 ## Current refactor progress
-The next test-ready targets now include the refactored service boundaries. The following areas have been encapsulated to support upcoming tests: config resolution, request capacity, rate limiting, response client, tool service, config path, env loader, config accessor, turn budget, and logger service.
+The next test-ready targets now include the refactored service boundaries. The following areas have been encapsulated to support upcoming tests: config resolution, request capacity, rate limiting, response client, tool service, config path, env loader, config accessor, turn budget, and logger service. Additional presentation and utility modules have also been encapsulation-refactored so test expansion can focus on clearer boundaries: llm_request_builder, llm_adapter, events, layout, transcript_buffer, tui, resolved_runtime_config, config_path_context, registry, tool_models, and workflow.
 
 ## High-priority targets
 1. `src/monitor_oop/core/config_resolution_service.py`

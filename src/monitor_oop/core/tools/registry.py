@@ -12,18 +12,28 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._registrations: dict[str, ToolRegistration] = {}
 
+    def _get_registration(self, tool_name: str) -> ToolRegistration | None:
+        """Return a registration if it exists."""
+
+        return self._registrations.get(tool_name)
+
+    def _create_registration(self, tool: ToolDefinition, handler: Callable[..., str]) -> ToolRegistration:
+        """Create a registration entry for a tool definition and handler."""
+
+        return ToolRegistration(definition=tool, handler=handler)
+
     def register(self, tool: ToolDefinition, handler: Callable[..., str]) -> bool:
         """Register a tool definition and handler."""
 
-        if tool.name in self._registrations:
+        if self._get_registration(tool.name) is not None:
             return False
-        self._registrations[tool.name] = ToolRegistration(definition=tool, handler=handler)
+        self._registrations[tool.name] = self._create_registration(tool, handler)
         return True
 
     def unregister(self, tool_name: str) -> bool:
         """Remove a tool definition by name."""
 
-        if tool_name not in self._registrations:
+        if self._get_registration(tool_name) is None:
             return False
         del self._registrations[tool_name]
         return True
@@ -31,7 +41,7 @@ class ToolRegistry:
     def resolve(self, tool_name: str) -> ToolDefinition | None:
         """Return a tool definition if it exists."""
 
-        registration = self._registrations.get(tool_name)
+        registration = self._get_registration(tool_name)
         if registration is None:
             return None
         return registration.definition
@@ -39,7 +49,7 @@ class ToolRegistry:
     def get_handler(self, tool_name: str) -> Callable[..., str] | None:
         """Return a handler for a registered tool if available."""
 
-        registration = self._registrations.get(tool_name)
+        registration = self._get_registration(tool_name)
         if registration is None:
             return None
         return registration.handler
@@ -52,4 +62,4 @@ class ToolRegistry:
     def has_tool(self, tool_name: str) -> bool:
         """Return whether a tool is registered."""
 
-        return tool_name in self._registrations
+        return self._get_registration(tool_name) is not None

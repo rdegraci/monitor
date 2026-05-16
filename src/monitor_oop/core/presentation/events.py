@@ -7,13 +7,21 @@ from typing import Any, Literal
 from uuid import uuid4
 
 
+def _generate_uuid_string() -> str:
+    return str(uuid4())
+
+
+def _current_utc_timestamp() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass(slots=True)
 class BaseEvent:
     """Base event metadata shared by TUI and subagent events."""
 
-    id: str = field(default_factory=lambda: str(uuid4()))
+    id: str = field(default_factory=_generate_uuid_string)
     source: str = "monitor_oop"
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=_current_utc_timestamp)
 
 
 @dataclass(slots=True)

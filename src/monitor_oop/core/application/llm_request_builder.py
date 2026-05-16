@@ -41,14 +41,10 @@ class LLMRequestBuilder:
         """
 
         input_messages: list[dict[str, str]] = []
-        resolved_prompt_text = prompt_text if prompt_text is not None else self._prompt_text
+        resolved_prompt_text = self._resolve_prompt_text(prompt_text)
         if resolved_prompt_text is not None:
             input_messages.append({"role": "system", "content": resolved_prompt_text})
-        for item in history:
-            if isinstance(item, Message):
-                input_messages.append({"role": item.role, "content": item.content})
-            elif isinstance(item, str):
-                input_messages.append({"role": "user", "content": item})
+        input_messages.extend(self._history_items_to_request_messages(history))
         input_messages.append({"role": "user", "content": user_input})
         return input_messages
 
@@ -69,14 +65,10 @@ class LLMRequestBuilder:
             A list of request messages suitable for adapter consumption.
         """
 
-        input_messages: list[dict[str, str]] = [{"role": "system", "content": prompt_text}]
-        if token_limit is not None:
-            input_messages.append(
-                {
-                    "role": "system",
-                    "content": f"Token limit: {token_limit}",
-                }
-            )
+        input_messages: list[dict[str, str]] = self._build_summarization_preamble_messages(
+            prompt_text,
+            token_limit,
+        )
         for item in message_history:
             input_messages.append({"role": item.role, "content": item.content})
         return input_messages
@@ -91,6 +83,41 @@ class LLMRequestBuilder:
             The model name without a leading `provider/` prefix.
         """
 
+        return self._strip_provider_prefix(model)
+
+    def _resolve_prompt_text(self, prompt_text: str | None = None) -> str | None:
+        if prompt_text is not None:
+            return prompt_text
+        return self._prompt_text
+
+    def _history_items_to_request_messages(
+        self,
+        history: list[str | Message],
+    ) -> list[dict[str, str]]:
+        request_messages: list[dict[str, str]] = []
+        for item in history:
+            if isinstance(item, Message):
+                request_messages.append({"role": item.role, "content": item.content})
+            elif isinstance(item, str):
+                request_messages.append({"role": "user", "content": item})
+        return request_messages
+
+    def _build_summarization_preamble_messages(
+        self,
+        prompt_text: str,
+        token_limit: int | None = None,
+    ) -> list[dict[str, str]]:
+        preamble_messages: list[dict[str, str]] = [{"role": "system", "content": prompt_text}]
+        if token_limit is not None:
+            preamble_messages.append(
+                {
+                    "role": "system",
+                    "content": f"Token limit: {token_limit}",
+                }
+            )
+        return preamble_messages
+
+    def _strip_provider_prefix(self, model: str) -> str:
         if "/" in model:
             return model.split("/", 1)[1]
         return model

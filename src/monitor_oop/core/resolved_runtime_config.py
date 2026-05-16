@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from monitor_oop.core.models import RuntimeConfig
 
 
+def _normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
+    """Hook for future runtime configuration normalization or validation."""
+    return config
+
+
 @dataclass(slots=True)
 class ResolvedRuntimeConfig:
     """Fully resolved runtime configuration values."""

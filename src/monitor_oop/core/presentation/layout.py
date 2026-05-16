@@ -13,7 +13,13 @@ class TuiLayout:
     input_title: str = "Input"
 
 
-def build_layout() -> TuiLayout:
+def _build_default_layout() -> TuiLayout:
     """Build the default three-pane TUI layout description."""
 
     return TuiLayout()
+
+
+def build_layout() -> TuiLayout:
+    """Build the default three-pane TUI layout description."""
+
+    return _build_default_layout()

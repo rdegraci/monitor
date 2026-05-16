@@ -36,3 +36,4 @@
 - [x] `src/monitor_oop/core/presentation/tui.py` transcript plumbing tests completed; stale assumptions were updated to match the current implementation.
 - [x] `src/monitor_oop/core/__init__.py` does not require dedicated coverage
 - [x] Core service boundaries have been encapsulation-refactored in preparation for new tests, including config resolution, request capacity, rate limit, response client, tool service, config path, env loader, config accessor, turn budget, and logger service.
+- [x] The remaining presentation and utility modules have been encapsulation-refactored in preparation for tests, specifically llm_request_builder, llm_adapter, events, layout, transcript_buffer, tui, resolved_runtime_config, config_path_context, registry, tool_models, and workflow.

@@ -19,7 +19,7 @@ After the service boundaries are covered, test runtime glue and file/path helper
 - `src/monitor_oop/core/logger_service.py`
 
 ## Phase 3: presentation and orchestration
-These modules are useful to cover once the core logic is stabilized.
+These modules are useful to cover once the core logic is stabilized. The presentation and utility modules now have cleaner boundaries, especially the orchestration and transcript plumbing modules, which should make targeted test expansion easier.
 
 - `src/monitor_oop/core/presentation/events.py`
 - `src/monitor_oop/core/presentation/layout.py`
@@ -32,7 +32,7 @@ These modules are useful to cover once the core logic is stabilized.
 - `src/monitor_oop/core/workflow.py`
 
 ## Phase 4: finish remaining gaps
-Use this phase to close out small data and registry modules.
+Use this phase to close out small data and registry modules. These utility modules now also have cleaner boundaries, which should help keep the remaining coverage work focused and low risk.
 
 - `src/monitor_oop/core/config_path_context.py`
 - `src/monitor_oop/core/tools/registry.py`

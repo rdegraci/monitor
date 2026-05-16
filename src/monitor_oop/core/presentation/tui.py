@@ -90,12 +90,7 @@ class TuiApp:
         self._input_area.buffer.accept_handler = self._submit_input
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._completion_queue = CompletionQueue()
-        self._application = Application(
-            layout=Layout(self._build_ui(), focused_element=self._input_area),
-            key_bindings=self._build_key_bindings(),
-            full_screen=True,
-            mouse_support=True,
-        )
+        self._application = self._build_application()
 
     def start(self) -> None:
         """Start the TUI loop."""
@@ -128,13 +123,22 @@ class TuiApp:
         """Drain queued events into the local presentation buffers."""
         while self.event_queue:
             event = self.event_queue.popleft()
-            self._handle_event(event)
+            self._route_presentation_event(event)
         self._refresh_ui()
 
     def sync_active_task_id(self) -> None:
         """Mirror the coordinator's active task into the TUI state."""
         snapshot = self.turn_coordinator.snapshot()
         self.active_task_id = snapshot.active_task_id
+
+    def _build_application(self) -> Application:
+        """Build the prompt_toolkit application shell."""
+        return Application(
+            layout=Layout(self._build_ui(), focused_element=self._input_area),
+            key_bindings=self._build_key_bindings(),
+            full_screen=True,
+            mouse_support=True,
+        )
 
     def _build_ui(self) -> HSplit:
         """Build the prompt_toolkit container tree."""
@@ -349,8 +353,8 @@ class TuiApp:
         """Return the transcript pane as formatted text."""
         return self._transcript_viewport.get_formatted_text()
 
-    def _handle_event(self, event: object) -> None:
-        """Handle a single presentation event."""
+    def _route_presentation_event(self, event: object) -> None:
+        """Route a presentation event to the appropriate state update."""
         if isinstance(event, UserTranscriptEvent):
             self._transcript_buffer.append("user", event.text)
             self._transcript_viewport.note_appended_entry()
@@ -393,3 +397,7 @@ class TuiApp:
             self.input_draft = event.draft_text
             self._input_area.text = event.draft_text
             return
+
+    def _handle_event(self, event: object) -> None:
+        """Handle a single presentation event."""
+        self._route_presentation_event(event)

@@ -19,13 +19,19 @@ class TranscriptBuffer:
 
     _entries: list[TranscriptEntry] = field(default_factory=list)
 
+    def _append_entry(self, entry: TranscriptEntry) -> None:
+        self._entries.append(entry)
+
+    def _entries_copy(self) -> list[TranscriptEntry]:
+        return list(self._entries)
+
     def append(self, role: str, text: str) -> None:
         """Append a transcript line."""
-        self._entries.append(TranscriptEntry(role=role, text=text))
+        self._append_entry(TranscriptEntry(role=role, text=text))
 
     def snapshot(self) -> list[TranscriptEntry]:
         """Return a renderable snapshot of transcript entries."""
-        return list(self._entries)
+        return self._entries_copy()
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -38,4 +44,4 @@ class TranscriptBuffer:
     @property
     def entries(self) -> list[TranscriptEntry]:
         """Return the transcript history as a shallow copy."""
-        return list(self._entries)
+        return self._entries_copy()

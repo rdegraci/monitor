@@ -5,6 +5,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 
+def _normalize_tool_name(name: str) -> str:
+    """Hook for future tool-name normalization."""
+
+    return name
+
+
+def _validate_tool_parameters(parameters: dict[str, object]) -> dict[str, object]:
+    """Hook for future tool-parameter validation."""
+
+    return parameters
+
+
 @dataclass(slots=True)
 class ToolDefinition:
     """Describe a registered tool."""
