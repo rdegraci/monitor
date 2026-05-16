@@ -182,6 +182,54 @@ def test_create_response_uses_unprefixed_api_model_name_unchanged() -> None:
     assert fake_adapter.calls[0]["model"] == "gpt-4o-mini"
 
 
+def test_create_response_invokes_adapter_after_preflights_pass() -> None:
+    """Verify capacity and rate-limit preflights both pass before the adapter is called."""
+
+    fake_adapter = FakeAdapter()
+    request_capacity_service = FakeRequestCapacityService(allowed=True)
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        request_capacity_service=request_capacity_service,
+        rate_limit_service=rate_limit_service,
+    )
+
+    response = client.create_response([{"role": "user", "content": "hello"}])
+
+    assert response == {"ok": True}
+    assert request_capacity_service.called is True
+    assert rate_limit_service.called_estimate is True
+    assert rate_limit_service.called_request_allowed is True
+    assert len(fake_adapter.calls) == 1
+
+
+def test_create_response_stops_before_rate_limit_when_capacity_rejects_request() -> None:
+    """Verify capacity rejection prevents adapter calls and rate-limit evaluation."""
+
+    fake_adapter = FakeAdapter()
+    request_capacity_service = FakeRequestCapacityService(allowed=False)
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        request_capacity_service=request_capacity_service,
+        rate_limit_service=rate_limit_service,
+    )
+
+    with pytest.raises(ValueError, match="request capacity"):
+        client.create_response([{"role": "user", "content": "hello"}])
+
+    assert request_capacity_service.called is True
+    assert rate_limit_service.called_estimate is False
+    assert rate_limit_service.called_request_allowed is False
+    assert fake_adapter.calls == []
+
+
 def test_create_response_raises_when_request_capacity_service_rejects_request() -> None:
     """Verify request capacity rejections stop response creation with a clear error."""
 

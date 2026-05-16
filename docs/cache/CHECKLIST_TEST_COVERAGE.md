@@ -7,11 +7,11 @@
 - [x] `src/monitor_oop/core/config_path_service.py`
 - [x] `src/monitor_oop/core/config_resolution_service.py`
 - [x] `src/monitor_oop/core/infrastructure/env_loader.py`
-- [ ] `src/monitor_oop/core/infrastructure/llm_response_client.py`
+- [x] `src/monitor_oop/core/infrastructure/llm_response_client.py`
 - [ ] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
 - [ ] `src/monitor_oop/core/infrastructure/request_capacity_service.py`
 - [ ] `src/monitor_oop/core/llm_adapter.py`
-- [ ] `src/monitor_oop/core/logger_service.py`
+- [x] `src/monitor_oop/core/logger_service.py`
 - [ ] `src/monitor_oop/core/resolved_runtime_config.py`
 - [x] `src/monitor_oop/core/turn_budget.py`
 - [ ] `src/monitor_oop/core/workflow.py`
