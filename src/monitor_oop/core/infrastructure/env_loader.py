@@ -36,17 +36,7 @@ class EnvLoader:
     def load_env(self) -> None:
         """Load dotenv files in deterministic precedence order."""
 
-        project_env_path = find_dotenv(usecwd=True)
-        if project_env_path:
-            load_dotenv(project_env_path, override=True)
-
-        user_env_path = os.path.join(appdirs.user_config_dir(self._app_name), ".env")
-        if os.path.exists(user_env_path):
-            load_dotenv(user_env_path, override=True)
-
-        fallback_env_path = os.path.expanduser("~/.config/monitor/.env")
-        if fallback_env_path != user_env_path and os.path.exists(fallback_env_path):
-            load_dotenv(fallback_env_path, override=True)
+        self._load_dotenv_files_in_precedence_order()
 
     def apply_environment_overrides(
         self,
@@ -63,8 +53,53 @@ class EnvLoader:
             The resolved environment overrides.
         """
 
+        overrides = self._read_environment_overrides()
+        self._apply_overrides_to_runtime_config(config, overrides)
+
+        if overrides.openai_api_key:
+            self._openai_api_key = overrides.openai_api_key
+        elif current_openai_api_key:
+            self._openai_api_key = current_openai_api_key
+            os.environ["OPENAI_API_KEY"] = current_openai_api_key
+
+        return EnvOverrides(
+            openai_api_key=self._openai_api_key,
+            logging_level=overrides.logging_level,
+        )
+
+    def _load_dotenv_files_in_precedence_order(self) -> None:
+        project_env_path = find_dotenv(usecwd=True)
+        if project_env_path:
+            load_dotenv(project_env_path, override=True)
+
+        user_env_path = os.path.join(appdirs.user_config_dir(self._app_name), ".env")
+        if os.path.exists(user_env_path):
+            load_dotenv(user_env_path, override=True)
+
+        fallback_env_path = os.path.expanduser("~/.config/monitor/.env")
+        if fallback_env_path != user_env_path and os.path.exists(fallback_env_path):
+            load_dotenv(fallback_env_path, override=True)
+
+    def _read_environment_overrides(self) -> EnvOverrides:
         env_model = os.environ.get("MODEL")
-        if env_model:
+        env_context_window = os.environ.get("CONTEXT_WINDOW")
+        env_logging_level = os.environ.get("LOG_LEVEL")
+
+        logging_level = logging.INFO
+        if env_logging_level:
+            logging_level = self._coerce_int(env_logging_level, logging.INFO)
+
+        return EnvOverrides(
+            openai_api_key=os.environ.get("OPENAI_API_KEY"),
+            logging_level=logging_level,
+        )
+
+    def _apply_overrides_to_runtime_config(
+        self,
+        config: RuntimeConfig,
+        overrides: EnvOverrides,
+    ) -> None:
+        if env_model := os.environ.get("MODEL"):
             config.full_model_name = env_model
 
         env_context_window = os.environ.get("CONTEXT_WINDOW")
@@ -73,23 +108,6 @@ class EnvLoader:
                 env_context_window,
                 config.context_window,
             )
-
-        env_logging_level = os.environ.get("LOG_LEVEL")
-        logging_level = logging.INFO
-        if env_logging_level:
-            logging_level = self._coerce_int(env_logging_level, logging.INFO)
-
-        env_openai_api_key = os.environ.get("OPENAI_API_KEY")
-        if env_openai_api_key:
-            self._openai_api_key = env_openai_api_key
-        elif current_openai_api_key:
-            self._openai_api_key = current_openai_api_key
-            os.environ["OPENAI_API_KEY"] = current_openai_api_key
-
-        return EnvOverrides(
-            openai_api_key=self._openai_api_key,
-            logging_level=logging_level,
-        )
 
     def _coerce_int(self, value: object, default: int) -> int:
         """Coerce a configuration value to int with a safe default.

@@ -44,40 +44,49 @@ class ConfigPathService:
         if not filename and self._config is not None:
             filename = self._config.prompt_history_filename
 
-        for candidate in self._candidate_config_dirs():
-            writable_path = self._build_history_file_path(candidate, history_dir, filename)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._first_writable_path(
+            self._candidate_config_dirs(),
+            lambda candidate: self._build_history_file_path(candidate, history_dir, filename),
+        )
 
     def get_system_prompt_file_path(self) -> str:
         """Return the first writable system prompt file path."""
 
-        for candidate in self._candidate_config_dirs():
-            writable_path = self._build_system_prompt_file_path(candidate)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._first_writable_path(
+            self._candidate_config_dirs(),
+            self._build_system_prompt_file_path,
+        )
 
     def get_log_file_path(self) -> str:
         """Return the first writable per-process log file path."""
 
-        for candidate in self._candidate_config_dirs():
-            writable_path = self._build_log_file_path(candidate)
-            if writable_path:
-                return writable_path
-
-        return ""
+        return self._first_writable_path(
+            self._candidate_config_dirs(),
+            self._build_log_file_path,
+        )
 
     def _candidate_config_dirs(self) -> list[Path]:
         """Return candidate configuration directories in lookup order."""
+
+        return self._resolve_candidate_config_dirs()
+
+    def _resolve_candidate_config_dirs(self) -> list[Path]:
+        """Resolve candidate configuration directories in lookup order."""
 
         return [
             Path(appdirs.user_config_dir(self._app_name)),
             Path(os.path.expanduser("~/.config/monitor")),
         ]
+
+    def _first_writable_path(self, candidates: list[Path], builder) -> str:
+        """Return the first writable path produced by a builder."""
+
+        for candidate in candidates:
+            writable_path = builder(candidate)
+            if writable_path:
+                return writable_path
+
+        return ""
 
     def _ensure_writable_dir(self, path: Path) -> bool:
         """Ensure a directory exists and is writable.
@@ -108,11 +117,7 @@ class ConfigPathService:
             A writable file path, or an empty string if unavailable.
         """
 
-        history_path = base_dir / history_dir / (filename or "prompt_history")
-        if not self._ensure_writable_dir(history_path.parent):
-            return ""
-
-        return str(history_path)
+        return self._build_concrete_file_path(base_dir, history_dir, filename or "prompt_history")
 
     def _build_system_prompt_file_path(self, base_dir: Path) -> str:
         """Build a writable system prompt file path.
@@ -124,11 +129,7 @@ class ConfigPathService:
             A writable file path, or an empty string if unavailable.
         """
 
-        system_prompt_path = base_dir / "system_prompt"
-        if not self._ensure_writable_dir(system_prompt_path.parent):
-            return ""
-
-        return str(system_prompt_path)
+        return self._build_concrete_file_path(base_dir, "", "system_prompt")
 
     def _build_log_file_path(self, base_dir: Path) -> str:
         """Build a writable log file path.
@@ -140,8 +141,13 @@ class ConfigPathService:
             A writable file path, or an empty string if unavailable.
         """
 
-        log_file_path = base_dir / "log" / f"monitor_{os.getpid()}.log"
-        if not self._ensure_writable_dir(log_file_path.parent):
+        return self._build_concrete_file_path(base_dir, "log", f"monitor_{os.getpid()}.log")
+
+    def _build_concrete_file_path(self, base_dir: Path, relative_dir: str, filename: str) -> str:
+        """Build a writable file path under a base directory."""
+
+        file_path = base_dir / relative_dir / filename
+        if not self._ensure_writable_dir(file_path.parent):
             return ""
 
-        return str(log_file_path)
+        return str(file_path)

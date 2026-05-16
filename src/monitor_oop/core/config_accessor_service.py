@@ -42,7 +42,7 @@ class ConfigAccessorService:
 
         return getattr(self._config, "full_model_name", None)
 
-    def get_provider(self) -> str:
+    def _resolve_provider(self) -> str:
         """Return the provider prefix for the active model name."""
 
         full_model_name = self.get_full_model_name()
@@ -54,6 +54,11 @@ class ConfigAccessorService:
             return provider
 
         return "openai"
+
+    def get_provider(self) -> str:
+        """Return the provider prefix for the active model name."""
+
+        return self._resolve_provider()
 
     def estimate_token_usage(
         self,
@@ -128,39 +133,57 @@ class ConfigAccessorService:
             return full_model_name
         return self._config.api_model_name
 
+    def _get_rate_limit_fallback(self, model_name: str, limit_name: str) -> int | None:
+        """Return a model-specific rate limit fallback value, if configured."""
+
+        return getattr(self._config, f"{model_name}_{limit_name}", None)
+
+    def _get_model_rate_limit(
+        self,
+        model_name: str | None,
+        config_primary_name: str,
+        config_alias_name: str,
+        model_primary_name: str,
+        model_alias_name: str,
+        default: int,
+    ) -> int:
+        """Return a model rate limit using config and model-specific fallbacks."""
+
+        resolved_model_name = self._resolve_model_name(model_name)
+        limit = getattr(self._config, config_primary_name, None)
+        if limit is None:
+            limit = getattr(self._config, config_alias_name, None)
+        if limit is None and resolved_model_name != self._config.api_model_name:
+            limit = self._get_rate_limit_fallback(resolved_model_name, model_primary_name)
+            if limit is None:
+                limit = self._get_rate_limit_fallback(resolved_model_name, model_alias_name)
+        if limit is None:
+            return default
+        return limit
+
     def get_model_tpm_limit(self, model_name: str | None = None) -> int:
         """Return the tokens-per-minute limit for a model."""
 
-        resolved_model_name = self._resolve_model_name(model_name)
-        tpm_limit = getattr(self._config, "tokens_per_minute", None)
-        if tpm_limit is None:
-            tpm_limit = getattr(self._config, "tpm_limit", None)
-        if tpm_limit is None and resolved_model_name != self._config.api_model_name:
-            tpm_limit = getattr(
-                self._config, f"{resolved_model_name}_tokens_per_minute", None
-            )
-            if tpm_limit is None:
-                tpm_limit = getattr(self._config, f"{resolved_model_name}_tpm_limit", None)
-        if tpm_limit is None:
-            return 1
-        return tpm_limit
+        return self._get_model_rate_limit(
+            model_name,
+            "tokens_per_minute",
+            "tpm_limit",
+            "tokens_per_minute",
+            "tpm_limit",
+            1,
+        )
 
     def get_model_rpm_limit(self, model_name: str | None = None) -> int:
         """Return the requests-per-minute limit for a model."""
 
-        resolved_model_name = self._resolve_model_name(model_name)
-        rpm_limit = getattr(self._config, "requests_per_minute", None)
-        if rpm_limit is None:
-            rpm_limit = getattr(self._config, "rpm_limit", None)
-        if rpm_limit is None and resolved_model_name != self._config.api_model_name:
-            rpm_limit = getattr(
-                self._config, f"{resolved_model_name}_requests_per_minute", None
-            )
-            if rpm_limit is None:
-                rpm_limit = getattr(self._config, f"{resolved_model_name}_rpm_limit", None)
-        if rpm_limit is None:
-            return 0
-        return rpm_limit
+        return self._get_model_rate_limit(
+            model_name,
+            "requests_per_minute",
+            "rpm_limit",
+            "requests_per_minute",
+            "rpm_limit",
+            0,
+        )
 
     def get_openai_api_key(self) -> str | None:
         """Return the effective OPENAI_API_KEY for this runtime."""

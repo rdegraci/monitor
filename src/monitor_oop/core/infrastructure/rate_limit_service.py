@@ -22,6 +22,16 @@ class _UsageEvent:
     tokens: int
 
 
+@dataclass(slots=True)
+class _RateLimitSnapshot:
+    """Capture the active usage and limit state for a single evaluation."""
+
+    current_tokens: int
+    current_requests: int
+    tpm_limit: int
+    rpm_limit: int
+
+
 class RateLimitService:
     """Enforce provider-aware token limits using a rolling time window."""
 
@@ -95,28 +105,23 @@ class RateLimitService:
             True when the request fits within the active budget, otherwise False.
         """
 
-        deadline = None if wait_timeout_seconds is None else time.monotonic() + max(wait_timeout_seconds, 0.0)
+        deadline = self._compute_wait_deadline(wait_timeout_seconds)
         while True:
             with self._lock:
                 self._purge_old_events_locked()
-                current_tokens, current_requests = self._current_usage_locked()
-                tpm_limit = self._get_tpm_limit(model)
-                rpm_limit = self._get_rpm_limit(model)
+                snapshot = self._build_rate_limit_snapshot_locked(model=model)
                 fits = self._fits_under_limits_locked(
                     estimated_tokens=estimated_tokens,
-                    current_tokens=current_tokens,
-                    current_requests=current_requests,
-                    tpm_limit=tpm_limit,
-                    rpm_limit=rpm_limit,
+                    snapshot=snapshot,
                 )
                 logger.info(
                     "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s, allow_wait=%s, wait_timeout_seconds=%s.",
                     model,
                     estimated_tokens,
-                    current_tokens,
-                    current_requests,
-                    tpm_limit,
-                    rpm_limit,
+                    snapshot.current_tokens,
+                    snapshot.current_requests,
+                    snapshot.tpm_limit,
+                    snapshot.rpm_limit,
                     self._window_seconds,
                     allow_wait,
                     wait_timeout_seconds,
@@ -126,10 +131,10 @@ class RateLimitService:
                         "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
                         model,
                         estimated_tokens,
-                        current_tokens,
-                        current_requests,
-                        tpm_limit,
-                        rpm_limit,
+                        snapshot.current_tokens,
+                        snapshot.current_requests,
+                        snapshot.tpm_limit,
+                        snapshot.rpm_limit,
                     )
                     return True
                 if not allow_wait:
@@ -137,19 +142,13 @@ class RateLimitService:
                         "Rate limit denied for model=%s without waiting: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
                         model,
                         estimated_tokens,
-                        current_tokens,
-                        current_requests,
-                        tpm_limit,
-                        rpm_limit,
+                        snapshot.current_tokens,
+                        snapshot.current_requests,
+                        snapshot.tpm_limit,
+                        snapshot.rpm_limit,
                     )
                     return False
-            if deadline is not None and time.monotonic() >= deadline:
-                logger.info(
-                    "Rate limit wait timed out for model=%s: estimated_tokens=%s, wait_timeout_seconds=%s.",
-                    model,
-                    estimated_tokens,
-                    wait_timeout_seconds,
-                )
+            if self._wait_timed_out(deadline, model, estimated_tokens, wait_timeout_seconds):
                 return False
             time.sleep(0.1)
 
@@ -166,6 +165,49 @@ class RateLimitService:
             self._usage_events.append(_UsageEvent(timestamp=timestamp, tokens=max(tokens, 0)))
             self._request_count_events.append(timestamp)
         logger.info("Recorded rate-limit usage event: tokens=%s, timestamp=%s.", tokens, timestamp)
+
+    def _compute_wait_deadline(self, wait_timeout_seconds: float | None) -> float | None:
+        """Compute the absolute deadline for a wait attempt."""
+
+        if wait_timeout_seconds is None:
+            return None
+        return time.monotonic() + max(wait_timeout_seconds, 0.0)
+
+    def _wait_timed_out(
+        self,
+        deadline: float | None,
+        model: str,
+        estimated_tokens: int,
+        wait_timeout_seconds: float | None,
+    ) -> bool:
+        """Check whether waiting for budget has timed out."""
+
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.info(
+                "Rate limit wait timed out for model=%s: estimated_tokens=%s, wait_timeout_seconds=%s.",
+                model,
+                estimated_tokens,
+                wait_timeout_seconds,
+            )
+            return True
+        return False
+
+    def _build_rate_limit_snapshot_locked(self, model: str) -> _RateLimitSnapshot:
+        """Collect usage and resolved limits under the active lock."""
+
+        current_tokens, current_requests = self._current_usage_snapshot_locked()
+        tpm_limit, rpm_limit = self._resolve_limits(model=model)
+        return _RateLimitSnapshot(
+            current_tokens=current_tokens,
+            current_requests=current_requests,
+            tpm_limit=tpm_limit,
+            rpm_limit=rpm_limit,
+        )
+
+    def _resolve_limits(self, model: str) -> tuple[int, int]:
+        """Resolve the active TPM and RPM limits for a model."""
+
+        return self._get_tpm_limit(model), self._get_rpm_limit(model)
 
     def _get_tpm_limit(self, model: str) -> int:
         """Return the current TPM limit.
@@ -211,7 +253,7 @@ class RateLimitService:
         logger.info("Resolved RPM limit for model=%s: %s.", model, limit)
         return limit
 
-    def _current_usage_locked(self) -> tuple[int, int]:
+    def _current_usage_snapshot_locked(self) -> tuple[int, int]:
         """Return the current token and request usage under the active lock.
 
         Returns:
@@ -226,39 +268,33 @@ class RateLimitService:
         self,
         *,
         estimated_tokens: int,
-        current_tokens: int,
-        current_requests: int,
-        tpm_limit: int,
-        rpm_limit: int,
+        snapshot: _RateLimitSnapshot,
     ) -> bool:
         """Check whether a request fits within the configured rate limits.
 
         Args:
             estimated_tokens: Estimated token usage for the request.
-            current_tokens: Current token usage in the rolling window.
-            current_requests: Current request count in the rolling window.
-            tpm_limit: Token-per-minute limit.
-            rpm_limit: Request-per-minute limit.
+            snapshot: Current usage and limit state.
 
         Returns:
             True when the request fits within the active limits, otherwise False.
         """
 
-        token_request_total = current_tokens + estimated_tokens
-        if token_request_total > tpm_limit:
+        token_request_total = snapshot.current_tokens + estimated_tokens
+        if token_request_total > snapshot.tpm_limit:
             logger.warning(
                 "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
                 estimated_tokens,
-                current_tokens,
-                tpm_limit,
+                snapshot.current_tokens,
+                snapshot.tpm_limit,
             )
             return False
-        request_total = current_requests + 1
-        if request_total > rpm_limit:
+        request_total = snapshot.current_requests + 1
+        if request_total > snapshot.rpm_limit:
             logger.warning(
                 "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
-                current_requests,
-                rpm_limit,
+                snapshot.current_requests,
+                snapshot.rpm_limit,
             )
             return False
         return True

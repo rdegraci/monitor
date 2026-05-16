@@ -23,6 +23,11 @@ class LoggerService:
             The resolved logging level as an integer.
         """
 
+        return self._resolve_effective_level(level)
+
+    def _resolve_effective_level(self, level: int | str | None = None) -> int:
+        """Resolve the effective logging level from arguments or environment."""
+
         if isinstance(level, int):
             return level
         if isinstance(level, str):
@@ -53,6 +58,44 @@ class LoggerService:
 
         return Path(log_file_path).expanduser().parent
 
+    def _prepare_log_path(self, log_file_path: str | Path | None) -> Path:
+        """Prepare the concrete path used for log file output."""
+
+        if log_file_path is None:
+            log_file_path = Path("logs") / "application.log"
+        return Path(log_file_path).expanduser()
+
+    def _setup_handlers(
+        self,
+        log_path: Path,
+        formatter: logging.Formatter,
+    ) -> list[logging.Handler]:
+        """Create and configure logging handlers for the root logger."""
+
+        handlers: list[logging.Handler] = []
+
+        file_handler = FileHandler(log_path)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+
+        return handlers
+
+    def _replace_root_logger_handlers(
+        self,
+        root_logger: logging.Logger,
+        existing_handlers: list[logging.Handler],
+        handlers: list[logging.Handler],
+    ) -> None:
+        """Replace root logger handlers with newly configured handlers."""
+
+        for handler in existing_handlers:
+            root_logger.removeHandler(handler)
+            handler.close()
+
+        for handler in handlers:
+            root_logger.addHandler(handler)
+
     def configure(
         self,
         level: int | str | None = None,
@@ -71,28 +114,13 @@ class LoggerService:
         root_logger = logging.getLogger()
         existing_handlers = list(root_logger.handlers)
 
-        handlers: list[logging.Handler] = []
-
         resolved_level = self._resolve_level(level)
         formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-
-        if log_file_path is None:
-            log_file_path = Path("logs") / "application.log"
-
-        log_path = Path(log_file_path).expanduser()
+        log_path = self._prepare_log_path(log_file_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        handlers = self._setup_handlers(log_path, formatter)
 
-        file_handler = FileHandler(log_path)
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        handlers.append(file_handler)
-
-        for handler in existing_handlers:
-            root_logger.removeHandler(handler)
-            handler.close()
-
-        for handler in handlers:
-            root_logger.addHandler(handler)
+        self._replace_root_logger_handlers(root_logger, existing_handlers, handlers)
 
         root_logger.setLevel(resolved_level)
         self._configured = True

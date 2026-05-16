@@ -20,6 +20,12 @@ def compact_summary_filename(pid: int, timestamp: str) -> str:
     return f"compact-{pid}-{timestamp}.summary"
 
 
+def _count_user_turns(messages: list[Message]) -> int:
+    """Count user turns in a conversation history snapshot."""
+
+    return sum(1 for message in messages if message.role == "user")
+
+
 @dataclass(slots=True)
 class TurnBudgetTracker:
     """Track conversation turns against a configured budget.
@@ -59,4 +65,4 @@ class TurnBudgetTracker:
             messages: The messages currently stored in conversation history.
         """
 
-        self.turn_count = sum(1 for message in messages if message.role == "user")
+        self.turn_count = _count_user_turns(messages)

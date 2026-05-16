@@ -71,16 +71,8 @@ class LLMResponseClient:
 
         return wait_policy
 
-    def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
-        """Create a response using the adapter completion API.
-
-        Args:
-            input_messages: The request payload to send to the model.
-            previous_response_id: The previous model response identifier, if any.
-
-        Returns:
-            The provider response object.
-        """
+    def _validate_required_config(self, input_messages: list[dict[str, str]]) -> tuple[Any, str]:
+        """Validate required config values for response creation."""
 
         api_key = self.config_service.get_openai_api_key()
         api_key_present = bool(api_key)
@@ -89,7 +81,7 @@ class LLMResponseClient:
                 "Cannot create response: OpenAI API key is missing; api_key_present=%s, message_count=%s, previous_response_id=%s.",
                 api_key_present,
                 len(input_messages),
-                previous_response_id,
+                None,
             )
             raise ValueError("OpenAI API key is required to create a response.")
         api_model_name = self.config_service.get_api_model_name()
@@ -100,141 +92,171 @@ class LLMResponseClient:
                 api_key_present,
                 api_model_name,
                 len(input_messages),
-                previous_response_id,
+                None,
             )
             raise ValueError("Full model name is required to create a response.")
+        return api_key, full_model_name
+
+    def _prepare_tool_schema(self) -> tuple[list[dict[str, Any]], list[str]]:
+        """Prepare tool schemas and tool names for response creation."""
+
         tools = self._build_litellm_tools()
-        tool_choice = "auto"
         tool_names = [str(tool.get("name", "<unknown>")) for tool in tools]
+        return tools, tool_names
+
+    def _run_request_capacity_preflight(
+        self,
+        full_model_name: str,
+        api_model_name: str,
+        api_key_present: bool,
+        input_messages: list[dict[str, str]],
+        tools: list[dict[str, Any]],
+        tool_names: list[str],
+        previous_response_id: str | None,
+    ) -> None:
+        """Run request capacity preflight checks."""
+
+        if self._request_capacity_service is None:
+            return
         logger.info(
-            "Create response model context: full_model_name=%s, api_model_name=%s.",
+            "Performing request capacity preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, tool_names=%s, previous_response_id=%s.",
             full_model_name,
             api_model_name,
-        )
-        if self._request_capacity_service is not None:
-            logger.info(
-                "Performing request capacity preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, tool_names=%s, previous_response_id=%s.",
-                full_model_name,
-                api_model_name,
-                api_key_present,
-                len(input_messages),
-                len(tools),
-                tool_names,
-                previous_response_id,
-            )
-            request_fits = self._request_capacity_service.request_fits(
-                model=full_model_name,
-                input_messages=input_messages,
-                tools=tools,
-                previous_response_id=previous_response_id,
-            )
-            if request_fits:
-                logger.info(
-                    "Request capacity preflight check passed: full_model_name=%s, api_model_name=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
-                    full_model_name,
-                    api_model_name,
-                    len(input_messages),
-                    len(tools),
-                    previous_response_id,
-                )
-            else:
-                rejection_reason = getattr(self._request_capacity_service, "last_rejection_reason", None)
-                if rejection_reason is None:
-                    rejection_reason = getattr(self._request_capacity_service, "rejection_reason", None)
-                logger.error(
-                    "Request capacity preflight check failed: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s, rejection_reason=%s.",
-                    full_model_name,
-                    api_model_name,
-                    api_key_present,
-                    len(input_messages),
-                    len(tools),
-                    previous_response_id,
-                    rejection_reason,
-                )
-                raise ValueError("Request does not fit within the configured request capacity limits.")
-        if self._rate_limit_service is not None:
-            wait_policy_kwargs = self._get_rate_limit_wait_policy()
-            if wait_policy_kwargs:
-                logger.info(
-                    "Using rate limit wait policy from config: full_model_name=%s, api_model_name=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
-                    full_model_name,
-                    api_model_name,
-                    wait_policy_kwargs.get("wait_policy"),
-                    wait_policy_kwargs.get("wait_timeout_seconds"),
-                    previous_response_id,
-                )
-            else:
-                logger.info(
-                    "No rate limit wait policy found in config; proceeding without wait overrides: full_model_name=%s, api_model_name=%s, previous_response_id=%s.",
-                    full_model_name,
-                    api_model_name,
-                    previous_response_id,
-                )
-            logger.info(
-                "Performing rate limit preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
-                full_model_name,
-                api_model_name,
-                api_key_present,
-                len(input_messages),
-                len(tools),
-                previous_response_id,
-            )
-            estimated_tokens = self._rate_limit_service.estimate_token_usage(
-                model=full_model_name,
-                messages=input_messages,
-                tools=tools,
-                previous_response_id=previous_response_id,
-            )
-            logger.info(
-                "Rate limit preflight check estimated token usage: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
-                full_model_name,
-                api_model_name,
-                estimated_tokens,
-                previous_response_id,
-            )
-            request_allowed_kwargs = {
-                "model": full_model_name,
-                "estimated_tokens": estimated_tokens,
-            }
-            request_allowed_kwargs.update(wait_policy_kwargs)
-            logger.info(
-                "Calling request_allowed with rate limit context: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
-                full_model_name,
-                api_model_name,
-                estimated_tokens,
-                request_allowed_kwargs.get("wait_policy"),
-                request_allowed_kwargs.get("wait_timeout_seconds"),
-                previous_response_id,
-            )
-            rate_limit_allows = self._rate_limit_service.request_allowed(**request_allowed_kwargs)
-            if rate_limit_allows:
-                logger.info(
-                    "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
-                    full_model_name,
-                    api_model_name,
-                    estimated_tokens,
-                    previous_response_id,
-                )
-            else:
-                logger.warning(
-                    "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
-                    full_model_name,
-                    api_model_name,
-                    estimated_tokens,
-                    api_key_present,
-                    previous_response_id,
-                )
-                raise ValueError("Request is not allowed by the current rate limit policy.")
-        logger.info(
-            "Creating response with full_model_name=%s, api_model_name=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
-            full_model_name,
-            api_model_name,
+            api_key_present,
+            len(input_messages),
             len(tools),
             tool_names,
-            tool_choice,
-            len(input_messages),
             previous_response_id,
         )
+        request_fits = self._request_capacity_service.request_fits(
+            model=full_model_name,
+            input_messages=input_messages,
+            tools=tools,
+            previous_response_id=previous_response_id,
+        )
+        if request_fits:
+            logger.info(
+                "Request capacity preflight check passed: full_model_name=%s, api_model_name=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
+                len(input_messages),
+                len(tools),
+                previous_response_id,
+            )
+            return
+        rejection_reason = getattr(self._request_capacity_service, "last_rejection_reason", None)
+        if rejection_reason is None:
+            rejection_reason = getattr(self._request_capacity_service, "rejection_reason", None)
+        logger.error(
+            "Request capacity preflight check failed: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s, rejection_reason=%s.",
+            full_model_name,
+            api_model_name,
+            api_key_present,
+            len(input_messages),
+            len(tools),
+            previous_response_id,
+            rejection_reason,
+        )
+        raise ValueError("Request does not fit within the configured request capacity limits.")
+
+    def _run_rate_limit_preflight(
+        self,
+        full_model_name: str,
+        api_model_name: str,
+        api_key_present: bool,
+        input_messages: list[dict[str, str]],
+        tools: list[dict[str, Any]],
+        previous_response_id: str | None,
+    ) -> None:
+        """Run rate limit preflight checks."""
+
+        if self._rate_limit_service is None:
+            return
+        wait_policy_kwargs = self._get_rate_limit_wait_policy()
+        if wait_policy_kwargs:
+            logger.info(
+                "Using rate limit wait policy from config: full_model_name=%s, api_model_name=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
+                wait_policy_kwargs.get("wait_policy"),
+                wait_policy_kwargs.get("wait_timeout_seconds"),
+                previous_response_id,
+            )
+        else:
+            logger.info(
+                "No rate limit wait policy found in config; proceeding without wait overrides: full_model_name=%s, api_model_name=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
+                previous_response_id,
+            )
+        logger.info(
+            "Performing rate limit preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            api_key_present,
+            len(input_messages),
+            len(tools),
+            previous_response_id,
+        )
+        estimated_tokens = self._rate_limit_service.estimate_token_usage(
+            model=full_model_name,
+            messages=input_messages,
+            tools=tools,
+            previous_response_id=previous_response_id,
+        )
+        logger.info(
+            "Rate limit preflight check estimated token usage: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            estimated_tokens,
+            previous_response_id,
+        )
+        request_allowed_kwargs = {
+            "model": full_model_name,
+            "estimated_tokens": estimated_tokens,
+        }
+        request_allowed_kwargs.update(wait_policy_kwargs)
+        logger.info(
+            "Calling request_allowed with rate limit context: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            estimated_tokens,
+            request_allowed_kwargs.get("wait_policy"),
+            request_allowed_kwargs.get("wait_timeout_seconds"),
+            previous_response_id,
+        )
+        rate_limit_allows = self._rate_limit_service.request_allowed(**request_allowed_kwargs)
+        if rate_limit_allows:
+            logger.info(
+                "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
+                estimated_tokens,
+                previous_response_id,
+            )
+            return
+        logger.warning(
+            "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            estimated_tokens,
+            api_key_present,
+            previous_response_id,
+        )
+        raise ValueError("Request is not allowed by the current rate limit policy.")
+
+    def _invoke_adapter(
+        self,
+        api_model_name: str,
+        input_messages: list[dict[str, str]],
+        api_key: str,
+        tools: list[dict[str, Any]],
+        tool_choice: str,
+        previous_response_id: str | None,
+        full_model_name: str,
+    ) -> Any:
+        """Invoke the completion adapter."""
+
         logger.info(
             "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, previous_response_id=%s.",
             api_model_name,
@@ -248,4 +270,62 @@ class LLMResponseClient:
             tools=tools,
             tool_choice=tool_choice,
             previous_response_id=previous_response_id,
+        )
+
+    def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
+        """Create a response using the adapter completion API.
+
+        Args:
+            input_messages: The request payload to send to the model.
+            previous_response_id: The previous model response identifier, if any.
+
+        Returns:
+            The provider response object.
+        """
+
+        api_key, full_model_name = self._validate_required_config(input_messages)
+        api_model_name = self.config_service.get_api_model_name()
+        api_key_present = bool(api_key)
+        tools, tool_names = self._prepare_tool_schema()
+        tool_choice = "auto"
+        logger.info(
+            "Create response model context: full_model_name=%s, api_model_name=%s.",
+            full_model_name,
+            api_model_name,
+        )
+        self._run_request_capacity_preflight(
+            full_model_name=full_model_name,
+            api_model_name=api_model_name,
+            api_key_present=api_key_present,
+            input_messages=input_messages,
+            tools=tools,
+            tool_names=tool_names,
+            previous_response_id=previous_response_id,
+        )
+        self._run_rate_limit_preflight(
+            full_model_name=full_model_name,
+            api_model_name=api_model_name,
+            api_key_present=api_key_present,
+            input_messages=input_messages,
+            tools=tools,
+            previous_response_id=previous_response_id,
+        )
+        logger.info(
+            "Creating response with full_model_name=%s, api_model_name=%s, tool_count=%s, tool_names=%s, tool_choice=%s, message_count=%s, previous_response_id=%s.",
+            full_model_name,
+            api_model_name,
+            len(tools),
+            tool_names,
+            tool_choice,
+            len(input_messages),
+            previous_response_id,
+        )
+        return self._invoke_adapter(
+            api_model_name=api_model_name,
+            input_messages=input_messages,
+            api_key=api_key,
+            tools=tools,
+            tool_choice=tool_choice,
+            previous_response_id=previous_response_id,
+            full_model_name=full_model_name,
         )

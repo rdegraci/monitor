@@ -21,7 +21,7 @@ class ToolService:
         """Execute a registered tool."""
 
         logger.info("Executing tool: %s", tool_name)
-        tool = self._tool_registry.resolve(tool_name)
+        tool = self._lookup_tool(tool_name)
         if tool is None:
             logger.info("Tool not found during execution: %s", tool_name)
             return ToolResult(tool_name=tool_name, success=False, output="", error=f"Tool not found: {tool_name}")
@@ -58,8 +58,8 @@ class ToolService:
 
         logger.info("Building follow-up payload for tool call: %s", call_id)
         logger.info("Follow-up payload response item id is metadata only: %s", response_item_id)
-        payload = list(messages) if messages is not None else []
-        payload_item = build_tool_call_output(
+        payload = self._build_follow_up_payload(messages)
+        payload_item = self._build_follow_up_payload_item(
             call_id,
             result if result is not None else ToolResult(tool_name=call_id, success=False, output="", error="Missing tool result."),
         )
@@ -89,9 +89,9 @@ class ToolService:
         """
 
         logger.info("Building multi-item follow-up payload")
-        payload = list(messages) if messages is not None else []
+        payload = self._build_follow_up_payload(messages)
         for call_id, response_item_id, tool_result in envelopes:
-            payload_item = build_tool_call_output(call_id, tool_result)
+            payload_item = self._build_follow_up_payload_item(call_id, tool_result)
             logger.info("Follow-up payload item: %s", payload_item)
             if response_item_id is not None:
                 logger.info("Follow-up payload response item id: %s", response_item_id)
@@ -102,34 +102,30 @@ class ToolService:
     def build_litellm_tools(self) -> list[dict[str, object]]:
         """Export registered tools as LiteLLM/OpenAI function tool schemas."""
 
-        tools: list[dict[str, object]] = []
-        for tool in self.list_tools().values():
-            tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters,
-                    },
-                }
-            )
-        return tools
+        return self._export_tool_schemas(
+            {
+                "type": "function",
+                "function": {
+                    "name": "name",
+                    "description": "description",
+                    "parameters": "parameters",
+                },
+            },
+            nested=True,
+        )
 
     def build_responses_tools(self) -> list[dict[str, object]]:
         """Export registered tools as Responses-style flat tool schemas."""
 
-        tools: list[dict[str, object]] = []
-        for tool in self.list_tools().values():
-            tools.append(
-                {
-                    "type": "function",
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                }
-            )
-        return tools
+        return self._export_tool_schemas(
+            {
+                "type": "function",
+                "name": "name",
+                "description": "description",
+                "parameters": "parameters",
+            },
+            nested=False,
+        )
 
     def should_continue_after_tool_call(self, value: ToolCall | ToolResult | object) -> bool:
         """Determine whether execution should continue after a tool call or response."""
@@ -156,12 +152,17 @@ class ToolService:
     def resolve_tool(self, tool_name: str) -> ToolDefinition | None:
         """Look up a tool by name."""
 
-        return self._tool_registry.resolve(tool_name)
+        return self._lookup_tool(tool_name)
 
     def list_tools(self) -> dict[str, ToolDefinition]:
         """Return a copy of the registered tools."""
 
         return self._tool_registry.list_tools()
+
+    def _lookup_tool(self, tool_name: str) -> ToolDefinition | None:
+        """Look up a tool by name through the registry."""
+
+        return self._tool_registry.resolve(tool_name)
 
     def _validate_arguments(
         self,
@@ -179,3 +180,40 @@ class ToolService:
             if key not in arguments:
                 return None
         return dict(arguments)
+
+    def _export_tool_schemas(self, template: dict[str, object], *, nested: bool) -> list[dict[str, object]]:
+        """Export registered tools using a shared schema builder."""
+
+        tools: list[dict[str, object]] = []
+        for tool in self.list_tools().values():
+            if nested:
+                tools.append(
+                    {
+                        "type": template["type"],
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.parameters,
+                        },
+                    }
+                )
+            else:
+                tools.append(
+                    {
+                        "type": template["type"],
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    }
+                )
+        return tools
+
+    def _build_follow_up_payload(self, messages: list[dict[str, object]] | None) -> list[dict[str, object]]:
+        """Construct the base follow-up payload."""
+
+        return list(messages) if messages is not None else []
+
+    def _build_follow_up_payload_item(self, call_id: str, result: ToolResult) -> dict[str, object]:
+        """Construct a follow-up payload item for a tool call."""
+
+        return build_tool_call_output(call_id, result)

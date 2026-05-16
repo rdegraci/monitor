@@ -90,15 +90,13 @@ class RequestCapacityService:
         """
 
         context_window, output_window = self._resolve_capacity_values()
-        if estimated_input_tokens is None:
-            token_estimate = self._estimate_input_tokens(
-                input_messages=input_messages,
-                tools=tools,
-                previous_response_id=previous_response_id,
-            )
-        else:
-            token_estimate = estimated_input_tokens
-        completion_headroom = self._estimate_completion_headroom(token_estimate, output_window)
+        token_estimate = self._resolve_input_token_estimate(
+            input_messages=input_messages,
+            tools=tools,
+            previous_response_id=previous_response_id,
+            estimated_input_tokens=estimated_input_tokens,
+        )
+        completion_headroom = self._compute_completion_headroom(token_estimate, output_window)
         logger.info(
             "Evaluating request capacity for model=%s, message_count=%s, resolved_context_window=%s, resolved_output_window=%s, estimated_input_tokens=%s, completion_headroom=%s.",
             model,
@@ -108,46 +106,9 @@ class RequestCapacityService:
             token_estimate,
             completion_headroom,
         )
-        if token_estimate > context_window:
-            reason = (
-                f"Request exceeds context window: estimated_input_tokens={token_estimate}, "
-                f"context_window={context_window}, completion_headroom={completion_headroom}"
-            )
-            logger.warning(reason)
-            return CapacityCheckResult(
-                fits=False,
-                estimated_input_tokens=token_estimate,
-                context_window=context_window,
-                output_window=output_window,
-                completion_headroom=completion_headroom,
-                reason=reason,
-            )
-        if completion_headroom > 0 and token_estimate + completion_headroom > context_window:
-            reason = (
-                f"Request exceeds context window after reserving completion headroom: "
-                f"estimated_input_tokens={token_estimate}, context_window={context_window}, "
-                f"completion_headroom={completion_headroom}"
-            )
-            logger.warning(reason)
-            return CapacityCheckResult(
-                fits=False,
-                estimated_input_tokens=token_estimate,
-                context_window=context_window,
-                output_window=output_window,
-                completion_headroom=completion_headroom,
-                reason=reason,
-            )
-        logger.info(
-            "Request fits for model=%s: resolved_context_window=%s, resolved_output_window=%s, estimated_input_tokens=%s, completion_headroom=%s.",
-            model,
-            context_window,
-            output_window,
-            token_estimate,
-            completion_headroom,
-        )
-        return CapacityCheckResult(
-            fits=True,
-            estimated_input_tokens=token_estimate,
+        return self._build_capacity_check_result(
+            model=model,
+            token_estimate=token_estimate,
             context_window=context_window,
             output_window=output_window,
             completion_headroom=completion_headroom,
@@ -182,6 +143,23 @@ class RequestCapacityService:
                 f"Invalid capacity configuration values: context_window={context_window}, output_window={output_window}."
             )
         return context_window, output_window
+
+    def _resolve_input_token_estimate(
+        self,
+        input_messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None,
+        previous_response_id: str | None,
+        estimated_input_tokens: int | None,
+    ) -> int:
+        """Resolve the input token estimate for a request."""
+
+        if estimated_input_tokens is None:
+            return self._estimate_input_tokens(
+                input_messages=input_messages,
+                tools=tools,
+                previous_response_id=previous_response_id,
+            )
+        return estimated_input_tokens
 
     def _estimate_input_tokens(
         self,
@@ -246,17 +224,64 @@ class RequestCapacityService:
             logger.error("Token estimation failed unexpectedly.", exc_info=True)
             raise
 
-    def _estimate_completion_headroom(self, estimated_input_tokens: int, output_window: int) -> int:
-        """Estimate reserved completion headroom for a request.
-
-        Args:
-            estimated_input_tokens: Estimated token count for the request payload.
-            output_window: The model output window.
-
-        Returns:
-            The reserved completion headroom in tokens.
-        """
+    def _compute_completion_headroom(self, estimated_input_tokens: int, output_window: int) -> int:
+        """Compute reserved completion headroom for a request."""
 
         reserve_floor = max(16, output_window // 64)
         reserve_factor = max(estimated_input_tokens // 8, 0)
         return min(output_window, max(reserve_floor, reserve_factor))
+
+    def _build_capacity_check_result(
+        self,
+        model: str,
+        token_estimate: int,
+        context_window: int,
+        output_window: int,
+        completion_headroom: int,
+    ) -> CapacityCheckResult:
+        """Build the final capacity decision result."""
+
+        if token_estimate > context_window:
+            reason = (
+                f"Request exceeds context window: estimated_input_tokens={token_estimate}, "
+                f"context_window={context_window}, completion_headroom={completion_headroom}"
+            )
+            logger.warning(reason)
+            return CapacityCheckResult(
+                fits=False,
+                estimated_input_tokens=token_estimate,
+                context_window=context_window,
+                output_window=output_window,
+                completion_headroom=completion_headroom,
+                reason=reason,
+            )
+        if completion_headroom > 0 and token_estimate + completion_headroom > context_window:
+            reason = (
+                f"Request exceeds context window after reserving completion headroom: "
+                f"estimated_input_tokens={token_estimate}, context_window={context_window}, "
+                f"completion_headroom={completion_headroom}"
+            )
+            logger.warning(reason)
+            return CapacityCheckResult(
+                fits=False,
+                estimated_input_tokens=token_estimate,
+                context_window=context_window,
+                output_window=output_window,
+                completion_headroom=completion_headroom,
+                reason=reason,
+            )
+        logger.info(
+            "Request fits for model=%s: resolved_context_window=%s, resolved_output_window=%s, estimated_input_tokens=%s, completion_headroom=%s.",
+            model,
+            context_window,
+            output_window,
+            token_estimate,
+            completion_headroom,
+        )
+        return CapacityCheckResult(
+            fits=True,
+            estimated_input_tokens=token_estimate,
+            context_window=context_window,
+            output_window=output_window,
+            completion_headroom=completion_headroom,
+        )

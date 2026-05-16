@@ -35,3 +35,4 @@
 - [x] `src/monitor_oop/core/presentation/transcript_viewport.py` transcript viewport tests completed; stale assumptions were updated to match the current implementation.
 - [x] `src/monitor_oop/core/presentation/tui.py` transcript plumbing tests completed; stale assumptions were updated to match the current implementation.
 - [x] `src/monitor_oop/core/__init__.py` does not require dedicated coverage
+- [x] Core service boundaries have been encapsulation-refactored in preparation for new tests, including config resolution, request capacity, rate limit, response client, tool service, config path, env loader, config accessor, turn budget, and logger service.
