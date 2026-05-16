@@ -25,33 +25,35 @@ As the OOP refactor landed, the implementation became more concrete:
 
 ## What exists today
 The current implementation includes:
-- a rolling-window `RateLimitService`
-- token-per-minute checks
-- request-per-minute checks when configured
+- a thread-safe rolling-window `RateLimitService`
+- token-per-minute checks with conservative fallback behavior
+- request-per-minute checks when configured, with conservative fallback behavior
+- optional waiting support for rate-limited requests when enabled by policy
 - preflight enforcement in `LLMResponseClient`
 - usage recording after successful request dispatch
 - separate capacity gating in `RequestCapacityService`
 - integration through `RuntimeContext` and bootstrap wiring in `app.py`
 
-This means the current system is functional and centralized, but still narrower than the larger policy vision described in the planning docs.
+This means the current system is functional and centralized, and it now covers the core enforcement path with safer limiter behavior, but it is still narrower than the larger policy vision described in the planning docs.
 
 ## Current implementation audit
 Using the same review categories as the plan and checklist, the present status is:
 
 - **Confirmed gaps**
   - provider-aware and tier-aware limit resolution is only partial
-  - concurrency and thread-safety have not been addressed explicitly
-  - wait/retry semantics are not implemented
+  - concurrency and thread-safety have been improved in the limiter, but broader cross-component guarantees have not been addressed explicitly
+  - wait/retry semantics exist in a limited form, but the blocking policy surface remains incomplete
   - stronger observability and edge-case coverage remain incomplete
 
 - **Design choice to confirm**
-  - TPM fallback-to-1 behavior is still a choice to confirm
-  - TPM and RPM missing-value handling is asymmetric and should be validated against the intended policy
+  - TPM fallback-to-1 behavior is now implemented conservatively, but still needs policy validation
+  - TPM and RPM missing-value handling is intentionally conservative, but the exact fallback rules should be validated against the intended policy
+  - optional waiting behavior should be confirmed as the desired default-versus-configured path
 
 - **Product decision needed**
-  - whether wait/retry should be added at all, and if so how blocking behavior should work
+  - whether wait/retry should be expanded into a fuller schema-backed policy, and if so how blocking behavior should work
   - whether RPM should remain optional or become a more structured policy path
-  - whether the current fallback and omission behavior should be preserved or tightened
+  - whether the current conservative fallback and omission behavior should be preserved, tightened, or made explicit in configuration
 
 - **Intentional separation**
   - completion headroom is intentionally handled in capacity checks, not in rate limiting
@@ -75,16 +77,15 @@ A few important shifts happened during the design and implementation process:
 
 ## What remains to be done
 The remaining work is mostly about policy depth, configurability, and verification:
+- make wait behavior explicit through config accessors and, if needed, schema-backed policy support
 - decide whether TPM enforcement should be expanded into a richer explicit policy layer
-- decide whether RPM should remain optional or become more structured
-- confirm whether TPM fallback-to-1 should remain the default behavior
+- decide whether RPM should remain optional or become a more structured policy
+- validate the conservative TPM and RPM fallback rules and document the intended behavior
 - resolve the current asymmetric handling of missing TPM and RPM values
-- add wait/retry semantics if the product needs them
-- define whether completion reserve belongs in rate limiting or only in capacity management
 - expand provider-aware or tier-aware limit resolution if required by future schemas
-- add stronger tests around edge cases, blocking, and rolling-window expiration
-- improve observability around blocked requests and effective limits
-- determine whether concurrency and thread-safety constraints need explicit handling
+- add stronger tests around edge cases, blocking, fallback policy, and rolling-window expiration
+- improve observability around blocked requests, wait decisions, and effective limits
+- determine whether concurrency and thread-safety constraints need any additional explicit handling across the broader send path
 
 ## Relationship to the docs
 Use this file as the historical narrative.
@@ -98,6 +99,6 @@ The rate-limiting subsystem has moved from a broad architectural idea to a worki
 - centralized enforcement exists
 - the send path is gated before adapter dispatch
 - capacity checks remain separate
-- the implementation is functional, but not yet as policy-rich as the long-term plan
+- the implementation is functional, thread-safe in the limiter, and includes optional waiting support, but it is not yet as policy-rich as the long-term plan
 
 This roadmap exists to preserve that history while keeping future work grounded in what the code actually does today.

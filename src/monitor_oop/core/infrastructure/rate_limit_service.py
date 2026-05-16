@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,6 +37,7 @@ class RateLimitService:
         self._window_seconds = max(window_seconds, 1)
         self._usage_events: Deque[_UsageEvent] = deque()
         self._request_count_events: Deque[float] = deque()
+        self._lock = threading.RLock()
 
     def estimate_token_usage(
         self,
@@ -73,64 +76,82 @@ class RateLimitService:
         )
         return conservative_estimate
 
-    def request_allowed(self, model: str, estimated_tokens: int) -> bool:
+    def request_allowed(
+        self,
+        model: str,
+        estimated_tokens: int,
+        allow_wait: bool = False,
+        wait_timeout_seconds: float | None = None,
+    ) -> bool:
         """Check whether a request is allowed under the active rate-limit budget.
 
         Args:
             model: Model identifier for the request.
             estimated_tokens: Estimated token usage for the request.
+            allow_wait: Whether to wait for budget to become available.
+            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
 
         Returns:
             True when the request fits within the active budget, otherwise False.
-
-        Raises:
-            ValueError: If the configured RPM limit is missing for the requested model.
         """
 
-        self._purge_old_events()
-        current_tokens = sum(event.tokens for event in self._usage_events)
-        current_requests = len(self._request_count_events)
-        tpm_limit = self._get_tpm_limit(model)
-        rpm_limit = self._get_rpm_limit(model)
-        logger.info(
-            "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s.",
-            model,
-            estimated_tokens,
-            current_tokens,
-            current_requests,
-            tpm_limit,
-            rpm_limit,
-            self._window_seconds,
-        )
-        token_request_total = current_tokens + estimated_tokens
-        token_limit_exceeded = token_request_total > tpm_limit
-        if token_limit_exceeded:
-            logger.warning(
-                "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
-                estimated_tokens,
-                current_tokens,
-                tpm_limit,
-            )
-            return False
-        request_total = current_requests + 1
-        request_limit_exceeded = request_total > rpm_limit
-        if request_limit_exceeded:
-            logger.warning(
-                "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
-                current_requests,
-                rpm_limit,
-            )
-            return False
-        logger.info(
-            "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
-            model,
-            estimated_tokens,
-            current_tokens,
-            current_requests,
-            tpm_limit,
-            rpm_limit,
-        )
-        return True
+        deadline = None if wait_timeout_seconds is None else time.monotonic() + max(wait_timeout_seconds, 0.0)
+        while True:
+            with self._lock:
+                self._purge_old_events_locked()
+                current_tokens, current_requests = self._current_usage_locked()
+                tpm_limit = self._get_tpm_limit(model)
+                rpm_limit = self._get_rpm_limit(model)
+                fits = self._fits_under_limits_locked(
+                    estimated_tokens=estimated_tokens,
+                    current_tokens=current_tokens,
+                    current_requests=current_requests,
+                    tpm_limit=tpm_limit,
+                    rpm_limit=rpm_limit,
+                )
+                logger.info(
+                    "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s, allow_wait=%s, wait_timeout_seconds=%s.",
+                    model,
+                    estimated_tokens,
+                    current_tokens,
+                    current_requests,
+                    tpm_limit,
+                    rpm_limit,
+                    self._window_seconds,
+                    allow_wait,
+                    wait_timeout_seconds,
+                )
+                if fits:
+                    logger.info(
+                        "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
+                        model,
+                        estimated_tokens,
+                        current_tokens,
+                        current_requests,
+                        tpm_limit,
+                        rpm_limit,
+                    )
+                    return True
+                if not allow_wait:
+                    logger.info(
+                        "Rate limit denied for model=%s without waiting: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
+                        model,
+                        estimated_tokens,
+                        current_tokens,
+                        current_requests,
+                        tpm_limit,
+                        rpm_limit,
+                    )
+                    return False
+            if deadline is not None and time.monotonic() >= deadline:
+                logger.info(
+                    "Rate limit wait timed out for model=%s: estimated_tokens=%s, wait_timeout_seconds=%s.",
+                    model,
+                    estimated_tokens,
+                    wait_timeout_seconds,
+                )
+                return False
+            time.sleep(0.1)
 
     def record_request(self, tokens: int) -> None:
         """Record a successful request in the rolling accounting window.
@@ -139,10 +160,11 @@ class RateLimitService:
             tokens: Actual or estimated token usage to record.
         """
 
-        self._purge_old_events()
-        timestamp = datetime.now(tz=timezone.utc).timestamp()
-        self._usage_events.append(_UsageEvent(timestamp=timestamp, tokens=max(tokens, 0)))
-        self._request_count_events.append(timestamp)
+        with self._lock:
+            self._purge_old_events_locked()
+            timestamp = datetime.now(tz=timezone.utc).timestamp()
+            self._usage_events.append(_UsageEvent(timestamp=timestamp, tokens=max(tokens, 0)))
+            self._request_count_events.append(timestamp)
         logger.info("Recorded rate-limit usage event: tokens=%s, timestamp=%s.", tokens, timestamp)
 
     def _get_tpm_limit(self, model: str) -> int:
@@ -157,11 +179,13 @@ class RateLimitService:
 
         limit = self._config_service.get_model_tpm_limit(model)
         if limit is None:
+            conservative_fallback = 1
             logger.info(
-                "No TPM limit configured for model=%s; falling back to default value 1.",
+                "No TPM limit configured for model=%s; using conservative fallback=%s.",
                 model,
+                conservative_fallback,
             )
-            return 1
+            return conservative_fallback
         logger.info("Resolved TPM limit for model=%s: %s.", model, limit)
         return limit
 
@@ -173,19 +197,73 @@ class RateLimitService:
 
         Returns:
             The request-per-minute limit for the configured model.
-
-        Raises:
-            ValueError: If no RPM limit is configured for the model.
         """
 
         limit = self._config_service.get_model_rpm_limit(model)
         if limit is None:
-            logger.error("No RPM limit configured for model=%s.", model)
-            raise ValueError(f"No RPM limit configured for model={model}.")
+            conservative_fallback = 1
+            logger.info(
+                "No RPM limit configured for model=%s; using conservative fallback=%s.",
+                model,
+                conservative_fallback,
+            )
+            return conservative_fallback
         logger.info("Resolved RPM limit for model=%s: %s.", model, limit)
         return limit
 
-    def _purge_old_events(self) -> None:
+    def _current_usage_locked(self) -> tuple[int, int]:
+        """Return the current token and request usage under the active lock.
+
+        Returns:
+            A tuple containing the current token total and request count.
+        """
+
+        current_tokens = sum(event.tokens for event in self._usage_events)
+        current_requests = len(self._request_count_events)
+        return current_tokens, current_requests
+
+    def _fits_under_limits_locked(
+        self,
+        *,
+        estimated_tokens: int,
+        current_tokens: int,
+        current_requests: int,
+        tpm_limit: int,
+        rpm_limit: int,
+    ) -> bool:
+        """Check whether a request fits within the configured rate limits.
+
+        Args:
+            estimated_tokens: Estimated token usage for the request.
+            current_tokens: Current token usage in the rolling window.
+            current_requests: Current request count in the rolling window.
+            tpm_limit: Token-per-minute limit.
+            rpm_limit: Request-per-minute limit.
+
+        Returns:
+            True when the request fits within the active limits, otherwise False.
+        """
+
+        token_request_total = current_tokens + estimated_tokens
+        if token_request_total > tpm_limit:
+            logger.warning(
+                "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
+                estimated_tokens,
+                current_tokens,
+                tpm_limit,
+            )
+            return False
+        request_total = current_requests + 1
+        if request_total > rpm_limit:
+            logger.warning(
+                "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
+                current_requests,
+                rpm_limit,
+            )
+            return False
+        return True
+
+    def _purge_old_events_locked(self) -> None:
         """Drop usage events older than the rolling window."""
 
         cutoff = datetime.now(tz=timezone.utc).timestamp() - self._window_seconds

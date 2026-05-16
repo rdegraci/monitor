@@ -25,11 +25,13 @@ This tracker covers:
 
 ## Known gaps / bugs to address
 - [ ] Confirmed gap: provider-aware and tier-aware resolution is correct for the initial implementation path.
+- [x] Conservative fallback handling is implemented for the current provider/model resolution path.
 - [ ] Design choice to confirm: TPM fallback-to-1 behavior is safe for production defaults.
 - [ ] Confirmed gap: reconcile the asymmetry between TPM missing-value behavior and RPM missing-value behavior.
 - [ ] Design choice to confirm: wait/retry behavior should be added now or deferred to a later iteration.
+- [x] Optional waiting support is partially implemented in the current preflight flow.
 - [ ] Design choice to confirm: completion headroom should remain explicitly separate from rate limiting or be intentionally folded into the limiter.
-- [ ] Confirmed gap: evaluate thread-safety and concurrency protection for the rolling-window state.
+- [x] Confirmed gap: evaluate thread-safety and concurrency protection for the rolling-window state.
 
 ## Milestone 1: Policy definition
 - [x] Define rate limiting as a pre-send check rather than an adapter concern.
@@ -84,6 +86,12 @@ This tracker covers:
 - [x] Record usage after successful dispatch.
 - [x] Ensure follow-up tool calls and summary calls use the same path.
 - [x] Ensure the future Anthropic adapter can reuse the same service contract.
+- [x] Add thread-safety protections for the rolling-window state.
+- [x] Add conservative fallback handling for missing or partial policy values.
+- [ ] Add explicit config accessors for wait-policy and fallback-resolution behavior.
+- [ ] Add schema-backed wait policy support.
+- [ ] Validate fallback values against policy constraints before use.
+- [ ] Expand provider/tier policy resolution beyond the current implementation path.
 
 ## Milestone 6: Verification
 - [ ] Add tests for preflight approval and rejection.
@@ -94,6 +102,9 @@ This tracker covers:
 - [ ] Add tests for follow-up and summarization request coverage.
 - [ ] Add tests for compatibility with a future LiteLLM-backed Anthropic adapter.
 - [ ] Add tests confirming adapters remain transport-only.
+- [ ] Add tests for thread safety and concurrent rate-limit updates.
+- [ ] Add tests for fallback handling and policy validation.
+- [ ] Add tests for explicit wait-policy config accessors and schema-backed wait support.
 
 ## Notes
 - Prefer a deterministic first implementation.

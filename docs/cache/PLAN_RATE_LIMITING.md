@@ -3,38 +3,43 @@
 ## Goal
 Document how `monitor_oop` rate limits outbound LLM requests in the current implementation, while clearly separating implemented behavior from planned work.
 
-The current codebase uses a centralized rolling-window limiter in `RateLimitService`. `LLMResponseClient` performs preflight checks before adapter dispatch and records usage after a successful send. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
+The current codebase uses a centralized rolling-window limiter in `RateLimitService`. `RateLimitService` is now thread-safe and can optionally wait for budget when configured to do so. `LLMResponseClient` performs preflight checks before adapter dispatch, can pass through optional wait-policy values when present, and records usage after a successful send. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
 
 The implementation is intentionally adapter-agnostic at the send boundary. Provider-specific behavior is still primarily driven through `ConfigService` and runtime configuration, but the broader provider-aware/tier-aware policy model described below is only partially implemented and should be treated as future-facing where noted.
 
 ## Current status
 The current implementation includes:
 - a rolling-window `RateLimitService`
+- thread-safe limiter behavior
+- optional wait-for-budget behavior in `RateLimitService`
 - TPM checks driven by configuration through `ConfigService`
 - RPM checks where configured through `ConfigService`
+- conservative fallback handling when TPM or RPM values are missing
 - `LLMResponseClient` preflight enforcement before adapter dispatch
+- `LLMResponseClient` pass-through of optional wait-policy values when present
 - post-send usage recording after successful requests
 - separate capacity checks in `RequestCapacityService`
 
 ## Known gaps / implementation issues
 - Confirmed gap: provider-aware and tier-aware limit resolution is still only partially modeled through `ConfigService` and is not a full policy engine.
-- Design choice to confirm: TPM fallback to `1` when unset may be overly conservative and should be treated as behavior to confirm.
-- Confirmed gap or behavior inconsistency to resolve: RPM and TPM handling are asymmetric when values are missing.
-- Product decision needed: wait/retry behavior is not implemented in the current rate limiter.
+- Confirmed gap: explicit config accessors or schema-backed wait policy support are still needed to make wait behavior fully first-class.
+- Design choice to confirm: fallback handling for missing TPM and RPM values is conservative and should be validated as intended policy.
+- Product decision needed: wait/retry behavior is not fully standardized across all call sites and workflows.
 - Intentional separation: completion headroom is currently a capacity concern rather than a rate-limit concern.
-- Confirmed gap, if shared across concurrent execution: concurrency and thread-safety considerations have not been addressed explicitly.
+- Confirmed gap: tests for waiting, rolling-window expiration, and concurrency coverage need to be expanded.
 
 What is not fully implemented yet:
 - full provider-aware or tier-aware policy resolution
-- completion-headroom-based rate limiting as a first-class policy
-- wait-then-proceed or wait-then-fail policy handling in the rate limiter
+- explicit config accessors or schema-backed wait policy support
+- policy validation for fallback limit values
+- deeper wait/retry policy standardization across workflows
 - any adapter-embedded rate limiting logic
 
 ## Current Direction
 The intended design remains a shared runtime service that enforces token-based limits across providers, but the current implementation should be described in terms of what it actually does today:
-- `RateLimitService` owns rolling-window accounting and limit evaluation
+- `RateLimitService` owns rolling-window accounting, limit evaluation, and optional waiting behavior
 - `ConfigService` provides model/config data used to determine the effective limits currently in use
-- `LLMResponseClient` calls the limiter before invoking the adapter
+- `LLMResponseClient` calls the limiter before invoking the adapter and can forward wait-policy values when available
 - provider adapters remain transport-only and do not embed rate limiting logic
 - future provider adapters should reuse the same limiter through the same service boundary
 
@@ -171,10 +176,11 @@ Any implementation should be verified for:
 
 ## Remaining work
 - Expand provider-aware and tier-aware limit resolution if the config schema requires it.
-- Decide whether completion reserve should become part of rate-limit enforcement or remain a capacity concern.
+- Add explicit config accessors or schema-backed wait policy support if wait behavior needs to be fully first-class.
+- Validate fallback handling for missing TPM and RPM values as part of policy definition.
 - Add explicit wait/retry semantics if interactive or server workflows need them.
 - Improve observability for effective limits, blocked requests, and usage adjustments.
-- Extend tests to cover follow-up, summary, and retry paths across all supported providers.
+- Extend tests to cover waiting, rolling-window expiration, concurrency, follow-up, summary, and retry paths across all supported providers.
 
 ## Notes
 - Prefer a single shared enforcement point over scattered checks.

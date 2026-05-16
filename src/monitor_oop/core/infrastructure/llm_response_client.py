@@ -51,6 +51,26 @@ class LLMResponseClient:
         logger.info("Building LiteLLM tools: tool count=%s, tool names=%s.", len(tools), tool_names)
         return tools
 
+    def _get_rate_limit_wait_policy(self) -> dict[str, Any]:
+        """Return optional wait policy values for rate limiting.
+
+        The runtime config may expose wait policy attributes on some deployments.
+        This helper reads those values conservatively and only returns keys that
+        are present and usable.
+        """
+
+        wait_policy: dict[str, Any] = {}
+
+        wait_policy_value = getattr(self.config_service, "rate_limit_wait_policy", None)
+        if wait_policy_value is not None:
+            wait_policy["wait_policy"] = wait_policy_value
+
+        wait_timeout_seconds = getattr(self.config_service, "rate_limit_wait_timeout_seconds", None)
+        if wait_timeout_seconds is not None:
+            wait_policy["wait_timeout_seconds"] = wait_timeout_seconds
+
+        return wait_policy
+
     def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
         """Create a response using the adapter completion API.
 
@@ -133,6 +153,23 @@ class LLMResponseClient:
                 )
                 raise ValueError("Request does not fit within the configured request capacity limits.")
         if self._rate_limit_service is not None:
+            wait_policy_kwargs = self._get_rate_limit_wait_policy()
+            if wait_policy_kwargs:
+                logger.info(
+                    "Using rate limit wait policy from config: full_model_name=%s, api_model_name=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+                    full_model_name,
+                    api_model_name,
+                    wait_policy_kwargs.get("wait_policy"),
+                    wait_policy_kwargs.get("wait_timeout_seconds"),
+                    previous_response_id,
+                )
+            else:
+                logger.info(
+                    "No rate limit wait policy found in config; proceeding without wait overrides: full_model_name=%s, api_model_name=%s, previous_response_id=%s.",
+                    full_model_name,
+                    api_model_name,
+                    previous_response_id,
+                )
             logger.info(
                 "Performing rate limit preflight check: full_model_name=%s, api_model_name=%s, api_key_present=%s, message_count=%s, tool_count=%s, previous_response_id=%s.",
                 full_model_name,
@@ -155,10 +192,21 @@ class LLMResponseClient:
                 estimated_tokens,
                 previous_response_id,
             )
-            rate_limit_allows = self._rate_limit_service.request_allowed(
-                model=full_model_name,
-                estimated_tokens=estimated_tokens,
+            request_allowed_kwargs = {
+                "model": full_model_name,
+                "estimated_tokens": estimated_tokens,
+            }
+            request_allowed_kwargs.update(wait_policy_kwargs)
+            logger.info(
+                "Calling request_allowed with rate limit context: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+                full_model_name,
+                api_model_name,
+                estimated_tokens,
+                request_allowed_kwargs.get("wait_policy"),
+                request_allowed_kwargs.get("wait_timeout_seconds"),
+                previous_response_id,
             )
+            rate_limit_allows = self._rate_limit_service.request_allowed(**request_allowed_kwargs)
             if rate_limit_allows:
                 logger.info(
                     "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
