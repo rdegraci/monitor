@@ -97,11 +97,60 @@ class ConversationSession:
         logger.info("History compaction requested; running compaction flow")
         return self.context.summarization_service.summarize(history_snapshot)
 
+    def _estimate_compaction_token_count(self, history_snapshot: tuple[Message, ...]) -> int | None:
+        """Estimate token usage for the current history conservatively."""
+
+        config_service = self.context.config_service
+        model_name = None
+        if hasattr(config_service, "get_full_model_name"):
+            model_name = config_service.get_full_model_name()
+
+        if not model_name or not hasattr(config_service, "estimate_token_usage"):
+            return None
+
+        try:
+            estimated_token_count = config_service.estimate_token_usage(
+                model=model_name,
+                messages=list(history_snapshot),
+                tools=None,
+                previous_response_id=None,
+            )
+        except Exception:
+            logger.exception("Token usage estimation failed; falling back to message lengths")
+            return None
+
+        if estimated_token_count is None:
+            return None
+
+        return estimated_token_count
+
     def _maybe_compact_history(self) -> None:
         """Compact history when the history service requests it."""
 
         history_service = self.context.history_service
-        if history_service.should_compact():
+        history_snapshot = tuple(history_service.messages)
+        message_lengths = [len(message.content) for message in history_snapshot]
+        context_window = None
+        output_window = None
+        config_service = self.context.config_service
+        if hasattr(config_service, "get_context_window"):
+            context_window = config_service.get_context_window()
+        if hasattr(config_service, "get_output_window"):
+            output_window = config_service.get_output_window()
+
+        estimated_token_count = None
+        if history_snapshot:
+            estimated_token_count = self._estimate_compaction_token_count(history_snapshot)
+            if estimated_token_count is None:
+                estimated_token_count = sum(message_lengths)
+
+        should_compact = history_service.should_compact(
+            message_lengths=message_lengths,
+            context_window=context_window,
+            output_window=output_window,
+            estimated_token_count=estimated_token_count,
+        )
+        if should_compact:
             summary_text = self._build_compaction_summary()
             history_service.compact(summary_text)
 

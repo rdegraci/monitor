@@ -28,9 +28,9 @@ The current implementation includes:
 - Design choice to confirm: fallback handling for missing TPM and RPM values is conservative and should be validated as intended policy.
 - Product decision needed: wait/retry behavior is not fully standardized across all call sites and workflows.
 - Intentional separation: completion headroom is currently a capacity concern rather than a rate-limit concern.
-- Confirmed gap: tests for waiting, rolling-window expiration, and concurrency coverage need to be expanded.
-- Confirmed gap: compaction test doubles should be aligned with the real `SummarizationService` API.
-- Confirmed gap: compaction triggering is currently turn-budget driven, uses an explicit threshold ratio in code, and may need to be made more explicit or token-aware.
+- Confirmed gap: compaction now uses context window pressure, explicit output headroom, and an estimator-backed token count, with a turn-budget fallback still present.
+- Confirmed gap: brittle tests calling private compaction helpers were removed in favor of durable behavior tests.
+- Confirmed gap: compaction triggering is now context-window driven but still falls back to turn budget, and may need to be made more explicit or token-aware.
 - Confirmed gap: naming between summarization and compaction should be clarified if they are intended to be distinct.
 
 What is not fully implemented yet:
@@ -185,9 +185,9 @@ Any implementation should be verified for:
 - Validate fallback handling for missing TPM and RPM values as part of policy definition.
 - Add explicit wait/retry semantics if interactive or server workflows need them.
 - Improve observability for effective limits, blocked requests, and usage adjustments.
-- Extend tests to cover waiting, rolling-window expiration, concurrency, follow-up, summary, and retry paths across all supported providers.
+- Extend tests to cover waiting, rolling-window expiration, concurrency, follow-up, summary, retry, and compaction paths across all supported providers.
 - Align compaction test doubles with the real `SummarizationService` API.
-- Clarify whether compaction triggering should remain turn-budget driven and use an explicit threshold ratio in code, or become more explicit or token-aware.
+- Clarify whether compaction should remain context-window driven with explicit output headroom and an estimator-backed token count, while retaining the turn-budget fallback.
 - Separate summarization and compaction naming and roles if they are intended to be distinct.
 
 ## Notes

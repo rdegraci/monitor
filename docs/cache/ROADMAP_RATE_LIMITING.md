@@ -47,19 +47,21 @@ Using the same review categories as the plan and checklist, the present status i
   - concurrency and thread-safety have been improved in the limiter, but broader cross-component guarantees have not been addressed explicitly
   - wait/retry semantics exist in a limited form, but the blocking policy surface remains incomplete
   - stronger observability and edge-case coverage remain incomplete
-  - test-double API drift in compaction needs to be aligned with the current interfaces
-  - compaction trigger policy is still turn-budget driven, with an explicit threshold ratio in code, and may need to be made more explicit or token-aware
+  - brittle private-helper tests were removed, and the remaining compaction tests focus on durable public behavior
+  - compaction now uses context-window pressure with explicit output headroom and an estimator-backed token count, but the turn-budget fallback path still needs clearer policy framing
   - summarization versus compaction naming and roles may need to be clarified if they are intended to be distinct
 
 - **Design choice to confirm**
   - TPM fallback-to-1 behavior is now implemented conservatively, but still needs policy validation
   - TPM and RPM missing-value handling is intentionally conservative, but the exact fallback rules should be validated against the intended policy
   - optional waiting behavior should be confirmed as the desired default-versus-configured path
+  - compaction estimator behavior, output headroom, and turn-budget fallback should be confirmed as the intended policy split
 
 - **Product decision needed**
   - whether wait/retry should be expanded into a fuller schema-backed policy, and if so how blocking behavior should work
   - whether RPM should remain optional or become a more structured policy path
   - whether the current conservative fallback and omission behavior should be preserved, tightened, or made explicit in configuration
+  - whether compaction should remain driven by context pressure, explicit output headroom, estimator-backed token counts, and a turn-budget fallback
 
 - **Intentional separation**
   - completion headroom is intentionally handled in capacity checks, not in rate limiting
@@ -91,8 +93,8 @@ The remaining work is mostly about policy depth, configurability, and verificati
 - decide whether RPM should remain optional or become a more structured policy
 - validate the conservative TPM and RPM fallback rules and document the intended behavior
 - resolve the current asymmetric handling of missing TPM and RPM values
-- align compaction test doubles with the current APIs
-- clarify the compaction trigger policy and decide whether it should remain turn-budget driven or become more explicit or token-aware
+- align compaction test coverage with the current public APIs and durable behavior
+- clarify the compaction trigger policy around context-window pressure, output headroom, estimator-backed token counts, and the turn-budget fallback
 - separate summarization and compaction naming/roles if they are intended to be distinct
 - expand provider-aware or tier-aware limit resolution if required by future schemas
 - add stronger tests around edge cases, blocking, fallback policy, rolling-window expiration, and stable behavior under timing variability

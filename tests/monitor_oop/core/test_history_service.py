@@ -51,50 +51,52 @@ class _StubCompactionStore:
         self.persisted_summaries.append(summary_text)
 
 
-def test_history_service_should_compact_tracks_user_turns() -> None:
-    """Verify turn tracking becomes compacting once the configured threshold is reached."""
+def test_history_service_compact_with_summary_changes_large_history() -> None:
+    """Verify compact_with_summary changes history once the history is large enough."""
 
-    service = HistoryService(_StubConfig(conversation_max_turns=2))
+    compaction_store = _StubCompactionStore()
+    service = HistoryService(_StubConfig(conversation_max_turns=2), compaction_store=compaction_store)
 
-    service.append(Message(role="user", content="turn-0"))
+    service.append(Message(role="user", content="one"))
+    service.append(Message(role="assistant", content="two"))
+    service.append(Message(role="user", content="three"))
+    service.append(Message(role="assistant", content="four"))
 
-    assert not service.should_compact()
+    before_snapshot = service.snapshot()
 
-    service.append(Message(role="assistant", content="turn-1"))
+    summary_text = "summary text"
+    result = service.compact_with_summary(summary_text)
 
-    assert not service.should_compact()
+    snapshot = service.snapshot()
 
-    service.append(Message(role="user", content="turn-2"))
+    assert result is True
+    assert snapshot != before_snapshot
+    assert snapshot[0].role == "system"
+    assert snapshot[0].content == summary_text
+    assert snapshot[-2].role == "user"
+    assert snapshot[-2].content == "three"
+    assert snapshot[-1].role == "assistant"
+    assert snapshot[-1].content == "four"
+    assert compaction_store.persisted_summaries == [summary_text]
 
-    assert service.should_compact()
 
+def test_history_service_compact_with_summary_for_small_history() -> None:
+    """Verify compact_with_summary still compacts a small fixed history."""
 
-def test_history_service_turn_budget_tracker_resets_on_clear() -> None:
-    """Verify the explicit turn budget tracker stays in sync with appended user messages and resets on clear."""
-
-    service = HistoryService(_StubConfig(conversation_max_turns=2))
+    compaction_store = _StubCompactionStore()
+    service = HistoryService(_StubConfig(conversation_max_turns=1), compaction_store=compaction_store)
 
     service.append(Message(role="user", content="one"))
     service.append(Message(role="assistant", content="two"))
 
-    assert not service.should_compact()
+    result = service.compact_with_summary("summary text")
 
-    service.append(Message(role="user", content="three"))
+    snapshot = service.snapshot()
 
-    assert service.should_compact()
-
-    service.clear()
-
-    assert not service.should_compact()
-
-    service.append(Message(role="assistant", content="four"))
-    service.append(Message(role="user", content="five"))
-
-    assert not service.should_compact()
-
-    service.append(Message(role="user", content="six"))
-
-    assert service.should_compact()
+    assert result is True
+    assert snapshot[0].role == "system"
+    assert snapshot[0].content == "summary text"
+    assert compaction_store.persisted_summaries == ["summary text"]
 
 
 def test_history_service_compact_preserves_recent_messages() -> None:

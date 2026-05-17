@@ -6,10 +6,10 @@ import appdirs
 from prompt_toolkit.history import FileHistory
 
 from monitor_oop.core.command_processor import CommandProcessor
+from monitor_oop.core.compaction_store import CompactionStore
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.history_service import HistoryService
-from monitor_oop.core.compaction_store import CompactionStore
 from monitor_oop.core.infrastructure.macro_expander import MacroExpander
 from monitor_oop.core.infrastructure.macro_store import MacroStore
 from monitor_oop.core.infrastructure.prompt_store import PromptStore

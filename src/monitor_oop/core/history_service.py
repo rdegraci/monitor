@@ -112,25 +112,80 @@ class HistoryService:
         self._turn_budget_tracker.sync(snapshot)
         self._conversation_boundary_tracker.sync(snapshot)
 
-    def should_compact(self) -> bool:
+    def should_compact(
+        self,
+        context_window: int | None = None,
+        estimated_token_count: int | None = None,
+        message_lengths: list[int] | None = None,
+        output_window: int | None = None,
+    ) -> bool:
         """Return whether the stored history should be compacted.
 
-        Compaction is intentionally driven by the turn budget, using the
-        configured threshold ratio to decide when the remaining turns are low
-        enough to compact. The decision is based on
-        ``RuntimeConfig.conversation_max_turns`` and counts user/assistant
-        exchanges as turns rather than raw messages.
+        Compaction is evaluated in this order:
+
+        1. Context-window pressure, using estimated input tokens plus reserved
+           output headroom when available.
+        2. Token pressure, when ``estimated_token_count`` is provided.
+        3. Turn-budget pressure, preserving the existing threshold ratio
+           behavior for legacy callers.
+        4. Raw message-length heuristics, when ``message_lengths`` are provided.
+
+        When only the legacy inputs are available, the turn-budget threshold
+        ratio behavior is unchanged.
         """
 
-        max_turns = self._config_service.get_conversation_turn_budget()
-        if max_turns is None:
-            return False
+        messages = self._history.snapshot()
 
-        turns_remaining = self._conversation_boundary_tracker.turns_remaining(
-            max_turns
-        )
-        compact_threshold = max_turns * COMPACTION_THRESHOLD_RATIO
-        return turns_remaining <= compact_threshold
+        if context_window is not None:
+            current_tokens = sum(message_lengths or [])
+            reserved_output_tokens = output_window or 0
+            context_tokens = current_tokens + reserved_output_tokens
+            if context_tokens >= context_window:
+                logger.info(
+                    "Compaction triggered by context-window pressure with output headroom: input_tokens=%s reserved_output_tokens=%s context_tokens=%s context_window=%s",
+                    current_tokens,
+                    reserved_output_tokens,
+                    context_tokens,
+                    context_window,
+                )
+                return True
+
+        if estimated_token_count is not None:
+            current_tokens = sum(message_lengths) if message_lengths is not None else len(messages)
+            if current_tokens >= estimated_token_count:
+                logger.info(
+                    "Compaction triggered by token pressure: current_tokens=%s estimated_token_count=%s",
+                    current_tokens,
+                    estimated_token_count,
+                )
+                return True
+
+        max_turns = self._config_service.get_conversation_turn_budget()
+        if max_turns is not None:
+            turns_remaining = self._conversation_boundary_tracker.turns_remaining(
+                max_turns
+            )
+            compact_threshold = max_turns * COMPACTION_THRESHOLD_RATIO
+            if turns_remaining < compact_threshold:
+                logger.info(
+                    "Compaction triggered by turn-budget pressure: turns_remaining=%s compact_threshold=%s max_turns=%s",
+                    turns_remaining,
+                    compact_threshold,
+                    max_turns,
+                )
+                return True
+
+        if message_lengths is not None:
+            total_length = sum(message_lengths)
+            if total_length > 0:
+                logger.info(
+                    "Compaction triggered by message-length heuristic: total_length=%s message_count=%s",
+                    total_length,
+                    len(message_lengths),
+                )
+                return True
+
+        return False
 
     def compact_with_summary(self, summary_text: str) -> bool:
         """Compact history into a summary plus the newest messages.
@@ -185,4 +240,4 @@ class HistoryService:
     def reset_with_summary(self, summary_text: str) -> None:
         """Reset history while preserving a summary message."""
 
-        self._reset_with_summary(summary_text)
+        return self._reset_with_summary(summary_text)

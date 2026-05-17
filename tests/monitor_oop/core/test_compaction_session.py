@@ -155,14 +155,19 @@ def test_conversation_session_compacts_history_after_response() -> None:
     session = build_session(conversation_max_turns=1)
     session.start()
 
+    history_before = session.context.history_service.snapshot()
+
     result = session.submit_input("hello")
 
     assert result is not None
     assert result.status_text == "idle"
 
-    history_snapshot = session.context.history_service.snapshot()
-    assert any(message.role == "system" for message in history_snapshot)
-    assert any(message.role == "assistant" and message.content == "assistant response" for message in history_snapshot)
+    history_after = session.context.history_service.snapshot()
+    assert history_after != history_before
+    assert any(message.role == "system" for message in history_after)
+    assert any(message.role == "assistant" and message.content == "assistant response" for message in history_after)
+    assert history_after[-1].role == "assistant"
+    assert history_after[-1].content == "assistant response"
 
 
 def test_conversation_session_preserves_tool_call_cluster_during_compaction() -> None:

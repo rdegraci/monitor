@@ -106,8 +106,8 @@ This tracker covers:
 - [x] Add tests for fallback handling and policy validation.
 - [x] Add tests for explicit wait-policy config accessors and schema-backed wait support.
 - [x] Add durable behavior-focused tests for the response client and limiter integration.
-- [ ] Align compaction test doubles with the real `SummarizationService` API.
-- [ ] Clarify whether compaction remains turn-budget driven or becomes token-aware.
+- [ ] Clarify whether brittle internal compaction tests should be deleted or rewritten to match the current compaction contract.
+- [ ] Remove or simplify compaction-focused test doubles that only exist to support brittle internal tests.
 - [ ] Separate summarization and compaction naming and roles if they are intended to be distinct.
 
 ## Notes
