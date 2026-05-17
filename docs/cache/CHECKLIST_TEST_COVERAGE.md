@@ -8,18 +8,18 @@
 - [x] `src/monitor_oop/core/config_resolution_service.py`
 - [x] `src/monitor_oop/core/infrastructure/env_loader.py`
 - [x] `src/monitor_oop/core/infrastructure/llm_response_client.py`
-- [ ] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
-- [ ] `src/monitor_oop/core/infrastructure/request_capacity_service.py`
+- [x] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
+- [x] `src/monitor_oop/core/infrastructure/request_capacity_service.py`
 - [x] `src/monitor_oop/core/llm_adapter.py`
 - [x] `src/monitor_oop/core/logger_service.py`
 - [x] `src/monitor_oop/core/resolved_runtime_config.py`
 - [x] `src/monitor_oop/core/turn_budget.py`
 - [x] `src/monitor_oop/core/workflow.py`
-- [ ] `src/monitor_oop/core/presentation/events.py`
+- [x] `src/monitor_oop/core/presentation/events.py`
 - [x] `src/monitor_oop/core/presentation/layout.py`
 - [x] `src/monitor_oop/core/presentation/transcript_buffer.py`
-- [ ] `src/monitor_oop/core/presentation/transcript_viewport.py`
-- [ ] `src/monitor_oop/core/presentation/tui.py`
+- [x] `src/monitor_oop/core/presentation/transcript_viewport.py`
+- [x] `src/monitor_oop/core/presentation/tui.py`
 - [x] `src/monitor_oop/core/tools/registry.py`
 - [x] `src/monitor_oop/core/tools/tool_models.py`
 - [x] `src/monitor_oop/core/tools/tool_service.py`
