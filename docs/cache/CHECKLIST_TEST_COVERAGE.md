@@ -3,16 +3,16 @@
 ## Uncovered modules
 - [ ] `src/monitor_oop/core/application/llm_request_builder.py`
 - [x] `src/monitor_oop/core/config_accessor_service.py`
-- [ ] `src/monitor_oop/core/config_path_context.py`
+- [x] `src/monitor_oop/core/config_path_context.py`
 - [x] `src/monitor_oop/core/config_path_service.py`
 - [x] `src/monitor_oop/core/config_resolution_service.py`
 - [x] `src/monitor_oop/core/infrastructure/env_loader.py`
 - [x] `src/monitor_oop/core/infrastructure/llm_response_client.py`
 - [ ] `src/monitor_oop/core/infrastructure/rate_limit_service.py`
 - [ ] `src/monitor_oop/core/infrastructure/request_capacity_service.py`
-- [ ] `src/monitor_oop/core/llm_adapter.py`
+- [x] `src/monitor_oop/core/llm_adapter.py`
 - [x] `src/monitor_oop/core/logger_service.py`
-- [ ] `src/monitor_oop/core/resolved_runtime_config.py`
+- [x] `src/monitor_oop/core/resolved_runtime_config.py`
 - [x] `src/monitor_oop/core/turn_budget.py`
 - [ ] `src/monitor_oop/core/workflow.py`
 - [ ] `src/monitor_oop/core/presentation/events.py`
@@ -20,7 +20,7 @@
 - [ ] `src/monitor_oop/core/presentation/transcript_buffer.py`
 - [ ] `src/monitor_oop/core/presentation/transcript_viewport.py`
 - [ ] `src/monitor_oop/core/presentation/tui.py`
-- [ ] `src/monitor_oop/core/tools/registry.py`
+- [x] `src/monitor_oop/core/tools/registry.py`
 - [x] `src/monitor_oop/core/tools/tool_models.py`
 - [x] `src/monitor_oop/core/tools/tool_service.py`
 

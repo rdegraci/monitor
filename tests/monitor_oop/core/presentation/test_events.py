@@ -1,13 +1,19 @@
 """Tests for TUI events."""
 from __future__ import annotations
 
+from datetime import timezone
+
+from monitor_oop.core.presentation.events import AssistantTranscriptEvent
 from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 from monitor_oop.core.presentation.events import BaseEvent
 from monitor_oop.core.presentation.events import ErrorEvent
+from monitor_oop.core.presentation.events import ErrorTranscriptEvent
 from monitor_oop.core.presentation.events import InputDraftEvent
 from monitor_oop.core.presentation.events import OutputEvent
 from monitor_oop.core.presentation.events import StatusEvent
 from monitor_oop.core.presentation.events import SubagentResultEvent
+from monitor_oop.core.presentation.events import SubagentTranscriptEvent
+from monitor_oop.core.presentation.events import UserTranscriptEvent
 
 
 def test_base_event_populates_defaults() -> None:
@@ -18,6 +24,7 @@ def test_base_event_populates_defaults() -> None:
     assert event.id
     assert event.source == "monitor_oop"
     assert event.timestamp is not None
+    assert event.timestamp.tzinfo is timezone.utc
 
 
 def test_output_event_populates_kind_and_text() -> None:
@@ -77,3 +84,39 @@ def test_input_draft_event_populates_draft_text() -> None:
 
     assert event.kind == "input_draft"
     assert event.draft_text == "partial"
+
+
+def test_user_transcript_event_populates_role() -> None:
+    """Verify user transcript events carry the user role."""
+
+    event = UserTranscriptEvent(text="hello")
+
+    assert event.role == "user"
+    assert event.text == "hello"
+
+
+def test_assistant_transcript_event_populates_role() -> None:
+    """Verify assistant transcript events carry the assistant role."""
+
+    event = AssistantTranscriptEvent(text="hello")
+
+    assert event.role == "assistant"
+    assert event.text == "hello"
+
+
+def test_error_transcript_event_populates_role() -> None:
+    """Verify error transcript events carry the error role."""
+
+    event = ErrorTranscriptEvent(text="boom")
+
+    assert event.role == "error"
+    assert event.text == "boom"
+
+
+def test_subagent_transcript_event_populates_role() -> None:
+    """Verify subagent transcript events carry the subagent role."""
+
+    event = SubagentTranscriptEvent(text="result")
+
+    assert event.role == "subagent"
+    assert event.text == "result"
