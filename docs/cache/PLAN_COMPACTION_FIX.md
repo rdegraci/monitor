@@ -54,6 +54,7 @@ Any implementation should be verified for:
 
 ## Notes
 See `ROADMAP_COMPACTION_FIX.md` for the narrative overview of how this fix evolved.
+This work also uncovered a summarization/bootstrap wiring issue that was corrected by passing the real config service into the summarization service, and the compaction path now logs its decision more explicitly.
 
 - Prefer one canonical structured result for the LLM/tool path.
 - Keep UI wrappers thin and avoid creating a second competing completion contract.

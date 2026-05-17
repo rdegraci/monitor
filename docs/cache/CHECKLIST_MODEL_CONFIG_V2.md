@@ -43,6 +43,8 @@ This tracker covers:
 - [x] Confirm `ConfigService` applies the loaded model config into `RuntimeConfig`.
 - [x] Confirm `RuntimeConfig` carries `model_alias`, `provider`, `full_model_name`, `api_model_name`, `tokens_per_minute`, and `requests_per_minute`.
 - [x] Confirm `get_model()` remains compatibility behavior where referenced.
+- [x] Confirm the legacy model-config path wrapper exists for test compatibility.
+- [x] Confirm `load_json_config` remains available for compatibility tests.
 
 ## Milestone 4: Verification
 - [ ] Add tests for valid schema loading.
@@ -51,6 +53,7 @@ This tracker covers:
 - [ ] Add tests for missing tier keys.
 - [ ] Add tests for duplicate aliases or conflicting entries.
 - [ ] Add tests confirming the schema remains isolated from compaction and prompt config.
+- [ ] Add tests confirming user-config path handling accepts appdirs returning a string or path-like value and still resolves `model_config_v2.json` correctly.
 
 ## Notes
 - Keep the schema explicit and easy to validate.

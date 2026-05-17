@@ -13,6 +13,7 @@ The current gap list has been swept and the listed core modules are now covered.
 - `src/monitor_oop/core/presentation/events.py`
 - `src/monitor_oop/core/presentation/tui.py`
 - `src/monitor_oop/core/tools/tool_models.py`
+- Compatibility-focused infrastructure coverage for the model config path wrapper and its JSON loading shim, if not already covered.
 
 ## Success criteria
 - Every high-priority service has direct tests.

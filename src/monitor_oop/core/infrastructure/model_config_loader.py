@@ -1,6 +1,7 @@
 """Model configuration loading for Monitor OOP."""
 from __future__ import annotations
 
+import appdirs
 import json
 import logging
 from dataclasses import dataclass
@@ -58,13 +59,21 @@ class ModelConfigLoader:
         """
         return Path(__file__).resolve().parents[2] / "model_config_v2.json"
 
+    def get_user_config_dir_path(self) -> Path:
+        """Return the user configuration directory path.
+
+        Returns:
+            The user configuration directory path provided by appdirs.
+        """
+        return Path(appdirs.user_config_dir("monitor_oop"))
+
     def get_user_config_path(self) -> Path:
         """Return the user configuration file path.
 
         Returns:
             The user configuration file path in the user config directory.
         """
-        return Path(ConfigPathService().get_user_config_dir_path()) / "model_config_v2.json"
+        return self.get_user_config_dir_path() / "model_config_v2.json"
 
     def get_model_config_path(self) -> Path:
         """Return the preferred model configuration file path.

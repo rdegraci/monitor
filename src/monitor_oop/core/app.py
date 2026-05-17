@@ -166,6 +166,7 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
     )
     summarization_prompt_template = config_service.get_summarization_prompt_template()
     summarization_service = SummarizationService(
+        config_service,
         llm_request_builder,
         response_client,
         adapter,

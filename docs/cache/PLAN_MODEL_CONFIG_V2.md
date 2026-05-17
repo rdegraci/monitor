@@ -57,7 +57,7 @@ A loader should resolve configuration in this order:
 6. Resolve the final TPM ceiling from the selected provider table.
 
 ## Validation Expectations
-The eventual loader should validate that:
+The loader validates that:
 - every model alias is present in each required map
 - provider-table references exist and are well formed
 - every `tier_key` exists in the referenced provider table
@@ -90,5 +90,9 @@ It should not absorb unrelated concerns such as:
 - `ConfigService` now loads and applies `model_config_v2.json` during bootstrap, and `RuntimeConfig` carries the resolved model fields used by the running application.
 - `RuntimeConfig` stores the runtime model configuration using `full_model_name`, while `api_model_name` is the adapter-facing value used for transport integration.
 - `get_model()` is retained as compatibility behavior for callers that still expect the older access pattern.
+- A compatibility wrapper remains in place for legacy tests that still exercise the older model access path.
+- The public `load_json_config` compatibility method is preserved for callers that still rely on the prior loading interface.
+- User-config path resolution remains tolerant of `appdirs` returning either a string or a path-like value.
+- The loader resolves the packaged or user JSON file path directly, not just the enclosing directory.
 - Remaining work is limited to validation refinement, error reporting polish, and any schema tightening needed as additional provider tables are introduced.
 - The first code slice still uses conservative runtime fallbacks for model limit values while the full `model_config_v2.json`-backed schema loader remains future work.

@@ -85,6 +85,26 @@ class ConversationSession:
 
         return None
 
+    def _get_compaction_config_service(self):
+        """Return the config service when it supports compaction-related methods.
+
+        Returns:
+            The current config service if it exposes the methods needed for
+            compaction decisions, otherwise None.
+        """
+
+        config_service = self.context.config_service
+        required_methods = (
+            "get_context_window",
+            "get_output_window",
+            "get_full_model_name",
+            "estimate_token_usage",
+        )
+        for method_name in required_methods:
+            if not hasattr(config_service, method_name):
+                return None
+        return config_service
+
     def _build_compaction_summary(self) -> str:
         """Build a deterministic summary string for history compaction.
 
@@ -100,12 +120,12 @@ class ConversationSession:
     def _estimate_compaction_token_count(self, history_snapshot: tuple[Message, ...]) -> int | None:
         """Estimate token usage for the current history conservatively."""
 
-        config_service = self.context.config_service
-        model_name = None
-        if hasattr(config_service, "get_full_model_name"):
-            model_name = config_service.get_full_model_name()
+        config_service = self._get_compaction_config_service()
+        if config_service is None:
+            return None
 
-        if not model_name or not hasattr(config_service, "estimate_token_usage"):
+        model_name = config_service.get_full_model_name()
+        if not model_name:
             return None
 
         try:
@@ -128,15 +148,20 @@ class ConversationSession:
         """Compact history when the history service requests it."""
 
         history_service = self.context.history_service
+        config_service = self._get_compaction_config_service()
+        if config_service is None:
+            logger.info("Compaction config service unavailable; using legacy turn-budget path")
+            should_compact = history_service.should_compact()
+            logger.info("Legacy compaction decision: %s", should_compact)
+            if should_compact:
+                summary_text = self._build_compaction_summary()
+                history_service.compact(summary_text)
+            return
+
         history_snapshot = tuple(history_service.messages)
         message_lengths = [len(message.content) for message in history_snapshot]
-        context_window = None
-        output_window = None
-        config_service = self.context.config_service
-        if hasattr(config_service, "get_context_window"):
-            context_window = config_service.get_context_window()
-        if hasattr(config_service, "get_output_window"):
-            output_window = config_service.get_output_window()
+        context_window = config_service.get_context_window()
+        output_window = config_service.get_output_window()
 
         estimated_token_count = None
         if history_snapshot:
@@ -144,12 +169,20 @@ class ConversationSession:
             if estimated_token_count is None:
                 estimated_token_count = sum(message_lengths)
 
-        should_compact = history_service.should_compact(
-            message_lengths=message_lengths,
-            context_window=context_window,
-            output_window=output_window,
-            estimated_token_count=estimated_token_count,
+        logger.info(
+            "Evaluating compaction with context_window=%s output_window=%s estimated_token_count=%s message_count=%s",
+            context_window,
+            output_window,
+            estimated_token_count,
+            len(history_snapshot),
         )
+        should_compact = history_service.should_compact(
+            context_window=context_window,
+            estimated_token_count=estimated_token_count,
+            message_lengths=message_lengths,
+            output_window=output_window,
+        )
+        logger.info("Compaction decision: %s", should_compact)
         if should_compact:
             summary_text = self._build_compaction_summary()
             history_service.compact(summary_text)
