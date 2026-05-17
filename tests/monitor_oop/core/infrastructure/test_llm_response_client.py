@@ -118,7 +118,7 @@ class FakeRateLimitService:
         self.called_request_allowed = True
         return self.allowed
 
-    def _record_request_for_model(self, model: str, tokens: int) -> None:
+    def record_request_for_model(self, model: str, tokens: int) -> None:
         """Record the model-aware request usage call."""
 
         self.called_record_request_for_model = True
@@ -132,8 +132,8 @@ class FakeRateLimitService:
         self.recorded_request_tokens = tokens
 
 
-class FakeRateLimitServiceWithoutInternalHelper:
-    """Minimal rate limit service stub without the internal helper."""
+class FakeRateLimitServiceWithLegacyFallbackOnly:
+    """Minimal rate limit service stub without the public model-aware method."""
 
     def __init__(self, allowed: bool) -> None:
         self.allowed = allowed
@@ -265,6 +265,7 @@ def test_create_response_invokes_adapter_after_preflights_pass() -> None:
     assert rate_limit_service.called_request_allowed is True
     assert rate_limit_service.called_record_request_for_model is True
     assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
+    assert rate_limit_service.recorded_request_tokens == 42
     assert rate_limit_service.called_record_request is False
     assert len(fake_adapter.calls) == 1
 
@@ -289,16 +290,16 @@ def test_create_response_records_request_usage_after_successful_adapter_call() -
     assert rate_limit_service.called_request_allowed is True
     assert rate_limit_service.called_record_request_for_model is True
     assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
-    assert rate_limit_service.called_record_request is False
     assert rate_limit_service.recorded_request_tokens == 42
+    assert rate_limit_service.called_record_request is False
     assert len(fake_adapter.calls) == 1
 
 
-def test_create_response_records_request_usage_via_public_fallback_when_internal_helper_missing() -> None:
-    """Verify request usage falls back to the public API when the internal helper is unavailable."""
+def test_create_response_raises_when_public_model_aware_recording_method_is_missing() -> None:
+    """Verify request usage recording fails clearly when the public model-aware method is absent."""
 
     fake_adapter = FakeAdapter()
-    rate_limit_service = FakeRateLimitServiceWithoutInternalHelper(allowed=True)
+    rate_limit_service = FakeRateLimitServiceWithLegacyFallbackOnly(allowed=True)
 
     config_service = build_config_service()
     client = LLMResponseClient(
@@ -307,13 +308,13 @@ def test_create_response_records_request_usage_via_public_fallback_when_internal
         rate_limit_service=rate_limit_service,
     )
 
-    response = client.create_response([{"role": "user", "content": "hello"}])
+    with pytest.raises(RuntimeError, match="record_request_for_model"):
+        client.create_response([{"role": "user", "content": "hello"}])
 
-    assert response == {"ok": True}
     assert rate_limit_service.called_estimate is True
     assert rate_limit_service.called_request_allowed is True
-    assert rate_limit_service.called_record_request is True
-    assert rate_limit_service.recorded_request_tokens == 42
+    assert rate_limit_service.called_record_request is False
+    assert rate_limit_service.recorded_request_tokens is None
     assert len(fake_adapter.calls) == 1
 
 

@@ -272,32 +272,18 @@ class LLMResponseClient:
 
         if self._rate_limit_service is None or estimated_tokens is None:
             return
-        record_request_for_model = getattr(self._rate_limit_service, "_record_request_for_model", None)
-        if record_request_for_model is not None:
-            logger.info(
-                "Recording successful request usage: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
-                full_model_name,
-                estimated_tokens,
-                previous_response_id,
+        record_request_for_model = getattr(self._rate_limit_service, "record_request_for_model", None)
+        if record_request_for_model is None:
+            raise RuntimeError(
+                "Rate limit service does not provide the required record_request_for_model method."
             )
-            record_request_for_model(model=full_model_name, tokens=estimated_tokens)
-            return
-        record_usage = getattr(self._rate_limit_service, "record_request", None)
-        if record_usage is None:
-            logger.info(
-                "Rate limit usage recording unavailable: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
-                full_model_name,
-                estimated_tokens,
-                previous_response_id,
-            )
-            return
         logger.info(
             "Recording successful request usage: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
             full_model_name,
             estimated_tokens,
             previous_response_id,
         )
-        record_usage(estimated_tokens)
+        record_request_for_model(model=full_model_name, tokens=estimated_tokens)
 
     def _invoke_adapter(
         self,

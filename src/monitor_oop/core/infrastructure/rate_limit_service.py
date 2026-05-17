@@ -13,6 +13,8 @@ from monitor_oop.core.config_service import ConfigService
 
 logger = logging.getLogger(__name__)
 
+LEGACY_RATE_LIMIT_BUCKET = "__legacy__"
+
 
 @dataclass(slots=True)
 class _UsageEvent:
@@ -154,14 +156,30 @@ class RateLimitService:
             time.sleep(0.1)
 
     def record_request(self, tokens: int) -> None:
-        """Record a successful request in the rolling accounting window.
+        """Record a successful request in the legacy compatibility bucket.
 
         Args:
             tokens: Actual or estimated token usage to record.
+
+        This path preserves the legacy compatibility bucket behavior for callers
+        that do not track usage by model.
         """
 
-        accounting_key = self._resolve_rate_limit_key(model="")
-        self._record_request_for_model(model=accounting_key, tokens=tokens)
+        self._record_request_for_bucket(bucket=LEGACY_RATE_LIMIT_BUCKET, tokens=tokens)
+
+    def record_request_for_model(self, model: str, tokens: int) -> None:
+        """Record a successful request for a specific model.
+
+        Args:
+            model: Model identifier used for accounting.
+            tokens: Actual or estimated token usage to record.
+
+        This is the public model-aware recording path; it delegates to the
+        existing internal model-scoped implementation and preserves the current
+        logging behavior.
+        """
+
+        self._record_request_for_model(model=model, tokens=tokens)
 
     def _record_request_for_model(self, model: str, tokens: int) -> None:
         """Record a successful request for a specific model in the rolling accounting window.
@@ -176,7 +194,28 @@ class RateLimitService:
         with self._lock:
             self._record_request_locked(accounting_key=accounting_key, tokens=tokens, timestamp=timestamp)
         logger.info(
-            "Recorded rate-limit usage event: model=%s, tokens=%s, timestamp=%s.",
+            "Recorded model-aware rate-limit usage event: model=%s, accounting_key=%s, tokens=%s, timestamp=%s.",
+            model,
+            accounting_key,
+            tokens,
+            timestamp,
+        )
+
+    def _record_request_for_bucket(self, bucket: str, tokens: int) -> None:
+        """Record a successful request for an explicit accounting bucket.
+
+        Args:
+            bucket: Accounting bucket name used for compatibility or scoped state.
+            tokens: Actual or estimated token usage to record.
+        """
+
+        accounting_key = self._resolve_rate_limit_key(model=bucket)
+        timestamp = datetime.now(tz=timezone.utc).timestamp()
+        with self._lock:
+            self._record_request_locked(accounting_key=accounting_key, tokens=tokens, timestamp=timestamp)
+        logger.info(
+            "Recorded legacy/global fallback rate-limit usage event: bucket=%s, accounting_key=%s, tokens=%s, timestamp=%s.",
+            bucket,
             accounting_key,
             tokens,
             timestamp,

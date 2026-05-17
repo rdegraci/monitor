@@ -113,4 +113,4 @@ This tracker covers:
 - Avoid duplicating token accounting logic in multiple layers.
 - Log the effective budget and the reason for any blocking decision.
 - Keep the public service interface stable so provider support can expand later without refactoring call sites.
-- The public `record_request` method remains as a fallback integration path; the internal model-aware helper is the preferred path for response-client accounting.
+- The legacy `record_request` method is only an explicit compatibility bucket inside `RateLimitService`.

@@ -24,7 +24,8 @@ As the OOP refactor landed, the implementation became more concrete:
 - `LLMResponseClient` began orchestrating preflight enforcement before adapter dispatch
 - `RequestCapacityService` was explicitly kept separate to handle context and output window checks
 - post-send usage recording was added so the limiter tracks actual request activity over time
-- model-aware request recording is preferred by `LLMResponseClient`, with a public fallback method retained for compatibility
+- `LLMResponseClient` now requires the public `record_request_for_model` method and fails fast if it is missing
+- the legacy `record_request` method is retained as an explicit compatibility bucket inside `RateLimitService`
 
 ## What exists today
 The current implementation includes:
@@ -33,7 +34,7 @@ The current implementation includes:
 - request-per-minute checks when configured, with conservative fallback behavior
 - optional waiting support for rate-limited requests when enabled by policy
 - preflight orchestration in `LLMResponseClient`
-- model-aware usage recording after successful request dispatch, with a retained public fallback path for compatibility
+- model-aware usage recording after successful request dispatch, with the legacy `record_request` path retained as an explicit compatibility bucket inside `RateLimitService`
 - separate capacity gating in `RequestCapacityService`
 - integration through `RuntimeContext` and bootstrap wiring in `app.py`
 
@@ -79,7 +80,7 @@ A few important shifts happened during the design and implementation process:
    The current code uses `ConfigService` and related accessors to determine the effective model limits instead of a full provider-tier policy engine. Provider-aware and tier-aware resolution exists only in partial form today.
 
 5. **Recording stayed compatible while becoming model-aware**
-   The client now prefers model-aware request recording, while keeping a public fallback method available so older call patterns remain supported.
+   The client now requires the public `record_request_for_model` method for model-aware request recording, while the legacy `record_request` method remains available as an explicit compatibility bucket inside `RateLimitService`.
 
 ## What remains to be done
 The remaining work is mostly about policy depth, configurability, and verification:
