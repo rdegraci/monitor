@@ -3,7 +3,7 @@
 ## Goal
 Document how `monitor_oop` rate limits outbound LLM requests in the current implementation, while clearly separating implemented behavior from planned work.
 
-The current codebase uses a centralized, model-keyed rolling-window limiter in `RateLimitService`. `RateLimitService` is thread-safe and can optionally wait for budget when configured to do so. `LLMResponseClient` performs preflight checks before adapter dispatch, requires the public model-aware `record_request_for_model` method, fails fast if that method is absent, can pass through optional wait-policy values when present, and records usage after a successful send. The legacy `record_request` method remains only as an explicit compatibility bucket inside `RateLimitService`, not as a client fallback path. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
+The current codebase uses a centralized, model-keyed rolling-window limiter in `RateLimitService`. `RateLimitService` is thread-safe and can optionally wait for budget when configured to do so. `LLMResponseClient` performs preflight checks before adapter dispatch, requires the public model-aware `record_request_for_model` method, fails fast if that method is absent, can pass through optional wait-policy values when present, and records usage after a successful send. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
 
 The implementation is intentionally adapter-agnostic at the send boundary. Provider-specific behavior is still primarily driven through `ConfigService` and runtime configuration, but the broader provider-aware/tier-aware policy model described below is only partially implemented and should be treated as future-facing where noted.
 
@@ -18,7 +18,6 @@ The current implementation includes:
 - `LLMResponseClient` preflight enforcement before adapter dispatch
 - `LLMResponseClient` model-aware request recording via the public `record_request_for_model` method
 - fail-fast behavior when the public model-aware recording method is unavailable
-- the legacy `record_request` path retained only as an explicit compatibility bucket in `RateLimitService`
 - `LLMResponseClient` pass-through of optional wait-policy values when present
 - post-send usage recording after successful requests
 - separate capacity checks in `RequestCapacityService`
@@ -43,7 +42,6 @@ The intended design remains a shared runtime service that enforces token-based l
 - `RateLimitService` owns rolling-window accounting, limit evaluation, and optional waiting behavior
 - `ConfigService` provides model/config data used to determine the effective limits currently in use
 - `LLMResponseClient` calls the limiter before invoking the adapter and requires the public model-aware record path, failing fast if it is not available
-- the legacy `record_request` method is retained only as a compatibility bucket inside `RateLimitService`
 - provider adapters remain transport-only and do not embed rate limiting logic
 - future provider adapters should reuse the same limiter through the same service boundary
 

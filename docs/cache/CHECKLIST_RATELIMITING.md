@@ -113,4 +113,3 @@ This tracker covers:
 - Avoid duplicating token accounting logic in multiple layers.
 - Log the effective budget and the reason for any blocking decision.
 - Keep the public service interface stable so provider support can expand later without refactoring call sites.
-- The legacy `record_request` method is only an explicit compatibility bucket inside `RateLimitService`.

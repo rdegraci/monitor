@@ -65,27 +65,29 @@ class RateLimitServiceTests(unittest.TestCase):
 
         service = RateLimitService(self.config_service, window_seconds=60)
         service.get_model_rpm_limit = lambda model: 1  # type: ignore[method-assign]
+        model = "openai/gpt-4o-mini"
 
-        service.record_request(50)
+        service.record_request_for_model(model, 50)
 
         try:
-            service.record_request(25)
+            service.record_request_for_model(model, 25)
         except Exception as exc:  # pragma: no cover
-            self.fail(f"record_request raised an unexpected exception: {exc}")
+            self.fail(f"record_request_for_model raised an unexpected exception: {exc}")
 
     def test_record_request_affects_later_request_decisions(self) -> None:
         """A recorded request should influence later rate-limit decisions."""
 
         service = RateLimitService(self.config_service, window_seconds=60)
         service.get_model_tpm_limit = lambda model: 1_000  # type: ignore[method-assign]
+        model = "openai/gpt-4o-mini"
 
         try:
-            service.record_request(901)
+            service.record_request_for_model(model, 901)
         except Exception as exc:  # pragma: no cover
-            self.fail(f"record_request raised an unexpected exception: {exc}")
+            self.fail(f"record_request_for_model raised an unexpected exception: {exc}")
 
         allowed_after = service.request_allowed(
-            model="openai/gpt-4o-mini",
+            model=model,
             estimated_tokens=1_001,
         )
 
