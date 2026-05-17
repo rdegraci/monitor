@@ -1,7 +1,7 @@
 # Test Coverage Checklist
 
 ## Uncovered modules
-- [ ] `src/monitor_oop/core/application/llm_request_builder.py`
+- [x] `src/monitor_oop/core/application/llm_request_builder.py`
 - [x] `src/monitor_oop/core/config_accessor_service.py`
 - [x] `src/monitor_oop/core/config_path_context.py`
 - [x] `src/monitor_oop/core/config_path_service.py`
@@ -14,10 +14,10 @@
 - [x] `src/monitor_oop/core/logger_service.py`
 - [x] `src/monitor_oop/core/resolved_runtime_config.py`
 - [x] `src/monitor_oop/core/turn_budget.py`
-- [ ] `src/monitor_oop/core/workflow.py`
+- [x] `src/monitor_oop/core/workflow.py`
 - [ ] `src/monitor_oop/core/presentation/events.py`
-- [ ] `src/monitor_oop/core/presentation/layout.py`
-- [ ] `src/monitor_oop/core/presentation/transcript_buffer.py`
+- [x] `src/monitor_oop/core/presentation/layout.py`
+- [x] `src/monitor_oop/core/presentation/transcript_buffer.py`
 - [ ] `src/monitor_oop/core/presentation/transcript_viewport.py`
 - [ ] `src/monitor_oop/core/presentation/tui.py`
 - [x] `src/monitor_oop/core/tools/registry.py`

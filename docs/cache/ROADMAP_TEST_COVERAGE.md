@@ -17,16 +17,12 @@ After the service boundaries are covered, test runtime glue and file/path helper
 - `src/monitor_oop/core/config_path_context.py` — now has direct tests.
 
 ## Phase 3: presentation and orchestration
-These modules are the main remaining focus and are useful to cover once the core logic is stabilized. The presentation and utility modules now have cleaner boundaries, especially the orchestration and transcript plumbing modules, which should make targeted test expansion easier.
+These modules are the main remaining focus and are useful to cover once the core logic is stabilized. The presentation and utility modules now have cleaner boundaries, especially the orchestration and transcript plumbing modules, which should make targeted test expansion easier. `src/monitor_oop/core/application/llm_request_builder.py`, `src/monitor_oop/core/presentation/layout.py`, `src/monitor_oop/core/presentation/transcript_buffer.py`, and `src/monitor_oop/core/workflow.py` now have direct tests.
 
 - `src/monitor_oop/core/presentation/events.py`
-- `src/monitor_oop/core/presentation/layout.py`
-- `src/monitor_oop/core/presentation/transcript_buffer.py`
 - `src/monitor_oop/core/presentation/transcript_viewport.py` — refreshed successfully.
 - `src/monitor_oop/core/presentation/tui.py` — refreshed successfully; transcript plumbing is already completed.
-- `src/monitor_oop/core/application/llm_request_builder.py`
 - `src/monitor_oop/core/llm_adapter.py` — now has direct tests.
-- `src/monitor_oop/core/workflow.py`
 
 ## Phase 4: finish remaining gaps
 Use this phase to close out small data and registry modules. These utility modules now also have cleaner boundaries, which should help keep the remaining coverage work focused and low risk.
