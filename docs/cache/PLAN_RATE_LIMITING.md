@@ -29,6 +29,9 @@ The current implementation includes:
 - Product decision needed: wait/retry behavior is not fully standardized across all call sites and workflows.
 - Intentional separation: completion headroom is currently a capacity concern rather than a rate-limit concern.
 - Confirmed gap: tests for waiting, rolling-window expiration, and concurrency coverage need to be expanded.
+- Confirmed gap: compaction test doubles should be aligned with the real `SummarizationService` API.
+- Confirmed gap: compaction triggering is currently turn-budget driven, uses an explicit threshold ratio in code, and may need to be made more explicit or token-aware.
+- Confirmed gap: naming between summarization and compaction should be clarified if they are intended to be distinct.
 
 What is not fully implemented yet:
 - full provider-aware or tier-aware policy resolution
@@ -183,6 +186,9 @@ Any implementation should be verified for:
 - Add explicit wait/retry semantics if interactive or server workflows need them.
 - Improve observability for effective limits, blocked requests, and usage adjustments.
 - Extend tests to cover waiting, rolling-window expiration, concurrency, follow-up, summary, and retry paths across all supported providers.
+- Align compaction test doubles with the real `SummarizationService` API.
+- Clarify whether compaction triggering should remain turn-budget driven and use an explicit threshold ratio in code, or become more explicit or token-aware.
+- Separate summarization and compaction naming and roles if they are intended to be distinct.
 
 ## Notes
 - Prefer a single shared enforcement point over scattered checks.

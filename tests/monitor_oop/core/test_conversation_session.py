@@ -60,8 +60,8 @@ def build_session() -> ConversationSession:
             return []
 
     class FakeSummarizationService:
-        def summarize(self, *args, **kwargs):
-            return None
+        def summarize(self, messages):
+            return "summarized"
 
     class FakeCompactionStore:
         def get(self, *args, **kwargs):

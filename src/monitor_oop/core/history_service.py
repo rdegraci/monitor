@@ -11,6 +11,8 @@ from monitor_oop.core.conversation_boundary_tracker import (
 
 logger = logging.getLogger(__name__)
 
+COMPACTION_THRESHOLD_RATIO = 0.1
+
 
 class HistoryService:
     """Owns in-memory conversation history for one runtime."""
@@ -113,8 +115,11 @@ class HistoryService:
     def should_compact(self) -> bool:
         """Return whether the stored history should be compacted.
 
-        The decision is based on ``RuntimeConfig.conversation_max_turns`` and
-        counts user/assistant exchanges as turns rather than raw messages.
+        Compaction is intentionally driven by the turn budget, using the
+        configured threshold ratio to decide when the remaining turns are low
+        enough to compact. The decision is based on
+        ``RuntimeConfig.conversation_max_turns`` and counts user/assistant
+        exchanges as turns rather than raw messages.
         """
 
         max_turns = self._config_service.get_conversation_turn_budget()
@@ -124,7 +129,7 @@ class HistoryService:
         turns_remaining = self._conversation_boundary_tracker.turns_remaining(
             max_turns
         )
-        compact_threshold = max_turns * 0.1
+        compact_threshold = max_turns * COMPACTION_THRESHOLD_RATIO
         return turns_remaining <= compact_threshold
 
     def compact_with_summary(self, summary_text: str) -> bool:

@@ -80,8 +80,12 @@ class _StubConfigService(ConfigService):
 
 
 class _FakeSummarizationService:
-    def summarize(self, messages, prompt_template) -> str:
-        return f"summary {len(messages)}"
+    def __init__(self, config_service: _StubConfigService) -> None:
+        self._config_service = config_service
+
+    def summarize(self, messages) -> str:
+        prompt_template = self._config_service.compaction_config.prompt_template
+        return f"{prompt_template} | summary {len(messages)}"
 
 
 def build_session(conversation_max_turns: int = 2) -> ConversationSession:
@@ -101,12 +105,7 @@ def build_session(conversation_max_turns: int = 2) -> ConversationSession:
     request_builder = _FakeRequestBuilder()
     response_client = _FakeResponseClient()
     adapter = _FakeAdapter()
-    summarization_service = SummarizationService(
-        config_service=config_service,
-        request_builder=request_builder,
-        response_client=response_client,
-        response_adapter=adapter,
-    )
+    summarization_service = _FakeSummarizationService(config_service)
     llm_service = LLMService(
         config_service=config_service,
         request_builder=request_builder,

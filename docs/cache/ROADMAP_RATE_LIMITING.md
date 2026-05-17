@@ -47,6 +47,9 @@ Using the same review categories as the plan and checklist, the present status i
   - concurrency and thread-safety have been improved in the limiter, but broader cross-component guarantees have not been addressed explicitly
   - wait/retry semantics exist in a limited form, but the blocking policy surface remains incomplete
   - stronger observability and edge-case coverage remain incomplete
+  - test-double API drift in compaction needs to be aligned with the current interfaces
+  - compaction trigger policy is still turn-budget driven, with an explicit threshold ratio in code, and may need to be made more explicit or token-aware
+  - summarization versus compaction naming and roles may need to be clarified if they are intended to be distinct
 
 - **Design choice to confirm**
   - TPM fallback-to-1 behavior is now implemented conservatively, but still needs policy validation
@@ -88,6 +91,9 @@ The remaining work is mostly about policy depth, configurability, and verificati
 - decide whether RPM should remain optional or become a more structured policy
 - validate the conservative TPM and RPM fallback rules and document the intended behavior
 - resolve the current asymmetric handling of missing TPM and RPM values
+- align compaction test doubles with the current APIs
+- clarify the compaction trigger policy and decide whether it should remain turn-budget driven or become more explicit or token-aware
+- separate summarization and compaction naming/roles if they are intended to be distinct
 - expand provider-aware or tier-aware limit resolution if required by future schemas
 - add stronger tests around edge cases, blocking, fallback policy, rolling-window expiration, and stable behavior under timing variability
 - improve observability around blocked requests, wait decisions, and effective limits
