@@ -102,10 +102,10 @@ This tracker covers:
 - [ ] Add tests for follow-up and summarization request coverage.
 - [ ] Add tests for compatibility with a future LiteLLM-backed Anthropic adapter.
 - [ ] Add tests confirming adapters remain transport-only.
-- [ ] Add tests for thread safety and concurrent rate-limit updates.
-- [ ] Add tests for fallback handling and policy validation.
-- [ ] Add tests for explicit wait-policy config accessors and schema-backed wait support.
-- [ ] Add durable behavior-focused tests for the response client and limiter integration.
+- [x] Add tests for thread safety and concurrent rate-limit updates.
+- [x] Add tests for fallback handling and policy validation.
+- [x] Add tests for explicit wait-policy config accessors and schema-backed wait support.
+- [x] Add durable behavior-focused tests for the response client and limiter integration.
 
 ## Notes
 - Prefer a deterministic first implementation.
@@ -113,3 +113,4 @@ This tracker covers:
 - Avoid duplicating token accounting logic in multiple layers.
 - Log the effective budget and the reason for any blocking decision.
 - Keep the public service interface stable so provider support can expand later without refactoring call sites.
+- The public `record_request` method remains as a fallback integration path; the internal model-aware helper is the preferred path for response-client accounting.

@@ -5,9 +5,9 @@ import logging
 from typing import Any
 
 from monitor_oop.core.config_service import ConfigService
-from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
 from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
+from monitor_oop.core.llm_adapter import ResponsesOpenAiAdapter
 from monitor_oop.core.tools.tool_service import ToolService
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,14 @@ class LLMResponseClient:
             wait_policy["wait_timeout_seconds"] = wait_timeout_seconds
 
         return wait_policy
+
+    def _get_rate_limit_allow_wait(self) -> bool | None:
+        """Return optional allow-wait configuration for rate limiting."""
+
+        allow_wait = getattr(self.config_service, "rate_limit_allow_wait", None)
+        if allow_wait is not None:
+            return bool(allow_wait)
+        return None
 
     def _validate_required_config(self, input_messages: list[dict[str, str]]) -> tuple[Any, str]:
         """Validate required config values for response creation."""
@@ -167,26 +175,29 @@ class LLMResponseClient:
         input_messages: list[dict[str, str]],
         tools: list[dict[str, Any]],
         previous_response_id: str | None,
-    ) -> None:
+    ) -> int | None:
         """Run rate limit preflight checks."""
 
         if self._rate_limit_service is None:
-            return
+            return None
+        allow_wait = self._get_rate_limit_allow_wait()
         wait_policy_kwargs = self._get_rate_limit_wait_policy()
-        if wait_policy_kwargs:
+        if allow_wait is True:
             logger.info(
-                "Using rate limit wait policy from config: full_model_name=%s, api_model_name=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+                "Rate limit preflight configured for wait-enabled behavior: full_model_name=%s, api_model_name=%s, allow_wait=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
                 full_model_name,
                 api_model_name,
+                allow_wait,
                 wait_policy_kwargs.get("wait_policy"),
                 wait_policy_kwargs.get("wait_timeout_seconds"),
                 previous_response_id,
             )
         else:
             logger.info(
-                "No rate limit wait policy found in config; proceeding without wait overrides: full_model_name=%s, api_model_name=%s, previous_response_id=%s.",
+                "Rate limit preflight configured for fail-fast behavior: full_model_name=%s, api_model_name=%s, allow_wait=%s, previous_response_id=%s.",
                 full_model_name,
                 api_model_name,
+                allow_wait,
                 previous_response_id,
             )
         logger.info(
@@ -215,35 +226,78 @@ class LLMResponseClient:
             "model": full_model_name,
             "estimated_tokens": estimated_tokens,
         }
-        request_allowed_kwargs.update(wait_policy_kwargs)
+        if allow_wait is not None:
+            request_allowed_kwargs["allow_wait"] = allow_wait
+        if "wait_timeout_seconds" in wait_policy_kwargs:
+            request_allowed_kwargs["wait_timeout_seconds"] = wait_policy_kwargs["wait_timeout_seconds"]
         logger.info(
-            "Calling request_allowed with rate limit context: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
+            "Calling request_allowed with rate limit context: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, allow_wait=%s, wait_policy=%s, wait_timeout_seconds=%s, previous_response_id=%s.",
             full_model_name,
             api_model_name,
             estimated_tokens,
-            request_allowed_kwargs.get("wait_policy"),
+            request_allowed_kwargs.get("allow_wait"),
+            wait_policy_kwargs.get("wait_policy"),
             request_allowed_kwargs.get("wait_timeout_seconds"),
             previous_response_id,
         )
         rate_limit_allows = self._rate_limit_service.request_allowed(**request_allowed_kwargs)
         if rate_limit_allows:
             logger.info(
-                "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, allow_wait=%s, previous_response_id=%s.",
                 full_model_name,
                 api_model_name,
                 estimated_tokens,
+                allow_wait,
                 previous_response_id,
             )
-            return
+            return estimated_tokens
         logger.warning(
-            "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
+            "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, allow_wait=%s, previous_response_id=%s.",
             full_model_name,
             api_model_name,
             estimated_tokens,
             api_key_present,
+            allow_wait,
             previous_response_id,
         )
         raise ValueError("Request is not allowed by the current rate limit policy.")
+
+    def _record_rate_limit_request_usage(
+        self,
+        full_model_name: str,
+        estimated_tokens: int | None,
+        previous_response_id: str | None,
+    ) -> None:
+        """Record successful request usage in the rate limit service."""
+
+        if self._rate_limit_service is None or estimated_tokens is None:
+            return
+        record_request_for_model = getattr(self._rate_limit_service, "_record_request_for_model", None)
+        if record_request_for_model is not None:
+            logger.info(
+                "Recording successful request usage: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                full_model_name,
+                estimated_tokens,
+                previous_response_id,
+            )
+            record_request_for_model(model=full_model_name, tokens=estimated_tokens)
+            return
+        record_usage = getattr(self._rate_limit_service, "record_request", None)
+        if record_usage is None:
+            logger.info(
+                "Rate limit usage recording unavailable: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+                full_model_name,
+                estimated_tokens,
+                previous_response_id,
+            )
+            return
+        logger.info(
+            "Recording successful request usage: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+            full_model_name,
+            estimated_tokens,
+            previous_response_id,
+        )
+        record_usage(estimated_tokens)
 
     def _invoke_adapter(
         self,
@@ -302,7 +356,7 @@ class LLMResponseClient:
             tool_names=tool_names,
             previous_response_id=previous_response_id,
         )
-        self._run_rate_limit_preflight(
+        estimated_tokens = self._run_rate_limit_preflight(
             full_model_name=full_model_name,
             api_model_name=api_model_name,
             api_key_present=api_key_present,
@@ -320,7 +374,7 @@ class LLMResponseClient:
             len(input_messages),
             previous_response_id,
         )
-        return self._invoke_adapter(
+        response = self._invoke_adapter(
             api_model_name=api_model_name,
             input_messages=input_messages,
             api_key=api_key,
@@ -329,3 +383,9 @@ class LLMResponseClient:
             previous_response_id=previous_response_id,
             full_model_name=full_model_name,
         )
+        self._record_rate_limit_request_usage(
+            full_model_name=full_model_name,
+            estimated_tokens=estimated_tokens,
+            previous_response_id=previous_response_id,
+        )
+        return response

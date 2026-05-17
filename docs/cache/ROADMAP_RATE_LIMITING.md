@@ -19,18 +19,21 @@ The initial design direction emphasized:
 
 As the OOP refactor landed, the implementation became more concrete:
 - `RateLimitService` was added as the shared enforcement point
+- the limiter became model-keyed and rolling-window based
+- `RateLimitService` was made thread-safe so concurrent send-path use stays predictable
 - `LLMResponseClient` began orchestrating preflight enforcement before adapter dispatch
 - `RequestCapacityService` was explicitly kept separate to handle context and output window checks
 - post-send usage recording was added so the limiter tracks actual request activity over time
+- model-aware request recording is preferred by `LLMResponseClient`, with a public fallback method retained for compatibility
 
 ## What exists today
 The current implementation includes:
-- a thread-safe rolling-window `RateLimitService`
+- a model-keyed, thread-safe rolling-window `RateLimitService`
 - token-per-minute checks with conservative fallback behavior
 - request-per-minute checks when configured, with conservative fallback behavior
 - optional waiting support for rate-limited requests when enabled by policy
 - preflight orchestration in `LLMResponseClient`
-- usage recording after successful request dispatch
+- model-aware usage recording after successful request dispatch, with a retained public fallback path for compatibility
 - separate capacity gating in `RequestCapacityService`
 - integration through `RuntimeContext` and bootstrap wiring in `app.py`
 
@@ -75,6 +78,9 @@ A few important shifts happened during the design and implementation process:
 4. **Configuration resolution remained simple**
    The current code uses `ConfigService` and related accessors to determine the effective model limits instead of a full provider-tier policy engine. Provider-aware and tier-aware resolution exists only in partial form today.
 
+5. **Recording stayed compatible while becoming model-aware**
+   The client now prefers model-aware request recording, while keeping a public fallback method available so older call patterns remain supported.
+
 ## What remains to be done
 The remaining work is mostly about policy depth, configurability, and verification:
 - make wait behavior explicit through config accessors and, if needed, schema-backed policy support
@@ -99,6 +105,6 @@ The rate-limiting subsystem has moved from a broad architectural idea to a worki
 - centralized enforcement exists
 - the send path is gated before adapter dispatch
 - capacity checks remain separate
-- the implementation is functional, thread-safe in the limiter, and includes optional waiting support, but it is not yet as policy-rich as the long-term plan
+- the implementation is functional, model-keyed, rolling-window based, thread-safe in the limiter, and includes optional waiting support, but it is not yet as policy-rich as the long-term plan
 
 This roadmap exists to preserve that history while keeping future work grounded in what the code actually does today.

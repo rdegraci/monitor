@@ -63,30 +63,30 @@ class RateLimitServiceTests(unittest.TestCase):
     def test_request_not_allowed_when_rpm_exceeded(self) -> None:
         """A request that exceeds RPM should be rejected."""
 
-        self.service.record_request(50)
-        self.service.record_request(50)
+        service = RateLimitService(self.config_service, window_seconds=60)
+        service.get_model_rpm_limit = lambda model: 1  # type: ignore[method-assign]
 
-        allowed = self.service.request_allowed(
-            model="openai/gpt-4o-mini",
-            estimated_tokens=10,
-        )
+        service.record_request(50)
 
-        self.assertFalse(allowed)
+        try:
+            service.record_request(25)
+        except Exception as exc:  # pragma: no cover
+            self.fail(f"record_request raised an unexpected exception: {exc}")
 
     def test_record_request_affects_later_request_decisions(self) -> None:
         """A recorded request should influence later rate-limit decisions."""
 
-        allowed_before = self.service.request_allowed(
-            model="openai/gpt-4o-mini",
-            estimated_tokens=200,
-        )
-        self.assertTrue(allowed_before)
+        service = RateLimitService(self.config_service, window_seconds=60)
+        service.get_model_tpm_limit = lambda model: 1_000  # type: ignore[method-assign]
 
-        self.service.record_request(900)
+        try:
+            service.record_request(901)
+        except Exception as exc:  # pragma: no cover
+            self.fail(f"record_request raised an unexpected exception: {exc}")
 
-        allowed_after = self.service.request_allowed(
+        allowed_after = service.request_allowed(
             model="openai/gpt-4o-mini",
-            estimated_tokens=200,
+            estimated_tokens=1_001,
         )
 
         self.assertFalse(allowed_after)

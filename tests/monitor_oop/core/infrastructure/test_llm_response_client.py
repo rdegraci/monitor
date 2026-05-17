@@ -87,6 +87,10 @@ class FakeRateLimitService:
         self.allowed = allowed
         self.called_estimate = False
         self.called_request_allowed = False
+        self.called_record_request = False
+        self.called_record_request_for_model = False
+        self.recorded_request_tokens: int | None = None
+        self.recorded_request_model: str | None = None
 
     def estimate_token_usage(
         self,
@@ -106,7 +110,7 @@ class FakeRateLimitService:
         *,
         model: str,
         estimated_tokens: int,
-        wait_policy: object | None = None,
+        allow_wait: object | None = None,
         wait_timeout_seconds: int | None = None,
     ) -> bool:
         """Record the call and return the configured rate-limit decision."""
@@ -114,13 +118,69 @@ class FakeRateLimitService:
         self.called_request_allowed = True
         return self.allowed
 
+    def _record_request_for_model(self, model: str, tokens: int) -> None:
+        """Record the model-aware request usage call."""
+
+        self.called_record_request_for_model = True
+        self.recorded_request_model = model
+        self.recorded_request_tokens = tokens
+
+    def record_request(self, tokens: int) -> None:
+        """Record the request usage call."""
+
+        self.called_record_request = True
+        self.recorded_request_tokens = tokens
+
+
+class FakeRateLimitServiceWithoutInternalHelper:
+    """Minimal rate limit service stub without the internal helper."""
+
+    def __init__(self, allowed: bool) -> None:
+        self.allowed = allowed
+        self.called_estimate = False
+        self.called_request_allowed = False
+        self.called_record_request = False
+        self.recorded_request_tokens: int | None = None
+
+    def estimate_token_usage(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, object]] | None = None,
+        previous_response_id: str | None = None,
+    ) -> int:
+        """Record the call and return a stable token estimate."""
+
+        self.called_estimate = True
+        return 42
+
+    def request_allowed(
+        self,
+        *,
+        model: str,
+        estimated_tokens: int,
+        allow_wait: object | None = None,
+        wait_timeout_seconds: int | None = None,
+    ) -> bool:
+        """Record the call and return the configured rate-limit decision."""
+
+        self.called_request_allowed = True
+        return self.allowed
+
+    def record_request(self, tokens: int) -> None:
+        """Record the request usage call."""
+
+        self.called_record_request = True
+        self.recorded_request_tokens = tokens
+
 
 def build_config_service() -> ConfigService:
     """Return a config service with stable test values."""
 
     config_service = ConfigService()
     config_service.get_openai_api_key = lambda: "test-key"  # type: ignore[method-assign]
-    config_service.get_api_model_name = lambda: "gpt-4o-mini"  # type: ignore[method-assign]
+    config_service.get_api_model_name = lambda: "openai/gpt-5.4-mini"  # type: ignore[method-assign]
     return config_service
 
 
@@ -154,7 +214,7 @@ def test_create_response_uses_api_model_name_and_passes_tools() -> None:
     assert tool_service.called is True
     assert len(fake_adapter.calls) == 1
     call = fake_adapter.calls[0]
-    assert call["model"] == "gpt-4o-mini"
+    assert call["model"] == "openai/gpt-5.4-mini"
     assert call["api_key"] == "test-key"
     assert call["messages"] == [{"role": "user", "content": "hello"}]
     assert call["previous_response_id"] == "response_1"
@@ -179,7 +239,7 @@ def test_create_response_uses_unprefixed_api_model_name_unchanged() -> None:
     client.create_response([{"role": "user", "content": "hello"}])
 
     assert len(fake_adapter.calls) == 1
-    assert fake_adapter.calls[0]["model"] == "gpt-4o-mini"
+    assert fake_adapter.calls[0]["model"] == "openai/gpt-5.4-mini"
 
 
 def test_create_response_invokes_adapter_after_preflights_pass() -> None:
@@ -203,6 +263,57 @@ def test_create_response_invokes_adapter_after_preflights_pass() -> None:
     assert request_capacity_service.called is True
     assert rate_limit_service.called_estimate is True
     assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_record_request_for_model is True
+    assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
+    assert rate_limit_service.called_record_request is False
+    assert len(fake_adapter.calls) == 1
+
+
+def test_create_response_records_request_usage_after_successful_adapter_call() -> None:
+    """Verify request usage is recorded after a successful adapter call."""
+
+    fake_adapter = FakeAdapter()
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    response = client.create_response([{"role": "user", "content": "hello"}])
+
+    assert response == {"ok": True}
+    assert rate_limit_service.called_estimate is True
+    assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_record_request_for_model is True
+    assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
+    assert rate_limit_service.called_record_request is False
+    assert rate_limit_service.recorded_request_tokens == 42
+    assert len(fake_adapter.calls) == 1
+
+
+def test_create_response_records_request_usage_via_public_fallback_when_internal_helper_missing() -> None:
+    """Verify request usage falls back to the public API when the internal helper is unavailable."""
+
+    fake_adapter = FakeAdapter()
+    rate_limit_service = FakeRateLimitServiceWithoutInternalHelper(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    response = client.create_response([{"role": "user", "content": "hello"}])
+
+    assert response == {"ok": True}
+    assert rate_limit_service.called_estimate is True
+    assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_record_request is True
+    assert rate_limit_service.recorded_request_tokens == 42
     assert len(fake_adapter.calls) == 1
 
 

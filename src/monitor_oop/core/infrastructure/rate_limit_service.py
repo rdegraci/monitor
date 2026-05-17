@@ -29,7 +29,7 @@ class _RateLimitSnapshot:
     current_tokens: int
     current_requests: int
     tpm_limit: int
-    rpm_limit: int
+    rpm_limit: int | None
 
 
 class RateLimitService:
@@ -45,8 +45,8 @@ class RateLimitService:
 
         self._config_service = config_service
         self._window_seconds = max(window_seconds, 1)
-        self._usage_events: Deque[_UsageEvent] = deque()
-        self._request_count_events: Deque[float] = deque()
+        self._usage_events: dict[str, Deque[_UsageEvent]] = {}
+        self._request_count_events: dict[str, Deque[float]] = {}
         self._lock = threading.RLock()
 
     def estimate_token_usage(
@@ -105,11 +105,12 @@ class RateLimitService:
             True when the request fits within the active budget, otherwise False.
         """
 
+        accounting_key = self._resolve_rate_limit_key(model=model)
         deadline = self._compute_wait_deadline(wait_timeout_seconds)
         while True:
             with self._lock:
-                self._purge_old_events_locked()
-                snapshot = self._build_rate_limit_snapshot_locked(model=model)
+                self._purge_old_events_locked(accounting_key)
+                snapshot = self._build_rate_limit_snapshot_locked(model=model, accounting_key=accounting_key)
                 fits = self._fits_under_limits_locked(
                     estimated_tokens=estimated_tokens,
                     snapshot=snapshot,
@@ -159,15 +160,37 @@ class RateLimitService:
             tokens: Actual or estimated token usage to record.
         """
 
+        accounting_key = self._resolve_rate_limit_key(model="")
+        self._record_request_for_model(model=accounting_key, tokens=tokens)
+
+    def _record_request_for_model(self, model: str, tokens: int) -> None:
+        """Record a successful request for a specific model in the rolling accounting window.
+
+        Args:
+            model: Model identifier used for accounting.
+            tokens: Actual or estimated token usage to record.
+        """
+
+        accounting_key = self._resolve_rate_limit_key(model=model)
+        timestamp = datetime.now(tz=timezone.utc).timestamp()
         with self._lock:
-            self._purge_old_events_locked()
-            timestamp = datetime.now(tz=timezone.utc).timestamp()
-            self._usage_events.append(_UsageEvent(timestamp=timestamp, tokens=max(tokens, 0)))
-            self._request_count_events.append(timestamp)
-        logger.info("Recorded rate-limit usage event: tokens=%s, timestamp=%s.", tokens, timestamp)
+            self._record_request_locked(accounting_key=accounting_key, tokens=tokens, timestamp=timestamp)
+        logger.info(
+            "Recorded rate-limit usage event: model=%s, tokens=%s, timestamp=%s.",
+            accounting_key,
+            tokens,
+            timestamp,
+        )
 
     def _compute_wait_deadline(self, wait_timeout_seconds: float | None) -> float | None:
-        """Compute the absolute deadline for a wait attempt."""
+        """Compute the absolute deadline for a wait attempt.
+
+        Args:
+            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
+
+        Returns:
+            The absolute monotonic deadline, or None if waiting is unbounded.
+        """
 
         if wait_timeout_seconds is None:
             return None
@@ -180,7 +203,17 @@ class RateLimitService:
         estimated_tokens: int,
         wait_timeout_seconds: float | None,
     ) -> bool:
-        """Check whether waiting for budget has timed out."""
+        """Check whether waiting for budget has timed out.
+
+        Args:
+            deadline: Absolute monotonic deadline for the wait attempt.
+            model: Model identifier for the request.
+            estimated_tokens: Estimated token usage for the request.
+            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
+
+        Returns:
+            True if the wait has timed out, otherwise False.
+        """
 
         if deadline is not None and time.monotonic() >= deadline:
             logger.info(
@@ -192,11 +225,24 @@ class RateLimitService:
             return True
         return False
 
-    def _build_rate_limit_snapshot_locked(self, model: str) -> _RateLimitSnapshot:
-        """Collect usage and resolved limits under the active lock."""
+    def _build_rate_limit_snapshot_locked(
+        self,
+        model: str,
+        accounting_key: str,
+    ) -> _RateLimitSnapshot:
+        """Collect usage and resolved limits under the active lock.
 
-        current_tokens, current_requests = self._current_usage_snapshot_locked()
-        tpm_limit, rpm_limit = self._resolve_limits(model=model)
+        Args:
+            model: Model identifier for the request.
+            accounting_key: Accounting key used to scope state and logging.
+
+        Returns:
+            A snapshot containing usage counts and resolved limits.
+        """
+
+        current_tokens, current_requests = self._current_usage_snapshot_locked(accounting_key=accounting_key)
+        tpm_limit = self._resolve_tpm_limit(model=model, accounting_key=accounting_key)
+        rpm_limit = self._resolve_rpm_limit(model=model, accounting_key=accounting_key)
         return _RateLimitSnapshot(
             current_tokens=current_tokens,
             current_requests=current_requests,
@@ -204,64 +250,169 @@ class RateLimitService:
             rpm_limit=rpm_limit,
         )
 
-    def _resolve_limits(self, model: str) -> tuple[int, int]:
-        """Resolve the active TPM and RPM limits for a model."""
+    def _resolve_rate_limit_key(self, model: str) -> str:
+        """Resolve the accounting key for model-scoped state.
 
-        return self._get_tpm_limit(model), self._get_rpm_limit(model)
+        Args:
+            model: Model identifier for the request.
 
-    def _get_tpm_limit(self, model: str) -> int:
+        Returns:
+            The normalized accounting key for the model.
+        """
+
+        normalized_model = str(model)
+        logger.info(
+            "Resolved rate-limit accounting key: model=%s.",
+            normalized_model,
+        )
+        return normalized_model
+
+    def _record_request_locked(self, accounting_key: str, tokens: int, timestamp: float) -> None:
+        """Record a successful request while holding the service lock.
+
+        Args:
+            accounting_key: Accounting key used to scope state.
+            tokens: Actual or estimated token usage to record.
+            timestamp: UTC timestamp for the request event.
+        """
+
+        self._purge_old_events_locked(accounting_key)
+        self._usage_events.setdefault(accounting_key, deque()).append(
+            _UsageEvent(timestamp=timestamp, tokens=max(tokens, 0))
+        )
+        self._request_count_events.setdefault(accounting_key, deque()).append(timestamp)
+
+    def _resolve_tpm_limit(self, model: str, accounting_key: str) -> int:
+        """Resolve the active TPM limit for a model.
+
+        Args:
+            model: Model identifier for the request.
+            accounting_key: Accounting key used to scope state and logging.
+
+        Returns:
+            A validated token-per-minute limit.
+        """
+
+        limit = self._get_tpm_limit(model)
+        if limit is None:
+            limit = 1
+            logger.info(
+                "No TPM limit configured for model=%s; using fallback=%s.",
+                model,
+                limit,
+            )
+        self._validate_positive_limit(limit=limit, limit_name="TPM", model=model, accounting_key=accounting_key)
+        logger.info(
+            "Resolved TPM limit for model=%s: %s.",
+            model,
+            limit,
+        )
+        return limit
+
+    def _resolve_rpm_limit(self, model: str, accounting_key: str) -> int | None:
+        """Resolve the active RPM limit for a model.
+
+        Args:
+            model: Model identifier for the request.
+            accounting_key: Accounting key used to scope state and logging.
+
+        Returns:
+            A validated request-per-minute limit, or None if RPM is disabled.
+        """
+
+        limit = self._get_rpm_limit(model)
+        if limit is None:
+            logger.info(
+                "RPM limit is disabled for model=%s because no limit was configured.",
+                model,
+            )
+            return None
+        self._validate_positive_limit(limit=limit, limit_name="RPM", model=model, accounting_key=accounting_key)
+        logger.info(
+            "Resolved RPM limit for model=%s: %s.",
+            model,
+            limit,
+        )
+        return limit
+
+    def _get_tpm_limit(self, model: str) -> int | None:
         """Return the current TPM limit.
 
         Args:
             model: Model identifier for the request.
 
         Returns:
-            The token-per-minute limit for the configured model.
+            The token-per-minute limit for the configured model, or None if unavailable.
         """
 
         limit = self._config_service.get_model_tpm_limit(model)
         if limit is None:
-            conservative_fallback = 1
-            logger.info(
-                "No TPM limit configured for model=%s; using conservative fallback=%s.",
-                model,
-                conservative_fallback,
-            )
-            return conservative_fallback
-        logger.info("Resolved TPM limit for model=%s: %s.", model, limit)
-        return limit
+            logger.info("No TPM limit configured for model=%s.", model)
+            return None
+        return int(limit)
 
-    def _get_rpm_limit(self, model: str) -> int:
+    def _get_rpm_limit(self, model: str) -> int | None:
         """Return the current RPM limit.
 
         Args:
             model: Model identifier for the request.
 
         Returns:
-            The request-per-minute limit for the configured model.
+            The request-per-minute limit for the configured model, or None if unavailable.
         """
 
         limit = self._config_service.get_model_rpm_limit(model)
         if limit is None:
-            conservative_fallback = 1
-            logger.info(
-                "No RPM limit configured for model=%s; using conservative fallback=%s.",
-                model,
-                conservative_fallback,
-            )
-            return conservative_fallback
-        logger.info("Resolved RPM limit for model=%s: %s.", model, limit)
-        return limit
+            logger.info("No RPM limit configured for model=%s.", model)
+            return None
+        return int(limit)
 
-    def _current_usage_snapshot_locked(self) -> tuple[int, int]:
+    def _validate_positive_limit(
+        self,
+        *,
+        limit: int,
+        limit_name: str,
+        model: str,
+        accounting_key: str,
+    ) -> None:
+        """Validate that a resolved limit is a positive integer.
+
+        Args:
+            limit: The resolved limit to validate.
+            limit_name: Human-readable limit label for logging.
+            model: Model identifier for the request.
+            accounting_key: Accounting key used to scope state and logging.
+
+        Raises:
+            ValueError: If the limit is not a positive integer.
+        """
+
+        if int(limit) <= 0:
+            logger.error(
+                "Invalid %s configured for model=%s: %s.",
+                limit_name,
+                model,
+                limit,
+            )
+            raise ValueError(f"Invalid {limit_name} configured for model={model!r}: {limit!r}.")
+
+    def _current_usage_snapshot_locked(
+        self,
+        accounting_key: str,
+    ) -> tuple[int, int]:
         """Return the current token and request usage under the active lock.
+
+        Args:
+            accounting_key: Accounting key used to scope state.
 
         Returns:
             A tuple containing the current token total and request count.
         """
 
-        current_tokens = sum(event.tokens for event in self._usage_events)
-        current_requests = len(self._request_count_events)
+        usage_events = self._usage_events.setdefault(accounting_key, deque())
+        request_events = self._request_count_events.setdefault(accounting_key, deque())
+        current_tokens = sum(event.tokens for event in usage_events)
+        current_requests = len(request_events)
         return current_tokens, current_requests
 
     def _fits_under_limits_locked(
@@ -289,21 +440,28 @@ class RateLimitService:
                 snapshot.tpm_limit,
             )
             return False
-        request_total = snapshot.current_requests + 1
-        if request_total > snapshot.rpm_limit:
-            logger.warning(
-                "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
-                snapshot.current_requests,
-                snapshot.rpm_limit,
-            )
-            return False
+        if snapshot.rpm_limit is not None:
+            request_total = snapshot.current_requests + 1
+            if request_total > snapshot.rpm_limit:
+                logger.warning(
+                    "RPM limit exceeded: current_requests=%s, rpm_limit=%s",
+                    snapshot.current_requests,
+                    snapshot.rpm_limit,
+                )
+                return False
         return True
 
-    def _purge_old_events_locked(self) -> None:
-        """Drop usage events older than the rolling window."""
+    def _purge_old_events_locked(self, accounting_key: str) -> None:
+        """Drop usage events older than the rolling window.
+
+        Args:
+            accounting_key: Accounting key used to scope state.
+        """
 
         cutoff = datetime.now(tz=timezone.utc).timestamp() - self._window_seconds
-        while self._usage_events and self._usage_events[0].timestamp < cutoff:
-            self._usage_events.popleft()
-        while self._request_count_events and self._request_count_events[0] < cutoff:
-            self._request_count_events.popleft()
+        usage_events = self._usage_events.setdefault(accounting_key, deque())
+        request_events = self._request_count_events.setdefault(accounting_key, deque())
+        while usage_events and usage_events[0].timestamp < cutoff:
+            usage_events.popleft()
+        while request_events and request_events[0] < cutoff:
+            request_events.popleft()
