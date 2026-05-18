@@ -69,6 +69,19 @@ class ConfigAccessorService:
     ) -> int:
         """Estimate token usage for a request.
 
+        This is the canonical token estimator for the runtime. Both the
+        rate-limit preflight and the request-capacity preflight delegate
+        here so they evaluate identical numbers. The formula:
+
+        - Per message: 4 tokens of fixed overhead (role separators / framing),
+          plus a per-field contribution based on the field's value type
+          (strings: ``len(value) // 4``; lists: ``len * 4``; dicts: ``len * 2``;
+          other non-None scalars: ``1``).
+        - Per tool: ``20`` tokens (rough schema/header overhead).
+        - Previous response id: ``len // 4`` tokens for the id string itself
+          (the chained server-side context is added separately by callers
+          that have a token cache).
+
         Args:
             model: The model name being used for the request.
             messages: The request messages.
@@ -83,6 +96,8 @@ class ConfigAccessorService:
         estimated_tokens = 0
         if messages:
             for message in messages:
+                # Fixed per-message overhead (role separator / framing).
+                estimated_tokens += 4
                 for value in message.values():
                     if isinstance(value, str):
                         estimated_tokens += max(1, len(value) // 4)

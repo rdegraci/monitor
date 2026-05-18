@@ -169,6 +169,10 @@ class RequestCapacityService:
     ) -> int:
         """Estimate the input token count for a request.
 
+        Delegates to ``ConfigService.estimate_token_usage`` — the canonical
+        estimator that the rate-limit preflight also uses — so the two
+        preflights evaluate identical numbers.
+
         Args:
             input_messages: The request payload being evaluated.
             tools: Tool definitions associated with the request.
@@ -178,51 +182,20 @@ class RequestCapacityService:
             An estimated token count for the request payload.
         """
 
-        try:
-            estimate = 0
-            message_components: list[dict[str, Any]] = []
-            for message in input_messages:
-                content = message.get("content", "")
-                content_tokens = max(1, len(content) // 4)
-                role_tokens = 1 if message.get("role") else 0
-                message_tokens = content_tokens + 4 + role_tokens
-                message_components.append(
-                    {
-                        "role": message.get("role", ""),
-                        "content_length": len(content),
-                        "content_tokens": content_tokens,
-                        "role_tokens": role_tokens,
-                        "message_tokens": message_tokens,
-                    }
-                )
-                estimate += message_tokens
-            tool_components: list[dict[str, Any]] = []
-            if tools:
-                for tool in tools:
-                    tool_tokens = max(8, len(str(tool)) // 4)
-                    tool_components.append(
-                        {
-                            "tool_repr_length": len(str(tool)),
-                            "tool_tokens": tool_tokens,
-                        }
-                    )
-                    estimate += tool_tokens
-            previous_response_tokens = 0
-            if previous_response_id:
-                previous_response_tokens = max(4, len(previous_response_id) // 4)
-                estimate += previous_response_tokens
-            estimate = max(estimate, 1)
-            logger.info(
-                "Computed input token estimate with raw components: message_components=%s, tool_components=%s, previous_response_tokens=%s, estimated_input_tokens=%s.",
-                message_components,
-                tool_components,
-                previous_response_tokens,
-                estimate,
-            )
-            return estimate
-        except Exception:
-            logger.error("Token estimation failed unexpectedly.", exc_info=True)
-            raise
+        estimate = self._config_service.estimate_token_usage(
+            model="",
+            messages=input_messages,
+            tools=tools,
+            previous_response_id=previous_response_id,
+        )
+        logger.info(
+            "Computed input token estimate via canonical estimator: message_count=%s, tool_count=%s, previous_response_id=%s, estimated_input_tokens=%s.",
+            len(input_messages),
+            0 if tools is None else len(tools),
+            previous_response_id,
+            estimate,
+        )
+        return int(estimate)
 
     def _compute_completion_headroom(self, estimated_input_tokens: int, output_window: int) -> int:
         """Compute reserved completion headroom for a request."""

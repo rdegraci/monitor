@@ -4,6 +4,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from monitor_oop.core.config_service import ConfigService
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
 from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
 
 
@@ -75,6 +77,74 @@ class RequestCapacityServiceTests(unittest.TestCase):
         self.assertFalse(result.fits)
         self.assertIsNotNone(result.reason)
         self.assertIn("context window", result.reason or "")
+
+
+class EstimatorConsistencyTests(unittest.TestCase):
+    """Lock in that capacity and rate-limit preflights agree on token estimates."""
+
+    def test_capacity_and_rate_limit_preflights_produce_same_estimate(self) -> None:
+        """Both preflights must delegate to the same canonical estimator.
+
+        Previously each service maintained its own formula and could disagree
+        materially on the same input. The capacity preflight now delegates to
+        ``ConfigService.estimate_token_usage`` — the same path the rate-limit
+        preflight uses — so both gates evaluate identical numbers.
+        """
+
+        config_service = ConfigService()
+        capacity_service = RequestCapacityService(config_service)
+        rate_limit_service = RateLimitService(config_service)
+
+        messages: list[dict[str, object]] = [
+            {"role": "system", "content": "you are a helpful assistant"},
+            {"role": "user", "content": "what is the weather in San Diego?"},
+            {
+                "role": "assistant",
+                "content": "calling tool",
+                "tool_calls": [
+                    {"id": "call_1", "name": "get_weather", "arguments": "{}"}
+                ],
+            },
+            {
+                "role": "tool",
+                "content": "sunny",
+                "tool_call_id": "call_1",
+                "name": "get_weather",
+            },
+            {"role": "assistant", "content": "it is sunny in San Diego"},
+        ]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "get the weather for a location",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ]
+
+        capacity_result = capacity_service.evaluate_request(
+            model="openai/gpt-4o",
+            input_messages=messages,
+            tools=tools,
+            previous_response_id=None,
+        )
+        rate_limit_estimate = rate_limit_service.estimate_token_usage(
+            model="openai/gpt-4o",
+            messages=messages,
+            tools=tools,
+            previous_response_id=None,
+        )
+
+        self.assertEqual(
+            capacity_result.estimated_input_tokens,
+            rate_limit_estimate,
+            msg=(
+                "Capacity and rate-limit preflights must produce the same token "
+                "estimate for identical inputs."
+            ),
+        )
 
 
 if __name__ == "__main__":
