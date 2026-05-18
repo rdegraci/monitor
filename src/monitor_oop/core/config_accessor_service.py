@@ -155,9 +155,12 @@ class ConfigAccessorService:
         config_alias_name: str,
         model_primary_name: str,
         model_alias_name: str,
-        default: int,
-    ) -> int:
-        """Return a model rate limit using config and model-specific fallbacks."""
+    ) -> int | None:
+        """Return a model rate limit using config and model-specific fallbacks.
+
+        Returns ``None`` when no value is configured anywhere. Callers decide
+        what missing means (e.g. "unlimited" for TPM, "fatal" for RPM).
+        """
 
         resolved_model_name = self._resolve_model_name(model_name)
         limit = getattr(self._config, config_primary_name, None)
@@ -167,12 +170,10 @@ class ConfigAccessorService:
             limit = self._get_rate_limit_fallback(resolved_model_name, model_primary_name)
             if limit is None:
                 limit = self._get_rate_limit_fallback(resolved_model_name, model_alias_name)
-        if limit is None:
-            return default
         return limit
 
-    def get_model_tpm_limit(self, model_name: str | None = None) -> int:
-        """Return the tokens-per-minute limit for a model."""
+    def get_model_tpm_limit(self, model_name: str | None = None) -> int | None:
+        """Return the tokens-per-minute limit for a model, or ``None`` when unset."""
 
         return self._get_model_rate_limit(
             model_name,
@@ -180,11 +181,10 @@ class ConfigAccessorService:
             "tpm_limit",
             "tokens_per_minute",
             "tpm_limit",
-            1,
         )
 
-    def get_model_rpm_limit(self, model_name: str | None = None) -> int:
-        """Return the requests-per-minute limit for a model."""
+    def get_model_rpm_limit(self, model_name: str | None = None) -> int | None:
+        """Return the requests-per-minute limit for a model, or ``None`` when unset."""
 
         return self._get_model_rate_limit(
             model_name,
@@ -192,7 +192,6 @@ class ConfigAccessorService:
             "rpm_limit",
             "requests_per_minute",
             "rpm_limit",
-            0,
         )
 
     def get_openai_api_key(self) -> str | None:

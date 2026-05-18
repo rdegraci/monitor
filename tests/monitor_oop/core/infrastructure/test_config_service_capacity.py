@@ -24,15 +24,15 @@ class ConfigServiceCapacityTests(unittest.TestCase):
 
         self.assertGreater(self.service.get_output_window(), 0)
 
-    def test_model_tpm_limit_accessor_returns_positive_value(self) -> None:
-        """The TPM accessor should return a positive integer fallback."""
+    def test_model_tpm_limit_accessor_returns_none_when_unconfigured(self) -> None:
+        """The TPM accessor returns None when no TPM is configured (treated as unlimited)."""
 
-        self.assertGreater(self.service.get_model_tpm_limit(), 0)
+        self.assertIsNone(self.service.get_model_tpm_limit())
 
-    def test_model_rpm_limit_accessor_returns_non_negative_value(self) -> None:
-        """The RPM accessor should return a non-negative integer fallback."""
+    def test_model_rpm_limit_accessor_returns_none_when_unconfigured(self) -> None:
+        """The RPM accessor returns None when no RPM is configured (fatal at runtime)."""
 
-        self.assertGreaterEqual(self.service.get_model_rpm_limit(), 0)
+        self.assertIsNone(self.service.get_model_rpm_limit())
 
 
 if __name__ == "__main__":

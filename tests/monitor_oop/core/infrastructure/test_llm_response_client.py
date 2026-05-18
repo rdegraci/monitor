@@ -132,49 +132,6 @@ class FakeRateLimitService:
         self.recorded_request_tokens = tokens
 
 
-class FakeRateLimitServiceWithLegacyFallbackOnly:
-    """Minimal rate limit service stub without the public model-aware method."""
-
-    def __init__(self, allowed: bool) -> None:
-        self.allowed = allowed
-        self.called_estimate = False
-        self.called_request_allowed = False
-        self.called_record_request = False
-        self.recorded_request_tokens: int | None = None
-
-    def estimate_token_usage(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, str]],
-        tools: list[dict[str, object]] | None = None,
-        previous_response_id: str | None = None,
-    ) -> int:
-        """Record the call and return a stable token estimate."""
-
-        self.called_estimate = True
-        return 42
-
-    def request_allowed(
-        self,
-        *,
-        model: str,
-        estimated_tokens: int,
-        allow_wait: object | None = None,
-        wait_timeout_seconds: int | None = None,
-    ) -> bool:
-        """Record the call and return the configured rate-limit decision."""
-
-        self.called_request_allowed = True
-        return self.allowed
-
-    def record_request(self, tokens: int) -> None:
-        """Record the request usage call."""
-
-        self.called_record_request = True
-        self.recorded_request_tokens = tokens
-
-
 def build_config_service() -> ConfigService:
     """Return a config service with stable test values."""
 
@@ -295,11 +252,23 @@ def test_create_response_records_request_usage_after_successful_adapter_call() -
     assert len(fake_adapter.calls) == 1
 
 
-def test_create_response_raises_when_public_model_aware_recording_method_is_missing() -> None:
-    """Verify request usage recording fails clearly when the public model-aware method is absent."""
+class _UsageReportingAdapter(FakeAdapter):
+    """Adapter that returns a response with provider-reported usage."""
 
-    fake_adapter = FakeAdapter()
-    rate_limit_service = FakeRateLimitServiceWithLegacyFallbackOnly(allowed=True)
+    def __init__(self, total_tokens: int) -> None:
+        super().__init__()
+        self._total_tokens = total_tokens
+
+    def complete(self, *args, **kwargs):  # type: ignore[override]
+        super().complete(*args, **kwargs)
+        return {"ok": True, "usage": {"total_tokens": self._total_tokens}}
+
+
+def test_create_response_records_actual_total_tokens_from_response_usage() -> None:
+    """Verify the rate limit service records provider-reported total_tokens, not the estimate."""
+
+    fake_adapter = _UsageReportingAdapter(total_tokens=137)
+    rate_limit_service = FakeRateLimitService(allowed=True)
 
     config_service = build_config_service()
     client = LLMResponseClient(
@@ -308,14 +277,59 @@ def test_create_response_raises_when_public_model_aware_recording_method_is_miss
         rate_limit_service=rate_limit_service,
     )
 
-    with pytest.raises(RuntimeError, match="record_request_for_model"):
-        client.create_response([{"role": "user", "content": "hello"}])
+    client.create_response([{"role": "user", "content": "hello"}])
 
-    assert rate_limit_service.called_estimate is True
-    assert rate_limit_service.called_request_allowed is True
-    assert rate_limit_service.called_record_request is False
-    assert rate_limit_service.recorded_request_tokens is None
-    assert len(fake_adapter.calls) == 1
+    # FakeRateLimitService.estimate_token_usage returns 42 (the preflight
+    # estimate); the response reports 137. The recorded value must match the
+    # actual provider-reported usage, not the estimate.
+    assert rate_limit_service.recorded_request_tokens == 137
+
+
+class _InputOutputUsageAdapter(FakeAdapter):
+    """Adapter returning the Responses-API input/output token shape."""
+
+    def complete(self, *args, **kwargs):  # type: ignore[override]
+        super().complete(*args, **kwargs)
+        usage = type("Usage", (), {"input_tokens": 80, "output_tokens": 25})()
+        return type("Response", (), {"usage": usage})()
+
+
+def test_create_response_records_actual_tokens_from_input_plus_output_shape() -> None:
+    """Verify the recorded value falls back to input_tokens + output_tokens when total_tokens absent."""
+
+    fake_adapter = _InputOutputUsageAdapter()
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    client.create_response([{"role": "user", "content": "hello"}])
+
+    assert rate_limit_service.recorded_request_tokens == 105
+
+
+def test_create_response_falls_back_to_estimate_when_response_has_no_usage() -> None:
+    """Verify the recorded value uses the preflight estimate when the response has no usage payload."""
+
+    fake_adapter = FakeAdapter()  # returns {"ok": True} — no usage key
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    client.create_response([{"role": "user", "content": "hello"}])
+
+    # FakeRateLimitService.estimate_token_usage returns 42; the response has
+    # no usage so the recorded value should match the preflight estimate.
+    assert rate_limit_service.recorded_request_tokens == 42
 
 
 def test_create_response_stops_before_rate_limit_when_capacity_rejects_request() -> None:

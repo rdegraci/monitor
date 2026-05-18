@@ -267,23 +267,72 @@ class LLMResponseClient:
         full_model_name: str,
         estimated_tokens: int | None,
         previous_response_id: str | None,
+        response: Any = None,
     ) -> None:
-        """Record successful request usage in the rate limit service."""
+        """Record successful request usage in the rate limit service.
 
-        if self._rate_limit_service is None or estimated_tokens is None:
+        Prefers the provider-reported ``response.usage.total_tokens`` when
+        available so the rolling budget tracks actual usage rather than the
+        preflight estimate. Falls back to the estimate when the response
+        carries no usage payload.
+        """
+
+        if self._rate_limit_service is None:
             return
-        record_request_for_model = getattr(self._rate_limit_service, "record_request_for_model", None)
-        if record_request_for_model is None:
-            raise RuntimeError(
-                "Rate limit service does not provide the required record_request_for_model method."
-            )
+        actual_tokens = self._extract_response_total_tokens(response)
+        tokens_to_record = actual_tokens if actual_tokens is not None else estimated_tokens
+        if tokens_to_record is None:
+            return
         logger.info(
-            "Recording successful request usage: full_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
+            "Recording successful request usage: full_model_name=%s, actual_tokens=%s, estimated_tokens=%s, previous_response_id=%s.",
             full_model_name,
+            actual_tokens,
             estimated_tokens,
             previous_response_id,
         )
-        record_request_for_model(model=full_model_name, tokens=estimated_tokens)
+        self._rate_limit_service.record_request_for_model(
+            model=full_model_name, tokens=tokens_to_record
+        )
+
+    def _extract_response_total_tokens(self, response: Any) -> int | None:
+        """Best-effort extraction of the provider-reported total token usage.
+
+        Supports the OpenAI Responses-style ``usage.total_tokens`` /
+        ``input_tokens + output_tokens`` shape and the Chat Completions
+        ``prompt_tokens + completion_tokens`` shape. Tolerates both attribute
+        and dict-style access. Returns ``None`` when no usage payload can be
+        recovered so the caller falls back to the preflight estimate.
+        """
+
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+        if usage is None:
+            return None
+
+        def _read(name: str) -> int | None:
+            value = getattr(usage, name, None)
+            if value is None and isinstance(usage, dict):
+                value = usage.get(name)
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        total = _read("total_tokens")
+        if total is not None:
+            return total
+        input_tokens = _read("input_tokens")
+        output_tokens = _read("output_tokens")
+        if input_tokens is not None and output_tokens is not None:
+            return input_tokens + output_tokens
+        prompt = _read("prompt_tokens")
+        completion = _read("completion_tokens")
+        if prompt is not None and completion is not None:
+            return prompt + completion
+        return None
 
     def _invoke_adapter(
         self,
@@ -387,5 +436,6 @@ class LLMResponseClient:
             full_model_name=full_model_name,
             estimated_tokens=estimated_tokens,
             previous_response_id=previous_response_id,
+            response=response,
         )
         return response

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from collections import deque
@@ -24,11 +25,15 @@ class _UsageEvent:
 
 @dataclass(slots=True)
 class _RateLimitSnapshot:
-    """Capture the active usage and limit state for a single evaluation."""
+    """Capture the active usage and limit state for a single evaluation.
+
+    ``tpm_limit=None`` means TPM is unlimited (no TPM accounting is enforced);
+    ``rpm_limit=None`` means RPM accounting is skipped.
+    """
 
     current_tokens: int
     current_requests: int
-    tpm_limit: int
+    tpm_limit: int | None
     rpm_limit: int | None
 
 
@@ -258,6 +263,10 @@ class RateLimitService:
     def _resolve_rate_limit_key(self, model: str) -> str:
         """Resolve the accounting key for model-scoped state.
 
+        Normalizes by stripping any ``provider/`` prefix and lowercasing so
+        ``"openai/gpt-4o"`` and ``"gpt-4o"`` map to the same accounting key
+        and do not produce divergent budgets.
+
         Args:
             model: Model identifier for the request.
 
@@ -266,8 +275,12 @@ class RateLimitService:
         """
 
         normalized_model = str(model)
+        if "/" in normalized_model:
+            normalized_model = normalized_model.split("/", 1)[1]
+        normalized_model = normalized_model.strip().lower()
         logger.info(
-            "Resolved rate-limit accounting key: model=%s.",
+            "Resolved rate-limit accounting key: model=%s normalized=%s.",
+            model,
             normalized_model,
         )
         return normalized_model
@@ -287,25 +300,21 @@ class RateLimitService:
         )
         self._request_count_events.setdefault(accounting_key, deque()).append(timestamp)
 
-    def _resolve_tpm_limit(self, model: str, accounting_key: str) -> int:
+    def _resolve_tpm_limit(self, model: str, accounting_key: str) -> int | None:
         """Resolve the active TPM limit for a model.
 
-        Args:
-            model: Model identifier for the request.
-            accounting_key: Accounting key used to scope state and logging.
-
-        Returns:
-            A validated token-per-minute limit.
+        Returns ``None`` (unlimited) when no TPM is configured, logging a
+        warning so the operator sees the soft fallback. A configured but
+        non-positive TPM is treated as misconfiguration and raises.
         """
 
         limit = self._get_tpm_limit(model)
         if limit is None:
-            limit = 1
-            logger.info(
-                "No TPM limit configured for model=%s; using fallback=%s.",
+            logger.warning(
+                "No TPM limit configured for model=%s; treating as unlimited.",
                 model,
-                limit,
             )
+            return None
         self._validate_positive_limit(limit=limit, limit_name="TPM", model=model, accounting_key=accounting_key)
         logger.info(
             "Resolved TPM limit for model=%s: %s.",
@@ -317,21 +326,18 @@ class RateLimitService:
     def _resolve_rpm_limit(self, model: str, accounting_key: str) -> int | None:
         """Resolve the active RPM limit for a model.
 
-        Args:
-            model: Model identifier for the request.
-            accounting_key: Accounting key used to scope state and logging.
-
-        Returns:
-            A validated request-per-minute limit, or None if RPM is disabled.
+        RPM is treated as a mandatory configuration knob: a missing value
+        produces an error log and exits the process. This is intentionally
+        stricter than TPM, which has a soft-fallback path.
         """
 
         limit = self._get_rpm_limit(model)
         if limit is None:
-            logger.info(
-                "RPM limit is disabled for model=%s because no limit was configured.",
+            logger.error(
+                "RPM limit must be configured for model=%s; missing — exiting.",
                 model,
             )
-            return None
+            sys.exit(1)
         self._validate_positive_limit(limit=limit, limit_name="RPM", model=model, accounting_key=accounting_key)
         logger.info(
             "Resolved RPM limit for model=%s: %s.",
@@ -428,6 +434,9 @@ class RateLimitService:
     ) -> bool:
         """Check whether a request fits within the configured rate limits.
 
+        TPM and RPM checks are independently skipped when their respective
+        limits are ``None`` (unlimited / disabled).
+
         Args:
             estimated_tokens: Estimated token usage for the request.
             snapshot: Current usage and limit state.
@@ -436,15 +445,16 @@ class RateLimitService:
             True when the request fits within the active limits, otherwise False.
         """
 
-        token_request_total = snapshot.current_tokens + estimated_tokens
-        if token_request_total > snapshot.tpm_limit:
-            logger.warning(
-                "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
-                estimated_tokens,
-                snapshot.current_tokens,
-                snapshot.tpm_limit,
-            )
-            return False
+        if snapshot.tpm_limit is not None:
+            token_request_total = snapshot.current_tokens + estimated_tokens
+            if token_request_total > snapshot.tpm_limit:
+                logger.warning(
+                    "TPM limit exceeded: estimated_tokens=%s, current_tokens=%s, tpm_limit=%s",
+                    estimated_tokens,
+                    snapshot.current_tokens,
+                    snapshot.tpm_limit,
+                )
+                return False
         if snapshot.rpm_limit is not None:
             request_total = snapshot.current_requests + 1
             if request_total > snapshot.rpm_limit:

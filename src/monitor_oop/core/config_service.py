@@ -179,31 +179,15 @@ class ConfigService:
         logger.info("Returning provider prefix: %s", provider)
         return provider
 
-    def get_tokens_per_minute(self, model_name: str | None = None) -> int:
-        """Return the tokens-per-minute limit for a model.
+    def get_tokens_per_minute(self, model_name: str | None = None) -> int | None:
+        """Return the tokens-per-minute limit for a model, or ``None`` when unset."""
 
-        Args:
-            model_name: The optional model name to inspect.
+        return self._accessor_service.get_model_tpm_limit(model_name)
 
-        Returns:
-            int: The tokens-per-minute limit for the resolved model.
-        """
+    def get_requests_per_minute(self, model_name: str | None = None) -> int | None:
+        """Return the requests-per-minute limit for a model, or ``None`` when unset."""
 
-        tokens_per_minute = self._accessor_service.get_model_tpm_limit(model_name)
-        return tokens_per_minute
-
-    def get_requests_per_minute(self, model_name: str | None = None) -> int:
-        """Return the requests-per-minute limit for a model.
-
-        Args:
-            model_name: The optional model name to inspect.
-
-        Returns:
-            int: The requests-per-minute limit for the resolved model.
-        """
-
-        requests_per_minute = self._accessor_service.get_model_rpm_limit(model_name)
-        return requests_per_minute
+        return self._accessor_service.get_model_rpm_limit(model_name)
 
     def estimate_token_usage(
         self,
@@ -270,22 +254,20 @@ class ConfigService:
 
         return self._accessor_service.get_conversation_turn_budget()
 
-    def get_model_tpm_limit(self, model_name: str | None = None) -> int:
+    def get_model_tpm_limit(self, model_name: str | None = None) -> int | None:
         """Return the tokens-per-minute limit for a model.
 
-        The requested model name is used when provided; otherwise the current
-        runtime model is checked. If no model-specific TPM value is available,
-        return a small positive default.
+        Returns ``None`` when no model-specific TPM value is configured; the
+        rate-limit service then treats the limit as unlimited (with a warning).
         """
 
         return self._accessor_service.get_model_tpm_limit(model_name)
 
-    def get_model_rpm_limit(self, model_name: str | None = None) -> int:
+    def get_model_rpm_limit(self, model_name: str | None = None) -> int | None:
         """Return the requests-per-minute limit for a model.
 
-        The requested model name is used when provided; otherwise the current
-        runtime model is checked. If no model-specific RPM value is available,
-        return 0.
+        Returns ``None`` when no model-specific RPM value is configured. The
+        rate-limit service treats missing RPM as a fatal configuration error.
         """
 
         return self._accessor_service.get_model_rpm_limit(model_name)
