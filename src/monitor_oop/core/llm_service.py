@@ -17,6 +17,23 @@ from monitor_oop.core.tools.tool_service import ToolService
 logger = logging.getLogger(__name__)
 
 
+def _input_text_from_history(history: list[str | Message]) -> str:
+    """Return the latest user-facing text from a history list.
+
+    Used to populate ``TurnCompletionResult.input_text`` now that ``complete``
+    no longer accepts the user input as a separate argument.
+    """
+
+    if not history:
+        return ""
+    last = history[-1]
+    if isinstance(last, Message):
+        return last.content
+    if isinstance(last, str):
+        return last
+    return ""
+
+
 class LLMService:
     """Owns the Responses-via-LiteLLM adapter boundary for a single runtime instance.
 
@@ -123,18 +140,22 @@ class LLMService:
             self._last_response_id = getattr(response, "id", None)
             logger.info("Captured response.id=%s for current request.", self._last_response_id)
 
-    def complete(self, user_input: str, history: list[str | Message]) -> TurnCompletionResult:
-        """Call the configured model through the Responses-via-LiteLLM adapter boundary and return assistant text."""
+    def complete(self, history: list[str | Message]) -> TurnCompletionResult:
+        """Call the configured model with the conversation history.
+
+        The caller must ensure the latest user turn is the final entry in
+        ``history``; the request body is rendered from history alone.
+        """
 
         response = self._complete_with_tool_calls(
-            self._request_builder.build_input(user_input, history)
+            self._request_builder.build_input(history)
         )
         assistant_text = self._adapter.extract_text(response)
         response_id = getattr(response, "id", None)
         parent_response_id = getattr(response, "parent_response_id", None)
         return TurnCompletionResult(
             task_id="",
-            input_text=user_input,
+            input_text=_input_text_from_history(history),
             success=True,
             status_text="",
             assistant_text=assistant_text,

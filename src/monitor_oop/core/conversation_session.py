@@ -85,26 +85,6 @@ class ConversationSession:
 
         return None
 
-    def _get_compaction_config_service(self):
-        """Return the config service when it supports compaction-related methods.
-
-        Returns:
-            The current config service if it exposes the methods needed for
-            compaction decisions, otherwise None.
-        """
-
-        config_service = self.context.config_service
-        required_methods = (
-            "get_context_window",
-            "get_output_window",
-            "get_full_model_name",
-            "estimate_token_usage",
-        )
-        for method_name in required_methods:
-            if not hasattr(config_service, method_name):
-                return None
-        return config_service
-
     def _build_compaction_summary(self) -> str:
         """Build a deterministic summary string for history compaction.
 
@@ -117,57 +97,54 @@ class ConversationSession:
         logger.info("History compaction requested; running compaction flow")
         return self.context.summarization_service.summarize(history_snapshot)
 
-    def _estimate_compaction_token_count(self, history_snapshot: tuple[Message, ...]) -> int | None:
-        """Estimate token usage for the current history conservatively."""
+    def _estimate_compaction_token_count(
+        self, history_snapshot: tuple[Message, ...]
+    ) -> int | None:
+        """Estimate token usage for the current history.
 
-        config_service = self._get_compaction_config_service()
-        if config_service is None:
-            return None
+        Converts each ``Message`` dataclass to the ``{"role", "content"}``
+        request shape that ``estimate_token_usage`` is documented to accept;
+        passing dataclasses directly would raise ``AttributeError`` inside the
+        estimator and silently disable the context-window compaction trigger.
 
+        Returns None when no model is configured or the estimator fails;
+        callers should treat ``None`` as "skip the token-pressure branch"
+        rather than substituting a character-count proxy (chars != tokens).
+        """
+
+        config_service = self.context.config_service
         model_name = config_service.get_full_model_name()
         if not model_name:
             return None
 
+        request_messages = [
+            {"role": message.role, "content": message.content}
+            for message in history_snapshot
+        ]
         try:
-            estimated_token_count = config_service.estimate_token_usage(
+            return config_service.estimate_token_usage(
                 model=model_name,
-                messages=list(history_snapshot),
+                messages=request_messages,
                 tools=None,
                 previous_response_id=None,
             )
-        except Exception:
-            logger.exception("Token usage estimation failed; falling back to message lengths")
+        except (AttributeError, TypeError, ValueError):
+            logger.exception("Token usage estimation failed; skipping token-pressure branch")
             return None
-
-        if estimated_token_count is None:
-            return None
-
-        return estimated_token_count
 
     def _maybe_compact_history(self) -> None:
         """Compact history when the history service requests it."""
 
         history_service = self.context.history_service
-        config_service = self._get_compaction_config_service()
-        if config_service is None:
-            logger.info("Compaction config service unavailable; using legacy turn-budget path")
-            should_compact = history_service.should_compact()
-            logger.info("Legacy compaction decision: %s", should_compact)
-            if should_compact:
-                summary_text = self._build_compaction_summary()
-                history_service.compact(summary_text)
-            return
+        config_service = self.context.config_service
 
         history_snapshot = tuple(history_service.messages)
-        message_lengths = [len(message.content) for message in history_snapshot]
         context_window = config_service.get_context_window()
         output_window = config_service.get_output_window()
 
-        estimated_token_count = None
+        estimated_token_count: int | None = None
         if history_snapshot:
             estimated_token_count = self._estimate_compaction_token_count(history_snapshot)
-            if estimated_token_count is None:
-                estimated_token_count = sum(message_lengths)
 
         logger.info(
             "Evaluating compaction with context_window=%s output_window=%s estimated_token_count=%s message_count=%s",
@@ -179,7 +156,6 @@ class ConversationSession:
         should_compact = history_service.should_compact(
             context_window=context_window,
             estimated_token_count=estimated_token_count,
-            message_lengths=message_lengths,
             output_window=output_window,
         )
         logger.info("Compaction decision: %s", should_compact)
@@ -200,12 +176,12 @@ class ConversationSession:
             self._running = False
             return None
         self.context.history_service.append(Message(role="user", content=user_input))
+        self._maybe_compact_history()
         completion_result = self.context.llm_service.complete(
-            user_input, self.context.history_service.messages
+            self.context.history_service.messages
         )
         for message in completion_result.messages:
             self.context.history_service.append_message(message)
-        self._maybe_compact_history()
         return completion_result.assistant_text
 
     def submit_input(self, user_input: str) -> ConversationTurnResult | None:

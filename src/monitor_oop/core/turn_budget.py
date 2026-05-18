@@ -6,20 +6,6 @@ from dataclasses import dataclass
 from monitor_oop.core.models import Message
 
 
-def compact_summary_filename(pid: int, timestamp: str) -> str:
-    """Compute a compact summary filename from a pid and timestamp string.
-
-    Args:
-        pid: The process identifier.
-        timestamp: A timestamp string in a compact date-time format.
-
-    Returns:
-        A filename in the form compact-<pid>-YYYY-MM-DD-HH-MM.summary.
-    """
-
-    return f"compact-{pid}-{timestamp}.summary"
-
-
 def _count_user_turns(messages: list[Message]) -> int:
     """Count user turns in a conversation history snapshot."""
 

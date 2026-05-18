@@ -294,30 +294,43 @@ class LLMResponseClient:
         tool_choice: str,
         previous_response_id: str | None,
         full_model_name: str,
+        max_output_tokens: int | None = None,
     ) -> Any:
         """Invoke the completion adapter."""
 
         logger.info(
-            "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, previous_response_id=%s.",
+            "Calling adapter.complete with api_model_name=%s and full_model_name context=%s, previous_response_id=%s, max_output_tokens=%s.",
             api_model_name,
             full_model_name,
             previous_response_id,
+            max_output_tokens,
         )
+        adapter_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "previous_response_id": previous_response_id,
+        }
+        if max_output_tokens is not None:
+            adapter_kwargs["max_output_tokens"] = max_output_tokens
         return self._adapter.complete(
             api_model_name,
             input_messages,
-            api_key=api_key,
-            tools=tools,
-            tool_choice=tool_choice,
-            previous_response_id=previous_response_id,
+            **adapter_kwargs,
         )
 
-    def create_response(self, input_messages: list[dict[str, str]], previous_response_id: str | None = None) -> Any:
+    def create_response(
+        self,
+        input_messages: list[dict[str, str]],
+        previous_response_id: str | None = None,
+        max_output_tokens: int | None = None,
+    ) -> Any:
         """Create a response using the adapter completion API.
 
         Args:
             input_messages: The request payload to send to the model.
             previous_response_id: The previous model response identifier, if any.
+            max_output_tokens: Hard cap on the model's output tokens, when set.
 
         Returns:
             The provider response object.
@@ -368,6 +381,7 @@ class LLMResponseClient:
             tool_choice=tool_choice,
             previous_response_id=previous_response_id,
             full_model_name=full_model_name,
+            max_output_tokens=max_output_tokens,
         )
         self._record_rate_limit_request_usage(
             full_model_name=full_model_name,

@@ -118,6 +118,16 @@ class ConfigAccessorService:
 
         return self._config.summarization_settings.token_limit
 
+    def get_compaction_preserve_units(self) -> int:
+        """Return the number of conversational units to preserve during compaction."""
+
+        return self._config.summarization_settings.preserve_units
+
+    def get_compaction_soft_ratio(self) -> float:
+        """Return the soft-trigger ratio of context window for proactive compaction."""
+
+        return self._config.summarization_settings.compaction_soft_ratio
+
     def get_conversation_turn_budget(self) -> int:
         """Return the conversation turn budget for the active runtime."""
 

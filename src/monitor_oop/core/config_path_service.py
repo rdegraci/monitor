@@ -65,6 +65,14 @@ class ConfigPathService:
             self._build_log_file_path,
         )
 
+    def get_compaction_dir_path(self) -> str:
+        """Return the first writable compaction summary directory path."""
+
+        return self._first_writable_path(
+            self._candidate_config_dirs(),
+            self._build_compaction_dir_path,
+        )
+
     def _candidate_config_dirs(self) -> list[Path]:
         """Return candidate configuration directories in lookup order."""
 
@@ -142,6 +150,14 @@ class ConfigPathService:
         """
 
         return self._build_concrete_file_path(base_dir, "log", f"monitor_{os.getpid()}.log")
+
+    def _build_compaction_dir_path(self, base_dir: Path) -> str:
+        """Build a writable compaction summary directory path."""
+
+        compaction_dir = base_dir / "compaction"
+        if not self._ensure_writable_dir(compaction_dir):
+            return ""
+        return str(compaction_dir)
 
     def _build_concrete_file_path(self, base_dir: Path, relative_dir: str, filename: str) -> str:
         """Build a writable file path under a base directory."""

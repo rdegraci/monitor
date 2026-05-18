@@ -289,7 +289,7 @@ def test_complete_returns_text_for_stop_response() -> None:
 
     service, adapter, response_client, _ = build_service([build_response("stop", "response_1")], ["final answer"])
 
-    result = service.complete("hello", [])
+    result = service.complete([Message(role="user", content="hello")])
 
     assert result.assistant_text == "final answer"
     assert result.response_id == "response_1"
@@ -319,7 +319,7 @@ def test_complete_includes_response_ids_on_result_and_message() -> None:
         ["final answer"],
     )
 
-    result = service.complete("hello", [])
+    result = service.complete([Message(role="user", content="hello")])
 
     assert result.response_id == "response_1"
     assert result.parent_response_id == "response_parent"
@@ -355,7 +355,7 @@ def test_complete_executes_single_tool_call_completion_path() -> None:
         tool_service=tool_service,
     )
 
-    result = service.complete("hello", [])
+    result = service.complete([Message(role="user", content="hello")])
 
     assert result.assistant_text == "assistant text"
     assert result.response_id == "response_2"
@@ -372,7 +372,7 @@ def test_complete_raises_for_content_filter_response() -> None:
     service, _, response_client, _ = build_service([build_response("content_filter", "response_1")], ["final answer"])
 
     with pytest.raises(ValueError, match="filtered"):
-        service.complete("hello", [])
+        service.complete([Message(role="user", content="hello")])
 
     assert len(response_client.complete_calls) == 1
 
@@ -383,7 +383,7 @@ def test_complete_raises_for_length_response() -> None:
     service, _, response_client, _ = build_service([build_response("length", "response_1")], ["final answer"])
 
     with pytest.raises(ValueError, match="length limit"):
-        service.complete("hello", [])
+        service.complete([Message(role="user", content="hello")])
 
     assert len(response_client.complete_calls) == 1
 
@@ -470,7 +470,7 @@ def test_complete_enforces_max_tool_loop_iterations() -> None:
     )
 
     with pytest.raises(RuntimeError, match="maximum.*16"):
-        service.complete("hello", [])
+        service.complete([Message(role="user", content="hello")])
 
     assert len(response_client.complete_calls) == 16
     assert len(tool_service.executed_calls) == 16
@@ -521,7 +521,7 @@ def test_complete_parses_and_executes_multiple_tool_calls() -> None:
         tool_service=tool_service,
     )
 
-    result = service.complete("hello", [])
+    result = service.complete([Message(role="user", content="hello")])
 
     assert len(response_client.complete_calls) >= 2
     assert len(tool_service.executed_calls) >= 2

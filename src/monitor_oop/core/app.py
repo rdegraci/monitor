@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from logging import getLogger
+from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -127,7 +128,14 @@ def build_app(quiet_bootstrap: bool = False) -> MonitorApp:
         app_logger.info("Bootstrap logging configured for TUI mode with file-only output")
     else:
         app_logger.info("Bootstrap logging configured for REPL mode with file-only output")
-    compaction_store = CompactionStore(config_service)
+    compaction_dir_path = config_service.get_compaction_dir_path()
+    if compaction_dir_path:
+        compaction_store = CompactionStore(Path(compaction_dir_path))
+    else:
+        app_logger.warning(
+            "No writable compaction directory available; compaction summaries will not be persisted"
+        )
+        compaction_store = None
     history_service = HistoryService(config_service, compaction_store)
     prompt_store = PromptStore(config_service)
     macro_store = MacroStore("Monitor OOP")

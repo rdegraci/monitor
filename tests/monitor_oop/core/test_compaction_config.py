@@ -9,7 +9,7 @@ def test_config_service_returns_compaction_runtime_configuration() -> None:
     """ConfigService should expose active compaction-related runtime settings."""
 
     runtime_config = RuntimeConfig()
-    runtime_config.summarization.prompt_template = "Summary template"
+    runtime_config.summarization_settings.prompt_template = "Summary template"
     service = ConfigService(initial_config=runtime_config)
 
     assert service.get_summarization_prompt_template() == "Summary template"

@@ -2,13 +2,7 @@
 from __future__ import annotations
 
 from monitor_oop.core.models import Message
-from monitor_oop.core.turn_budget import TurnBudgetTracker, compact_summary_filename
-
-
-def test_compact_summary_filename_builds_expected_name() -> None:
-    """Verify the summary filename format uses the pid and timestamp."""
-
-    assert compact_summary_filename(1234, "2024-01-02-03-04") == "compact-1234-2024-01-02-03-04.summary"
+from monitor_oop.core.turn_budget import TurnBudgetTracker
 
 
 def test_turn_budget_tracker_counts_user_turns_on_sync() -> None:

@@ -255,6 +255,16 @@ class ConfigService:
 
         return self._accessor_service.get_summarization_token_limit()
 
+    def get_compaction_preserve_units(self) -> int:
+        """Return the number of conversational units to preserve during compaction."""
+
+        return self._accessor_service.get_compaction_preserve_units()
+
+    def get_compaction_soft_ratio(self) -> float:
+        """Return the soft-trigger ratio of context window for proactive compaction."""
+
+        return self._accessor_service.get_compaction_soft_ratio()
+
     def get_conversation_turn_budget(self) -> int:
         """Return the conversation turn budget for the active runtime."""
 
@@ -294,6 +304,11 @@ class ConfigService:
         """Return the first writable per-process log file path."""
 
         return self._path_service.get_log_file_path()
+
+    def get_compaction_dir_path(self) -> str:
+        """Return the first writable compaction summary directory path."""
+
+        return self._path_service.get_compaction_dir_path()
 
     def get_history_file_path(self) -> str:
         """Return the persistent prompt history file path."""

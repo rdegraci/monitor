@@ -32,6 +32,13 @@ class SummarizationSettings:
     Attributes:
         token_limit: Maximum tokens allowed in a generated summary.
         prompt_template: Template used to instruct the summarizer.
+        preserve_units: Number of conversational units to preserve from the
+            tail of history during compaction.
+        compaction_soft_ratio: Fraction of the model's context window that, once
+            consumed by input tokens, fires a proactive compaction. The hard
+            ``input + output_window >= context_window`` check remains as the
+            backstop. Set to ``0.0`` (or any value outside ``(0, 1)``) to
+            disable the soft trigger and rely solely on the hard backstop.
     """
 
     token_limit: int = 4000
@@ -39,6 +46,8 @@ class SummarizationSettings:
         "Summarize the conversation history concisely while preserving important "
         "context, decisions, constraints, and open tasks."
     )
+    preserve_units: int = 2
+    compaction_soft_ratio: float = 0.5
 
     @property
     def prompt(self) -> str:
@@ -75,18 +84,6 @@ class RuntimeConfig:
     requests_per_minute: int | None = None
     provider: str | None = None
     full_model_name: str | None = None
-
-    @property
-    def summarization(self) -> SummarizationSettings:
-        """Return the summarization settings object used for compaction."""
-
-        return self.summarization_settings
-
-    @property
-    def compaction_config(self) -> SummarizationSettings:
-        """Return the compaction settings alias used for compaction."""
-
-        return self.summarization_settings
 
     @property
     def conversation_max_turns(self) -> int:

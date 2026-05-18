@@ -24,6 +24,7 @@ class ResponsesOpenAiAdapter:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
         previous_response_id: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> Any:
         """Call the OpenAI Responses API with the Responses-style model/input contract."""
 
@@ -34,6 +35,7 @@ class ResponsesOpenAiAdapter:
             tools=tools,
             tool_choice=tool_choice,
             previous_response_id=previous_response_id,
+            max_output_tokens=max_output_tokens,
         )
         logger.info(
             "Calling OpenAI Responses with kwargs keys=%s previous_response_id_present=%s",
@@ -75,6 +77,7 @@ class ResponsesOpenAiAdapter:
         tools: list[dict[str, Any]] | None,
         tool_choice: Any | None,
         previous_response_id: str | None,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": model,
@@ -86,6 +89,8 @@ class ResponsesOpenAiAdapter:
             kwargs["tool_choice"] = tool_choice
         if previous_response_id is not None:
             kwargs["previous_response_id"] = previous_response_id
+        if max_output_tokens is not None:
+            kwargs["max_output_tokens"] = max_output_tokens
         return kwargs
 
     def _extract_output_text(self, response: Any) -> str:

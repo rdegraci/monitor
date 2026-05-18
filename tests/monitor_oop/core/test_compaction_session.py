@@ -23,17 +23,19 @@ from monitor_oop.core.summarization_service import SummarizationService
 class _FakeRequestBuilder:
     """Minimal request builder stub for session tests."""
 
-    def build_input(self, user_input, history):
-        return [user_input, history]
+    def build_input(self, history):
+        return [history]
 
-    def build_summarization_input(self, prompt_text, message_history, token_limit):
-        return [prompt_text, message_history, token_limit]
+    def build_summarization_input(self, prompt_text, message_history):
+        return [prompt_text, message_history]
 
 
 class _FakeResponseClient:
     """Minimal response client stub for session tests."""
 
-    def create_response(self, request_input, previous_response_id=None):
+    def create_response(
+        self, request_input, previous_response_id=None, max_output_tokens=None
+    ):
         return type("Response", (), {"id": "response-1"})()
 
 
@@ -74,17 +76,13 @@ class _StubConfigService(ConfigService):
     def __init__(self, runtime_config: RuntimeConfig) -> None:
         super().__init__(initial_config=runtime_config)
 
-    @property
-    def compaction_config(self):
-        return self._config.summarization
-
 
 class _FakeSummarizationService:
     def __init__(self, config_service: _StubConfigService) -> None:
         self._config_service = config_service
 
     def summarize(self, messages) -> str:
-        prompt_template = self._config_service.compaction_config.prompt_template
+        prompt_template = self._config_service.get_summarization_prompt_template()
         return f"{prompt_template} | summary {len(messages)}"
 
 
@@ -93,7 +91,7 @@ def build_session(conversation_max_turns: int = 2) -> ConversationSession:
 
     runtime_config = RuntimeConfig()
     runtime_config.conversation_turn_budget = conversation_max_turns
-    runtime_config.summarization.prompt_template = "summary {message_count}"
+    runtime_config.summarization_settings.prompt_template = "summary {message_count}"
     config_service = _StubConfigService(runtime_config)
     history_service = HistoryService(config_service)
     macro_store = MacroStore("monitor")
@@ -207,7 +205,7 @@ def test_conversation_session_preserves_tool_call_cluster_during_compaction() ->
         )
     )
 
-    history_service.compact_with_summary("deterministic summary")
+    history_service.compact("deterministic summary")
 
     preserved_history = history_service.snapshot()
     assert any(message.role == "system" for message in preserved_history)
@@ -234,3 +232,36 @@ def test_conversation_session_preserves_tool_call_cluster_during_compaction() ->
         and message.parent_response_id == "tool-response-1"
         for message in preserved_history
     )
+
+
+def test_estimate_compaction_token_count_handles_message_dataclasses() -> None:
+    """The estimator must accept Message dataclasses by converting to request dicts.
+
+    Regression: history items are Message dataclass instances, not dicts;
+    passing them directly raised AttributeError inside the estimator and
+    silently disabled the context-window compaction trigger.
+    """
+
+    session = build_session()
+    # Configure a model so the estimator path is reached.
+    session.context.config_service._config.full_model_name = "openai/gpt-4o"
+
+    snapshot = (
+        Message(role="user", content="hello world"),
+        Message(role="assistant", content="hi there, how can I help?"),
+    )
+
+    estimated = session._estimate_compaction_token_count(snapshot)
+
+    assert isinstance(estimated, int)
+    assert estimated > 0
+
+
+def test_estimate_compaction_token_count_returns_none_when_model_missing() -> None:
+    """The estimator should short-circuit when no model is configured."""
+
+    session = build_session()
+    # full_model_name defaults to None on RuntimeConfig; verify short-circuit.
+    snapshot = (Message(role="user", content="hello"),)
+
+    assert session._estimate_compaction_token_count(snapshot) is None
