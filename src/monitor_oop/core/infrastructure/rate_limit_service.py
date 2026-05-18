@@ -5,7 +5,7 @@ import logging
 import sys
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Deque, Sequence
@@ -13,6 +13,9 @@ from typing import Deque, Sequence
 from monitor_oop.core.config_service import ConfigService
 
 logger = logging.getLogger(__name__)
+
+
+_DEFAULT_RESPONSE_CHAIN_CACHE_SIZE = 256
 
 
 @dataclass(slots=True)
@@ -40,12 +43,20 @@ class _RateLimitSnapshot:
 class RateLimitService:
     """Enforce provider-aware token limits using a rolling time window."""
 
-    def __init__(self, config_service: ConfigService, window_seconds: int = 60) -> None:
+    def __init__(
+        self,
+        config_service: ConfigService,
+        window_seconds: int = 60,
+        response_chain_cache_size: int = _DEFAULT_RESPONSE_CHAIN_CACHE_SIZE,
+    ) -> None:
         """Initialize the rate limit service.
 
         Args:
             config_service: Required runtime configuration access.
             window_seconds: Rolling accounting window size in seconds.
+            response_chain_cache_size: Maximum number of (response_id → total_tokens)
+                entries retained for chain-aware preflight estimation. Older entries
+                are evicted in LRU order.
         """
 
         self._config_service = config_service
@@ -53,6 +64,8 @@ class RateLimitService:
         self._usage_events: dict[str, Deque[_UsageEvent]] = {}
         self._request_count_events: dict[str, Deque[float]] = {}
         self._lock = threading.RLock()
+        self._response_chain_cache_size = max(response_chain_cache_size, 0)
+        self._response_total_tokens: OrderedDict[str, int] = OrderedDict()
 
     def estimate_token_usage(
         self,
@@ -62,6 +75,13 @@ class RateLimitService:
         previous_response_id: str | None,
     ) -> int:
         """Estimate token usage for a model request.
+
+        When the request chains via ``previous_response_id`` and a prior
+        response's reported ``total_tokens`` is cached, the cached value is
+        added as a server-side baseline so the preflight reflects the full
+        chained context the provider will process. A cache miss falls back
+        to the local estimate alone — the post-call recording (which uses
+        ``response.usage``) reconciles the budget on the next iteration.
 
         Args:
             model: Model identifier to estimate for.
@@ -73,23 +93,65 @@ class RateLimitService:
             A conservative integer estimate for the request.
         """
 
-        estimated_tokens = self._config_service.estimate_token_usage(
+        local_estimate = self._config_service.estimate_token_usage(
             model=model,
             messages=messages,
             tools=tools,
-            previous_response_id=previous_response_id,
+            previous_response_id=None,
         )
-        conservative_estimate = max(int(estimated_tokens), 0)
+        chain_baseline = self._lookup_chain_baseline(previous_response_id)
+        total_estimate = int(local_estimate) + chain_baseline
+        conservative_estimate = max(total_estimate, 0)
         logger.info(
-            "Estimated token usage for model=%s, messages=%s, tools=%s, previous_response_id=%s: estimated_tokens=%s, conservative_estimate=%s.",
+            "Estimated token usage for model=%s, messages=%s, tools=%s, previous_response_id=%s: local_estimate=%s, chain_baseline=%s, conservative_estimate=%s.",
             model,
             len(messages),
             0 if tools is None else len(tools),
             previous_response_id,
-            estimated_tokens,
+            local_estimate,
+            chain_baseline,
             conservative_estimate,
         )
         return conservative_estimate
+
+    def _lookup_chain_baseline(self, previous_response_id: str | None) -> int:
+        """Return the cached server-side total_tokens for a chained response.
+
+        On a cache hit, the entry is moved to the most-recent end for LRU
+        accounting. Returns ``0`` when no cached baseline is available (cold
+        cache, cross-process, or first call in the chain).
+        """
+
+        if not previous_response_id:
+            return 0
+        with self._lock:
+            cached = self._response_total_tokens.get(previous_response_id)
+            if cached is None:
+                return 0
+            self._response_total_tokens.move_to_end(previous_response_id)
+            return cached
+
+    def record_response_total_tokens(
+        self, response_id: str | None, total_tokens: int | None
+    ) -> None:
+        """Cache the provider-reported total tokens for a response.id.
+
+        Stored entries seed the chain-aware preflight estimate when a future
+        request chains via ``previous_response_id=response_id``. Cache is
+        bounded by ``response_chain_cache_size``; entries are evicted in LRU
+        order once the cap is reached.
+        """
+
+        if not response_id or total_tokens is None:
+            return
+        if self._response_chain_cache_size <= 0:
+            return
+        with self._lock:
+            if response_id in self._response_total_tokens:
+                self._response_total_tokens.move_to_end(response_id)
+            self._response_total_tokens[response_id] = int(total_tokens)
+            while len(self._response_total_tokens) > self._response_chain_cache_size:
+                self._response_total_tokens.popitem(last=False)
 
     def request_allowed(
         self,

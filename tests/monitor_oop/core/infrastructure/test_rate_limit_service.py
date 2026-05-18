@@ -172,6 +172,131 @@ class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
         )
 
 
+class RateLimitServiceChainAwareEstimateTests(unittest.TestCase):
+    """Verify previous_response_id estimates use the cached server-side baseline."""
+
+    def setUp(self) -> None:
+        class ConfigServiceStub:
+            def get_model_tpm_limit(self, model: str) -> int:
+                return 100_000
+
+            def get_model_rpm_limit(self, model: str) -> int:
+                return 10
+
+            def estimate_token_usage(
+                self,
+                *,
+                model: str,
+                messages,
+                tools,
+                previous_response_id,
+            ) -> int:
+                # Marginal payload cost only — the chain baseline must not be
+                # contributed by this estimator; the service adds it from the cache.
+                return 50
+
+        self.service = RateLimitService(ConfigServiceStub(), window_seconds=60)
+
+    def test_chain_baseline_added_when_response_id_cached(self) -> None:
+        """Estimate should include the cached prior response total_tokens as a baseline."""
+
+        self.service.record_response_total_tokens("resp_abc", total_tokens=5_000)
+
+        estimate = self.service.estimate_token_usage(
+            model="openai/gpt-4o",
+            messages=[{"role": "user", "content": "follow-up"}],
+            tools=None,
+            previous_response_id="resp_abc",
+        )
+
+        # 50 (local marginal) + 5000 (chain baseline) = 5050.
+        self.assertEqual(estimate, 5_050)
+
+    def test_chain_baseline_zero_on_cache_miss(self) -> None:
+        """When no cached baseline exists, the estimate is the local marginal only."""
+
+        estimate = self.service.estimate_token_usage(
+            model="openai/gpt-4o",
+            messages=[{"role": "user", "content": "follow-up"}],
+            tools=None,
+            previous_response_id="never_seen",
+        )
+
+        self.assertEqual(estimate, 50)
+
+    def test_chain_baseline_zero_when_no_previous_response_id(self) -> None:
+        """A fresh (non-chained) request gets just the local marginal."""
+
+        self.service.record_response_total_tokens("resp_abc", total_tokens=5_000)
+
+        estimate = self.service.estimate_token_usage(
+            model="openai/gpt-4o",
+            messages=[{"role": "user", "content": "fresh"}],
+            tools=None,
+            previous_response_id=None,
+        )
+
+        self.assertEqual(estimate, 50)
+
+    def test_chain_cache_evicts_in_lru_order_when_at_capacity(self) -> None:
+        """Caching beyond the configured cap drops the least-recently-used entry."""
+
+        service = RateLimitService(
+            self.service._config_service,  # type: ignore[arg-type]
+            window_seconds=60,
+            response_chain_cache_size=2,
+        )
+
+        service.record_response_total_tokens("oldest", total_tokens=100)
+        service.record_response_total_tokens("middle", total_tokens=200)
+        # Touch "oldest" so "middle" is now LRU.
+        service.estimate_token_usage(
+            model="m", messages=[], tools=None, previous_response_id="oldest"
+        )
+        service.record_response_total_tokens("newest", total_tokens=300)
+
+        # "middle" should have been evicted (it was the LRU).
+        self.assertEqual(
+            service.estimate_token_usage(
+                model="m", messages=[], tools=None, previous_response_id="middle"
+            ),
+            50,  # local estimate only — cache miss
+        )
+        # "oldest" and "newest" are still cached.
+        self.assertEqual(
+            service.estimate_token_usage(
+                model="m", messages=[], tools=None, previous_response_id="oldest"
+            ),
+            150,
+        )
+        self.assertEqual(
+            service.estimate_token_usage(
+                model="m", messages=[], tools=None, previous_response_id="newest"
+            ),
+            350,
+        )
+
+    def test_record_response_total_tokens_ignores_none_inputs(self) -> None:
+        """Empty response_id or None total_tokens should be a silent no-op."""
+
+        self.service.record_response_total_tokens("", total_tokens=500)
+        self.service.record_response_total_tokens("resp_no_total", total_tokens=None)
+
+        # Both ignored: cache has no usable entries for those keys.
+        self.assertEqual(
+            self.service.estimate_token_usage(
+                model="m", messages=[], tools=None, previous_response_id=""
+            ),
+            50,
+        )
+        self.assertEqual(
+            self.service.estimate_token_usage(
+                model="m", messages=[], tools=None, previous_response_id="resp_no_total"
+            ),
+            50,
+        )
+
+
 class RateLimitServiceAccountingKeyNormalizationTests(unittest.TestCase):
     """Verify provider-prefixed and bare model names map to the same budget."""
 

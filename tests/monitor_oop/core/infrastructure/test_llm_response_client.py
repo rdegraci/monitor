@@ -131,6 +131,14 @@ class FakeRateLimitService:
         self.called_record_request = True
         self.recorded_request_tokens = tokens
 
+    def record_response_total_tokens(
+        self, response_id: str, total_tokens: int
+    ) -> None:
+        """Record the chain-aware response-id → total_tokens cache write."""
+
+        self.cached_response_id = response_id
+        self.cached_response_total_tokens = total_tokens
+
 
 def build_config_service() -> ConfigService:
     """Return a config service with stable test values."""
@@ -330,6 +338,33 @@ def test_create_response_falls_back_to_estimate_when_response_has_no_usage() -> 
     # FakeRateLimitService.estimate_token_usage returns 42; the response has
     # no usage so the recorded value should match the preflight estimate.
     assert rate_limit_service.recorded_request_tokens == 42
+
+
+class _CachableUsageAdapter(FakeAdapter):
+    """Adapter returning a response carrying both ``id`` and ``usage.total_tokens``."""
+
+    def complete(self, *args, **kwargs):  # type: ignore[override]
+        super().complete(*args, **kwargs)
+        return {"id": "resp_xyz", "usage": {"total_tokens": 175}}
+
+
+def test_create_response_caches_response_id_total_tokens_for_future_chained_estimates() -> None:
+    """Verify the response's id and total_tokens are cached on the rate limit service."""
+
+    fake_adapter = _CachableUsageAdapter()
+    rate_limit_service = FakeRateLimitService(allowed=True)
+
+    config_service = build_config_service()
+    client = LLMResponseClient(
+        config_service,
+        adapter=fake_adapter,
+        rate_limit_service=rate_limit_service,
+    )
+
+    client.create_response([{"role": "user", "content": "hello"}])
+
+    assert rate_limit_service.cached_response_id == "resp_xyz"
+    assert rate_limit_service.cached_response_total_tokens == 175
 
 
 def test_create_response_stops_before_rate_limit_when_capacity_rejects_request() -> None:

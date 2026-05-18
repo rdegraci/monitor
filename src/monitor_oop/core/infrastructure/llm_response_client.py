@@ -293,6 +293,28 @@ class LLMResponseClient:
         self._rate_limit_service.record_request_for_model(
             model=full_model_name, tokens=tokens_to_record
         )
+        # Cache this response's total_tokens keyed by its own id so a future
+        # request that chains via previous_response_id can include the
+        # server-side context in its preflight estimate.
+        response_id = self._extract_response_id(response)
+        if response_id is not None and actual_tokens is not None:
+            cache_method = getattr(
+                self._rate_limit_service, "record_response_total_tokens", None
+            )
+            if callable(cache_method):
+                cache_method(response_id, actual_tokens)
+
+    def _extract_response_id(self, response: Any) -> str | None:
+        """Return ``response.id`` (attribute or dict form), or ``None``."""
+
+        if response is None:
+            return None
+        response_id = getattr(response, "id", None)
+        if response_id is None and isinstance(response, dict):
+            response_id = response.get("id")
+        if response_id is None:
+            return None
+        return str(response_id)
 
     def _extract_response_total_tokens(self, response: Any) -> int | None:
         """Best-effort extraction of the provider-reported total token usage.
