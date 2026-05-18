@@ -160,8 +160,14 @@ class ConversationSession:
         )
         logger.info("Compaction decision: %s", should_compact)
         if should_compact:
-            summary_text = self._build_compaction_summary()
-            history_service.compact(summary_text)
+            self.context.emit_status("compacting")
+            try:
+                summary_text = self._build_compaction_summary()
+                history_service.compact(summary_text)
+            finally:
+                # Restore the "working" indicator so the upcoming LLM call
+                # is not left displaying "compacting" on success or failure.
+                self.context.emit_status("working")
 
     def process_user_input(self, user_input: str) -> str | None:
         """Process one user input and return the assistant text.

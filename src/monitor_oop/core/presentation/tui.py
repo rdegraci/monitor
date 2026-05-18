@@ -65,6 +65,7 @@ class TuiApp:
     def __post_init__(self) -> None:
         """Build the prompt_toolkit application shell."""
         self._conversation_session = ConversationSession(self.runtime_context)
+        self.runtime_context.set_status_listener(self._on_phase_status)
         self._status_control = FormattedTextControl(text=self._get_status_formatted_text)
         self._transcript_buffer = TranscriptBuffer()
         self._transcript_renderer = TranscriptRenderer()
@@ -269,7 +270,13 @@ class TuiApp:
             )
 
     def _build_completion_events(self, completion_result: TurnCompletionResult) -> list[object]:
-        """Convert a completed turn into presentation events."""
+        """Convert a completed turn into presentation events.
+
+        The trailing status is set by the ``BackgroundCompletionEvent`` handler
+        below — no separate ``StatusEvent("idle")`` is appended, because the
+        completion handler emits the compound ``"completed (idle)"`` /
+        ``"failed (idle)"`` text that supersedes a plain idle marker.
+        """
         events: list[object] = []
         if completion_result.success:
             if completion_result.assistant_text:
@@ -288,7 +295,6 @@ class TuiApp:
                     success=False,
                 )
             )
-        events.append(StatusEvent(text="idle"))
         return events
 
     def _enqueue_completion_events(self, completion_result: TurnCompletionResult) -> None:
@@ -339,11 +345,31 @@ class TuiApp:
 
     def _get_status_style(self) -> str:
         """Return the style for the current status value."""
-        if self.status_text == "idle":
+        if self.status_text in ("idle", "completed (idle)"):
             return "fg:ansigreen"
-        if self.status_text == "working":
+        if self.status_text in ("working", "compacting"):
             return "fg:ansiyellow"
+        if self.status_text == "failed (idle)":
+            return "fg:ansired"
         return ""
+
+    def _on_phase_status(self, text: str) -> None:
+        """Apply a worker-thread phase update to the status line.
+
+        Called from the background turn executor when ``ConversationSession``
+        transitions between phases (e.g. ``"compacting"`` while summarization
+        runs, ``"working"`` when the main LLM call resumes). Sets the local
+        status directly and asks prompt_toolkit to redraw — bypassing the
+        event queue, which is not drained between turns.
+
+        Safe to call from any thread: string attribute writes are atomic under
+        the GIL, and ``Application.invalidate`` is documented as thread-safe.
+        """
+
+        self.status_text = text
+        application = self._application
+        if application is not None:
+            application.invalidate()
 
     def _get_status_formatted_text(self) -> FormattedText:
         """Return the rendered status line as formatted text."""
@@ -376,7 +402,9 @@ class TuiApp:
             return
         if isinstance(event, BackgroundCompletionEvent):
             self.turn_coordinator.mark_background_complete(event)
-            self.status_text = "completed" if event.success else "failed"
+            self.status_text = (
+                "completed (idle)" if event.success else "failed (idle)"
+            )
             self.sync_active_task_id()
             self._transcript_viewport.follow_newest()
             return

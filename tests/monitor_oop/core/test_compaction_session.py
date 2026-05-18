@@ -265,3 +265,46 @@ def test_estimate_compaction_token_count_returns_none_when_model_missing() -> No
     snapshot = (Message(role="user", content="hello"),)
 
     assert session._estimate_compaction_token_count(snapshot) is None
+
+
+def test_compaction_emits_compacting_then_working_phase_status() -> None:
+    """The session should signal 'compacting' before summarize and 'working' after.
+
+    Lets the TUI surface mid-turn summarization latency instead of a flat
+    'working' indicator. Reverse order would leave the indicator stuck on
+    'compacting' after the summarization call completes.
+    """
+
+    session = build_session(conversation_max_turns=1)
+    session.start()
+
+    phase_calls: list[str] = []
+    session.context.set_status_listener(phase_calls.append)
+
+    session.submit_input("hello")
+
+    assert phase_calls == ["compacting", "working"]
+
+
+def test_compaction_emits_working_status_even_if_summarize_raises() -> None:
+    """The 'working' restore must fire even when summarization throws."""
+
+    session = build_session(conversation_max_turns=1)
+    session.start()
+
+    def _raise(_messages):
+        raise RuntimeError("simulated summarizer failure")
+
+    session.context.summarization_service.summarize = _raise
+
+    phase_calls: list[str] = []
+    session.context.set_status_listener(phase_calls.append)
+
+    try:
+        session.submit_input("hello")
+    except RuntimeError:
+        # The session does not currently swallow summarizer exceptions; the
+        # invariant under test is the status restoration, not the error flow.
+        pass
+
+    assert phase_calls == ["compacting", "working"]

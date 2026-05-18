@@ -1,6 +1,8 @@
 """Runtime context for the isolated Monitor application."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from monitor_oop.core.command_processor import CommandProcessor
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.history_service import HistoryService
@@ -73,9 +75,36 @@ class RuntimeContext:
         self._rate_limit_service = rate_limit_service
         self._compaction_store = compaction_store
         self._state = AppState()
+        self._status_listener: Callable[[str], None] | None = None
 
         if self._logger_service is not None:
             self._logger_service.get_logger(__name__).info("RuntimeContext initialized.")
+
+    def set_status_listener(
+        self, listener: Callable[[str], None] | None
+    ) -> None:
+        """Install (or clear) a callback invoked on phase transitions.
+
+        Called by the presentation layer to surface mid-turn phase changes
+        (e.g. ``"compacting"`` while summarization runs, ``"working"`` when
+        the main LLM call resumes). The CLI/server paths leave the listener
+        unset so phase transitions are a no-op.
+        """
+
+        self._status_listener = listener
+
+    @property
+    def status_listener(self) -> Callable[[str], None] | None:
+        """Return the installed status listener, if any."""
+
+        return self._status_listener
+
+    def emit_status(self, text: str) -> None:
+        """Invoke the status listener if one is installed; otherwise no-op."""
+
+        listener = self._status_listener
+        if listener is not None:
+            listener(text)
 
     @property
     def config_service(self) -> ConfigService:

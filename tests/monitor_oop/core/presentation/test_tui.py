@@ -173,3 +173,88 @@ def test_tui_app_stop_clears_running_state() -> None:
     tui.stop()
 
     assert tui.is_running is False
+
+
+def test_tui_app_installs_status_listener_on_runtime_context() -> None:
+    """Verify TuiApp wires its phase-status callback into the runtime context."""
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    # Bound methods compare equal but are not `is`-identical, so use ==.
+    assert runtime_context.status_listener == tui._on_phase_status
+
+
+def test_tui_app_phase_status_callback_updates_status_text() -> None:
+    """Verify the worker-thread callback flips status_text directly."""
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    tui._on_phase_status("compacting")
+    assert tui.status_text == "compacting"
+    assert tui._get_status_style() == "fg:ansiyellow"
+
+    tui._on_phase_status("working")
+    assert tui.status_text == "working"
+    assert tui._get_status_style() == "fg:ansiyellow"
+
+    tui._on_phase_status("idle")
+    assert tui.status_text == "idle"
+    assert tui._get_status_style() == "fg:ansigreen"
+
+
+def test_tui_app_completion_event_sets_compound_idle_status() -> None:
+    """Verify a successful turn ends on 'completed (idle)' in green."""
+
+    from monitor_oop.core.presentation.events import BackgroundCompletionEvent
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    tui.start()
+    tui.enqueue_event(BackgroundCompletionEvent(task_id="t1", success=True))
+    tui.drain_events()
+
+    assert tui.status_text == "completed (idle)"
+    assert tui._get_status_style() == "fg:ansigreen"
+
+
+def test_tui_app_failed_completion_event_sets_failed_idle_status() -> None:
+    """Verify a failed turn ends on 'failed (idle)' in red."""
+
+    from monitor_oop.core.presentation.events import BackgroundCompletionEvent
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    tui.start()
+    tui.enqueue_event(BackgroundCompletionEvent(task_id="t1", success=False))
+    tui.drain_events()
+
+    assert tui.status_text == "failed (idle)"
+    assert tui._get_status_style() == "fg:ansired"
