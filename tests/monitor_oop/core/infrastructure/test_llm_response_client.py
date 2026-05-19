@@ -110,8 +110,6 @@ class FakeRateLimitService:
         *,
         model: str,
         estimated_tokens: int,
-        allow_wait: object | None = None,
-        wait_timeout_seconds: int | None = None,
     ) -> bool:
         """Record the call and return the configured rate-limit decision."""
 

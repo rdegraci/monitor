@@ -1,10 +1,20 @@
-"""Rate limiting helpers for Monitor OOP LLM flows."""
+"""Rate limiting helpers for Monitor OOP LLM flows.
+
+Architecture: this service is a *pure admission-control gate*. ``request_allowed``
+answers "does this request fit the current rolling-window budget?" and that is
+all. Callers decide what to do with a ``False`` answer — the only production
+caller today (``LLMResponseClient._run_rate_limit_preflight``) raises.
+
+If a future deployment needs queue-and-wait semantics (an Agent under an
+orchestrator, a batch worker, etc.), introduce a separate ``RateLimitedScheduler``
+layer *above* this service that owns the wait policy. Keep this class focused
+on the gate.
+"""
 from __future__ import annotations
 
 import logging
 import sys
 import threading
-import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -157,68 +167,63 @@ class RateLimitService:
         self,
         model: str,
         estimated_tokens: int,
-        allow_wait: bool = False,
-        wait_timeout_seconds: float | None = None,
     ) -> bool:
-        """Check whether a request is allowed under the active rate-limit budget.
+        """Check whether a request fits the current rate-limit budget.
+
+        Pure admission control: returns ``True`` if the request fits in the
+        rolling window, ``False`` if it would exceed TPM or RPM. The decision
+        of what to do on ``False`` (raise, retry, queue) belongs to the
+        caller — see the architectural note in the module docstring.
 
         Args:
             model: Model identifier for the request.
             estimated_tokens: Estimated token usage for the request.
-            allow_wait: Whether to wait for budget to become available.
-            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
 
         Returns:
             True when the request fits within the active budget, otherwise False.
         """
 
         accounting_key = self._resolve_rate_limit_key(model=model)
-        deadline = self._compute_wait_deadline(wait_timeout_seconds)
-        while True:
-            with self._lock:
-                self._purge_old_events_locked(accounting_key)
-                snapshot = self._build_rate_limit_snapshot_locked(model=model, accounting_key=accounting_key)
-                fits = self._fits_under_limits_locked(
-                    estimated_tokens=estimated_tokens,
-                    snapshot=snapshot,
-                )
+        with self._lock:
+            self._purge_old_events_locked(accounting_key)
+            snapshot = self._build_rate_limit_snapshot_locked(
+                model=model, accounting_key=accounting_key
+            )
+            fits = self._fits_under_limits_locked(
+                estimated_tokens=estimated_tokens,
+                snapshot=snapshot,
+            )
+            logger.info(
+                "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s.",
+                model,
+                estimated_tokens,
+                snapshot.current_tokens,
+                snapshot.current_requests,
+                snapshot.tpm_limit,
+                snapshot.rpm_limit,
+                self._window_seconds,
+            )
+            if fits:
                 logger.info(
-                    "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s, allow_wait=%s, wait_timeout_seconds=%s.",
+                    "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
                     model,
                     estimated_tokens,
                     snapshot.current_tokens,
                     snapshot.current_requests,
                     snapshot.tpm_limit,
                     snapshot.rpm_limit,
-                    self._window_seconds,
-                    allow_wait,
-                    wait_timeout_seconds,
                 )
-                if fits:
-                    logger.info(
-                        "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
-                        model,
-                        estimated_tokens,
-                        snapshot.current_tokens,
-                        snapshot.current_requests,
-                        snapshot.tpm_limit,
-                        snapshot.rpm_limit,
-                    )
-                    return True
-                if not allow_wait:
-                    logger.info(
-                        "Rate limit denied for model=%s without waiting: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
-                        model,
-                        estimated_tokens,
-                        snapshot.current_tokens,
-                        snapshot.current_requests,
-                        snapshot.tpm_limit,
-                        snapshot.rpm_limit,
-                    )
-                    return False
-            if self._wait_timed_out(deadline, model, estimated_tokens, wait_timeout_seconds):
-                return False
-            time.sleep(0.1)
+                return True
+            logger.info(
+                "Rate limit denied for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
+                model,
+                estimated_tokens,
+                snapshot.current_tokens,
+                snapshot.current_requests,
+                snapshot.tpm_limit,
+                snapshot.rpm_limit,
+            )
+            return False
 
     def record_request_for_model(self, model: str, tokens: int) -> None:
         """Record a successful request for a specific model.
@@ -253,49 +258,6 @@ class RateLimitService:
             tokens,
             timestamp,
         )
-
-    def _compute_wait_deadline(self, wait_timeout_seconds: float | None) -> float | None:
-        """Compute the absolute deadline for a wait attempt.
-
-        Args:
-            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
-
-        Returns:
-            The absolute monotonic deadline, or None if waiting is unbounded.
-        """
-
-        if wait_timeout_seconds is None:
-            return None
-        return time.monotonic() + max(wait_timeout_seconds, 0.0)
-
-    def _wait_timed_out(
-        self,
-        deadline: float | None,
-        model: str,
-        estimated_tokens: int,
-        wait_timeout_seconds: float | None,
-    ) -> bool:
-        """Check whether waiting for budget has timed out.
-
-        Args:
-            deadline: Absolute monotonic deadline for the wait attempt.
-            model: Model identifier for the request.
-            estimated_tokens: Estimated token usage for the request.
-            wait_timeout_seconds: Maximum time to wait for budget, in seconds.
-
-        Returns:
-            True if the wait has timed out, otherwise False.
-        """
-
-        if deadline is not None and time.monotonic() >= deadline:
-            logger.info(
-                "Rate limit wait timed out for model=%s: estimated_tokens=%s, wait_timeout_seconds=%s.",
-                model,
-                estimated_tokens,
-                wait_timeout_seconds,
-            )
-            return True
-        return False
 
     def _build_rate_limit_snapshot_locked(
         self,

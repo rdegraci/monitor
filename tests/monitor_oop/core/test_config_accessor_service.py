@@ -39,8 +39,8 @@ def test_accessor_uses_config_provider_when_full_model_name_missing() -> None:
     assert service.get_provider() == "anthropic"
 
 
-def test_accessor_applies_rate_limit_fallbacks() -> None:
-    """Verify model-specific rate limits fall back to config values and defaults."""
+def test_accessor_reads_configured_rate_limits() -> None:
+    """Verify TPM/RPM accessors read the canonical config fields directly."""
 
     config = RuntimeConfig(
         full_model_name="openai/gpt-4o",
@@ -51,5 +51,31 @@ def test_accessor_applies_rate_limit_fallbacks() -> None:
 
     assert service.get_model_tpm_limit() == 111
     assert service.get_model_rpm_limit() == 222
+    # model_name is accepted for API symmetry but ignored — per-model overrides
+    # are not supported.
     assert service.get_model_tpm_limit("other/model") == 111
     assert service.get_model_rpm_limit("other/model") == 222
+
+
+def test_accessor_treats_zero_rate_limit_as_disabled() -> None:
+    """Verify explicit 0 for TPM/RPM is coerced to None (same as unset)."""
+
+    config = RuntimeConfig(
+        full_model_name="openai/gpt-4o",
+        tokens_per_minute=0,
+        requests_per_minute=0,
+    )
+    service = ConfigAccessorService(config=config, openai_api_key=None, logging_level=20)
+
+    assert service.get_model_tpm_limit() is None
+    assert service.get_model_rpm_limit() is None
+
+
+def test_accessor_returns_none_when_rate_limits_unset() -> None:
+    """Verify missing TPM/RPM fields surface as None."""
+
+    config = RuntimeConfig(full_model_name="openai/gpt-4o")
+    service = ConfigAccessorService(config=config, openai_api_key=None, logging_level=20)
+
+    assert service.get_model_tpm_limit() is None
+    assert service.get_model_rpm_limit() is None

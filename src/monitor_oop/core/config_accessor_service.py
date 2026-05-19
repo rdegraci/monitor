@@ -148,66 +148,31 @@ class ConfigAccessorService:
 
         return self._config.conversation_turn_budget
 
-    def _resolve_model_name(self, model_name: str | None) -> str:
-        """Return the requested model name or the current runtime model."""
+    def get_model_tpm_limit(self, model_name: str | None = None) -> int | None:
+        """Return the tokens-per-minute limit for a model.
 
-        if model_name:
-            return model_name
-        full_model_name = self.get_full_model_name()
-        if full_model_name:
-            return full_model_name
-        return self._config.api_model_name
-
-    def _get_rate_limit_fallback(self, model_name: str, limit_name: str) -> int | None:
-        """Return a model-specific rate limit fallback value, if configured."""
-
-        return getattr(self._config, f"{model_name}_{limit_name}", None)
-
-    def _get_model_rate_limit(
-        self,
-        model_name: str | None,
-        config_primary_name: str,
-        config_alias_name: str,
-        model_primary_name: str,
-        model_alias_name: str,
-    ) -> int | None:
-        """Return a model rate limit using config and model-specific fallbacks.
-
-        Returns ``None`` when no value is configured anywhere. Callers decide
-        what missing means (e.g. "unlimited" for TPM, "fatal" for RPM).
+        Returns ``None`` when ``tokens_per_minute`` is unset *or* explicitly
+        ``0`` — both forms mean "disabled" and are treated identically by the
+        rate-limit service. Per-model overrides are not supported; the
+        ``model_name`` argument is accepted for API symmetry but ignored.
         """
 
-        resolved_model_name = self._resolve_model_name(model_name)
-        limit = getattr(self._config, config_primary_name, None)
-        if limit is None:
-            limit = getattr(self._config, config_alias_name, None)
-        if limit is None and resolved_model_name != self._config.api_model_name:
-            limit = self._get_rate_limit_fallback(resolved_model_name, model_primary_name)
-            if limit is None:
-                limit = self._get_rate_limit_fallback(resolved_model_name, model_alias_name)
-        return limit
-
-    def get_model_tpm_limit(self, model_name: str | None = None) -> int | None:
-        """Return the tokens-per-minute limit for a model, or ``None`` when unset."""
-
-        return self._get_model_rate_limit(
-            model_name,
-            "tokens_per_minute",
-            "tpm_limit",
-            "tokens_per_minute",
-            "tpm_limit",
-        )
+        del model_name
+        value = self._config.tokens_per_minute
+        return None if value == 0 else value
 
     def get_model_rpm_limit(self, model_name: str | None = None) -> int | None:
-        """Return the requests-per-minute limit for a model, or ``None`` when unset."""
+        """Return the requests-per-minute limit for a model.
 
-        return self._get_model_rate_limit(
-            model_name,
-            "requests_per_minute",
-            "rpm_limit",
-            "requests_per_minute",
-            "rpm_limit",
-        )
+        Returns ``None`` when ``requests_per_minute`` is unset *or* explicitly
+        ``0`` — both forms mean "disabled" and are treated identically by the
+        rate-limit service. Per-model overrides are not supported; the
+        ``model_name`` argument is accepted for API symmetry but ignored.
+        """
+
+        del model_name
+        value = self._config.requests_per_minute
+        return None if value == 0 else value
 
     def get_openai_api_key(self) -> str | None:
         """Return the effective OPENAI_API_KEY for this runtime."""
