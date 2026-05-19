@@ -28,6 +28,48 @@ logger = logging.getLogger(__name__)
 _DEFAULT_RESPONSE_CHAIN_CACHE_SIZE = 256
 
 
+class RateLimitDeniedError(Exception):
+    """Raised by ``RateLimitService.check_request`` when a request exceeds budget.
+
+    Carries structured fields so callers (REPL, TUI, future orchestrators) can
+    format the denial however they want without parsing strings. The default
+    ``__str__`` is a human-readable message suitable for direct display.
+    """
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        model: str,
+        current: int,
+        limit: int,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        self.reason = reason
+        self.model = model
+        self.current = current
+        self.limit = limit
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(self._format_message())
+
+    def _format_message(self) -> str:
+        if self.reason == "tpm":
+            base = (
+                f"Token-per-minute budget exhausted "
+                f"({self.current}/{self.limit} tokens used) for model={self.model}"
+            )
+        elif self.reason == "rpm":
+            base = (
+                f"Requests-per-minute budget exhausted "
+                f"({self.current}/{self.limit} requests used) for model={self.model}"
+            )
+        else:
+            base = f"Rate limit denied for model={self.model}: {self.reason}"
+        if self.retry_after_seconds is not None and self.retry_after_seconds > 0:
+            return f"{base}. Try again in ~{self.retry_after_seconds:.0f}s."
+        return base
+
+
 @dataclass(slots=True)
 class _UsageEvent:
     """Track a single request usage event."""
@@ -163,24 +205,26 @@ class RateLimitService:
             while len(self._response_total_tokens) > self._response_chain_cache_size:
                 self._response_total_tokens.popitem(last=False)
 
-    def request_allowed(
+    def check_request(
         self,
         model: str,
         estimated_tokens: int,
-    ) -> bool:
-        """Check whether a request fits the current rate-limit budget.
+    ) -> None:
+        """Pass through if the request fits the budget; raise on denial.
 
-        Pure admission control: returns ``True`` if the request fits in the
-        rolling window, ``False`` if it would exceed TPM or RPM. The decision
-        of what to do on ``False`` (raise, retry, queue) belongs to the
-        caller — see the architectural note in the module docstring.
+        Pure admission control. On denial, raises ``RateLimitDeniedError`` with
+        structured fields (``reason``, ``current``, ``limit``,
+        ``retry_after_seconds``) so the REPL/TUI/orchestrator can format the
+        message however they like. The decision of how to react to the
+        denial — retry, surface to user, queue elsewhere — belongs to the
+        caller; see the module docstring for the layering rationale.
 
         Args:
             model: Model identifier for the request.
             estimated_tokens: Estimated token usage for the request.
 
-        Returns:
-            True when the request fits within the active budget, otherwise False.
+        Raises:
+            RateLimitDeniedError: When the request would exceed TPM or RPM.
         """
 
         accounting_key = self._resolve_rate_limit_key(model=model)
@@ -188,10 +232,6 @@ class RateLimitService:
             self._purge_old_events_locked(accounting_key)
             snapshot = self._build_rate_limit_snapshot_locked(
                 model=model, accounting_key=accounting_key
-            )
-            fits = self._fits_under_limits_locked(
-                estimated_tokens=estimated_tokens,
-                snapshot=snapshot,
             )
             logger.info(
                 "Evaluating rate limit for model=%s, estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s, window_seconds=%s.",
@@ -203,7 +243,10 @@ class RateLimitService:
                 snapshot.rpm_limit,
                 self._window_seconds,
             )
-            if fits:
+            if self._fits_under_limits_locked(
+                estimated_tokens=estimated_tokens,
+                snapshot=snapshot,
+            ):
                 logger.info(
                     "Rate limit allowed for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
                     model,
@@ -213,17 +256,81 @@ class RateLimitService:
                     snapshot.tpm_limit,
                     snapshot.rpm_limit,
                 )
-                return True
-            logger.info(
-                "Rate limit denied for model=%s: estimated_tokens=%s, current_tokens=%s, current_requests=%s, tpm_limit=%s, rpm_limit=%s.",
-                model,
-                estimated_tokens,
-                snapshot.current_tokens,
-                snapshot.current_requests,
-                snapshot.tpm_limit,
-                snapshot.rpm_limit,
+                return
+            raise self._build_denial_locked(
+                estimated_tokens=estimated_tokens,
+                snapshot=snapshot,
+                accounting_key=accounting_key,
+                model=model,
             )
-            return False
+
+    def _build_denial_locked(
+        self,
+        *,
+        estimated_tokens: int,
+        snapshot: _RateLimitSnapshot,
+        accounting_key: str,
+        model: str,
+    ) -> RateLimitDeniedError:
+        """Build a ``RateLimitDeniedError`` with which-limit-tripped diagnostics."""
+
+        if (
+            snapshot.tpm_limit is not None
+            and snapshot.current_tokens + estimated_tokens > snapshot.tpm_limit
+        ):
+            return RateLimitDeniedError(
+                reason="tpm",
+                model=model,
+                current=snapshot.current_tokens,
+                limit=snapshot.tpm_limit,
+                retry_after_seconds=self._compute_retry_after_locked(
+                    accounting_key, is_token=True
+                ),
+            )
+        if (
+            snapshot.rpm_limit is not None
+            and snapshot.current_requests + 1 > snapshot.rpm_limit
+        ):
+            return RateLimitDeniedError(
+                reason="rpm",
+                model=model,
+                current=snapshot.current_requests,
+                limit=snapshot.rpm_limit,
+                retry_after_seconds=self._compute_retry_after_locked(
+                    accounting_key, is_token=False
+                ),
+            )
+        # Defensive fallback: _fits_under_limits_locked returned False but no
+        # limit-specific branch matched. Surface the snapshot as best we can.
+        return RateLimitDeniedError(
+            reason="unknown",
+            model=model,
+            current=snapshot.current_tokens + snapshot.current_requests,
+            limit=(snapshot.tpm_limit or 0) + (snapshot.rpm_limit or 0),
+        )
+
+    def _compute_retry_after_locked(
+        self, accounting_key: str, *, is_token: bool
+    ) -> float | None:
+        """Approximate seconds until the oldest event ages out of the window.
+
+        That's the earliest moment any budget frees up; the caller may need to
+        wait longer if their request needs more than a single event's worth of
+        budget, but this gives a useful lower-bound to surface to the user.
+        Returns ``None`` when no events are currently in the window (i.e. the
+        denial isn't event-driven — shouldn't happen in practice).
+        """
+
+        events = (
+            self._usage_events.get(accounting_key)
+            if is_token
+            else self._request_count_events.get(accounting_key)
+        )
+        if not events:
+            return None
+        oldest_ts = events[0].timestamp if is_token else events[0]
+        now = datetime.now(tz=timezone.utc).timestamp()
+        return max(0.0, oldest_ts + self._window_seconds - now)
 
     def record_request_for_model(self, model: str, tokens: int) -> None:
         """Record a successful request for a specific model.

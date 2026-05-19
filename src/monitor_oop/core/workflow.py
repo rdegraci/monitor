@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from monitor_oop.core.conversation_session import ConversationSession
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitDeniedError
 
 if TYPE_CHECKING:
     from monitor_oop.core.app import MonitorApp
@@ -23,7 +24,14 @@ def _run_cli_session(session: ConversationSession) -> int:
             user_input = session.read_user_input()
         except (EOFError, KeyboardInterrupt):
             break
-        assistant_response = session.process_user_input(user_input)
+        try:
+            assistant_response = session.process_user_input(user_input)
+        except RateLimitDeniedError as denial:
+            # Recoverable: rate limit hit. Tell the user what happened (with
+            # which limit tripped and approximate retry-after) and keep the
+            # REPL loop alive so they can wait and try again.
+            print(f"[rate limit] {denial}")
+            continue
         if assistant_response is None:
             break
         print(assistant_response)

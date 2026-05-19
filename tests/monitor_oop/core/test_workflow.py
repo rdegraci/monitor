@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitDeniedError
 from monitor_oop.core.workflow import reset_config
 from monitor_oop.core.workflow import run_cli
 from monitor_oop.core.workflow import run_script
@@ -85,3 +86,68 @@ def test_reset_config_invokes_config_service_reset() -> None:
     reset_config(app, force=True)
 
     assert app.context.config_service.reset_called is True
+
+
+class _RateLimitDenyOnceSession:
+    """Session double: denies once with a rate-limit error, then exits cleanly."""
+
+    def __init__(self) -> None:
+        self.start_called = False
+        self.inputs_seen: list[str] = []
+        self.process_calls = 0
+
+    def start(self) -> int:
+        self.start_called = True
+        return 0
+
+    def read_user_input(self) -> str:
+        # First call returns a prompt; second call exits the loop.
+        if not self.inputs_seen:
+            self.inputs_seen.append("hello")
+            return "hello"
+        raise EOFError
+
+    def process_user_input(self, user_input: str):
+        self.process_calls += 1
+        raise RateLimitDeniedError(
+            reason="tpm",
+            model="openai/gpt-4o",
+            current=4_950,
+            limit=5_000,
+            retry_after_seconds=12.0,
+        )
+
+
+class _RateLimitDenyContext:
+    server_app = None
+    config_service = SimpleNamespace(reset_called=False)
+
+    def __init__(self) -> None:
+        self.session = _RateLimitDenyOnceSession()
+
+    def create_session(self):
+        return self.session
+
+
+class _RateLimitDenyApp:
+    def __init__(self) -> None:
+        self.context = _RateLimitDenyContext()
+
+
+def test_run_cli_prints_friendly_message_and_continues_on_rate_limit_denial(capsys) -> None:
+    """Verify the REPL loop surfaces a RateLimitDeniedError to stdout and stays alive."""
+
+    app = _RateLimitDenyApp()
+    exit_code = run_cli(app)
+
+    captured = capsys.readouterr()
+    # The loop survived the denial (a second read_user_input was reached and
+    # raised EOFError to terminate normally).
+    assert exit_code == 0
+    assert app.context.session.process_calls == 1
+    # The denial detail is visible on stdout — including reason, current/limit
+    # numbers, and the approximate retry-after window.
+    assert "[rate limit]" in captured.out
+    assert "Token-per-minute" in captured.out
+    assert "4950/5000" in captured.out
+    assert "12s" in captured.out

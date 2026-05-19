@@ -173,27 +173,21 @@ class LLMResponseClient:
             tools=tools,
             previous_response_id=previous_response_id,
         )
-        if self._rate_limit_service.request_allowed(
+        # check_request returns on success, raises RateLimitDeniedError on
+        # denial — the typed exception propagates up to the REPL/TUI which
+        # formats the diagnostic for the user.
+        self._rate_limit_service.check_request(
             model=full_model_name,
             estimated_tokens=estimated_tokens,
-        ):
-            logger.info(
-                "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
-                full_model_name,
-                api_model_name,
-                estimated_tokens,
-                previous_response_id,
-            )
-            return estimated_tokens
-        logger.warning(
-            "Rate limit preflight check failed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, api_key_present=%s, previous_response_id=%s.",
+        )
+        logger.info(
+            "Rate limit preflight check passed: full_model_name=%s, api_model_name=%s, estimated_tokens=%s, previous_response_id=%s.",
             full_model_name,
             api_model_name,
             estimated_tokens,
-            api_key_present,
             previous_response_id,
         )
-        raise ValueError("Request is not allowed by the current rate limit policy.")
+        return estimated_tokens
 
     def _record_rate_limit_request_usage(
         self,

@@ -6,7 +6,10 @@ from unittest.mock import MagicMock
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
-from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
+from monitor_oop.core.infrastructure.rate_limit_service import (
+    RateLimitDeniedError,
+    RateLimitService,
+)
 from monitor_oop.core.infrastructure.request_capacity_service import RequestCapacityService
 
 
@@ -28,7 +31,7 @@ class LLMResponseClientPreflightTests(unittest.TestCase):
         self.capacity_service.request_fits.return_value = True
         self.rate_limit_service = MagicMock(spec=RateLimitService)
         self.rate_limit_service.estimate_token_usage.return_value = 25
-        self.rate_limit_service.request_allowed.return_value = True
+        self.rate_limit_service.check_request.return_value = None
         self.client = LLMResponseClient(
             self.config_service,
             self.adapter,
@@ -47,7 +50,7 @@ class LLMResponseClientPreflightTests(unittest.TestCase):
 
         self.capacity_service.request_fits.assert_called_once()
         self.rate_limit_service.estimate_token_usage.assert_called_once()
-        self.rate_limit_service.request_allowed.assert_called_once()
+        self.rate_limit_service.check_request.assert_called_once()
         self.adapter.complete.assert_called_once()
 
     def test_adapter_not_called_when_capacity_fails(self) -> None:
@@ -63,14 +66,16 @@ class LLMResponseClientPreflightTests(unittest.TestCase):
 
         self.adapter.complete.assert_not_called()
         self.rate_limit_service.estimate_token_usage.assert_not_called()
-        self.rate_limit_service.request_allowed.assert_not_called()
+        self.rate_limit_service.check_request.assert_not_called()
 
     def test_adapter_not_called_when_rate_limit_denies_request(self) -> None:
         """Requests denied by rate limiting must not reach the adapter."""
 
-        self.rate_limit_service.request_allowed.return_value = False
+        self.rate_limit_service.check_request.side_effect = RateLimitDeniedError(
+            reason="tpm", model="openai/gpt-4o-mini", current=900, limit=1000
+        )
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RateLimitDeniedError):
             self.client.create_response(
                 [{"role": "user", "content": "hello"}],
                 previous_response_id=None,
@@ -78,7 +83,7 @@ class LLMResponseClientPreflightTests(unittest.TestCase):
 
         self.capacity_service.request_fits.assert_called_once()
         self.rate_limit_service.estimate_token_usage.assert_called_once()
-        self.rate_limit_service.request_allowed.assert_called_once()
+        self.rate_limit_service.check_request.assert_called_once()
         self.adapter.complete.assert_not_called()
 
     def test_adapter_called_when_all_preflight_checks_pass(self) -> None:

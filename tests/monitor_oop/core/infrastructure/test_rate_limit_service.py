@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import unittest
 
-from monitor_oop.core.infrastructure.rate_limit_service import RateLimitService
+from monitor_oop.core.infrastructure.rate_limit_service import (
+    RateLimitDeniedError,
+    RateLimitService,
+)
 
 
 class RateLimitServiceTests(unittest.TestCase):
@@ -40,25 +43,24 @@ class RateLimitServiceTests(unittest.TestCase):
 
         return RateLimitService(self.config_service, window_seconds=window_seconds)
 
-    def test_request_allowed_when_within_limits(self) -> None:
-        """A small request should be allowed within the configured budget."""
+    def test_check_request_passes_within_limits(self) -> None:
+        """A small request fits the budget and check_request returns without raising."""
 
-        allowed = self.service.request_allowed(
+        self.service.check_request(
             model="openai/gpt-4o-mini",
             estimated_tokens=100,
         )
 
-        self.assertTrue(allowed)
+    def test_check_request_raises_when_tpm_exceeded(self) -> None:
+        """A request that exceeds TPM should raise RateLimitDeniedError with reason='tpm'."""
 
-    def test_request_not_allowed_when_tpm_exceeded(self) -> None:
-        """A request that exceeds TPM should be rejected."""
-
-        allowed = self.service.request_allowed(
-            model="openai/gpt-4o-mini",
-            estimated_tokens=1_001,
-        )
-
-        self.assertFalse(allowed)
+        with self.assertRaises(RateLimitDeniedError) as ctx:
+            self.service.check_request(
+                model="openai/gpt-4o-mini",
+                estimated_tokens=1_001,
+            )
+        self.assertEqual(ctx.exception.reason, "tpm")
+        self.assertEqual(ctx.exception.limit, 1_000)
 
     def test_request_not_allowed_when_rpm_exceeded(self) -> None:
         """A request that exceeds RPM should be rejected."""
@@ -86,12 +88,11 @@ class RateLimitServiceTests(unittest.TestCase):
         except Exception as exc:  # pragma: no cover
             self.fail(f"record_request_for_model raised an unexpected exception: {exc}")
 
-        allowed_after = service.request_allowed(
-            model=model,
-            estimated_tokens=1_001,
-        )
-
-        self.assertFalse(allowed_after)
+        with self.assertRaises(RateLimitDeniedError):
+            service.check_request(
+                model=model,
+                estimated_tokens=1_001,
+            )
 
 
 class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
@@ -119,12 +120,11 @@ class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
 
         service = self._build_service(tpm_limit=None, rpm_limit=1_000)
 
-        allowed = service.request_allowed(
+        # No exception means allowed.
+        service.check_request(
             model="openai/gpt-4o-mini",
             estimated_tokens=10_000_000,
         )
-
-        self.assertTrue(allowed)
 
     def test_unconfigured_tpm_emits_warning_log(self) -> None:
         """A missing TPM should emit a warning log on the rate_limit_service logger."""
@@ -135,7 +135,7 @@ class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
             "monitor_oop.core.infrastructure.rate_limit_service",
             level="WARNING",
         ) as captured:
-            service.request_allowed(model="openai/gpt-4o-mini", estimated_tokens=1)
+            service.check_request(model="openai/gpt-4o-mini", estimated_tokens=1)
 
         warning_lines = [line for line in captured.output if "WARNING" in line]
         self.assertTrue(
@@ -149,7 +149,7 @@ class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
         service = self._build_service(tpm_limit=1_000, rpm_limit=None)
 
         with self.assertRaises(SystemExit) as ctx:
-            service.request_allowed(model="openai/gpt-4o-mini", estimated_tokens=1)
+            service.check_request(model="openai/gpt-4o-mini", estimated_tokens=1)
 
         self.assertEqual(ctx.exception.code, 1)
 
@@ -163,7 +163,7 @@ class RateLimitServiceUnconfiguredLimitsTests(unittest.TestCase):
             level="ERROR",
         ) as captured:
             with self.assertRaises(SystemExit):
-                service.request_allowed(model="openai/gpt-4o-mini", estimated_tokens=1)
+                service.check_request(model="openai/gpt-4o-mini", estimated_tokens=1)
 
         error_lines = [line for line in captured.output if "ERROR" in line]
         self.assertTrue(
@@ -319,22 +319,22 @@ class RateLimitServiceAccountingKeyNormalizationTests(unittest.TestCase):
         self.service.record_request_for_model("openai/gpt-4o-mini", 900)
 
         # 900 already used; another 200 would exceed the 1000 TPM limit.
-        allowed = self.service.request_allowed(
-            model="gpt-4o-mini",
-            estimated_tokens=200,
-        )
-        self.assertFalse(allowed)
+        with self.assertRaises(RateLimitDeniedError):
+            self.service.check_request(
+                model="gpt-4o-mini",
+                estimated_tokens=200,
+            )
 
     def test_case_insensitive_normalization(self) -> None:
         """Differing case should not produce divergent budgets."""
 
         self.service.record_request_for_model("OpenAI/GPT-4o-Mini", 900)
 
-        allowed = self.service.request_allowed(
-            model="openai/gpt-4o-mini",
-            estimated_tokens=200,
-        )
-        self.assertFalse(allowed)
+        with self.assertRaises(RateLimitDeniedError):
+            self.service.check_request(
+                model="openai/gpt-4o-mini",
+                estimated_tokens=200,
+            )
 
 
 if __name__ == "__main__":

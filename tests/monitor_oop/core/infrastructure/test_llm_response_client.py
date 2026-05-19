@@ -5,6 +5,7 @@ import pytest
 
 from monitor_oop.core.config_service import ConfigService
 from monitor_oop.core.infrastructure.llm_response_client import LLMResponseClient
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitDeniedError
 
 
 class FakeAdapter:
@@ -86,7 +87,7 @@ class FakeRateLimitService:
     def __init__(self, allowed: bool) -> None:
         self.allowed = allowed
         self.called_estimate = False
-        self.called_request_allowed = False
+        self.called_check_request = False
         self.called_record_request = False
         self.called_record_request_for_model = False
         self.recorded_request_tokens: int | None = None
@@ -105,16 +106,22 @@ class FakeRateLimitService:
         self.called_estimate = True
         return 42
 
-    def request_allowed(
+    def check_request(
         self,
         *,
         model: str,
         estimated_tokens: int,
-    ) -> bool:
-        """Record the call and return the configured rate-limit decision."""
+    ) -> None:
+        """Record the call; raise RateLimitDeniedError when configured to deny."""
 
-        self.called_request_allowed = True
-        return self.allowed
+        self.called_check_request = True
+        if not self.allowed:
+            raise RateLimitDeniedError(
+                reason="tpm",
+                model=model,
+                current=0,
+                limit=0,
+            )
 
     def record_request_for_model(self, model: str, tokens: int) -> None:
         """Record the model-aware request usage call."""
@@ -225,7 +232,7 @@ def test_create_response_invokes_adapter_after_preflights_pass() -> None:
     assert response == {"ok": True}
     assert request_capacity_service.called is True
     assert rate_limit_service.called_estimate is True
-    assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_check_request is True
     assert rate_limit_service.called_record_request_for_model is True
     assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
     assert rate_limit_service.recorded_request_tokens == 42
@@ -250,7 +257,7 @@ def test_create_response_records_request_usage_after_successful_adapter_call() -
 
     assert response == {"ok": True}
     assert rate_limit_service.called_estimate is True
-    assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_check_request is True
     assert rate_limit_service.called_record_request_for_model is True
     assert rate_limit_service.recorded_request_model == "openai/gpt-5.4-mini"
     assert rate_limit_service.recorded_request_tokens == 42
@@ -385,7 +392,7 @@ def test_create_response_stops_before_rate_limit_when_capacity_rejects_request()
 
     assert request_capacity_service.called is True
     assert rate_limit_service.called_estimate is False
-    assert rate_limit_service.called_request_allowed is False
+    assert rate_limit_service.called_check_request is False
     assert fake_adapter.calls == []
 
 
@@ -410,7 +417,7 @@ def test_create_response_raises_when_request_capacity_service_rejects_request() 
 
 
 def test_create_response_raises_when_rate_limit_service_rejects_request() -> None:
-    """Verify rate limit rejections stop response creation with a clear error."""
+    """Verify rate limit rejections stop response creation with a typed exception."""
 
     fake_adapter = FakeAdapter()
     rate_limit_service = FakeRateLimitService(allowed=False)
@@ -422,9 +429,9 @@ def test_create_response_raises_when_rate_limit_service_rejects_request() -> Non
         rate_limit_service=rate_limit_service,
     )
 
-    with pytest.raises(ValueError, match="rate limit"):
+    with pytest.raises(RateLimitDeniedError):
         client.create_response([{"role": "user", "content": "hello"}])
 
     assert rate_limit_service.called_estimate is True
-    assert rate_limit_service.called_request_allowed is True
+    assert rate_limit_service.called_check_request is True
     assert fake_adapter.calls == []
