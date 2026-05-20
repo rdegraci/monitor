@@ -241,8 +241,25 @@ class RateLimitServiceChainAwareEstimateTests(unittest.TestCase):
     def test_chain_cache_evicts_in_lru_order_when_at_capacity(self) -> None:
         """Caching beyond the configured cap drops the least-recently-used entry."""
 
+        class ConfigServiceStub:
+            def get_model_tpm_limit(self, model: str) -> int:
+                return 100_000
+
+            def get_model_rpm_limit(self, model: str) -> int:
+                return 10
+
+            def estimate_token_usage(
+                self,
+                *,
+                model: str,
+                messages,
+                tools,
+                previous_response_id,
+            ) -> int:
+                return 50
+
         service = RateLimitService(
-            self.service._config_service,  # type: ignore[arg-type]
+            ConfigServiceStub(),  # type: ignore[arg-type]
             window_seconds=60,
             response_chain_cache_size=2,
         )

@@ -19,20 +19,38 @@ def test_extract_text_prefers_output_text() -> None:
     assert adapter.extract_text(OutputTextResponse("hello world")) == "hello world"
 
 
-def test_build_request_kwargs_omits_empty_optional_fields() -> None:
-    """Verify request kwargs include only populated optional fields."""
+def test_complete_omits_empty_optional_fields_from_openai_request(monkeypatch) -> None:
+    """Verify the OpenAI Responses request omits unset optional fields.
+
+    The adapter's external surface is the call to ``client.responses.create(...)``.
+    Patching the ``OpenAI`` constructor lets the test inspect exactly which
+    kwargs reach the provider, without reaching into the adapter's internals.
+    """
+
+    captured_kwargs: dict = {}
+
+    class _CapturingResponses:
+        def create(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            return object()
+
+    class _CapturingClient:
+        def __init__(self, api_key: str) -> None:
+            self.responses = _CapturingResponses()
+
+    monkeypatch.setattr("monitor_oop.core.llm_adapter.OpenAI", _CapturingClient)
 
     adapter = ResponsesOpenAiAdapter()
-
-    kwargs = adapter._build_request_kwargs(
+    adapter.complete(
         model="gpt-4o",
         input=[{"role": "user", "content": "hello"}],
+        api_key="test-key",
         tools=None,
         tool_choice=None,
         previous_response_id=None,
     )
 
-    assert kwargs == {
+    assert captured_kwargs == {
         "model": "gpt-4o",
         "input": [{"role": "user", "content": "hello"}],
     }

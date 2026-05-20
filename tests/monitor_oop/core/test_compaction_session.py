@@ -86,12 +86,20 @@ class _FakeSummarizationService:
         return f"{prompt_template} | summary {len(messages)}"
 
 
-def build_session(conversation_max_turns: int = 2) -> ConversationSession:
+def build_session(
+    conversation_max_turns: int = 2,
+    full_model_name: str | None = None,
+    context_window: int | None = None,
+) -> ConversationSession:
     """Build a conversation session with deterministic test doubles."""
 
     runtime_config = RuntimeConfig()
     runtime_config.conversation_turn_budget = conversation_max_turns
     runtime_config.summarization_settings.prompt_template = "summary {message_count}"
+    if full_model_name is not None:
+        runtime_config.full_model_name = full_model_name
+    if context_window is not None:
+        runtime_config.context_window = context_window
     config_service = _StubConfigService(runtime_config)
     history_service = HistoryService(config_service)
     macro_store = MacroStore("monitor")
@@ -234,37 +242,58 @@ def test_conversation_session_preserves_tool_call_cluster_during_compaction() ->
     )
 
 
-def test_estimate_compaction_token_count_handles_message_dataclasses() -> None:
-    """The estimator must accept Message dataclasses by converting to request dicts.
+def test_context_window_compaction_fires_when_history_exceeds_soft_threshold() -> None:
+    """Regression: context-window compaction must fire when input tokens cross the threshold.
 
-    Regression: history items are Message dataclass instances, not dicts;
-    passing them directly raised AttributeError inside the estimator and
-    silently disabled the context-window compaction trigger.
+    Earlier, ``ConversationSession`` passed ``Message`` dataclass instances
+    where the estimator expected dicts; the estimator raised inside a broad
+    ``except`` and silently returned ``None``, leaving the context-window
+    branch of ``should_compact`` permanently false. This test seeds enough
+    content that compaction can only fire via the context-window branch
+    (the turn budget is set high enough that it cannot trip) and asserts
+    that compaction actually happens — observable purely through
+    ``submit_input`` and ``history_service.snapshot()``.
     """
 
-    session = build_session()
-    # Configure a model so the estimator path is reached.
-    session.context.config_service._config.full_model_name = "openai/gpt-4o"
-
-    snapshot = (
-        Message(role="user", content="hello world"),
-        Message(role="assistant", content="hi there, how can I help?"),
+    # Tight context window so a few large messages cross the 50% soft trigger;
+    # very generous turn budget so we know compaction fires via context-window
+    # pressure rather than via the turn-budget cliff.
+    session = build_session(
+        conversation_max_turns=1000,
+        full_model_name="openai/gpt-4o",
+        context_window=1000,
     )
+    session.start()
 
-    estimated = session._estimate_compaction_token_count(snapshot)
+    history_service = session.context.history_service
+    for _ in range(20):
+        history_service.append(Message(role="user", content="x" * 400))
 
-    assert isinstance(estimated, int)
-    assert estimated > 0
+    snapshot_before = history_service.snapshot()
+    assert len(snapshot_before) == 20
+
+    session.submit_input("trigger")
+
+    snapshot_after = history_service.snapshot()
+    # Compaction inserted a system summary at the head and shrank history.
+    assert snapshot_after[0].role == "system"
+    assert len(snapshot_after) < len(snapshot_before)
 
 
-def test_estimate_compaction_token_count_returns_none_when_model_missing() -> None:
-    """The estimator should short-circuit when no model is configured."""
+def test_compaction_does_not_fire_when_history_is_small_and_model_unset() -> None:
+    """Sanity counterpart: no compaction when neither trigger is tripped."""
 
-    session = build_session()
-    # full_model_name defaults to None on RuntimeConfig; verify short-circuit.
-    snapshot = (Message(role="user", content="hello"),)
+    session = build_session(conversation_max_turns=1000)
+    session.start()
 
-    assert session._estimate_compaction_token_count(snapshot) is None
+    history_service = session.context.history_service
+    history_service.append(Message(role="user", content="hello"))
+
+    session.submit_input("hi")
+
+    snapshot = history_service.snapshot()
+    # No system summary should have been inserted.
+    assert all(message.role != "system" for message in snapshot)
 
 
 def test_compaction_emits_compacting_then_working_phase_status() -> None:

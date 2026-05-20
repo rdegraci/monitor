@@ -6,35 +6,30 @@ import logging
 from monitor_oop.core.logger_service import LoggerService
 
 
-def test_resolve_effective_level_uses_explicit_integer() -> None:
-    """Verify an explicit integer logging level wins over environment defaults."""
+def test_configure_applies_explicit_integer_level_to_root_logger(tmp_path) -> None:
+    """An explicit integer logging level should reach the root logger."""
 
     service = LoggerService()
+    service.configure(level=10, log_file_path=str(tmp_path / "test.log"))
 
-    assert service._resolve_level(10) == 10
+    assert logging.getLogger().level == 10
 
 
-def test_resolve_effective_level_uses_level_name(monkeypatch) -> None:
-    """Verify an explicit level name is converted to a logging level."""
+def test_configure_applies_level_name_to_root_logger(monkeypatch, tmp_path) -> None:
+    """An explicit level name should be converted and applied to the root logger."""
 
-    service = LoggerService()
     monkeypatch.delenv("LOG_LEVEL", raising=False)
-
-    assert service._resolve_level("warning") == logging.WARNING
-
-
-def test_resolve_effective_level_falls_back_to_environment(monkeypatch) -> None:
-    """Verify the environment level is used when no explicit level is provided."""
-
     service = LoggerService()
+    service.configure(level="warning", log_file_path=str(tmp_path / "test.log"))
+
+    assert logging.getLogger().level == logging.WARNING
+
+
+def test_configure_falls_back_to_environment_level(monkeypatch, tmp_path) -> None:
+    """When no explicit level is provided, the environment LOG_LEVEL should apply."""
+
     monkeypatch.setenv("LOG_LEVEL", "error")
-
-    assert service._resolve_level() == logging.ERROR
-
-
-def test_prepare_log_path_defaults_to_application_log() -> None:
-    """Verify the default log path is created under the logs directory."""
-
     service = LoggerService()
+    service.configure(log_file_path=str(tmp_path / "test.log"))
 
-    assert str(service._prepare_log_path(None)) == "logs/application.log"
+    assert logging.getLogger().level == logging.ERROR

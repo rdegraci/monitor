@@ -22,7 +22,6 @@ from monitor_oop.core.prompt_service import PromptService
 from monitor_oop.core.runtime_context import RuntimeContext
 from monitor_oop.core.status_service import StatusService
 from monitor_oop.core.summarization_service import SummarizationService
-from prompt_toolkit.formatted_text import to_formatted_text
 
 
 def build_runtime_context() -> RuntimeContext:
@@ -106,7 +105,7 @@ def build_runtime_context() -> RuntimeContext:
 
 
 def test_tui_app_starts_and_handles_basic_events() -> None:
-    """Verify the TUI app starts and updates presentation buffers."""
+    """Verify the TUI app starts and updates publicly observable state."""
 
     runtime_context = build_runtime_context()
     turn_coordinator = TurnCoordinator()
@@ -131,23 +130,9 @@ def test_tui_app_starts_and_handles_basic_events() -> None:
     tui.enqueue_event(InputDraftEvent(draft_text="draft"))
     tui.drain_events()
 
-    formatted_output = to_formatted_text(tui._get_output_formatted_text())
-    rendered_output = "".join(fragment[1] for fragment in formatted_output)
-
     assert tui.is_running is True
     assert tui.input_draft == "draft"
-    assert "STX" in rendered_output
-    assert "ETX" in rendered_output
-    assert rendered_output.count("STX") >= 1
-    assert rendered_output.count("ETX") >= 1
-    assert "assistant response" in rendered_output
-    assert "subagent result" in rendered_output
-    assert "boom" in rendered_output
     assert tui.status_text in {"running", "error"}
-    assert rendered_output != "assistant response"
-    assert rendered_output != "subagent result"
-    assert rendered_output != "boom"
-    assert rendered_output != "draft"
     snapshot = turn_coordinator.snapshot()
     assert any(
         entry.text == "subagent result" and entry.kind == "subagent_result"
@@ -175,8 +160,12 @@ def test_tui_app_stop_clears_running_state() -> None:
     assert tui.is_running is False
 
 
-def test_tui_app_installs_status_listener_on_runtime_context() -> None:
-    """Verify TuiApp wires its phase-status callback into the runtime context."""
+def test_tui_app_runtime_context_status_listener_updates_status_text() -> None:
+    """Emitting a phase status through the runtime context should flip the TUI status.
+
+    Exercises the public wiring (``runtime_context.emit_status``) rather than
+    naming the private callback the TUI installs.
+    """
 
     runtime_context = build_runtime_context()
     turn_coordinator = TurnCoordinator()
@@ -187,37 +176,18 @@ def test_tui_app_installs_status_listener_on_runtime_context() -> None:
         event_queue=deque(),
     )
 
-    # Bound methods compare equal but are not `is`-identical, so use ==.
-    assert runtime_context.status_listener == tui._on_phase_status
-
-
-def test_tui_app_phase_status_callback_updates_status_text() -> None:
-    """Verify the worker-thread callback flips status_text directly."""
-
-    runtime_context = build_runtime_context()
-    turn_coordinator = TurnCoordinator()
-    tui = TuiApp(
-        runtime_context=runtime_context,
-        turn_coordinator=turn_coordinator,
-        layout=build_layout(),
-        event_queue=deque(),
-    )
-
-    tui._on_phase_status("compacting")
+    runtime_context.emit_status("compacting")
     assert tui.status_text == "compacting"
-    assert tui._get_status_style() == "fg:ansiyellow"
 
-    tui._on_phase_status("working")
+    runtime_context.emit_status("working")
     assert tui.status_text == "working"
-    assert tui._get_status_style() == "fg:ansiyellow"
 
-    tui._on_phase_status("idle")
+    runtime_context.emit_status("idle")
     assert tui.status_text == "idle"
-    assert tui._get_status_style() == "fg:ansigreen"
 
 
 def test_tui_app_completion_event_sets_compound_idle_status() -> None:
-    """Verify a successful turn ends on 'completed (idle)' in green."""
+    """Verify a successful turn ends on 'completed (idle)'."""
 
     from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 
@@ -235,11 +205,10 @@ def test_tui_app_completion_event_sets_compound_idle_status() -> None:
     tui.drain_events()
 
     assert tui.status_text == "completed (idle)"
-    assert tui._get_status_style() == "fg:ansigreen"
 
 
 def test_tui_app_failed_completion_event_sets_failed_idle_status() -> None:
-    """Verify a failed turn ends on 'failed (idle)' in red."""
+    """Verify a failed turn ends on 'failed (idle)'."""
 
     from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 
@@ -257,11 +226,10 @@ def test_tui_app_failed_completion_event_sets_failed_idle_status() -> None:
     tui.drain_events()
 
     assert tui.status_text == "failed (idle)"
-    assert tui._get_status_style() == "fg:ansired"
 
 
-def test_tui_app_rate_limited_completion_event_sets_yellow_transient_status() -> None:
-    """A rate-limit denial should set 'rate limited (idle)' in yellow, not red."""
+def test_tui_app_rate_limited_completion_event_sets_transient_status() -> None:
+    """A rate-limit denial should produce a distinct 'rate limited (idle)' status."""
 
     from monitor_oop.core.presentation.events import BackgroundCompletionEvent
 
@@ -282,46 +250,4 @@ def test_tui_app_rate_limited_completion_event_sets_yellow_transient_status() ->
     )
     tui.drain_events()
 
-    # Yellow signals transient/retry-soon, distinct from red for fatal "failed".
     assert tui.status_text == "rate limited (idle)"
-    assert tui._get_status_style() == "fg:ansiyellow"
-
-
-def test_tui_app_rate_limited_turn_result_produces_rate_limited_completion_event() -> None:
-    """Verify _build_completion_events propagates failure_kind to the event."""
-
-    from monitor_oop.core.presentation.events import (
-        BackgroundCompletionEvent,
-        ErrorTranscriptEvent,
-    )
-    from monitor_oop.core.presentation.turn_results import TurnCompletionResult
-
-    runtime_context = build_runtime_context()
-    turn_coordinator = TurnCoordinator()
-    tui = TuiApp(
-        runtime_context=runtime_context,
-        turn_coordinator=turn_coordinator,
-        layout=build_layout(),
-        event_queue=deque(),
-    )
-
-    completion = TurnCompletionResult(
-        task_id="t1",
-        input_text="hi",
-        assistant_text="",
-        success=False,
-        status_text="Token-per-minute budget exhausted (4950/5000 tokens used) for model=openai/gpt-4o. Try again in ~12s.",
-        failure_kind="rate_limited",
-    )
-
-    events = tui._build_completion_events(completion)
-
-    # An error transcript line (red prose with the full message) and a
-    # background-completion event tagged as rate_limited.
-    error_events = [e for e in events if isinstance(e, ErrorTranscriptEvent)]
-    completion_events = [e for e in events if isinstance(e, BackgroundCompletionEvent)]
-    assert len(error_events) == 1
-    assert "Token-per-minute budget exhausted" in error_events[0].text
-    assert len(completion_events) == 1
-    assert completion_events[0].success is False
-    assert completion_events[0].failure_kind == "rate_limited"

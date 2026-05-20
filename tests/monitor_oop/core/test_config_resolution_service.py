@@ -137,8 +137,8 @@ def test_resolve_prefers_model_window_values_when_present() -> None:
     assert resolved.provider == "anthropic"
 
 
-def test_apply_loaded_model_config_returns_copy_and_keeps_original_config() -> None:
-    """Verify model application works on a copy and leaves the original untouched."""
+def test_resolve_does_not_mutate_caller_config_and_applies_model_values() -> None:
+    """Verify resolve() returns a new config with model values applied; original is untouched."""
 
     yaml_config = LoadedYamlConfig(
         full_model_name="openai/gpt-5.4-mini",
@@ -161,13 +161,12 @@ def test_apply_loaded_model_config_returns_copy_and_keeps_original_config() -> N
     service = ConfigResolutionService(loader)
     config = RuntimeConfig(full_model_name="openai/gpt-5.4-mini")
 
-    yaml_applied = service._load_config_yaml(config)
-    applied = service._apply_loaded_model_config(yaml_applied, model_config)
+    resolved = service.resolve(config)
 
-    assert applied is not yaml_applied
+    # Original config is unchanged.
     assert config.context_window == 400_000
-    assert yaml_applied.context_window == 1
-    assert applied.context_window == 3
-    assert applied.output_window == 4
-    assert applied.model_alias == "gpt54mini"
-    assert applied.provider == "openai"
+    # Resolved config carries model-derived values (model wins over yaml).
+    assert resolved.context_window == 3
+    assert resolved.output_window == 4
+    assert resolved.model_alias == "gpt54mini"
+    assert resolved.provider == "openai"

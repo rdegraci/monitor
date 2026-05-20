@@ -251,17 +251,17 @@ def build_service(
             return input_messages, True
 
     adapter = RecordingAdapter(texts)
+    response_client = RecordingResponseClient(responses)
     service = LLMService(
         config_service=config_service,
         prompt_service=prompt_service,
         request_builder=RequestBuilderStub(),
-        response_client=RecordingResponseClient(responses),
+        response_client=response_client,
         tool_call_handler=ToolCallHandlerStub(),
         adapter=adapter,
         tool_service=tool_service,
     )
-    fake_response_client = service._response_client
-    return service, adapter, fake_response_client, tool_service
+    return service, adapter, response_client, tool_service
 
 
 class SharedToolCallHandlerStub:

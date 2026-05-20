@@ -80,7 +80,7 @@ def test_add_background_event_stores_completion_event_once_and_updates_status() 
 
     coordinator = TurnCoordinator()
     coordinator.begin_turn()
-    coordinator._has_pending_work = True
+    coordinator.set_pending_work(True)
     event = BackgroundCompletionEvent(task_id="task-1", success=True, exit_code=0)
 
     coordinator.add_background_event(event)
@@ -99,7 +99,7 @@ def test_add_background_event_updates_status_and_pending_state() -> None:
 
     coordinator = TurnCoordinator()
     coordinator.begin_turn()
-    coordinator._has_pending_work = True
+    coordinator.set_pending_work(True)
     event = BackgroundCompletionEvent(task_id="task-1", success=True, exit_code=0)
 
     coordinator.add_background_event(event)
@@ -132,7 +132,7 @@ def test_mark_background_complete_sets_failed_status() -> None:
 
     coordinator = TurnCoordinator()
     coordinator.begin_turn()
-    coordinator._has_pending_work = True
+    coordinator.set_pending_work(True)
 
     coordinator.mark_background_complete(task_id="task-1", success=False, exit_code=7)
     snapshot = coordinator.snapshot()
@@ -153,7 +153,7 @@ def test_clear_turn_removes_turn_scoped_state() -> None:
     coordinator.add_internal_context(InternalContextEntry(text="one"))
     coordinator.add_subagent_result(SubagentResultEvent(task_id="task-1", text="two"))
     coordinator.add_background_event(OutputEvent(text="event"))
-    coordinator._has_pending_work = True
+    coordinator.set_pending_work(True)
 
     coordinator.clear_turn()
     snapshot = coordinator.snapshot()
