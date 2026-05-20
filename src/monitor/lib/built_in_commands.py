@@ -23,7 +23,9 @@ from monitor.lib.external_services import (
     send_twitter_message,
     send_twitch_message_command,
 )
-from monitor.lib.history import adjust_history_size
+# Note: ``adjust_history_size`` is imported lazily inside the call site below
+# to avoid a module-load cycle when something imports ``monitor.lib.history``
+# directly (e.g., tests). See the analogous note in monitor/lib/redis_utils.py.
 from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
@@ -618,6 +620,8 @@ def compact_history_command(
 ):
     try:
         n = int(arg)
+        # Lazy import to avoid a module-load cycle.
+        from monitor.lib.history import adjust_history_size
         result = adjust_history_size(
             n,
             config.CONVERSATION_HISTORY,

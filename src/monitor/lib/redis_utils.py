@@ -23,7 +23,14 @@ except Exception:
 from monitor import config
 
 from monitor.lib.token_management import count_message_tokens, update_token_usage
-from monitor.lib.history import append_to_history_with_count
+# Note: ``append_to_history_with_count`` is imported lazily inside
+# ``prepare_model_input`` below to avoid a module-load cycle. The chain is
+# ``monitor.lib.history`` → ``monitor.config`` → ``monitor.core.tools`` →
+# ``monitor.lib.tool_definitions`` → ``monitor.lib.redis_utils`` → back to
+# ``monitor.lib.history``. The cycle is only an issue when something imports
+# ``monitor.lib.history`` *first* (e.g., test modules that import from history
+# directly); deferring this specific import breaks that case without changing
+# normal application startup behavior.
 
 logger = logging.getLogger(__name__)
 
@@ -856,6 +863,9 @@ def prepare_model_input(user_input: str) -> None:
         else 0,
     )
     prepend_memory_to_history()
+    # Lazy import to avoid a module-load cycle; see note near the top of this
+    # file for the full chain.
+    from monitor.lib.history import append_to_history_with_count
     append_to_history_with_count(
         {"role": "user", "content": user_input},
         config.CONVERSATION_HISTORY,

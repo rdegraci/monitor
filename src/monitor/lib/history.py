@@ -885,6 +885,60 @@ def generate_conversation_summary(
         logger.critical("[SUMMARIZATION] Summarization generation failed; conversation will continue unsummarized.")
         raise
 
+def _truncate_summary_to_fit(
+    summary: str,
+    system_prompt: str,
+    user_input: str,
+    max_tokens: int,
+    model,
+    logger: object,
+) -> "str | None":
+    """Return a version of ``summary`` that fits within ``max_tokens`` when combined with
+    the system prompt and user input, or ``None`` when even an empty summary cannot fit.
+
+    Uses the canonical token-counting helper to estimate the per-message budget left
+    after the system prompt and user input claim their share, reserves a small safety
+    margin for message-framing overhead, and delegates the actual truncation to
+    ``monitor.lib.llm_utils.truncate_to_token_limit`` (which uses tiktoken when available
+    and a character-based fallback otherwise). The helper is imported locally to avoid
+    a circular import at module load.
+    """
+    # Local import to avoid a circular import (llm_utils imports from history at
+    # module scope).
+    try:
+        from monitor.lib.llm_utils import truncate_to_token_limit
+    except Exception as e:
+        logger.error(
+            f"[SUMMARIZATION] Could not import truncate_to_token_limit: {e}",
+            exc_info=True,
+        )
+        return None
+
+    framing_safety_margin = 32  # buffer for provider-side message framing tokens
+    try:
+        system_tokens = count_message_tokens({"role": "system", "content": f"{system_prompt}"})
+        user_tokens = count_message_tokens({"role": "user", "content": user_input})
+    except Exception as e:
+        logger.error(
+            f"[SUMMARIZATION] Could not count tokens for system/user messages: {e}",
+            exc_info=True,
+        )
+        return None
+
+    available_for_summary = max_tokens - system_tokens - user_tokens - framing_safety_margin
+    if available_for_summary <= 0:
+        return None
+
+    try:
+        return truncate_to_token_limit(summary, available_for_summary, model=model)
+    except Exception as e:
+        logger.error(
+            f"[SUMMARIZATION] Truncation helper failed: {e}",
+            exc_info=True,
+        )
+        return None
+
+
 def reset_conversation_with_summary(
     summary: str,  # Fixed: expect str (content), not object
     system_prompt: str,
@@ -899,52 +953,140 @@ def reset_conversation_with_summary(
 
     All appending and token count management routed via canonical count_message_tokens and update_token_usage from monitor.lib/token_management.py.
 
+    When the proposed post-reset state would exceed ``config.MAX_TOKEN_COUNT``, the
+    function auto-truncates the summary so the conversation can recover automatically
+    instead of leaving the caller in a state that the LLM provider rejects with a
+    400 "context length exceeded" on the next request. If even an empty summary plus
+    the system prompt and user input cannot fit, the reset is aborted and the existing
+    history is preserved.
+
     Args:
         summary (str): The generated summary content.
         system_prompt (str): The preserved system prompt string.
         user_input (str): The latest user input that triggered the reset.
         conversation_history (list): Mutated in-place to just system, summary, user prompt.
-        append_func (callable): For tracking tokens & appending messages.
+        append_func (callable): For tracking tokens & appending messages. Preserved
+            in the signature for backward-compatible callers but no longer used —
+            the new flow performs an atomic clear-and-extend after pre-validation.
         logger (object): Logging for diagnostics.
         config (object): The live config object (will update TOTAL_TOKEN_COUNT).
     """
-    conversation_history.clear()
-    if hasattr(config, "TOTAL_TOKEN_COUNT"):
-        config.TOTAL_TOKEN_COUNT = 0  # Fixed: reset incremental count before appends
-    logger.debug(f"[RESET_CONVERSATION] Cleared conversation history for summary reset.")
+    # Build the proposed new history in a separate list so we can pre-validate
+    # before any destructive mutation of conversation_history. Combined fix
+    # for two prior bugs:
+    #
+    #   (a) Token-overflow at reset time was only soft-warned at 80% of
+    #       MAX_TOKEN_COUNT; a summary that ended up over 100% silently produced
+    #       a post-reset history that didn't fit the model, with the next turn
+    #       hitting a context-window error.
+    #
+    #   (b) The previous flow cleared conversation_history before any append,
+    #       wrapped each append in a swallowing try/except, and the underlying
+    #       append_to_history_with_count also swallows exceptions internally.
+    #       If any of the three appends failed at either layer, history was
+    #       left in a partial state (e.g., [system] only) with the old history
+    #       irrecoverable.
+    #
+    # New shape: build new_messages, count tokens, validate against
+    # MAX_TOKEN_COUNT, then atomically clear-and-extend only on success.
+    # On any failure path before the swap, conversation_history is left
+    # untouched. ``append_func`` is preserved in the signature for
+    # backward-compatible callers but is no longer used because the atomic
+    # swap is more important than per-message callback fanout.
+    del append_func
+
+    new_messages = [
+        {"role": "system", "content": f"{system_prompt}"},
+        {"role": "assistant", "content": summary},
+        {"role": "user", "content": user_input},
+    ]
     try:
-        # Append the preserved system prompt as first message
-        append_func({"role": "system", "content": f"{system_prompt}"}, conversation_history, count_message_tokens, update_token_usage)
-        logger.debug(f"[RESET_CONVERSATION] System prompt added post-reset.")
+        proposed_total_tokens = count_message_tokens(new_messages)
     except Exception as e:
-        logger.error(f"Error appending system prompt in reset: {str(e)}", exc_info=True)
-    try:
-        # Use summary as context, followed by user input for a seamless restart - Changed: append as assistant role for better context
-        append_func({"role": "assistant", "content": summary}, conversation_history, count_message_tokens, update_token_usage)
-        append_func({"role": "user", "content": user_input}, conversation_history, count_message_tokens, update_token_usage)
-        logger.debug(f"[RESET_CONVERSATION] Summary (as system) and user input added post-reset.")
-    except Exception as e:
-        logger.error(f"Error appending summary/user message in reset: {str(e)}", exc_info=True)
-    total_tokens = count_message_tokens(conversation_history)
-    num_msgs = len(conversation_history)
-    logger.info(
-        f"[SUMMARIZATION] Conversation reset after summary. New state: {num_msgs} messages, total tokens: {total_tokens}"
-    )
-    # Explicitly update config.TOTAL_TOKEN_COUNT, log the update (old/new)
-    prev_total_tokens = getattr(config, "TOTAL_TOKEN_COUNT", None)
-    if hasattr(config, "TOTAL_TOKEN_COUNT"):
-        logger.info(f"[SUMMARIZATION] Updating config.TOTAL_TOKEN_COUNT: old value={prev_total_tokens}, new value={total_tokens}")
-        config.TOTAL_TOKEN_COUNT = total_tokens
-    else:
-        logger.warning(f"[SUMMARIZATION] config object has no TOTAL_TOKEN_COUNT attribute—cannot update token count after reset.")
-    log_negative_token_count(logger, config)
-    if hasattr(config, "MAX_TOKEN_COUNT"):
-        if total_tokens > 0.8 * config.MAX_TOKEN_COUNT:
-            logger.warning(
-                f"[SUMMARIZATION] Warning: Even after summary, tokens in conversation are close to the allowable maximum ({total_tokens})."
+        logger.error(
+            f"[SUMMARIZATION] Could not count tokens for proposed post-reset "
+            f"history; aborting reset without modifying conversation: {e}",
+            exc_info=True,
+        )
+        return
+
+    max_tokens = getattr(config, "MAX_TOKEN_COUNT", None)
+    truncation_applied = False
+    if isinstance(max_tokens, int) and max_tokens > 0 and proposed_total_tokens > max_tokens:
+        # Auto-recover: truncate the summary so it fits, rather than aborting and
+        # leaving the caller with an over-budget conversation that the provider
+        # rejects with 400 "context length exceeded" on the next request.
+        truncated_summary = _truncate_summary_to_fit(
+            summary=summary,
+            system_prompt=system_prompt,
+            user_input=user_input,
+            max_tokens=max_tokens,
+            model=getattr(config, "MODEL", None),
+            logger=logger,
+        )
+        if truncated_summary is None:
+            logger.critical(
+                f"[SUMMARIZATION] Cannot fit post-reset history within MAX_TOKEN_COUNT "
+                f"({max_tokens}); even an empty summary plus system prompt and user "
+                f"input would exceed the budget. Aborting reset to preserve existing history."
             )
-        if total_tokens < 0:
-            logger.critical("[SUMMARIZATION] CRITICAL: Negative total token count detected after reset!")
-    logger.debug(f"After reset: total token count reset, new entries added to conversation history.")
+            return
+        new_messages = [
+            {"role": "system", "content": f"{system_prompt}"},
+            {"role": "assistant", "content": truncated_summary},
+            {"role": "user", "content": user_input},
+        ]
+        try:
+            proposed_total_tokens = count_message_tokens(new_messages)
+        except Exception as e:
+            logger.error(
+                f"[SUMMARIZATION] Could not count tokens for truncated post-reset history; "
+                f"aborting reset without modifying conversation: {e}",
+                exc_info=True,
+            )
+            return
+        if proposed_total_tokens > max_tokens:
+            # Defensive: truncation helper produced something still too large.
+            logger.critical(
+                f"[SUMMARIZATION] Truncated summary still exceeds MAX_TOKEN_COUNT "
+                f"({proposed_total_tokens} > {max_tokens}). Aborting reset to "
+                f"preserve existing history."
+            )
+            return
+        truncation_applied = True
+        logger.warning(
+            f"[SUMMARIZATION] Summary was too large to fit; truncated to recover. "
+            f"Post-reset state: {proposed_total_tokens}/{max_tokens} tokens."
+        )
+
+    # Validation passed — perform the atomic swap.
+    prev_total_tokens = getattr(config, "TOTAL_TOKEN_COUNT", None)
+    conversation_history.clear()
+    conversation_history.extend(new_messages)
+    logger.debug(f"[RESET_CONVERSATION] Atomically swapped conversation history for summary reset.")
+
+    if hasattr(config, "TOTAL_TOKEN_COUNT"):
+        logger.info(
+            f"[SUMMARIZATION] Updating config.TOTAL_TOKEN_COUNT: "
+            f"old value={prev_total_tokens}, new value={proposed_total_tokens}"
+        )
+        config.TOTAL_TOKEN_COUNT = proposed_total_tokens
+    else:
+        logger.warning(
+            f"[SUMMARIZATION] config object has no TOTAL_TOKEN_COUNT attribute"
+            f"—cannot update token count after reset."
+        )
+    log_negative_token_count(logger, config)
+    if isinstance(max_tokens, int) and max_tokens > 0 and proposed_total_tokens > 0.8 * max_tokens:
+        logger.warning(
+            f"[SUMMARIZATION] Warning: Even after summary, tokens in conversation"
+            f" are close to the allowable maximum ({proposed_total_tokens})."
+        )
+    if proposed_total_tokens < 0:
+        logger.critical("[SUMMARIZATION] CRITICAL: Negative total token count detected after reset!")
+    logger.info(
+        f"[SUMMARIZATION] Conversation reset after summary. New state: "
+        f"{len(conversation_history)} messages, total tokens: {proposed_total_tokens}"
+    )
 
 # End of history.py
