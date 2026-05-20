@@ -732,6 +732,37 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                     else:
                         logger.debug(f"Skipping token budgeting: invalid MODEL_INPUT_WINDOW={iw!r}")
 
+                    # H2: Preflight rate-limit gate for tool-call follow-up.
+                    # Previously, follow-up responses.create calls only recorded
+                    # tokens post-hoc, allowing a tool loop to burst past the
+                    # configured TPM before any cooldown fired.
+                    try:
+                        if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
+                            try:
+                                followup_input = followup_params.get(REQUEST_PARAM_INPUT)
+                                if isinstance(followup_input, list):
+                                    preflight_tokens = count_message_tokens(followup_input)
+                                else:
+                                    preflight_tokens = count_message_tokens(
+                                        [{"role": "user", "content": str(followup_input or "")}]
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to estimate follow-up payload tokens for rate-limit preflight; using 0"
+                                )
+                                preflight_tokens = 0
+                            wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(preflight_tokens)
+                            if wait_result is None:
+                                logger.warning(
+                                    "Skipping follow-up responses.create: estimated tokens (%s) exceed rate-limiter safety threshold",
+                                    preflight_tokens,
+                                )
+                                break
+                    except Exception:
+                        logger.exception(
+                            "Rate-limit preflight check failed for follow-up responses.create; proceeding without gating"
+                        )
+
                     # Follow-up call with cancellable helper
                     followup_response = _cancellable_responses_create(client.responses.create, followup_params)
 
@@ -1296,8 +1327,48 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
                         except Exception:
                             logger.exception("Failed building estimation messages for summarization payload")
 
-                        # Summarization call with cancellable helper and label
-                        summary_response = _cancellable_responses_create(client.responses.create, summary_params, progress_label="Summarizing ")
+                        # H3: Preflight rate-limit gate for summarization follow-up.
+                        # Previously this call only recorded tokens post-hoc,
+                        # allowing the summarization burst to bypass the
+                        # configured TPM cap.
+                        summary_preflight_ok = True
+                        try:
+                            if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
+                                try:
+                                    summary_preflight_tokens = int(estimated_tokens) if estimated_tokens is not None else 0
+                                except Exception:
+                                    summary_preflight_tokens = 0
+                                if summary_preflight_tokens <= 0:
+                                    try:
+                                        summary_input = summary_params.get(REQUEST_PARAM_INPUT)
+                                        if isinstance(summary_input, list):
+                                            summary_preflight_tokens = count_message_tokens(summary_input)
+                                        elif summary_input is not None:
+                                            summary_preflight_tokens = count_message_tokens(
+                                                [{"role": "user", "content": str(summary_input)}]
+                                            )
+                                    except Exception:
+                                        logger.exception(
+                                            "Failed to estimate summarization payload tokens for rate-limit preflight; using 0"
+                                        )
+                                        summary_preflight_tokens = 0
+                                wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(summary_preflight_tokens)
+                                if wait_result is None:
+                                    logger.warning(
+                                        "Skipping summarization follow-up: estimated tokens (%s) exceed rate-limiter safety threshold",
+                                        summary_preflight_tokens,
+                                    )
+                                    summary_preflight_ok = False
+                        except Exception:
+                            logger.exception(
+                                "Rate-limit preflight check failed for summarization follow-up; proceeding without gating"
+                            )
+
+                        if not summary_preflight_ok:
+                            summary_response = None
+                        else:
+                            # Summarization call with cancellable helper and label
+                            summary_response = _cancellable_responses_create(client.responses.create, summary_params, progress_label="Summarizing ")
 
                         logger.debug("Received summarization follow-up response from OpenAI Responses API")
 

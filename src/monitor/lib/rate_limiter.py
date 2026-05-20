@@ -160,6 +160,22 @@ class RateLimiter:
             return adjusted_threshold
         return self.safety_threshold
 
+    def reset(self):
+        """
+        Clear all recorded token usage and warning state.
+
+        Intended for use when the rate-limited resource is no longer comparable
+        to the previously-recorded window — e.g., a model switch where the new
+        model has different TPM limits, or an explicit history reset where the
+        accumulated token totals no longer reflect what will be sent next.
+        """
+        self.logger.info(
+            "[RATE LIMITING] Resetting rate-limiter window (cleared %s recorded entries)",
+            len(self.token_usage),
+        )
+        self.token_usage = []
+        self.last_warning_time = 0
+
     def add_request(self, tokens):
         """
         Record token usage for a request and clean up expired entries.

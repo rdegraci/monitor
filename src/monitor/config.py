@@ -1110,6 +1110,15 @@ def set_model(model_key: str) -> bool:
     else:
         CONVERSATION_HISTORY = []
 
+    # H1: clear the rate-limiter rolling window so prior-model token history
+    # does not phantom-deny requests against the new model's TPM budget.
+    try:
+        from monitor.lib import rate_limiter as _rl
+        if _rl.RATE_LIMITER is not None:
+            _rl.RATE_LIMITER.reset()
+    except Exception:
+        logger.warning("set_model: failed to reset rate limiter window", exc_info=True)
+
     logger.info(
         f"set_model: Activated model '{MODEL}' "
         f"(CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW}, OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW}, "
