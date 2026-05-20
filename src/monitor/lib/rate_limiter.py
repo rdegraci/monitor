@@ -137,7 +137,14 @@ class RateLimiter:
         self.limit = limit
         self.window_seconds = window_seconds
         self.safety_threshold = limit * safety_factor
-        self.token_usage = []  # List of (timestamp, tokens) tuples
+        # M-rl2: entries are (timestamp, tokens, request_id) tuples.
+        # request_id is an optional caller-supplied key used by add_request to
+        # replace a prior estimate with the actual token count for the same
+        # request (e.g., when a cancelled-request estimate is later superseded
+        # by the eventual provider-reported actual). request_id may be None
+        # for one-shot accounting calls (tool execution, follow-ups) where no
+        # supersession is expected.
+        self.token_usage = []
         self.last_warning_time = 0
 
         self.now_fn = now_fn if now_fn is not None else time.time
@@ -176,21 +183,52 @@ class RateLimiter:
         self.token_usage = []
         self.last_warning_time = 0
 
-    def add_request(self, tokens):
+    def add_request(self, tokens, request_id=None):
         """
         Record token usage for a request and clean up expired entries.
 
         Args:
             tokens (int): Number of tokens used in the request
+            request_id (str | None): Optional caller-supplied identifier. If
+                provided and a prior entry with the same request_id exists in
+                the active window, that entry is replaced (its timestamp is
+                kept, its token count is updated). If None, the entry is
+                always appended. This prevents double-counting when a single
+                logical request reports tokens twice — e.g., the cancellation
+                path records a conservative estimate, and the success path
+                later records the provider-reported actual count for the same
+                in-flight request.
         """
-        self.logger.debug("Adding request with %s tokens to usage tracker", tokens)
+        self.logger.debug(
+            "Adding request with %s tokens to usage tracker (request_id=%s)",
+            tokens,
+            request_id,
+        )
 
         now = self.now_fn()
-        self.token_usage.append((now, tokens))
+
+        replaced = False
+        if request_id is not None:
+            for i, entry in enumerate(self.token_usage):
+                if len(entry) >= 3 and entry[2] == request_id:
+                    self.token_usage[i] = (entry[0], tokens, request_id)
+                    replaced = True
+                    self.logger.debug(
+                        "Replaced existing rate-limiter entry for request_id=%s "
+                        "(prior_tokens=%s, new_tokens=%s)",
+                        request_id,
+                        entry[1],
+                        tokens,
+                    )
+                    break
+
+        if not replaced:
+            self.token_usage.append((now, tokens, request_id))
+
         self._clean_expired(now)
 
-        current_usage = sum(tokens for _, tokens in self.token_usage)
-        self.logger.debug("Current token usage after adding request: %s/%s", 
+        current_usage = sum(entry[1] for entry in self.token_usage)
+        self.logger.debug("Current token usage after adding request: %s/%s",
                          current_usage, self.limit)
 
     def _clean_expired(self, now):
@@ -205,7 +243,13 @@ class RateLimiter:
 
         cutoff = now - self.window_seconds
         before_count = len(self.token_usage)
-        self.token_usage = [(t, tokens) for t, tokens in self.token_usage if t >= cutoff]
+        # M-rl1: strictly newer than the cutoff. The previous `t >= cutoff`
+        # kept a record sitting exactly at the boundary as still-active, which
+        # is inconsistent with conventional rolling-window semantics (active
+        # for window_seconds, exclusive of the cutoff). No behavior change in
+        # practice because float-precision collisions at the boundary are vanishingly
+        # rare; this is a semantics-clarity fix.
+        self.token_usage = [entry for entry in self.token_usage if entry[0] > cutoff]
         after_count = len(self.token_usage)
 
         if before_count != after_count:
@@ -223,7 +267,7 @@ class RateLimiter:
 
         now = self.now_fn()
         self._clean_expired(now)
-        current_usage = sum(tokens for _, tokens in self.token_usage)
+        current_usage = sum(entry[1] for entry in self.token_usage)
 
         self.logger.debug("Current token usage: %s/%s", current_usage, self.limit)
         return current_usage
@@ -271,7 +315,8 @@ class RateLimiter:
                 remaining = current_usage
                 boundary_timestamp = None
 
-                for ts, tokens in self.token_usage:
+                for entry in self.token_usage:
+                    ts, tokens = entry[0], entry[1]
                     remaining -= tokens
                     if remaining <= target_remaining:
                         boundary_timestamp = ts

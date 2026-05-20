@@ -2,6 +2,7 @@ import logging
 import json
 import threading
 import signal
+import uuid
 from openai import OpenAI
 
 from monitor import config
@@ -159,7 +160,7 @@ def _cancellable_responses_create(create_callable, params, progress_label=None):
             except Exception:
                 pass
 
-def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
+def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, request_id=None):
     """Make the actual call to the OpenAI Responses API.
 
     This method supports cancellable behavior: pressing Ctrl-C during any Responses API call
@@ -377,9 +378,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions):
 
         try:
             if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
-                rate_limiter.RATE_LIMITER.add_request(actual_tokens)
+                rate_limiter.RATE_LIMITER.add_request(actual_tokens, request_id=request_id)
                 logger.debug(
-                    f"Added request of {actual_tokens} tokens to rate limiter"
+                    f"Added request of {actual_tokens} tokens to rate limiter (request_id={request_id})"
                 )
         except Exception:
             logger.exception("Failed to add request to rate limiter after OpenAI response")
@@ -1635,9 +1636,16 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
                 logger.error(error_msg)
                 return None, error_msg
 
+        # M-rl2: per-request UUID shared between the cancellation and the
+        # success-path accounting. If both fire (cancel records the estimate,
+        # then the eventual provider response is processed and records the
+        # actual count), add_request replaces the entry in place instead of
+        # double-counting.
+        request_id = uuid.uuid4().hex
+
         # Call responses API
         try:
-            api_response = call_responses_api(messages, tool_descriptions, gemini_tool_descriptions)
+            api_response = call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, request_id=request_id)
         except KeyboardInterrupt:
             logger.info("Responses API call cancelled by user via Ctrl-C")
             # Conservative token accounting on cancellation
@@ -1648,8 +1656,8 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
                 logger.exception("Failed to conservatively update token usage on cancellation")
             try:
                 if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
-                    rate_limiter.RATE_LIMITER.add_request(estimated_request)
-                    logger.debug(f"Conservatively added cancellation request of {estimated_request} tokens to rate limiter")
+                    rate_limiter.RATE_LIMITER.add_request(estimated_request, request_id=request_id)
+                    logger.debug(f"Conservatively added cancellation request of {estimated_request} tokens to rate limiter (request_id={request_id})")
             except Exception:
                 logger.exception("Failed to conservatively add cancellation request to rate limiter")
             return None, "Cancelled by user"

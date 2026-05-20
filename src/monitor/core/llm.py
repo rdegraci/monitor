@@ -3,6 +3,7 @@ import litellm
 import monitor.lib.llm_utils as llm_utils
 import signal
 import threading
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -649,6 +650,13 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             logger.error(f"Message validation failed (pre-completion): {ve}")
             return None, str(ve)
 
+        # M-rl2: a per-request UUID is shared between the cancellation-path
+        # accounting and the success-path accounting. If both fire (e.g.,
+        # cancellation records an estimate, and the eventual provider response
+        # is later processed and records the actual count), add_request
+        # replaces the entry in place instead of double-counting.
+        request_id = uuid.uuid4().hex
+
         response, was_cancelled = cancellable_call_litellm_completion(
             _cfg().MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
         )
@@ -659,7 +667,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                 pass
             try:
                 if hasattr(rate_limiter, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
-                    rate_limiter.RATE_LIMITER.add_request(estimated_request)
+                    rate_limiter.RATE_LIMITER.add_request(estimated_request, request_id=request_id)
             except Exception:
                 pass
             return None, "Cancelled by user"
@@ -697,7 +705,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         except Exception:
             pass
         update_token_usage(actual_used, used_estimate=fallback_estimated)
-        rate_limiter.RATE_LIMITER.add_request(actual_used)
+        rate_limiter.RATE_LIMITER.add_request(actual_used, request_id=request_id)
 
         logger.debug(f"{log_prefix} Received response from the language model.")
         return response, None

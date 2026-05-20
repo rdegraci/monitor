@@ -60,14 +60,16 @@ def execute_tool_call(tool_call):
                         content = f.read()
                         estimated_tokens = count_message_tokens({"role": "system", "content": content})
                         if estimated_tokens > LARGE_FILE_TOKEN_THRESHOLD:
-                            rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
+                            if rate_limiter.RATE_LIMITER is not None:
+                                rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
                 except (FileNotFoundError, PermissionError):
                     pass
 
             elif function_name == "list_directory_contents" and "path" in function_args:
                 if function_args.get("recursive", False):
                     # Still use conservative estimate for recursion
-                    rate_limiter.RATE_LIMITER.wait_if_needed(RECURSIVE_DIR_TOKEN_ESTIMATE)
+                    if rate_limiter.RATE_LIMITER is not None:
+                        rate_limiter.RATE_LIMITER.wait_if_needed(RECURSIVE_DIR_TOKEN_ESTIMATE)
 
         result = AVAILABLE_TOOLS[function_name](**function_args)
         logger.debug(f"Result: {result}")
@@ -79,7 +81,8 @@ def execute_tool_call(tool_call):
         ):
             estimated_tokens = count_message_tokens({"role": "system", "content": result})
             if estimated_tokens > LARGE_FILE_TOKEN_THRESHOLD:
-                rate_limiter.RATE_LIMITER.add_request(estimated_tokens)
+                if rate_limiter.RATE_LIMITER is not None:
+                    rate_limiter.RATE_LIMITER.add_request(estimated_tokens)
 
         return result, None
     except TypeError as e:
@@ -322,7 +325,8 @@ def execute_function(function_name, function_args_raw):
                         content = f.read()
                         estimated_tokens = count_message_tokens({"role": "system", "content": content})
                         if estimated_tokens > LARGE_FILE_TOKEN_THRESHOLD:
-                            rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
+                            if rate_limiter.RATE_LIMITER is not None:
+                                rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
                 except (FileNotFoundError, PermissionError):
                     pass
 
@@ -335,7 +339,8 @@ def execute_function(function_name, function_args_raw):
                             estimated_tokens += count_message_tokens(
                                 {"role": "user", "content": function_args["modification_request"]}
                             )
-                        rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
+                        if rate_limiter.RATE_LIMITER is not None:
+                            rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
                 except (FileNotFoundError, PermissionError):
                     pass
 
@@ -350,10 +355,12 @@ def execute_function(function_name, function_args_raw):
         ):
             estimated_tokens = count_message_tokens({"role": "system", "content": result})
             if estimated_tokens > LARGE_FILE_TOKEN_THRESHOLD:
-                rate_limiter.RATE_LIMITER.add_request(estimated_tokens)
+                if rate_limiter.RATE_LIMITER is not None:
+                    rate_limiter.RATE_LIMITER.add_request(estimated_tokens)
         elif function_name == "modify_source_code":
             # Record substantial token usage for source modifications (still conservatively estimated)
-            rate_limiter.RATE_LIMITER.add_request(SOURCE_MODIFICATION_TOKEN_ESTIMATE)
+            if rate_limiter.RATE_LIMITER is not None:
+                rate_limiter.RATE_LIMITER.add_request(SOURCE_MODIFICATION_TOKEN_ESTIMATE)
 
         return result, None
     except Exception as e:
