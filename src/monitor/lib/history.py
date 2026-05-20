@@ -264,24 +264,86 @@ def append_conversation_history(
         if skip_summary:
             try:
                 # Truncate conversation to system prompt + last 20 non-system messages
+                # (initial cap), then pre-validate against MAX_TOKEN_COUNT and drop
+                # additional oldest non-system messages if the new state would still
+                # overflow. The previous flow committed an over-budget post-truncation
+                # state, producing the same context-length-exceeded HTTP 400 chain on
+                # the next request that the summarize path also previously had.
                 system_message = next((msg for msg in conversation_history if msg.get('role') == 'system'), None)
                 non_system_msgs = [msg for msg in conversation_history if msg.get('role') != 'system']
                 keep_last_n = 20
                 kept = non_system_msgs[-keep_last_n:] if len(non_system_msgs) > keep_last_n else non_system_msgs[:]
-                new_history = []
-                if system_message:
-                    new_history.append(system_message)
-                new_history.extend(kept)
-                conversation_history[:] = new_history
-                # Update live total token count
-                try:
-                    config.TOTAL_TOKEN_COUNT = count_message_tokens(conversation_history)
-                except Exception:
-                    # If config doesn't support attribute or counting fails, log and continue
-                    logger.error("[SUMMARIZATION] Failed to update config.TOTAL_TOKEN_COUNT after skip-based truncation.", exc_info=True)
-                logger.info(
-                    f"[SUMMARIZATION] Skipped summarization due to Responses API adapter. Truncated history to system + last {keep_last_n} non-system messages. New len={len(conversation_history)}, TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
-                )
+
+                # Build a proposed new history without mutating conversation_history yet.
+                def _build(kept_msgs):
+                    out = []
+                    if system_message:
+                        out.append(system_message)
+                    out.extend(kept_msgs)
+                    return out
+
+                new_history = _build(kept)
+
+                # Pre-validate against MAX_TOKEN_COUNT and drop oldest non-system
+                # messages while still over budget.
+                max_tokens = getattr(config, "MAX_TOKEN_COUNT", None)
+                token_budget_ok = True
+                if isinstance(max_tokens, int) and max_tokens > 0:
+                    try:
+                        proposed_total = count_message_tokens(new_history)
+                    except Exception:
+                        logger.warning(
+                            "[SUMMARIZATION] skip_summary: could not pre-validate token "
+                            "budget; applying truncation without budget check.",
+                            exc_info=True,
+                        )
+                        proposed_total = None
+
+                    extra_dropped = 0
+                    while proposed_total is not None and proposed_total > max_tokens and kept:
+                        kept = kept[1:]  # drop the oldest of the kept tail
+                        extra_dropped += 1
+                        new_history = _build(kept)
+                        try:
+                            proposed_total = count_message_tokens(new_history)
+                        except Exception:
+                            proposed_total = None
+                            break
+
+                    if proposed_total is not None and proposed_total > max_tokens:
+                        # Even with all non-system messages dropped, still over budget —
+                        # the system prompt alone exceeds MAX_TOKEN_COUNT. Degenerate
+                        # config; do not mutate, preserve existing history.
+                        logger.critical(
+                            f"[SUMMARIZATION] skip_summary: cannot fit history within "
+                            f"MAX_TOKEN_COUNT ({max_tokens}); even the system prompt alone "
+                            f"would exceed the budget. Preserving existing history."
+                        )
+                        token_budget_ok = False
+                    elif extra_dropped > 0:
+                        logger.warning(
+                            f"[SUMMARIZATION] skip_summary: trimmed {extra_dropped} "
+                            f"additional oldest message(s) beyond the last-{keep_last_n} "
+                            f"window to fit MAX_TOKEN_COUNT ({proposed_total}/{max_tokens})."
+                        )
+
+                if token_budget_ok:
+                    conversation_history[:] = new_history
+                    try:
+                        config.TOTAL_TOKEN_COUNT = count_message_tokens(conversation_history)
+                    except Exception:
+                        logger.error(
+                            "[SUMMARIZATION] Failed to update config.TOTAL_TOKEN_COUNT "
+                            "after skip-based truncation.",
+                            exc_info=True,
+                        )
+                    logger.info(
+                        f"[SUMMARIZATION] Skipped summarization due to Responses API adapter. "
+                        f"Truncated history to system + {len(kept)} non-system messages "
+                        f"(started from last {keep_last_n}; further trimmed to fit "
+                        f"MAX_TOKEN_COUNT if needed). New len={len(conversation_history)}, "
+                        f"TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
+                    )
             except Exception as e:
                 logger.error(f"[SUMMARIZATION] Error while truncating history when skipping summary: {str(e)}", exc_info=True)
             # Do not call generate_summary_func; return early from summarization flow.
@@ -729,15 +791,44 @@ def check_limits(
             logger.info(
                 f"Messages using many tokens ({avg_tokens_per_message:.1f}/msg). Consider ':history_size {optimal_history_size}'"
             )
-    should_summarize = any([
-        over_token_limit,
-        over_history_limit,
-        time_limit_exceeded,
-        memory_limit_exceeded
-    ])
+    # Gate secondary triggers behind token pressure.
+    #
+    # The token trigger (``over_token_limit``, derived from
+    # ``token_threshold * max_token_count``) is the primary, load-bearing
+    # compaction signal. The other three triggers (history-size, time, memory)
+    # used to fire summarization on their own, which produced nuisance
+    # compactions in common situations:
+    #
+    #   - ``time_limit_seconds`` (default 3600s) → any pause longer than an
+    #     hour triggered a full summarization LLM call on the next message,
+    #     even when conversation was small.
+    #   - ``memory_limit_mb`` measures the Python object size in MB and rarely
+    #     fires in practice, but when it does it's decoupled from actual LLM
+    #     budget pressure.
+    #   - ``CONVERSATION_MAX_SIZE`` (message count) triggers regardless of
+    #     message size, so short-message conversations summarize early.
+    #
+    # New shape: secondary triggers only contribute to ``should_summarize``
+    # when token usage is also above ``SECONDARY_PRESSURE_RATIO`` of
+    # ``max_token_count``. The token trigger continues to fire on its own.
+    # Raw trigger flags are still surfaced in ``trigger_reasons`` so callers
+    # and tests can inspect which underlying conditions were observed.
+    SECONDARY_PRESSURE_RATIO = 0.5
+    under_secondary_pressure = (
+        isinstance(max_token_count, int)
+        and max_token_count > 0
+        and total_token_count > SECONDARY_PRESSURE_RATIO * max_token_count
+    )
+    secondary_trigger = over_history_limit or time_limit_exceeded or memory_limit_exceeded
+    should_summarize = over_token_limit or (under_secondary_pressure and secondary_trigger)
     logger.debug(
-        f"[CHECK_LIMITS EXIT] should_summarize = {should_summarize} (over_token_limit={over_token_limit}, over_history_limit={over_history_limit}, "
-        f"time_limit_exceeded={time_limit_exceeded}, memory_limit_exceeded={memory_limit_exceeded})"
+        f"[CHECK_LIMITS EXIT] should_summarize = {should_summarize} "
+        f"(over_token_limit={over_token_limit}, "
+        f"under_secondary_pressure={under_secondary_pressure} "
+        f"(threshold={SECONDARY_PRESSURE_RATIO * max_token_count if isinstance(max_token_count, int) else 'n/a'}), "
+        f"over_history_limit={over_history_limit}, "
+        f"time_limit_exceeded={time_limit_exceeded}, "
+        f"memory_limit_exceeded={memory_limit_exceeded})"
     )
     if over_token_limit:
         logger.info(

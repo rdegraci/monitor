@@ -123,6 +123,22 @@ def conversation_and_config(sample_conversation, config):
         lambda convo, cfg: _set_strictly_below_memory_trigger(cfg, convo, cfg.SUMMARIZATION_CONFIG['triggers']['memory_limit_mb'], logger=cfg.__dict__.get("_pytest_logger")),
         False
     ),
+    # Regression: secondary triggers alone (without token pressure) should
+    # NOT drive summarization. Each of these sets up a non-token trigger and
+    # explicitly keeps TOTAL_TOKEN_COUNT below the secondary-pressure
+    # threshold (50% of MAX_TOKEN_COUNT). The previous behavior summarized
+    # in all of these cases, which produced nuisance compactions on idle
+    # pauses, short-message overrun, etc.
+    (
+        "conversation_size without token pressure",
+        lambda convo, cfg: _fill_to_conversation_size_no_token_pressure(cfg, convo, cfg.CONVERSATION_MAX_SIZE),
+        False,
+    ),
+    (
+        "time_limit_seconds without token pressure",
+        lambda convo, cfg: _simulate_time_trigger_no_token_pressure(cfg, convo, cfg.SUMMARIZATION_CONFIG['triggers']['time_limit_seconds']),
+        False,
+    ),
 ])
 def test_summarization_triggers_and_reset(
     trigger, modify_func, expected_trigger, 
@@ -216,17 +232,37 @@ def _fill_tokens_to_threshold(config, conversation, summarization_config, max_to
         conversation.append(msg)
         config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
 
+def _ensure_secondary_pressure(config, conversation):
+    """Bring TOTAL_TOKEN_COUNT above 50% of MAX_TOKEN_COUNT.
+
+    Secondary triggers (history-size, time, memory) only contribute to
+    summarization when token usage is also above the secondary-pressure
+    threshold (currently 0.5 * MAX_TOKEN_COUNT). Tests that simulate a
+    secondary trigger in isolation need to pre-load tokens so the trigger
+    actually drives summarization.
+    """
+    target = int(config.MAX_TOKEN_COUNT * 0.5) + 10
+    while config.TOTAL_TOKEN_COUNT < target:
+        msg = {"role": "user", "content": f"pressure_filler {config.TOTAL_TOKEN_COUNT}"}
+        conversation.append(msg)
+        config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
+
+
 def _fill_to_conversation_size(config, conversation, conversation_max_size):
     while len(conversation) <= conversation_max_size:
         msg = {"role": "user", "content": f"Payload size_filler {len(conversation)}"}
         conversation.append(msg)
         config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
+    # Secondary triggers now require token pressure to drive summarization.
+    _ensure_secondary_pressure(config, conversation)
 
 def _simulate_time_trigger(config, conversation, time_limit_seconds):
     config.last_summary_time = 0
     current_time = 100000.0
     future_time = current_time + time_limit_seconds + 10
     config._fake_now = future_time
+    # Secondary triggers now require token pressure to drive summarization.
+    _ensure_secondary_pressure(config, conversation)
 
 def _simulate_memory_trigger(config, conversation, memory_limit_mb):
     bytes_needed = int((memory_limit_mb + 5) * 1024 * 1024)
@@ -234,6 +270,42 @@ def _simulate_memory_trigger(config, conversation, memory_limit_mb):
         def __sizeof__(self_inner):
             return bytes_needed
     conversation[:] = FakeList(conversation)
+    # Secondary triggers now require token pressure to drive summarization.
+    _ensure_secondary_pressure(config, conversation)
+
+
+def _fill_to_conversation_size_no_token_pressure(config, conversation, conversation_max_size):
+    """Fill conversation past CONVERSATION_MAX_SIZE while keeping tokens below
+    the secondary-pressure threshold. Used by the regression test that locks
+    in 'secondary trigger without token pressure → no summarization'."""
+    while len(conversation) <= conversation_max_size:
+        msg = {"role": "user", "content": f"size_only {len(conversation)}"}
+        conversation.append(msg)
+        config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
+    # Ensure token usage stays strictly below the secondary-pressure threshold
+    # (0.5 * MAX_TOKEN_COUNT). With MAX_TOKEN_COUNT=1200 and ~13 messages of
+    # 10 tokens, we're at ~130 << 600, so no extra clamping is required, but
+    # we assert here so future config bumps surface the assumption.
+    assert config.TOTAL_TOKEN_COUNT < 0.5 * config.MAX_TOKEN_COUNT, (
+        "Test fixture invariant violated: this case must keep tokens below the "
+        "secondary-pressure threshold to verify gating behavior."
+    )
+
+
+def _simulate_time_trigger_no_token_pressure(config, conversation, time_limit_seconds):
+    """Trip the time trigger while keeping tokens below the secondary-pressure
+    threshold. Used by the regression test for 'time trigger alone → no
+    summarization'."""
+    config.last_summary_time = 0
+    current_time = 100000.0
+    future_time = current_time + time_limit_seconds + 10
+    config._fake_now = future_time
+    # Token usage stays at the fixture default (~10 tokens for the seeded
+    # system message), well below the secondary-pressure threshold.
+    assert config.TOTAL_TOKEN_COUNT < 0.5 * config.MAX_TOKEN_COUNT, (
+        "Test fixture invariant violated: this case must keep tokens below the "
+        "secondary-pressure threshold to verify gating behavior."
+    )
 
 def _set_strictly_below_token_threshold(config, conversation, summarization_config, max_token_count, logger=None):
     """
@@ -393,7 +465,13 @@ def test_prompt_count_stale_after_summarization(logger, config, monkeypatch):
     monkeypatch.setattr(history, "update_token_usage", dummy_update_token_usage)
     # Set a dummy time to control summarization triggers.
     monkeypatch.setattr(time, "time", lambda: 1e6)
-    
+
+    # Secondary triggers (history-size / time / memory) now only contribute to
+    # summarization when token pressure is also present. Bring the token count
+    # above the secondary-pressure threshold so the conversation-size trigger
+    # actually fires summarization in this test setup.
+    _ensure_secondary_pressure(config, conversation)
+
     # Confirm we are over the conversation size trigger.
     limits = history.check_limits(
         config.TOTAL_TOKEN_COUNT,
