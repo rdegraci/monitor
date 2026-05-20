@@ -124,7 +124,7 @@ This tracker covers:
 - [x] Define TUI event dataclasses.
 - [x] Model output events.
 - [x] Model status events.
-- [x] Model background completion events.
+- [x] Model background completion events (now carrying optional `failure_kind` for transient-vs-fatal status distinction).
 - [x] Model subagent result delivery events.
 - [x] Keep event types simple and easy to test.
 - [x] Add `OutputEvent` to the event model.
@@ -135,10 +135,12 @@ This tracker covers:
 - [x] Add optional `InputDraftEvent` to the event model.
 - [x] Keep event handling centered on the UI event queue.
 - [x] Dispatch presentation updates from event handlers rather than rendering callbacks.
+- [x] Surface mid-turn phase status (`compacting`, `working`) via `RuntimeContext.status_listener` callback (direct mutation + `application.invalidate()`, bypassing the event queue because the queue doesn't drain mid-turn).
 - [ ] Add explicit scroll events for the transcript viewport.
 - [ ] Ensure scroll events do not interfere with draft editing.
 - [ ] Define keyboard-driven viewport navigation behavior.
 - [ ] Define how viewport position is preserved across output refreshes.
+- [ ] **Blocker for sub-agent feature:** drain the event queue on every redraw tick (currently drains only on background completion, which means mid-turn sub-agent events would queue without surfacing).
 
 ## Milestone 5: Integration with runtime
 - [x] Connect the TUI to `MonitorApp` / `RuntimeContext`.
@@ -170,18 +172,22 @@ This tracker covers:
 ## Milestone 7: Verification
 - [x] Add tests for TUI layout construction.
 - [x] Add tests for event handling.
-- [x] Add tests for output/status/input updates.
+- [x] Add tests for status updates via the runtime context status listener (`runtime_context.emit_status` → `tui.status_text`).
 - [x] Add tests for responsiveness while background activity is running.
 - [x] Add tests for subagent result injection as internal context.
 - [x] Confirm the TUI does not break the existing CLI flow.
-- [x] Add tests for transcript buffer assembly.
-- [x] Add tests for transcript renderer formatting.
-- [x] Add tests for viewport scroll behavior.
+- [x] Add tests for the completion event states (`completed (idle)`, `failed (idle)`, `rate limited (idle)`).
 - [ ] Add tests for keyboard scrolling and focus preservation.
 - [ ] Add tests for event ordering under concurrent background updates.
-- [ ] Add tests for status-line and output-pane error propagation.
+- [x] Add tests for rate-limit denial surfacing through the TUI (via `failure_kind="rate_limited"` on the completion event).
+- [x] All TUI tests use only the public interface — `enqueue_event` / `drain_events` / `status_text` / `runtime_context.emit_status`. No private (`_`-prefixed) attribute or method access.
+
+### Coverage notes
+- The transcript-content tests (which previously asserted on `_get_output_formatted_text` and `_transcript_buffer.entries`) were deleted because the transcript text has no public observable. The behavior is still exercised every time the TUI runs; visual inspection is the QA path. Locking this in via a public method would expand the API surface solely for testing.
+- The `_build_completion_events` unit test was deleted; the two ends of that pipeline (constructing a `BackgroundCompletionEvent` with `failure_kind` and the routing of that event to a status update) are tested individually, so the bridge isn't separately covered.
 
 ## Notes
 - Start small and keep the first implementation thin.
 - Avoid over-splitting the presentation layer until the interaction model is stable.
 - The TUI should be built before the subagent subsystem so the interaction contract is clear.
+- The current TUI is well-positioned (~60% built) toward the agent-orchestrator target. The two remaining blockers before sub-agents land: (a) drain the event queue on every redraw tick, (b) replace the single-string `status_text` with per-agent state. See `SUBAGENT_PLAN.md`.

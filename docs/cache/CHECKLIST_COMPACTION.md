@@ -22,13 +22,14 @@ This tracker covers:
 - compaction cooperating with request fit checks and headroom planning
 
 ## Milestone 1: Policy definition
-- [x] Define `CONVERSATION_MAX_TURNS` as the conversation budget in turns.
+- [x] Define `RuntimeConfig.conversation_turn_budget` as the conversation budget in turns (backstop trigger).
 - [x] Define compaction as a pre-limit operation rather than a hard-limit failure.
-- [x] Define a hard-coded trigger threshold at roughly 10% remaining turns.
-- [x] Define `summarization.maximum_summary_tokens` as the upper bound for a summary request.
-- [x] Define `summarization.prompt.template` as the configurable summary prompt.
-- [x] Define preservation of the most recent turns verbatim.
-- [x] Define fallback behavior when summarization fails.
+- [x] Trigger thresholds: soft context-window (`compaction_soft_ratio = 0.5` of context window, default), hard context-window (input + reserved output ≥ window), turn-budget cliff at ~10% remaining (backstop).
+- [x] Define `summarization_settings.token_limit` as the upper bound for a summary request (enforced via `max_output_tokens`, clamped to `output_window`).
+- [x] Define `summarization_settings.prompt_template` as the configurable summary prompt.
+- [x] Define `summarization_settings.preserve_units` as the number of tail units preserved by `ConversationBoundaryTracker`.
+- [x] Compaction runs *proactively* (before the LLM call), not reactively.
+- [x] Define fallback behavior when summarization fails: deterministic placeholder that carries forward the prior system summary (capped at `token_limit × 4` chars).
 - [x] Define compaction as a response to context-window pressure and capacity management.
 - [x] Define compaction as separate from rate limiting.
 - [x] Define compaction as cooperating with request fit checks and headroom planning.
@@ -41,11 +42,10 @@ This tracker covers:
 - [x] Define the minimal summarizer service interface and where it is owned.
 
 ## Milestone 3: UI and telemetry
-- [ ] Define how the status line should display turns remaining.
-- [ ] Define whether the UI should surface compaction eligibility.
-- [ ] Define whether the UI should indicate the most recent compaction event.
-- [ ] Keep the status line compact and readable on narrow terminals.
-- [ ] Avoid adding extra configuration knobs for status reporting unless needed.
+- [x] TUI status indicator surfaces `compacting` (yellow) mid-turn during summarization. Transitions back to `working` (yellow) for the main LLM call.
+- [x] Status indicator wiring uses `RuntimeContext.status_listener` callback set by `TuiApp` on construction. The listener bypasses the event queue (direct mutation + `application.invalidate()`).
+- [ ] Define whether the UI should display turns remaining or context-window utilization as a quantitative indicator. (Deferred — the current state-based indicator covers the common case.)
+- [ ] Define whether the UI should indicate the most recent compaction event in the transcript (currently silent — compaction is invisible apart from the brief `compacting` status flash). (Deferred.)
 
 ## Milestone 4: Verification
 - [x] Add tests for compaction threshold calculation.

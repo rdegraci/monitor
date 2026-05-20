@@ -46,5 +46,24 @@
 - [x] Add test covering plain `Message(role, content)` compaction behavior.
 
 ## Cleanup
-- [ ] Remove any temporary bridges or duplicate result types if they become redundant.
-- [ ] Re-check imports and type hints after the refactor is complete.
+- [x] Removed `compact_with_summary` alias on `HistoryService`; the canonical method is `compact(summary_text) -> None` (no boolean return).
+- [x] Removed `RuntimeConfig.summarization` and `RuntimeConfig.compaction_config` property aliases; canonical name is `summarization_settings`.
+- [x] Removed the dead `save_summary` getattr fallback from `_persist_compaction_summary`; narrowed catch from `Exception` to `OSError`.
+- [x] Removed `compact_summary_filename` helper and its test (duplicated `CompactionStore._build_summary_path`).
+- [x] Removed `HistoryService._recent_messages` (dead).
+- [x] Imports and type hints rechecked after the refactor.
+
+## Additional fixes that landed (post-original-checklist)
+- [x] Compaction now runs *proactively* before the LLM call (was reactive, which couldn't prevent the current turn from failing).
+- [x] Soft trigger added: `compaction_soft_ratio` (default 0.5) fires compaction at the 50% context-window mark, with the hard trigger as backstop.
+- [x] Hard-coded `keep_turns = 2` replaced by `SummarizationSettings.preserve_units`.
+- [x] Estimator bug fixed: `Message` dataclasses are now converted to `{role, content}` dicts before being passed to `ConfigService.estimate_token_usage`, which previously raised `AttributeError` inside a broad except and silently disabled the context-window trigger.
+- [x] User-message duplication fixed: `LLMRequestBuilder.build_input(history)` no longer appends `user_input` separately on top of history. `LLMService.complete(history)` derives `input_text` from `history[-1]`.
+- [x] Tool-call metadata (`tool_calls`, `tool_call_id`, `name`) preserved through `build_input` — the boundary tracker's cluster preservation now survives end-to-end.
+- [x] Summarization output cap is enforced via `max_output_tokens` plumbed to the OpenAI Responses API (not a soft string hint).
+- [x] `token_limit` clamped to `output_window` to prevent the provider from rejecting an over-cap request.
+- [x] Summarization fallback (when the LLM call fails) carries forward the prior system summary with an end-truncation cap of `token_limit × 4` chars + a new placeholder line. Monotonic, bounded.
+- [x] `CompactionStore` documented as forensic-only; filename adds seconds + `-N` collision counter; exclusive-create writes; 30-day retention sweep on save.
+- [x] Compaction summaries directory derived correctly via `get_compaction_dir_path()`; wiring bug (`CompactionStore(config_service)`) is fixed.
+- [x] Two divergent token estimators unified — `RequestCapacityService` and `RateLimitService` both delegate to `ConfigService.estimate_token_usage`.
+- [x] All tests for compaction use only the public interface (no `_`-prefixed access).

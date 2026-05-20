@@ -24,30 +24,30 @@ This tracker covers:
 - capacity is checked before rate limiting and adapter dispatch
 
 ## Known gaps / bugs to address
-- [ ] Confirmed gap: provider-aware and tier-aware resolution is correct for the initial implementation path.
+- [ ] Confirmed gap: provider-aware and tier-aware resolution is correct for the initial implementation path. (Deferred — direct per-model lookup is sufficient for current shape.)
 - [x] Conservative fallback handling is implemented for the current provider/model resolution path.
-- [ ] Design choice to confirm: TPM fallback-to-1 behavior is safe for production defaults.
-- [ ] Confirmed gap: reconcile the asymmetry between TPM missing-value behavior and RPM missing-value behavior.
-- [ ] Design choice to confirm: wait/retry behavior should be added now or deferred to a later iteration.
-- [x] Optional waiting support is partially implemented in the current preflight flow.
-- [ ] Design choice to confirm: completion headroom should remain explicitly separate from rate limiting or be intentionally folded into the limiter.
-- [x] Confirmed gap: evaluate thread-safety and concurrency protection for the rolling-window state.
+- [x] TPM fallback behavior: missing/0 → `None` (unlimited) + WARNING log. Removed the broken `default=1` fallback.
+- [x] RPM missing-value behavior: missing/0 → `None` at accessor; rate-limit service treats `None` as fatal config error (ERROR log + `sys.exit(1)`). Removed the broken `default=0` that crashed `_validate_positive_limit`.
+- [x] Reconciled asymmetric TPM/RPM missing-value behavior: TPM = soft (warning + unlimited), RPM = hard (error + exit). Both treat 0 and missing identically (coerced to None at the accessor).
+- [x] Wait/retry behavior decision: deleted the unreachable wait-mode plumbing. If queue-and-wait is needed later, implement in a separate `RateLimitedScheduler` layer wrapping the gate (see PLAN_RATE_LIMITING.md).
+- [x] Completion headroom remains separate from rate limiting — it's a capacity-preflight concern (`RequestCapacityService`), not a rate-limit concern.
+- [x] Thread-safety: rolling-window state guarded by `RLock`.
 
 ## Milestone 1: Policy definition
 - [x] Define rate limiting as a pre-send check rather than an adapter concern.
-- [x] Define the limiter as provider-aware and model-aware.
+- [x] Define the limiter as model-aware (provider-aware/tier-aware deferred until needed).
 - [x] Define token-per-minute enforcement as the primary mechanism.
-- [ ] Define request-per-minute enforcement as optional future work.
-- [ ] Define safety-factor application against provider ceilings.
+- [x] Request-per-minute enforcement implemented as a mandatory config (RPM-missing exits).
+- [ ] Define safety-factor application against provider ceilings. (Deferred — not needed in current scope.)
 - [x] Define a single shared enforcement point for all LLM calls.
-- [x] Make TPM enforcement mandatory in the initial policy.
-- [ ] Keep RPM enforcement optional and off by default in the initial policy.
-- [ ] Enable completion headroom by default with a configurable factor and floor.
-- [ ] Set wait-then-fail as the default interactive policy.
-- [ ] Define server-mode behavior as fail-fast or short-wait.
-- [x] Confirm context windows and output windows are treated as capacity guardrails, not the rate limit itself.
-- [x] Confirm the rate-limiting implementation uses context windows and output windows only for fit checks and completion headroom.
-- [x] Confirm compaction remains separate from rate limiting, while allowing compaction to run before rate-limit preflight when a request needs resizing due to context-window pressure.
+- [x] Make TPM enforcement soft-by-default (warning + unlimited if missing).
+- [x] Make RPM enforcement mandatory (error + exit if missing).
+- [x] Completion headroom remains a capacity concern, not a rate-limit concern.
+- [x] Wait/queue policy deleted from the limiter — admission control only. Future wait/queue belongs in a `RateLimitedScheduler` layer wrapping the gate.
+- [x] Server-mode behavior: deferred until server mode is built; gate is fail-fast.
+- [x] Context windows and output windows are capacity guardrails, evaluated in `RequestCapacityService`.
+- [x] Both preflights (`RequestCapacityService` and `RateLimitService`) delegate to the canonical `ConfigService.estimate_token_usage` estimator so they evaluate identical numbers.
+- [x] Compaction is separate from rate limiting; compaction runs proactively *before* the LLM call so it acts before rate-limit preflight.
 
 ## Milestone 2: Runtime placement
 - [x] Place rate limiting in a shared infrastructure service.
@@ -80,39 +80,39 @@ This tracker covers:
 
 ## Milestone 5: Implementation
 - [x] Add a dedicated rate limiting service module.
-- [x] Add token estimation support or reuse a shared estimator.
+- [x] Add token estimation support — canonical estimator is `ConfigService.estimate_token_usage`; both preflights delegate.
 - [x] Inject the limiter into `LLMResponseClient`.
-- [x] Call the limiter before every adapter invocation.
-- [x] Record usage after successful dispatch.
-- [x] Ensure follow-up tool calls and summary calls use the same path.
-- [x] Ensure the future Anthropic adapter can reuse the same service contract.
+- [x] Call the limiter before every adapter invocation via `check_request` (raises `RateLimitDeniedError` on denial).
+- [x] Record usage after successful dispatch via `response.usage.total_tokens` (with shape-variant fallbacks and a preflight-estimate final fallback).
+- [x] Cache `response.id → total_tokens` for chain-aware estimation on future `previous_response_id` calls.
 - [x] Add thread-safety protections for the rolling-window state.
-- [x] Add conservative fallback handling for missing or partial policy values.
-- [ ] Add explicit config accessors for wait-policy and fallback-resolution behavior.
-- [ ] Add schema-backed wait policy support.
-- [ ] Validate fallback values against policy constraints before use.
-- [ ] Expand provider/tier policy resolution beyond the current implementation path.
+- [x] Add conservative fallback handling for missing or partial policy values (None at accessor, asymmetric soft/fatal at service).
+- [x] Normalize accounting keys (strip provider prefix, lowercase).
+- [x] Surface structured denial diagnostics: `RateLimitDeniedError` with `reason`, `current`, `limit`, `retry_after_seconds`.
+- [x] REPL surfaces denials to stdout with the loop continuing.
+- [x] TUI surfaces denials with a yellow `rate limited (idle)` indicator + red transcript line via `failure_kind="rate_limited"`.
+- [x] Deleted wait-mode plumbing (`allow_wait`, `wait_timeout_seconds`, polling loop, `_compute_wait_deadline`, `_wait_timed_out`, the three config getattr probes that read non-existent fields).
+- [x] Collapsed `_get_model_rate_limit` four-name helper to direct field reads; removed unreachable per-model fallback machinery (`_get_rate_limit_fallback`, `_resolve_model_name`).
 
 ## Milestone 6: Verification
-- [ ] Add tests for preflight approval and rejection.
-- [ ] Add tests for wait behavior when enabled.
-- [ ] Add tests for rolling-window expiration without brittle timing assumptions.
-- [ ] Add tests for provider/model limit selection.
-- [ ] Add tests for safety-factor application.
-- [ ] Add tests for follow-up and summarization request coverage.
-- [ ] Add tests for compatibility with a future LiteLLM-backed Anthropic adapter.
-- [ ] Add tests confirming adapters remain transport-only.
-- [x] Add tests for thread safety and concurrent rate-limit updates.
-- [x] Add tests for fallback handling and policy validation.
-- [x] Add tests for explicit wait-policy config accessors and schema-backed wait support.
-- [x] Add durable behavior-focused tests for the response client and limiter integration.
-- [ ] Clarify whether brittle internal compaction tests should be deleted or rewritten to match the current compaction contract.
-- [ ] Remove or simplify compaction-focused test doubles that only exist to support brittle internal tests.
-- [ ] Separate summarization and compaction naming and roles if they are intended to be distinct.
+- [x] Tests for preflight approval and rejection (with structured exception assertions).
+- [x] Tests for `RateLimitDeniedError` structure (reason, model, current, limit, retry_after_seconds).
+- [x] Tests for rolling-window behavior.
+- [x] Tests for unconfigured TPM (unlimited + warning log).
+- [x] Tests for unconfigured RPM (error log + SystemExit(1)).
+- [x] Tests for accounting-key normalization (provider-prefixed and bare model names share budget; case-insensitive).
+- [x] Tests for chain-aware estimation (cached baseline, cache miss, LRU eviction, None inputs ignored).
+- [x] Tests for actual-usage recording (total_tokens, input+output shape, fallback to preflight estimate).
+- [x] Tests for estimator consistency between `RequestCapacityService` and `RateLimitService`.
+- [x] Tests for thread safety and concurrent rate-limit updates.
+- [x] Tests for fallback handling and policy validation.
+- [x] Behavior-focused tests for the response client and limiter integration.
+- [x] REPL test: rate-limit denial prints to stdout and the loop continues.
+- [x] TUI tests: rate-limit denial produces `rate limited (idle)` status via the existing event path.
+- [x] All tests use only the public interface (no private (`_`-prefixed) attribute or method access).
 
 ## Notes
-- Prefer a deterministic first implementation.
-- Keep the limiter easy to test without network access.
-- Avoid duplicating token accounting logic in multiple layers.
-- Log the effective budget and the reason for any blocking decision.
-- Keep the public service interface stable so provider support can expand later without refactoring call sites.
+- The limiter is a pure admission-control gate; wait/queue semantics belong above it (future `RateLimitedScheduler`).
+- Token estimation is canonical via `ConfigService.estimate_token_usage` — no duplication across layers.
+- Each denial logs the effective budget and the reason; `RateLimitDeniedError.__str__` is user-facing.
+- The public service interface is stable so provider support can expand later without refactoring call sites.

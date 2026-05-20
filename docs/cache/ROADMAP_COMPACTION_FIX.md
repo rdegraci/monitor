@@ -80,18 +80,24 @@ What that unlocked:
 - compaction can be validated against real structured turns instead of only approximate raw-message tails
 
 ## Current State
-The foundation is now in place:
-- richer models exist
-- boundary tracking exists
-- history can accept enriched messages
-- the structured completion path is wired through `LLMService.complete(...)` and `ConversationSession`
-- docs explain the remaining work
+The compaction-fix work is complete. The subsystem now:
+- Carries enriched `Message` + `ToolCall` data through the model layer.
+- Preserves complete units (including assistant + tool-call clusters) via `ConversationBoundaryTracker`.
+- Threads `tool_calls` / `tool_call_id` / `name` metadata through `LLMRequestBuilder` so the cluster survives end-to-end into the LLM request (the previous strip-at-request-layer bug is fixed).
+- Compacts proactively (before the LLM call), not reactively.
+- Triggers on soft context-window pressure (50% default), hard backstop, or turn-budget cliff.
+- Enforces summary output via `max_output_tokens` (clamped to `output_window`) instead of a soft string hint.
+- Falls back deterministically when the summarization LLM call fails, carrying forward the prior system summary with bounded growth.
+- Persists summaries as forensic-only artifacts (race-safe filenames, 30-day retention sweep).
+- Surfaces a yellow `compacting` status indicator mid-turn via the `RuntimeContext.status_listener` callback.
 
-What is not yet complete:
-- the structured turn metadata still needs fuller enrichment, especially response lineage and tool-cluster preservation
+## Subsequent Work That Landed
+After the original roadmap completed, additional issues were found and fixed:
+- The token estimator in `ConfigAccessorService` was being called with `Message` dataclass instances where it expected `dict`s, raising `AttributeError` inside a broad `except` and silently disabling the context-window compaction trigger. Fix: convert messages to `{role, content}` dicts at the call site in `conversation_session._estimate_compaction_token_count`.
+- User messages were being duplicated in every LLM request because `LLMRequestBuilder.build_input` appended `user_input` separately on top of a history that already contained it. Fix: `build_input(history)` renders from history alone; `LLMService.complete(history)` derives `input_text` from `history[-1]`.
+- The compaction summary file path was wired with `CompactionStore(config_service)` where it should have been a `Path` — every persistence write silently failed, hidden by a broad `except` in `_persist_compaction_summary`. Fix: derive via `get_compaction_dir_path()`, narrow the catch to `OSError`.
+- Three property aliases for the same settings object (`summarization`, `compaction_config`, `summarization_settings`) collapsed to a single canonical name.
+- `compact_with_summary` (which always returned `True`) collapsed into `compact(...) -> None`.
 
-## Next Roadmap Step
-The next implementation milestone should focus on one thing only:
-- enrich structured turn metadata so response lineage is captured correctly and tool clusters are preserved end-to-end
-
-Once that is done, the compaction behavior can be verified against real tool-call histories with complete structured turn metadata rather than relying on partial linkage.
+## Status
+This roadmap is closed. See `PLAN_COMPACTION.md` for the canonical description of the resulting subsystem and `CHECKLIST_COMPACTION_FIX.md` for the line-by-line list of what landed.

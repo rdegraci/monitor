@@ -1,42 +1,47 @@
 # PLAN_COMPACTION
 
 ## Goal
-Define how `monitor_oop` should compact long-running conversations before the conversation budget is exhausted.
+Define how `monitor_oop` compacts long-running conversations before context-window pressure becomes a real failure.
 
-Compaction should keep the session usable over many turns without waiting for the hard limit to be hit. The current implementation triggers compaction deterministically inside `ConversationSession` when remaining turns fall at or below 10% of the configured budget, then uses `HistoryService` to preserve the newest turns verbatim while `SummarizationService` generates an LLM-backed summary through the request builder, response client, and adapter flow.
+Compaction keeps the session usable over many turns by inserting a summary of older history when the conversation grows large. It runs *proactively* — before the LLM call that would otherwise fail — and uses a soft trigger (default 50% of context window) with a hard backstop and a turn-budget cliff as final safety.
 
-Compaction is a capacity-management response to context-window pressure, and it remains separate from rate limiting while still cooperating with request fit checks and headroom planning. Compaction is already implemented in the conversation/history layer and continues to work alongside request-capacity planning and telemetry.
+Compaction is a capacity-management concern and stays separate from rate limiting (see `docs/cache/PLAN_RATE_LIMITING.md`).
 
 ## Current Direction
-The compaction model stays intentionally small and opinionated:
-- `CONVERSATION_MAX_TURNS` defines the hard conversation budget in turns.
-- `summarization.maximum_summary_tokens` bounds the summary generation request.
-- `summarization.prompt_template` controls how the summary is written.
-- `ConversationSession` owns the deterministic compaction trigger flow.
-- `HistoryService` owns turn tracking and replacement while keeping the newest turns intact.
-- `SummarizationService` performs LLM-backed summary generation through the current request builder/response client/adapter flow.
-- Compaction and rate limiting are separate concerns; see `docs/cache/PLAN_RATE_LIMITING.md` for send-path throttling policy.
-- Compaction config remains separate from the greenfield model/rate-limit config schema, and model resolution lives in `model_config_v2.json`.
+The compaction model is small and opinionated:
+- `SummarizationSettings.compaction_soft_ratio: float = 0.5` is the soft context-window trigger as a fraction of the window. Setting outside `(0, 1)` disables the soft trigger.
+- The hard context-window trigger fires when `estimated_token_count + output_window >= context_window`.
+- `RuntimeConfig.conversation_turn_budget` defines a backstop turn cliff; compaction fires when remaining turns fall below `0.1 × max_turns`. This is unreachable in practice once the context-window triggers work (since the token estimator now functions correctly).
+- `SummarizationSettings.token_limit: int = 4000` bounds the summary output via `max_output_tokens` on the LLM call (enforced, not a soft string hint).
+- `SummarizationSettings.prompt_template` controls the summary prompt (only `{message_count}` is interpolated; the previous `{messages}` placeholder was removed because it doubled the history when used in a custom template alongside the request body).
+- `SummarizationSettings.preserve_units: int = 2` controls how many conversational units the boundary tracker preserves at the tail during compaction.
+- `ConversationSession._maybe_compact_history` runs *before* the LLM call: it appends the user message, evaluates compaction, runs it if needed, then dispatches the LLM call. On compaction it emits `"compacting"` via `RuntimeContext.emit_status`, runs summarization + replacement, then restores `"working"` in a `try/finally`.
+- `HistoryService.should_compact(context_window, estimated_token_count, output_window)` evaluates the three triggers in order.
+- `HistoryService.compact(summary_text)` performs the replacement: clear history, append the system summary, append the boundary-aware preserved tail, sync trackers, persist the summary best-effort via `CompactionStore` (forensic-only — never read back; 30-day retention sweep on every save).
+- `SummarizationService.summarize` makes the LLM call with `max_output_tokens=min(token_limit, output_window)` and falls back to a deterministic summary on LLM failure or empty response. The fallback **carries forward** the prior system summary (capped at `token_limit × 4` chars, truncating accumulated placeholder lines first) plus a new placeholder line. Monotonic across repeated failures, bounded against unbounded growth.
 
-The current implementation favors a clear, deterministic workflow over a highly configurable policy surface.
+The flow favors a clear, deterministic workflow over a highly configurable policy surface.
 
-## Proposed Workflow
-1. Track the number of turns used and the number of turns remaining.
-2. When remaining turns reaches the compaction threshold, mark the session as eligible for compaction.
-3. Select the older conversation history that should be summarized.
-4. Preserve the most recent turns verbatim so the conversation stays locally coherent.
-5. Generate a summary using the configured prompt template.
-6. Bound summary generation by `summarization.maximum_summary_tokens`.
-7. Replace the compacted history with the summary plus the preserved recent turns.
-8. Resume normal conversation flow with updated headroom.
+## Workflow
+1. User submits input → session appends user message to history.
+2. `_maybe_compact_history` runs:
+   - Estimate token usage by converting `Message` dataclasses to request-shaped dicts and calling `ConfigService.estimate_token_usage` (the canonical estimator used by both compaction and rate-limit preflights).
+   - Evaluate `should_compact`: soft trigger → hard backstop → turn-budget cliff.
+   - If compaction fires: emit `"compacting"`, call `SummarizationService.summarize`, call `HistoryService.compact(summary)`, emit `"working"` via `finally`.
+3. Dispatch the LLM call with the (possibly compacted) history.
+4. Append the assistant response to history.
 
 ## Config Surface
-The intended minimal config knobs are:
-- `CONVERSATION_MAX_TURNS`
-- `summarization.maximum_summary_tokens`
-- `summarization.prompt_template`
+The minimal config knobs are:
+- `RuntimeConfig.context_window` — model context window (tokens).
+- `RuntimeConfig.output_window` — model output window (tokens); reserved for headroom in the hard backstop.
+- `RuntimeConfig.conversation_turn_budget` — turn-budget cliff.
+- `summarization_settings.token_limit` — output cap for the summary call (clamped to `output_window`).
+- `summarization_settings.prompt_template` — summary prompt template (`{message_count}` only).
+- `summarization_settings.preserve_units` — preserved tail size.
+- `summarization_settings.compaction_soft_ratio` — soft trigger as a fraction of `context_window`.
 
-The current code keeps the surface small while leaving the summarization flow aligned with the existing request builder, response client, and adapter path.
+The canonical name on `RuntimeConfig` is `summarization_settings`. Legacy property aliases (`summarization`, `compaction_config`) have been removed.
 
 ## Policy Choices to Keep Internal for Now
 The following behaviors should be internal implementation details unless the design changes later:
@@ -48,7 +53,9 @@ The following behaviors should be internal implementation details unless the des
 - whether compaction may repeat in multiple passes
 
 ## UI Considerations
-The TUI status line should be able to reflect turn headroom, including a remaining-turns style indicator. If compaction is active, the status line can surface the relevant headroom information without exposing the underlying policy mechanics.
+The TUI status line surfaces a `"compacting"` indicator (yellow) when compaction is in flight, transitioning back to `"working"` (yellow) when the summarization completes and the main LLM call begins. End-of-turn states are `"completed (idle)"` (green), `"failed (idle)"` (red), or `"rate limited (idle)"` (yellow) for transient rate-limit denials.
+
+The status indicator update bypasses the event queue and uses direct attribute mutation + `application.invalidate()`, because the event queue doesn't drain mid-turn. The status listener registered on `RuntimeContext` is the bridge.
 
 ## Verification Focus
 Any implementation should be verified for:

@@ -1,18 +1,20 @@
 # PLAN_COMPACTION_FIX
 
+## Status: COMPLETE
+The compaction-fix work documented here is done. The conversation compaction and tool-cluster preservation path is fully wired and tested.
+
+See `CHECKLIST_COMPACTION_FIX.md` for the line-by-line breakdown of what landed, and `PLAN_COMPACTION.md` for the canonical description of the resulting compaction subsystem.
+
 ## Completed Work
-The following pieces of this fix have already been completed:
-- richer `Message` and `ToolCall` data now exist in the shared model layer
-- `ConversationBoundaryTracker` helper logic has been added to preserve safer history tails
-- `HistoryService.append_message(...)` now exists to accept enriched messages
-- `LLMService.complete(...)` now returns a `TurnCompletionResult`
-- `ConversationSession` consumes `TurnCompletionResult` and appends enriched history messages
-- supporting docs for this fix have already been created
+- Richer `Message` and `ToolCall` data exist in the shared model layer.
+- `ConversationBoundaryTracker` preserves complete units, including tool-call clusters.
+- `HistoryService.append_message(...)` accepts enriched messages.
+- `LLMService.complete(history)` returns a `TurnCompletionResult` (with `failure_kind` for distinct UI rendering on rate-limit denial).
+- `ConversationSession` consumes `TurnCompletionResult` and appends enriched history messages.
+- Tool-call metadata (`tool_calls`, `tool_call_id`, `name`) is preserved through `LLMRequestBuilder.build_input`, so clusters survive end-to-end through the request layer.
 
-## Goal
-Finish the conversation compaction and tool-cluster preservation work so history compaction never orphans tool results and remains safe for plain chat, tool calls, REPL usage, and TUI usage.
-
-The current implementation now has the right direction in place: `HistoryService` can store enriched messages, `ConversationBoundaryTracker` can preserve safer tails, and the model layer can represent tool metadata. The remaining work is to wire the structured completion path end-to-end so the application actually populates those fields during real turn execution.
+## Goal (Achieved)
+History compaction never orphans tool results and remains safe for plain chat, tool calls, REPL usage, and TUI usage. The boundary tracker preserves complete units; the request builder emits tool metadata; the LLM sees structured tool clusters across compaction.
 
 ## Current Direction
 The next implementation pass should keep the architecture simple and explicit:

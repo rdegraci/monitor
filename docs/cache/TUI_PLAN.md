@@ -63,17 +63,29 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 ## Design Principles
 - Keep the user input experience responsive.
 - Keep Output and Status updates independent from Input editing.
-- Avoid hidden mutation of the user’s visible prompt text.
+- Avoid hidden mutation of the user's visible prompt text.
 - Treat background work as event-driven updates.
 - Keep the TUI compatible with future subagent support.
 - Inject subagent results as explicit internal context rather than hidden user text.
-- Ensure the parent remains responsive while background work runs.
-- Internal context records should have a structured shape with `id`, `source`, `kind`, `text`, `timestamp`, and optional `metadata`.
+- Ensure the parent remains responsive while background work runs (LLM submission runs on a `ThreadPoolExecutor` worker; the UI thread is the only mutator of `TuiApp` state).
+- Internal context records have a structured shape with `id`, `source`, `kind`, `text`, `timestamp`, and optional `metadata`.
 - The UI may show summaries or status notices derived from those records while the raw records remain mostly internal.
 - The TUI consumes `TurnCoordinator` snapshots with the interface `begin_turn/add_internal_context/add_subagent_result/add_background_event/mark_background_complete/snapshot/clear_turn`.
-- The basic UI contract is implemented as a prompt_toolkit `Application` with distinct `output_area`, `status_control`, and `input_area` regions, with richer layout behavior reserved for later enhancements.
-- The interactive loop and prompt_toolkit session plumbing are implemented as the current control surface for the TUI.
-- The next evolution should move LLM submission and turn processing off the UI thread, while preserving event-driven status restoration and completion handling.
+- The UI contract is a prompt_toolkit `Application` with distinct output/status/input regions.
+
+## Status State Machine
+The TUI status indicator has these states with color coding:
+
+| State                  | Color  | Trigger                                                                                  |
+| ---------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| `idle`                 | green  | Initial state; ready for input.                                                          |
+| `working`              | yellow | User submitted; a turn is in flight (between the worker-thread `submit_input` call and the worker's `BackgroundCompletionEvent`). |
+| `compacting`           | yellow | Mid-turn: the proactive compaction is running summarization before the main LLM call.    |
+| `completed (idle)`     | green  | Successful turn finished; ready for the next.                                            |
+| `failed (idle)`        | red    | Generic failure (non-rate-limit).                                                        |
+| `rate limited (idle)`  | yellow | Rate-limit denial caught from `RateLimitDeniedError`; transient, retry soon. Surfaced via `failure_kind="rate_limited"` on the `BackgroundCompletionEvent`. The full denial message (current/limit/retry_after) appears as a red transcript line. |
+
+The `compacting`/`working` transitions are emitted by `ConversationSession._maybe_compact_history` through `RuntimeContext.emit_status`, which calls the listener `TuiApp` registered on construction. The listener mutates `status_text` directly and calls `application.invalidate()` — this bypasses the event queue because the queue doesn't drain mid-turn.
 
 ## Likely Requirements
 - A stable layout with three distinct regions.
@@ -95,19 +107,23 @@ After each turn, `clear_turn` removes turn-scoped data so the next turn starts w
 6. Add background turn execution for LLM submissions and event-driven idle restoration.
 
 ## Open Questions
-- Should Output be append-only or support richer formatting?
-- Should Status be a single line or a small fixed-height area?
-- Should Input preserve history and editing shortcuts?
-- Should mouse interactions support transcript selection, wheel scrolling, or both?
-- Should background events be queued or shown immediately?
-- Should subagent results appear in Output before being injected into the LLM flow?
-- Should turn completion return a dedicated result object, such as `TurnCompletionResult`, or a broader turn state envelope?
-- Which event-driven completion details still need to be standardized for the current transcript pipeline?
+- Should Output support richer formatting beyond the current STX/ETX-marked assistant blocks with Bash syntax highlighting?
+- Should mouse interactions support transcript selection in addition to wheel scrolling?
+- For sub-agent dispatch (when implemented): should sub-agent transcript output appear in the parent's transcript live, or only after parent processing? Current scaffold supports both via `SubagentTranscriptEvent`.
+
+## Resolved Decisions
+- **Background events drain timing:** Currently drains only on completion. **Needs fix** before sub-agents land — drain on every redraw tick.
+- **Turn completion shape:** `TurnCompletionResult` with `failure_kind` for distinct rate-limit rendering.
+- **Status indicator:** single string `status_text` per the matrix above. **Needs evolution** to per-agent state for sub-agent support (a `dict[task_id, state]` or `StatusBoard` object).
+- **Mid-turn phase updates:** direct-mutation status listener installed by `TuiApp`, bypasses the event queue.
+- **Test boundary:** public interface only (`enqueue_event` / `drain_events` / `status_text` / `runtime_context.emit_status`).
 
 ## Success Criteria
-- The UI remains usable while background work runs.
-- Input stays editable and responsive.
-- Output and Status can update independently.
-- The UI can show subagent progress and completion.
-- The TUI supports future orchestration without forcing hidden prompt mutations.
-- Completion events can restore the Status Line to idle after background turn execution finishes, even though the current implementation remains synchronous today.
+- The UI remains usable while background work runs. ✓
+- Input stays editable and responsive. ✓
+- Output and Status can update independently. ✓
+- Status indicator distinguishes idle / working / compacting / completed / failed / rate-limited states with consistent color semantics. ✓
+- The TUI supports future orchestration without forcing hidden prompt mutations. ✓
+- Completion events restore the Status Line to a `(idle)` state after background turn execution. ✓
+- Rate-limit denials produce a visible, distinct, transient indicator (not the generic red `failed`). ✓
+- (Pending sub-agent work) Per-agent status indicators and mid-turn event-queue draining.

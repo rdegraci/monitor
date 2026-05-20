@@ -1,44 +1,28 @@
 # PLAN_RATE_LIMITING
 
 ## Goal
-Document how `monitor_oop` rate limits outbound LLM requests in the current implementation, while clearly separating implemented behavior from planned work.
+Document how `monitor_oop` rate limits outbound LLM requests.
 
-The current codebase uses a centralized, model-keyed rolling-window limiter in `RateLimitService`. `RateLimitService` is thread-safe and can optionally wait for budget when configured to do so. `LLMResponseClient` performs preflight checks before adapter dispatch, requires the public model-aware `record_request_for_model` method, fails fast if that method is absent, can pass through optional wait-policy values when present, and records usage after a successful send. `RequestCapacityService` remains separate and handles capacity guardrails such as context/output window checks rather than rate limiting.
+The codebase uses a centralized, model-keyed rolling-window limiter in `RateLimitService`. The service is a *pure admission-control gate*: `check_request(model, estimated_tokens)` returns on success and raises a typed `RateLimitDeniedError` on denial. Wait/queue semantics belong in a separate layer (not implemented; see Future Work).
 
-The implementation is intentionally adapter-agnostic at the send boundary. Provider-specific behavior is still primarily driven through `ConfigService` and runtime configuration, but the broader provider-aware/tier-aware policy model described below is only partially implemented and should be treated as future-facing where noted.
+`LLMResponseClient` performs capacity then rate-limit preflight checks before adapter dispatch, and records actual usage (`response.usage.total_tokens`) after a successful send. `RequestCapacityService` is separate and handles per-call context-window fit checks via the canonical estimator.
 
 ## Current status
 The current implementation includes:
-- a model-keyed rolling-window `RateLimitService`
-- thread-safe limiter behavior
-- optional wait-for-budget behavior in `RateLimitService`
-- TPM checks driven by configuration through `ConfigService`
-- RPM checks where configured through `ConfigService`
-- conservative fallback handling when TPM or RPM values are missing
-- `LLMResponseClient` preflight enforcement before adapter dispatch
-- `LLMResponseClient` model-aware request recording via the public `record_request_for_model` method
-- fail-fast behavior when the public model-aware recording method is unavailable
-- `LLMResponseClient` pass-through of optional wait-policy values when present
-- post-send usage recording after successful requests
-- separate capacity checks in `RequestCapacityService`
+- A model-keyed rolling-window `RateLimitService` (thread-safe via `RLock`).
+- Accounting keys are normalized (provider prefix stripped, lowercased) so `"openai/gpt-4o"` and `"gpt-4o"` share a budget.
+- TPM and RPM resolved via `ConfigService.get_model_tpm_limit` / `get_model_rpm_limit`. Missing or explicit `0` → `None` at the accessor (treated identically: disabled). Missing TPM → unlimited + WARNING log. Missing RPM → ERROR log + `sys.exit(1)` (mandatory config).
+- Single-shot admission-control via `RateLimitService.check_request`. On denial, raises `RateLimitDeniedError(reason, model, current, limit, retry_after_seconds)`.
+- `retry_after_seconds` computed from the oldest event in the rolling window.
+- Chain-aware token estimation: a bounded LRU cache (`response.id → total_tokens`, default 256 entries) is populated from `response.usage.total_tokens` on every successful request. When `previous_response_id` matches a cached entry, the estimator adds that as a baseline so the preflight reflects server-side context the provider will process.
+- Post-send recording uses provider-reported `response.usage.total_tokens` (falling back to `input_tokens + output_tokens` / `prompt_tokens + completion_tokens` / preflight estimate as available).
+- Canonical estimator: `RequestCapacityService` and `RateLimitService` both delegate to `ConfigService.estimate_token_usage` so both preflight gates evaluate identical numbers.
+- Structured user-facing diagnostics: REPL catches `RateLimitDeniedError` and prints `[rate limit] <message>` to stdout, then continues. TUI catches in `_execute_turn` and tags the `TurnCompletionResult` with `failure_kind="rate_limited"`, surfacing a yellow `"rate limited (idle)"` status + red transcript line.
 
-## Known gaps / implementation issues
-- Confirmed gap: provider-aware and tier-aware limit resolution is still only partially modeled through `ConfigService` and is not a full policy engine.
-- Confirmed gap: explicit config accessors or schema-backed wait policy support are still needed to make wait behavior fully first-class.
-- Design choice to confirm: fallback handling for missing TPM and RPM values is conservative and should be validated as intended policy.
-- Product decision needed: wait/retry behavior is not fully standardized across all call sites and workflows.
-- Intentional separation: completion headroom is currently a capacity concern rather than a rate-limit concern.
-- Confirmed gap: compaction now uses context window pressure, explicit output headroom, and an estimator-backed token count, with a turn-budget fallback still present.
-- Confirmed gap: brittle tests calling private compaction helpers were removed in favor of durable behavior tests.
-- Confirmed gap: compaction triggering is now context-window driven but still falls back to turn budget, and may need to be made more explicit or token-aware.
-- Confirmed gap: naming between summarization and compaction should be clarified if they are intended to be distinct.
-
-What is not fully implemented yet:
-- full provider-aware or tier-aware policy resolution
-- explicit config accessors or schema-backed wait policy support
-- policy validation for fallback limit values
-- deeper wait/retry policy standardization across workflows
-- any adapter-embedded rate limiting logic
+## What is intentionally not implemented
+- **Wait/queue semantics inside `RateLimitService`.** Earlier versions had wait-mode plumbing (`allow_wait`, `wait_timeout_seconds`, polling loop) that was unreachable in production (the config fields it probed didn't exist). It was deleted. If a future deployment shape (agent under orchestrator, batch worker) needs queue-and-wait, build a separate `RateLimitedScheduler` layer that *wraps* the gate. Keep the gate stateless.
+- **Provider-aware / tier-aware policy resolution beyond per-model limits.** A more elaborate `provider_table/tier_key` schema is documented below for future loader work but not implemented; today the lookup is direct per-model.
+- **Per-model overrides on `RuntimeConfig`.** The `_get_rate_limit_fallback` helper and `_resolve_model_name` machinery in `ConfigAccessorService` were removed when the accessor was collapsed to direct field reads (`tokens_per_minute`, `requests_per_minute`). If per-model overrides become a real requirement, add them explicitly.
 
 ## Current Direction
 The intended design remains a shared runtime service that enforces token-based limits across providers, and that design is already reflected in the current preflight/recording path. The current implementation should be described in terms of what it actually does today:
@@ -180,15 +164,10 @@ Any implementation should be verified for:
 - compatibility with a future Anthropic LiteLLM adapter
 
 ## Remaining work
-- Expand provider-aware and tier-aware limit resolution if the config schema requires it.
-- Add explicit config accessors or schema-backed wait policy support if wait behavior needs to be fully first-class.
-- Validate fallback handling for missing TPM and RPM values as part of policy definition.
-- Add explicit wait/retry semantics if interactive or server workflows need them.
-- Improve observability for effective limits, blocked requests, and usage adjustments.
-- Extend tests to cover waiting, rolling-window expiration, concurrency, follow-up, summary, retry, and compaction paths across all supported providers.
-- Align compaction test doubles with the real `SummarizationService` API.
-- Clarify whether compaction should remain context-window driven with explicit output headroom and an estimator-backed token count, while retaining the turn-budget fallback.
-- Separate summarization and compaction naming and roles if they are intended to be distinct.
+- **Cold-cache gap on chained requests.** The very first `previous_response_id` after a process restart has no cached baseline; the preflight estimate is the local marginal only. Recording catches up after the first call. Acceptable since it only affects the first chained turn of a fresh process; eliminating it would require persisting the cache across processes.
+- Build a `RateLimitedScheduler` layer if/when agent-under-orchestrator mode needs queue-and-wait. The scheduler computes "next admission moment" from the deque state, sleeps once until then, and re-checks — no polling. Keep `RateLimitService` a stateless gate.
+- Expand provider-aware / tier-aware limit resolution if a richer config schema lands.
+- Improve observability around denied requests if production telemetry requires it.
 
 ## Notes
 - Prefer a single shared enforcement point over scattered checks.
