@@ -20,6 +20,10 @@ class TurnCompletionResult:
         parent_response_id: The parent response identifier associated with the turn, if available.
         messages: Structured conversation messages available for history enrichment, including
             richer assistant and tool messages when available.
+        failure_kind: When ``success`` is ``False``, a coarse classification of the
+            failure used to drive presentation. ``"rate_limited"`` is currently the
+            only recognized non-default value and lets the TUI render a distinct
+            transient-failure indicator instead of the generic ``"failed (idle)"``.
     """
 
     task_id: str
@@ -30,6 +34,7 @@ class TurnCompletionResult:
     response_id: str | None = None
     parent_response_id: str | None = None
     messages: list[Message] = field(default_factory=list)
+    failure_kind: str | None = None
 
     @property
     def has_messages(self) -> bool:

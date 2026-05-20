@@ -78,12 +78,19 @@ class StatusEvent(BaseEvent):
 
 @dataclass(slots=True)
 class BackgroundCompletionEvent(BaseEvent):
-    """Event emitted when background work completes."""
+    """Event emitted when background work completes.
+
+    ``failure_kind`` is non-None only on failures and carries a coarse
+    classification the presentation layer uses to pick a distinct status
+    indicator (e.g. ``"rate_limited"`` → yellow "rate limited (idle)" instead
+    of the generic red "failed (idle)"). Successes ignore the field.
+    """
 
     kind: str = "background_completion"
     task_id: str = ""
     success: bool = True
     exit_code: int | None = None
+    failure_kind: str | None = None
 
 
 @dataclass(slots=True)

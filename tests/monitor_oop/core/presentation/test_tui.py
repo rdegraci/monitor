@@ -258,3 +258,70 @@ def test_tui_app_failed_completion_event_sets_failed_idle_status() -> None:
 
     assert tui.status_text == "failed (idle)"
     assert tui._get_status_style() == "fg:ansired"
+
+
+def test_tui_app_rate_limited_completion_event_sets_yellow_transient_status() -> None:
+    """A rate-limit denial should set 'rate limited (idle)' in yellow, not red."""
+
+    from monitor_oop.core.presentation.events import BackgroundCompletionEvent
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    tui.start()
+    tui.enqueue_event(
+        BackgroundCompletionEvent(
+            task_id="t1", success=False, failure_kind="rate_limited"
+        )
+    )
+    tui.drain_events()
+
+    # Yellow signals transient/retry-soon, distinct from red for fatal "failed".
+    assert tui.status_text == "rate limited (idle)"
+    assert tui._get_status_style() == "fg:ansiyellow"
+
+
+def test_tui_app_rate_limited_turn_result_produces_rate_limited_completion_event() -> None:
+    """Verify _build_completion_events propagates failure_kind to the event."""
+
+    from monitor_oop.core.presentation.events import (
+        BackgroundCompletionEvent,
+        ErrorTranscriptEvent,
+    )
+    from monitor_oop.core.presentation.turn_results import TurnCompletionResult
+
+    runtime_context = build_runtime_context()
+    turn_coordinator = TurnCoordinator()
+    tui = TuiApp(
+        runtime_context=runtime_context,
+        turn_coordinator=turn_coordinator,
+        layout=build_layout(),
+        event_queue=deque(),
+    )
+
+    completion = TurnCompletionResult(
+        task_id="t1",
+        input_text="hi",
+        assistant_text="",
+        success=False,
+        status_text="Token-per-minute budget exhausted (4950/5000 tokens used) for model=openai/gpt-4o. Try again in ~12s.",
+        failure_kind="rate_limited",
+    )
+
+    events = tui._build_completion_events(completion)
+
+    # An error transcript line (red prose with the full message) and a
+    # background-completion event tagged as rate_limited.
+    error_events = [e for e in events if isinstance(e, ErrorTranscriptEvent)]
+    completion_events = [e for e in events if isinstance(e, BackgroundCompletionEvent)]
+    assert len(error_events) == 1
+    assert "Token-per-minute budget exhausted" in error_events[0].text
+    assert len(completion_events) == 1
+    assert completion_events[0].success is False
+    assert completion_events[0].failure_kind == "rate_limited"

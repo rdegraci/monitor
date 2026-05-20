@@ -19,6 +19,7 @@ from prompt_toolkit.widgets import TextArea
 
 from monitor_oop.core.conversation_session import ConversationSession
 from monitor_oop.core.conversation_session import ConversationTurnResult
+from monitor_oop.core.infrastructure.rate_limit_service import RateLimitDeniedError
 from monitor_oop.core.presentation.completion_queue import CompletionQueue
 from monitor_oop.core.presentation.events import AssistantTranscriptEvent
 from monitor_oop.core.presentation.events import BackgroundCompletionEvent
@@ -260,6 +261,17 @@ class TuiApp:
                 success=True,
                 status_text=str(turn_result.status_text),
             )
+        except RateLimitDeniedError as denial:
+            # Tag the failure so _build_completion_events / _route_presentation_event
+            # can render a distinct transient indicator instead of "failed (idle)".
+            return TurnCompletionResult(
+                task_id=task_id,
+                input_text=input_text,
+                assistant_text="",
+                success=False,
+                status_text=str(denial),
+                failure_kind="rate_limited",
+            )
         except Exception as exc:
             return TurnCompletionResult(
                 task_id=task_id,
@@ -293,6 +305,7 @@ class TuiApp:
                 BackgroundCompletionEvent(
                     task_id=completion_result.task_id,
                     success=False,
+                    failure_kind=completion_result.failure_kind,
                 )
             )
         return events
@@ -347,7 +360,7 @@ class TuiApp:
         """Return the style for the current status value."""
         if self.status_text in ("idle", "completed (idle)"):
             return "fg:ansigreen"
-        if self.status_text in ("working", "compacting"):
+        if self.status_text in ("working", "compacting", "rate limited (idle)"):
             return "fg:ansiyellow"
         if self.status_text == "failed (idle)":
             return "fg:ansired"
@@ -402,9 +415,12 @@ class TuiApp:
             return
         if isinstance(event, BackgroundCompletionEvent):
             self.turn_coordinator.mark_background_complete(event)
-            self.status_text = (
-                "completed (idle)" if event.success else "failed (idle)"
-            )
+            if event.success:
+                self.status_text = "completed (idle)"
+            elif event.failure_kind == "rate_limited":
+                self.status_text = "rate limited (idle)"
+            else:
+                self.status_text = "failed (idle)"
             self.sync_active_task_id()
             self._transcript_viewport.follow_newest()
             return
