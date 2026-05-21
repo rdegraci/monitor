@@ -644,7 +644,16 @@ def chat():
                 last_used_estimated=last_used_estimated,
                 cwd=os.getcwd(),
                 model=config.MODEL,  # live config.MODEL value
-                extra_history_str=f"({len(config.CONVERSATION_HISTORY) - config.CONVERSATION_MAX_SIZE})",
+                # Show H:<count>/<cap> instead of H:<count>(<delta>). The
+                # /<cap> form makes the limit obvious without mental math and
+                # matches the polarity of how fuel-gauge / disk-usage style
+                # indicators are typically read. Falls back to no denominator
+                # when CONVERSATION_MAX_SIZE is unset or non-positive.
+                extra_history_str=(
+                    f"/{config.CONVERSATION_MAX_SIZE}"
+                    if isinstance(config.CONVERSATION_MAX_SIZE, int) and config.CONVERSATION_MAX_SIZE > 0
+                    else ""
+                ),
             )
             user_input = get_input(prompt, session=session)
 
