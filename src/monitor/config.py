@@ -1043,7 +1043,7 @@ def set_model(model_key: str) -> bool:
     - On success, sets MODEL to the resolved full model string and derives related settings from context_window_mapping, output_window_mapping, conversation_history_mapping, model_max_tpm, and model_tpm_mapping using the shorthand key. If model_max_tpm or model_tpm_mapping lacks the needed entries, sets MODEL_MAX_TPM to None.
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
-    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
+    global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY
 
     # Validate MODEL_MAPPING
@@ -1084,6 +1084,23 @@ def set_model(model_key: str) -> bool:
         if isinstance(output_window_mapping, dict)
         else None
     )
+
+    # Recompute MODEL_INPUT_WINDOW from the new model's context/output windows.
+    # Previously this global was only computed at startup from YAML; a runtime
+    # set_model() updated MODEL_CONTEXT_WINDOW and MODEL_OUTPUT_WINDOW but left
+    # MODEL_INPUT_WINDOW pointing at the prior model's value. That stale value
+    # is consumed by llm_responses_adapter.py's input-window gate and by the
+    # C indicator's percent calculation, so the system would either reject
+    # valid requests or allow over-budget ones after a model switch.
+    if isinstance(MODEL_CONTEXT_WINDOW, int) and isinstance(MODEL_OUTPUT_WINDOW, int):
+        iw = MODEL_CONTEXT_WINDOW - MODEL_OUTPUT_WINDOW
+        MODEL_INPUT_WINDOW = iw if iw > 0 else None
+        if MODEL_INPUT_WINDOW is None:
+            logger.warning(
+                f"set_model: Computed MODEL_INPUT_WINDOW <= 0 (context={MODEL_CONTEXT_WINDOW}, output={MODEL_OUTPUT_WINDOW}); disabling input budgeting"
+            )
+    else:
+        MODEL_INPUT_WINDOW = None
 
     max_tpm_tier = model_max_tpm.get(mapped_key) if isinstance(model_max_tpm, dict) else None
     tpm_mapping = (
