@@ -1038,6 +1038,15 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
     _configure_protocol_engine_limits()
     ENGINE.lines_per_chunk = MAX_LINES_PER_CHUNK
     ENGINE.chars_per_chunk = MAX_CHARS_PER_CHUNK
+    # S3: the engine's system_prompt embeds the chunk-limit numbers as text
+    # via create_system_prompt(). M-pe5 fixes the int values used by code,
+    # but the prompt string the model sees still has the startup values
+    # interpolated. Rebuild it so the model and the validator agree.
+    ENGINE.system_prompt = create_system_prompt(
+        max_lines_per_chunk=MAX_LINES_PER_CHUNK,
+        max_chars_per_chunk=MAX_CHARS_PER_CHUNK,
+        token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK,
+    )
     ENGINE.reset_state()
     original_source_content = None
     try:

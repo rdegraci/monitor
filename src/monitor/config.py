@@ -1044,7 +1044,7 @@ def set_model(model_key: str) -> bool:
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
-    global CONVERSATION_HISTORY
+    global CONVERSATION_HISTORY, RESPONSE_ID
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1135,6 +1135,20 @@ def set_model(model_key: str) -> bool:
             _rl.RATE_LIMITER.reset()
     except Exception:
         logger.warning("set_model: failed to reset rate limiter window", exc_info=True)
+
+    # S1: clear the Responses API previous_response_id. Response IDs are
+    # session-scoped to the model that produced them; reusing a prior-model
+    # ID against the new model's API will be rejected by the provider.
+    RESPONSE_ID = None
+
+    # S2: refresh the tool catalog. configure_tools() chooses between the
+    # anthropic and openai editor tool sets based on the active model; a
+    # switch between providers leaves the global TOOL_DESCRIPTIONS list with
+    # the prior provider's tools.
+    try:
+        configure_tools()
+    except Exception:
+        logger.warning("set_model: failed to refresh tool catalog", exc_info=True)
 
     logger.info(
         f"set_model: Activated model '{MODEL}' "
