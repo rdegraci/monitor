@@ -18,6 +18,11 @@ LARGE_FILE_TOKEN_THRESHOLD = 1000
 RECURSIVE_DIR_TOKEN_ESTIMATE = 500
 SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 
+# TC-2: cap on the depth of nested tool-call dispatches. handle_tool_call
+# recurses when the model's reply also contains tool_calls; an adversarial
+# prompt or runaway agent loop would otherwise stack-overflow.
+MAX_TOOL_CALL_DEPTH = 16
+
 
 def parse_function_args(function_args):
     """Parse function arguments from string to dictionary"""
@@ -37,10 +42,28 @@ def execute_tool_call(tool_call):
     """Execute a single tool call and return the result
 
     All token counting and estimation is performed using centralized helpers in lib.token_management.
+
+    TC-1: validate the tool_call structure before any key access. The previous
+    direct ``tool_call["function"]["arguments"]`` / ``["name"]`` indexing was
+    outside the try/except below, so a malformed dict raised an unhandled
+    KeyError up to handle_tool_call — which had *already* appended the
+    assistant message (with tool_calls) to history via extract_tool_calls.
+    The result was an orphaned assistant tool_calls entry that the provider
+    rejects with HTTP 400 on the next request.
     """
     logger.debug(f"Processing tool_call, type: {type(tool_call)}, value: {str(tool_call)[:300]}")
-    function_args_raw = tool_call["function"]["arguments"]
-    function_name = tool_call["function"]["name"]
+
+    # Structural validation — always return (None, error) on malformed input.
+    if not isinstance(tool_call, dict):
+        return None, f"Invalid tool call: expected dict, got {type(tool_call).__name__}"
+    function_block = tool_call.get("function")
+    if not isinstance(function_block, dict):
+        return None, "Invalid tool call: missing or non-dict 'function' field"
+    function_name = function_block.get("name")
+    if not isinstance(function_name, str) or not function_name:
+        return None, "Invalid tool call: missing or empty 'function.name'"
+    function_args_raw = function_block.get("arguments", "")
+
     logger.debug(f"Executing function: {function_name}, arguments: {function_args_raw}")
 
     if function_name not in AVAILABLE_TOOLS:
@@ -99,11 +122,25 @@ def execute_tool_call(tool_call):
         return None, error_msg
 
 
-def handle_tool_call(response):
-    """Orchestrate the handling of tool calls from LLM response
+def handle_tool_call(response, _depth=0):
+    """Orchestrate the handling of tool calls from LLM response.
 
     All token counting and estimation logic is routed through lib.token_management per project policy.
+
+    TC-2: ``_depth`` tracks nested tool-call dispatches and bails at
+    MAX_TOOL_CALL_DEPTH so a runaway tool-calls chain unwinds gracefully
+    instead of stack-overflowing.
     """
+
+    if _depth >= MAX_TOOL_CALL_DEPTH:
+        logger.error(
+            "handle_tool_call: depth %d reached MAX_TOOL_CALL_DEPTH %d; aborting chain",
+            _depth, MAX_TOOL_CALL_DEPTH,
+        )
+        return (
+            f"Tool-call chain exceeded the maximum depth of {MAX_TOOL_CALL_DEPTH}. "
+            "Stopping to prevent runaway recursion. The user can retry with a fresh prompt."
+        )
 
     from monitor.core.conversation import (
         extract_tool_calls,
@@ -113,7 +150,7 @@ def handle_tool_call(response):
         update_conversation_history,
     )
 
-    logger.debug("Handling tool call...")
+    logger.debug("Handling tool call (depth=%d)...", _depth)
 
     # Extract tool calls
     tool_calls = extract_tool_calls(response)
@@ -121,14 +158,38 @@ def handle_tool_call(response):
     # Process each tool call
     for tool_call in tool_calls:
         logger.debug(f"Processing tool_call, type: {type(tool_call)}, value: {str(tool_call)[:300]}")
-        # Execute the tool
-        result, error = execute_tool_call(tool_call)
 
-        # Create and append result message using the 4-argument signature
-        result_message = create_tool_result_message(result, error, tool_call["id"])
-        append_to_history_with_count(
-            result_message, config.CONVERSATION_HISTORY, count_message_tokens, update_token_usage
-        )
+        # TC-1: extract tool_call_id defensively. extract_tool_calls has
+        # already appended the assistant message (with tool_calls) to history,
+        # so we MUST append a result message for each tool_call_id even when
+        # the tool itself fails or the dict is malformed — otherwise the
+        # next provider request 400s on orphaned tool_calls.
+        if isinstance(tool_call, dict):
+            tool_call_id = tool_call.get("id")
+        else:
+            tool_call_id = getattr(tool_call, "id", None)
+
+        try:
+            result, error = execute_tool_call(tool_call)
+        except Exception as e:
+            logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
+            result, error = None, f"Tool execution raised: {e}"
+
+        # Create and append result message. create_tool_result_message handles
+        # None / non-string tool_call_id by coercing to empty string — that
+        # still produces an entry in history that pairs with the assistant
+        # tool_call (the provider may then reject the empty id, but the
+        # structural pairing is preserved and the failure is diagnosable).
+        try:
+            result_message = create_tool_result_message(result, error, tool_call_id)
+            append_to_history_with_count(
+                result_message, config.CONVERSATION_HISTORY, count_message_tokens, update_token_usage
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to append tool-result message for tool_call_id=%r: %s",
+                tool_call_id, e, exc_info=True,
+            )
 
         if error:
             continue
@@ -145,7 +206,7 @@ def handle_tool_call(response):
 
     # If result is None, we need another tool call
     if result is None:
-        return handle_tool_call(second_response)
+        return handle_tool_call(second_response, _depth=_depth + 1)
 
     # Update conversation history and return result
     update_conversation_history(

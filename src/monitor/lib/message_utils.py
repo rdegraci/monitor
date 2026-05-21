@@ -298,43 +298,35 @@ def is_anthropic_model(model_name):
     logger.debug("Model %s is not an Anthropic model", model_name)
     return False
 
-def prepare_messages_with_cache_control(messages, model_name, disable_for_tool_calls=False):
+def prepare_messages_with_cache_control(messages, model_name):
     """
     Prepare messages with cache_control for Anthropic models to enable efficient caching.
-    
+
+    C-2: removed the ``disable_for_tool_calls`` parameter. It was never invoked
+    as True by any caller, and its substring-match heuristic
+    (``msg.content.lower().find('tool')``) would have produced false positives
+    on virtually any coding conversation that mentions tools or functions —
+    silently disabling caching at the worst possible time. If tool-call-aware
+    cache invalidation is ever needed, design it around the message ``role``
+    and ``tool_calls`` fields, not substring search.
+
     Args:
         messages (list): List of message dictionaries
         model_name (str): The name of the model being used
-        disable_for_tool_calls (bool): If True, disables caching when tool calls are expected
-        
+
     Returns:
         list: Properly formatted messages with cache_control parameters if applicable
     """
-    logger.debug("Entering prepare_messages_with_cache_control with model_name=%s, disable_for_tool_calls=%s, message_count=%s", 
-                model_name, disable_for_tool_calls, len(messages))
-    
+    logger.debug(
+        "Entering prepare_messages_with_cache_control with model_name=%s, message_count=%s",
+        model_name, len(messages),
+    )
+
     if not is_anthropic_model(model_name):
         logger.debug("Skipping cache control - %s is not an Anthropic model", model_name)
         return messages
-    
+
     logger.info("Preparing messages with cache control for Anthropic model %s", model_name)
-        
-    # Check if we're expecting tool calls and should disable caching
-    should_disable = False
-    if disable_for_tool_calls:
-        try:
-            should_disable = any(
-                msg.get('content', '').lower().find('tool') != -1 or 
-                msg.get('content', '').lower().find('function') != -1
-                for msg in messages[-3:] # Check recent messages
-            )
-            
-            if should_disable:
-                logger.debug("Tool/function calls detected in recent messages, disabling cache control")
-                return messages
-        except Exception as e:
-            logger.error("Error checking for tool calls: %s", str(e), exc_info=True)
-            # Continue with default behavior if there's an error
 
     # Create a new list with shallow copies of each message dict to avoid mutating the original messages.
     # This ensures we don't accidentally modify shared references (e.g., top-level dicts) while preserving

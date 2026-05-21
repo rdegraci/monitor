@@ -180,21 +180,36 @@ def inject_openai_properties(function_array: List[Dict[str, Any]]) -> List[Dict[
 
 def inject_anthropic_properties(function_array: list) -> list:
     """
-    Adds Anthropic-specific properties to the last dictionary in the provided list.
-    
+    Return a copy of ``function_array`` with ``cache_control`` added to the
+    last tool definition, marking it as an Anthropic cache breakpoint.
+
+    C-1: previously this function mutated ``function_array`` and its last
+    dict in place. Because the caller (``function_descriptions``) passes the
+    module-global ``TOOL_DESCRIPTIONS`` by reference, that global was
+    permanently polluted with a ``cache_control`` key on its last entry
+    after any Anthropic call. After a model switch to OpenAI/Gemini/xAI,
+    the key remained — mostly harmless (providers ignore extra keys) but
+    state pollution that violates the harness's "configure-style functions
+    must be idempotent and side-effect-free on shared state" invariant.
+
     Args:
         function_array (list): List of dictionaries containing function definitions
-        
+
     Returns:
-        list: Modified list with Anthropic properties added to the last dictionary
+        list: Shallow copy of ``function_array`` with the last entry replaced
+        by a copy that has ``cache_control`` added.
     """
     if not function_array or not isinstance(function_array, list):
         return function_array
-        
-    if function_array and isinstance(function_array[-1], dict):
-        function_array[-1]["cache_control"] = {"type": "ephemeral"}
-    
-    return function_array
+
+    if not isinstance(function_array[-1], dict):
+        return list(function_array)
+
+    new_array = list(function_array)
+    last_copy = dict(new_array[-1])
+    last_copy["cache_control"] = {"type": "ephemeral"}
+    new_array[-1] = last_copy
+    return new_array
 
 def get_first_segment(model_string: str) -> str:
     """

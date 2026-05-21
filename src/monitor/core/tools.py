@@ -18,13 +18,34 @@ def configure_tools():
     add_weather_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
     add_memory_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
 
-    # Anthropic editing tools are incompatible with openai editing tools
-    if get_first_segment(config.MODEL) == 'anthropic':
+    # TC-3: dispatch on the model's provider prefix. Anthropic and openai
+    # have incompatible editor-tool catalogs; Gemini uses GEMINI_TOOL_DESCRIPTIONS
+    # separately and should not carry either provider's editor tools in
+    # TOOL_DESCRIPTIONS. The previous code had only the anthropic and openai
+    # branches as two independent `if` statements, so a switch to a Gemini
+    # model (or an unrecognized provider) left whichever editor-tool set was
+    # present beforehand, polluting the catalog.
+    # get_first_segment handles None/empty model_string internally; call it
+    # unconditionally so test mocks of get_first_segment are exercised.
+    provider = get_first_segment(config.MODEL)
+    if provider == 'anthropic':
         add_text_file_editor_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
-    if get_first_segment(config.MODEL) == 'openai':
+    elif provider == 'openai':
         remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
         add_openai_editor_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+    elif provider == 'gemini':
+        # Gemini relies on the parallel GEMINI_TOOL_DESCRIPTIONS catalog.
+        # Strip both provider-specific editor sets from TOOL_DESCRIPTIONS
+        # so neither anthropic-only nor openai-only editor tools leak through.
+        remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+    else:
+        logger.warning(
+            "configure_tools: unrecognized provider prefix %r for MODEL=%r; "
+            "leaving editor-tool catalog in its current state",
+            provider, config.MODEL,
+        )
 
     for tool in TOOL_DESCRIPTIONS:
         function = tool.get('function')
