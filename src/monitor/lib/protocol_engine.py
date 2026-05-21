@@ -6,6 +6,8 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
+import threading
 import time
 
 from colored import attr, fg
@@ -14,6 +16,7 @@ from pygments.formatters import TerminalFormatter
 from pygments.lexers import BashLexer, DiffLexer, MarkdownLexer
 
 from monitor import config
+from monitor.lib import rate_limiter
 from monitor.lib.progress import progress_dots
 from monitor.lib.protocol_engine_utils import (
     PROHIBITED_SUMMARY_PATTERN,
@@ -25,6 +28,7 @@ from monitor.lib.protocol_engine_utils import (
     create_system_prompt,
 )
 from monitor.lib.sound import ring_bell
+from monitor.lib.token_management import count_message_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,45 @@ yellow = fg("yellow")
 reset = attr("reset")
 
 MESSAGE_HISTORY = []
+
+# H-pe2: serializes modify_source_code / stream_code invocations because they
+# share the module-level ENGINE singleton (chunks, message_history, source_file,
+# checkpoint path). Without this lock, two concurrent tool calls trample each
+# other's state mid-modification.
+_ENGINE_LOCK = threading.Lock()
+
+
+def _atomic_write_text(path: str, content: str) -> None:
+    """Write ``content`` to ``path`` atomically.
+
+    H-pe1: writes to a sibling tempfile in the same directory, fsyncs, and
+    renames over the target. A crash mid-write leaves the original ``path``
+    intact (or absent), never half-written. Same-directory tempfile guarantees
+    the rename is a single filesystem operation.
+    """
+    dir_name = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".",
+        suffix=".tmp",
+        dir=dir_name,
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync can legitimately fail on some filesystems (e.g. tmpfs
+                # without backing storage); the rename is still atomic.
+                pass
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def configure_protocol_engine_message_history(message_history: list):
@@ -227,6 +270,39 @@ class ProtocolEngine:
         try:
             if query:
                 self.message_history.append({"role": "user", "content": query})
+
+            # H-pe4: rate-limit preflight. Without this gate, a multi-chunk
+            # modification fires N LLM calls in tight succession, each
+            # accounted only post-hoc by tooling.py's flat estimate, easily
+            # bursting past the TPM cap.
+            try:
+                if rate_limiter.RATE_LIMITER is not None:
+                    estimated_request = count_message_tokens(self.message_history)
+                    try:
+                        estimated_request += int(TOKEN_BUDGET_PER_CHUNK)
+                    except Exception:
+                        pass
+                    wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
+                    if wait_result is None:
+                        logger.warning(
+                            "ProtocolEngine _send_request: estimated %s tokens exceeds rate-limiter safety threshold; aborting chunk",
+                            estimated_request,
+                        )
+                        # Pop the user query we just appended so a retry can
+                        # rebuild a clean history.
+                        if query:
+                            try:
+                                self.message_history.pop()
+                            except IndexError:
+                                pass
+                        raise RuntimeError(
+                            f"Rate-limiter safety threshold exceeded ({estimated_request} estimated tokens)"
+                        )
+            except RuntimeError:
+                raise
+            except Exception:
+                logger.exception("Rate-limit preflight failed; proceeding without gating")
+
             with progress_dots():
                 response = self.middleware.completion(
                     model=self.model,
@@ -234,9 +310,28 @@ class ProtocolEngine:
                     max_completion_tokens=TOKEN_BUDGET_PER_CHUNK,
                     drop_params=True,
                 )
+
+            # H-pe4: record actual usage from the provider response.
+            try:
+                if rate_limiter.RATE_LIMITER is not None:
+                    usage = getattr(response, "usage", None)
+                    actual_used = None
+                    if usage is not None:
+                        if isinstance(usage, dict):
+                            actual_used = usage.get("total_tokens")
+                        else:
+                            actual_used = getattr(usage, "total_tokens", None)
+                    if actual_used is None:
+                        actual_used = count_message_tokens(self.message_history)
+                    rate_limiter.RATE_LIMITER.add_request(int(actual_used or 0))
+            except Exception:
+                logger.exception("Failed to record actual usage with rate limiter after ProtocolEngine call")
+
             content = response.choices[0].message["content"]
             self.message_history.append({"role": "assistant", "content": content})
             return content
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error("Middleware completion error: %s", str(e))
             raise Exception("LLM call failed. Check logs for details.")
@@ -603,8 +698,7 @@ class ProtocolEngine:
         # Strip any number of blank / whitespace-only lines at the END
         #  and ensure the file ends with exactly one newline
         full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
-        with open(self.source_file, "w") as f:
-            f.write(full_script)
+        _atomic_write_text(self.source_file, full_script)
         logger.info(f"Modified script saved to {self.source_file}")
         self.message_history = [{"role": "system", "content": self.system_prompt}]
         return full_script + f"\n\nTask completed successfully. File {self.source_file} updated."
@@ -629,8 +723,7 @@ class ProtocolEngine:
         #  and ensure the file ends with exactly one newline
         full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
         partial_file = f"{self.source_file}.partial"
-        with open(partial_file, "w") as f:
-            f.write(full_script)
+        _atomic_write_text(partial_file, full_script)
         logger.info(f"Modified script saved to: {partial_file}")
         return full_script + f"\n\nTask not completed successfully. Content saved to: {partial_file} file."
 
@@ -692,8 +785,20 @@ class ProtocolEngine:
         self.source_file = None
         self.modification_request = ""
         self.global_retries = 0
+        # H-pe3: re-seed message_history from the module-global MESSAGE_HISTORY
+        # so that conversation context set by callers via
+        # configure_protocol_engine_message_history actually reaches the LLM.
+        # Previously reset_state discarded the history, leaving the engine
+        # talking to the model with system prompt only — silently dropping the
+        # user's prior turns and tool results.
         self.message_history = [{"role": "system", "content": self.system_prompt}]
-        logger.debug("ProtocolEngine state has been reset.")
+        if MESSAGE_HISTORY:
+            filtered_history = [msg for msg in MESSAGE_HISTORY if isinstance(msg, dict) and msg.get("role") != "system"]
+            self.message_history.extend(filtered_history)
+        logger.debug(
+            "ProtocolEngine state has been reset (message_history seeded with %d non-system messages)",
+            len(self.message_history) - 1,
+        )
 
 
 # Default to chatgpt-4.1 capabilities
@@ -750,11 +855,13 @@ def stream_code(raw_user_input):
     file_name = parts[0]
     prompt = parts[1]
     logger.info("Streaming code for file: %s with prompt of length %d", file_name, len(prompt))
-    ENGINE.fetch_modified_script(
-        script_content=STARTER_SCRIPT,
-        modification_request=prompt,
-        source_file=file_name,
-    )
+    # H-pe2: serialize access to the shared ENGINE singleton.
+    with _ENGINE_LOCK:
+        ENGINE.fetch_modified_script(
+            script_content=STARTER_SCRIPT,
+            modification_request=prompt,
+            source_file=file_name,
+        )
     return "Working."
 
 
@@ -890,6 +997,14 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     """
     Modifies source code in place with global retry safeguard.
     """
+    # H-pe2: serialize access to the shared ENGINE singleton for the full
+    # duration of the modification. Concurrent invocations would otherwise
+    # share chunks / message_history / source_file / checkpoint path.
+    with _ENGINE_LOCK:
+        return _modify_source_code_locked(source_file, modification_request, print_func)
+
+
+def _modify_source_code_locked(source_file: str, modification_request: str, print_func=print) -> str:
     model = config.MODEL
     logger.debug(
         "modify_source_code called: file=%s, req-length=%d",
