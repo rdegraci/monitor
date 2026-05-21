@@ -91,7 +91,7 @@ class ProtocolEngine:
     """ProtocolEngine with global modification cycle retry logic."""
 
     MAX_RETRIES_PER_CHUNK = 3
-    MAX_GLOBAL_MODIFICATION_RETRIES = 2
+    MAX_GLOBAL_MODIFICATION_ATTEMPTS = 2
 
     def __init__(self, model, system_prompt, middleware=litellm, initial_message_history=None):
         logger.debug("Initializing ProtocolEngine with model: %s", model)
@@ -152,33 +152,39 @@ class ProtocolEngine:
         logger.debug("fetch_modified_script called (global attempt: %d)", self.global_retries + 1)
         attempt_successful = False
         error_result = None
-        while self.global_retries < self.MAX_GLOBAL_MODIFICATION_RETRIES:
-            result = self._modification_cycle(script_content, modification_request, source_file)
-            if isinstance(result, str) and result.startswith("Non-compliant output at chunk"):
-                self.global_retries += 1
-                logger.warning(
-                    f"Full modification cycle failed (attempt {self.global_retries}/{self.MAX_GLOBAL_MODIFICATION_RETRIES}). Retrying from checkpoint..."
-                )
-                checkpoint = self._load_checkpoint(modification_request)
-                if not checkpoint:
-                    logger.error("Checkpoint unavailable or broken. Cannot auto-retry further.")
-                    error_result = result
+        result = None
+        # M-pe6: ensure global_retries is reset even when _modification_cycle
+        # raises. Previously the reset only ran on the graceful exit paths; an
+        # exception during the cycle would leave global_retries non-zero for
+        # the next invocation, eroding the available retry budget.
+        try:
+            while self.global_retries < self.MAX_GLOBAL_MODIFICATION_ATTEMPTS:
+                result = self._modification_cycle(script_content, modification_request, source_file)
+                if isinstance(result, str) and result.startswith("Non-compliant output at chunk"):
+                    self.global_retries += 1
+                    logger.warning(
+                        f"Full modification cycle failed (attempt {self.global_retries} of {self.MAX_GLOBAL_MODIFICATION_ATTEMPTS}). Retrying from checkpoint..."
+                    )
+                    checkpoint = self._load_checkpoint(modification_request)
+                    if not checkpoint:
+                        logger.error("Checkpoint unavailable or broken. Cannot auto-retry further.")
+                        error_result = result
+                        break
+                    continue
+                else:
+                    attempt_successful = True
+                    error_result = None
                     break
-                continue
+            if attempt_successful:
+                logger.info(f"Modification completed in {self.global_retries + 1} cycles.")
+                return result
             else:
-                attempt_successful = True
-                error_result = None
-                break
-        if attempt_successful:
-            logger.info(f"Modification completed in {self.global_retries + 1} cycles.")
+                logger.error(
+                    f"All modification attempts exhausted ({self.MAX_GLOBAL_MODIFICATION_ATTEMPTS}). Human intervention needed."
+                )
+                return error_result or "Modification process failed after all automatic retries. Manual intervention required."
+        finally:
             self.global_retries = 0
-            return result
-        else:
-            logger.error(
-                f"All modification retries exhausted ({self.MAX_GLOBAL_MODIFICATION_RETRIES}). Human intervention needed."
-            )
-            self.global_retries = 0
-            return error_result or "Modification process failed after all automatic retries. Manual intervention required."
 
     def _request_chunk_correction(self, non_compliant_chunk, original_source, chunk_index):
         """
@@ -333,8 +339,12 @@ class ProtocolEngine:
         except RuntimeError:
             raise
         except Exception as e:
+            # M-pe4: preserve the original exception type and traceback via
+            # `from e`. The previous bare `raise Exception("...")` discarded
+            # the cause, leaving every LLM failure indistinguishable in
+            # tracebacks.
             logger.error("Middleware completion error: %s", str(e))
-            raise Exception("LLM call failed. Check logs for details.")
+            raise RuntimeError(f"LLM call failed: {e}") from e
 
     def _send_request_with_compliance_retry(self, query, chunk_index):
         retries = 0
@@ -350,8 +360,11 @@ class ProtocolEngine:
                 logger.debug(f"Requesting chunk {chunk_index}, retry {retries + 1}")
                 output = self._send_request(augmented_query)
             except Exception as e:
+                # M-pe4: preserve cause across the second wrapping layer too.
                 logger.error("LLM call failed for chunk %s, retry %s: %s", chunk_index, retries + 1, str(e))
-                raise Exception(f"LLM call failed for chunk {chunk_index}, retry {retries + 1}: {str(e)}")
+                raise RuntimeError(
+                    f"LLM call failed for chunk {chunk_index}, retry {retries + 1}: {e}"
+                ) from e
             prohibited = self._find_prohibited_phrases_in_text(output)
             if prohibited:
                 retries += 1
@@ -725,6 +738,10 @@ class ProtocolEngine:
         partial_file = f"{self.source_file}.partial"
         _atomic_write_text(partial_file, full_script)
         logger.info(f"Modified script saved to: {partial_file}")
+        # M-pe2: reset message_history to match _assemble_and_save's behavior.
+        # Without this, global retries accumulate the prior cycle's prompts +
+        # assistant chunks and quickly balloon the context cost.
+        self.message_history = [{"role": "system", "content": self.system_prompt}]
         return full_script + f"\n\nTask not completed successfully. Content saved to: {partial_file} file."
 
     def _get_checkpoint_path(self):
@@ -749,8 +766,10 @@ class ProtocolEngine:
                 "mod_request": mod_request,
                 "file_hash": self._hash_file(self.source_file),
             }
-            with open(self._get_checkpoint_path(), "w") as f:
-                json.dump(checkpoint_data, f)
+            # M-pe3: atomic write so a crash mid-serialize doesn't leave a
+            # corrupt JSON that _load_checkpoint will silently discard,
+            # destroying progress.
+            _atomic_write_text(self._get_checkpoint_path(), json.dumps(checkpoint_data))
         except Exception as e:
             logger.error(f"Could not save checkpoint: {e}")
 
@@ -1011,6 +1030,14 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
         source_file,
         len(modification_request) if modification_request else 0,
     )
+    # M-pe5: re-derive chunk-budget constants from the current config.MODEL.
+    # The values are frozen at configure_protocol_engine() time, so a runtime
+    # set_model() leaves the engine with stale budgets — e.g., a switch from
+    # a gpt-5-class model down to o3 would keep the larger limits and the
+    # next LLM call would overshoot.
+    _configure_protocol_engine_limits()
+    ENGINE.lines_per_chunk = MAX_LINES_PER_CHUNK
+    ENGINE.chars_per_chunk = MAX_CHARS_PER_CHUNK
     ENGINE.reset_state()
     original_source_content = None
     try:
