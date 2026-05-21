@@ -40,6 +40,15 @@ def configure_tools():
         # so neither anthropic-only nor openai-only editor tools leak through.
         remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+    elif provider == 'xai':
+        # xAI is OpenAI-API-compatible but function_descriptions returns
+        # tool_descriptions unchanged for it — neither inject_anthropic_properties
+        # nor inject_openai_properties is applied. Strip both provider-specific
+        # editor sets so the catalog is neutral; Anthropic editor tools use
+        # an Anthropic-specific schema that xAI rejects, and the OpenAI editor
+        # tools aren't guaranteed to work cross-provider either.
+        remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
     else:
         logger.warning(
             "configure_tools: unrecognized provider prefix %r for MODEL=%r; "
