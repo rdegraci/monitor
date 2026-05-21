@@ -1,5 +1,24 @@
-# System prompt used to initialize the system's state and guidelines
-SYSTEM_PROMPT = """
+# System prompt template used to initialize the system's state and guidelines.
+#
+# SP-1/SP-2/SP-7: previously this module exposed a mutable SYSTEM_PROMPT
+# global, which conversation.py rebound via `global SYSTEM_PROMPT;
+# SYSTEM_PROMPT += ...` to inject the session ID. Because of `from … import …`
+# semantics, that rebind only affected conversation.py's local binding —
+# other modules (llm.py, history.py, built_in_commands.py) kept their
+# original reference and sent the prompt *without* the session-ID line.
+# Re-initialization also compounded duplicate session-ID appendages.
+#
+# This module now exposes:
+#   - SYSTEM_PROMPT_TEMPLATE: the static base prompt (no session-specific bits)
+#   - build_system_prompt(session_id=None): assembles the final prompt fresh
+#     on every call, no global state mutated
+#   - SYSTEM_PROMPT: backward-compat alias for the static template; callers
+#     that don't need session injection can still use it
+#
+# Callers that need the session ID line should call
+# build_system_prompt(session_id=config.SESSION_ID) at the call site.
+
+SYSTEM_PROMPT_TEMPLATE = """
 Formatting re-enabled - code output should be wrapped in markdown.
 
 You are an advanced command-line coding assistant.
@@ -12,35 +31,43 @@ Core priorities:
 5. Optimize for test durability and non-brittleness.
 
 Testing rules:
-- Prefer behavior-focused unit tests over implementation-detail assertions.
-- Test public APIs and observable outcomes only.
-- Do not patch or assert against private methods or private helpers.
-- Do not depend on exact internal call order unless that order is part of the contract.
-- Avoid brittle boundary math, timing-sensitive checks, and implementation-specific fixtures.
-- Use real temporary files/directories when filesystem behavior must be verified.
-- Avoid monkeypatching `Path`, `__file__`, filesystem internals, or low-level OS primitives unless absolutely necessary.
-- If a behavior is hard to test cleanly, refactor the production code to expose a small public seam rather than testing internals.
-- Keep fixtures small, deterministic, and easy to understand.
+- Test public APIs and observable outcomes only — not internals, private helpers, or exact internal call order.
+- For failure cases, simulate via boundary state (filesystem, env vars, dependency injection) — never by patching internals.
+- Use real tempfiles/dirs when filesystem behavior is under test; avoid monkeypatching Path, __file__, or low-level OS primitives.
+- Keep fixtures small, deterministic, behavior-focused. No timing-sensitive assertions, no brittle boundary math.
+- If a behavior is hard to test cleanly, expose a small public seam in the production code rather than testing internals.
 - If a test requires a hack to pass, stop and redesign the test or the code.
 
 Code change rules:
 - Use the appropriate file-edit tool for code changes.
 - After changes, verify the updated file and summarize what changed.
 
-How to decide on tests:
-1. Public behavior with simple fixtures
-2. Public seams for testability
-3. Minimal stubs/fakes for collaborators
-4. Mocking public dependencies only
-5. No private-method patching
-6. No filesystem or timing hacks unless that is the actual behavior under test
-
-Before modifying or writing tests, always prefer boundary-level, behavior-focused tests over mocking private methods or internal helpers. Do not mock, patch, or assert on private methods unless the user explicitly asks for an internal-unit test and there is no observable alternative.
-
-If a test requires simulating failure, do so through public APIs, filesystem state, environment variables, or dependency injection at the outer boundary. If the only easy path is to mock internals, stop and explain the boundary-level approach instead of proceeding.
-
-When a test is flaky, resist the urge to force a branch by patching internal helpers. Instead, identify the real observable condition that drives the behavior and simulate that condition at the boundary.
-
 Never trade correctness or test design quality for speed.
-
 """
+
+
+def build_system_prompt(session_id=None):
+    """Return the assembled system prompt, optionally with a session-ID instruction appended.
+
+    Args:
+        session_id: If provided, appends a line instructing the model to use
+            this session ID in todo tool calls. If None, only the static
+            template is returned.
+
+    Returns:
+        str: The fully assembled system prompt.
+    """
+    if not session_id:
+        return SYSTEM_PROMPT_TEMPLATE
+    return (
+        SYSTEM_PROMPT_TEMPLATE
+        + f"\nCurrent session ID: {session_id}. Use this SESSION_ID in all todo tool calls.\n"
+    )
+
+
+# Backward-compat alias. Existing callers that import SYSTEM_PROMPT directly
+# will get the static template (without session injection). Migrate to
+# build_system_prompt(session_id=...) at the call site to get the
+# session-aware version. The name remains a plain string, so monkeypatching
+# in tests continues to work.
+SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE

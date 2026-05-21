@@ -34,7 +34,9 @@ import litellm
 from monitor import config
 
 from monitor.lib.colors import red, blue, yellow, reset
-from monitor.lib.system_prompt import SYSTEM_PROMPT
+# SYSTEM_PROMPT import removed — this module no longer references it directly.
+# Callers that need the system prompt pass it in as a parameter
+# (see append_conversation_history's system_prompt arg, etc.).
 from monitor.lib import rate_limiter
 from monitor.lib.token_management import count_message_tokens as count_message_tokens
 from monitor.lib.token_management import update_token_usage as update_token_usage

@@ -30,7 +30,7 @@ from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
-from monitor.lib.system_prompt import SYSTEM_PROMPT
+from monitor.lib.system_prompt import build_system_prompt
 from monitor.lib.tool_loading import list_tools
 
 logger = logging.getLogger(__name__)
@@ -260,7 +260,7 @@ def monitor_model_performance_command(args: Dict[str, Any]) -> Any:
 def reset_conversation_history_command(arg=None):
     try:
         config.CONVERSATION_HISTORY.clear()
-        config.CONVERSATION_HISTORY.append({"role": "system", "content": SYSTEM_PROMPT})
+        config.CONVERSATION_HISTORY.append({"role": "system", "content": build_system_prompt(session_id=getattr(config, "SESSION_ID", None))})
         config.TOTAL_TOKEN_COUNT = 0
         config.RESPONSE_ID = None
         print("Conversation history was reset to initial system prompt.")

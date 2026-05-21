@@ -14,7 +14,7 @@ from prompt_toolkit.completion import PathCompleter
 
 from monitor import config
 
-from monitor.lib.system_prompt import SYSTEM_PROMPT
+from monitor.lib.system_prompt import SYSTEM_PROMPT, build_system_prompt
 
 from monitor.lib.input_modes import (
     handle_single_line,
@@ -287,7 +287,7 @@ def process_pipeline_directives(directives):
     """
     current_input = None
     for idx, directive in enumerate(directives):
-        history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        history = [{"role": "system", "content": build_system_prompt(session_id=getattr(config, "SESSION_ID", None))}]
         if current_input:
             history.append({"role": "user", "content": current_input})
         history.append({"role": "user", "content": directive})
@@ -476,8 +476,12 @@ def chat():
     # Create the PromptSession with additional bindings once per chat session
     session = create_prompt_session(additional_bindings=ADDITIONAL_BINDINGS)
 
-    global SYSTEM_PROMPT
-    SYSTEM_PROMPT += f"\nCurrent session ID: {config.SESSION_ID}. Use this SESSION_ID in all todo tool calls."
+    # SP-1/SP-2/SP-7: do not rebind any module-level SYSTEM_PROMPT here.
+    # The previous `global SYSTEM_PROMPT; SYSTEM_PROMPT += ...` pattern only
+    # affected conversation.py's local binding (from-import semantics), so
+    # other modules sent the prompt without the session-ID line, and re-init
+    # compounded duplicate session-ID lines. Call sites that need the prompt
+    # now call build_system_prompt(session_id=config.SESSION_ID) directly.
 
     # Initialize chat history
     history_file = config.HISTORY_FILE
@@ -486,7 +490,7 @@ def chat():
         lambda message, conversation_history, count_message_tokens, update_token_usage: append_to_history_with_count(
             message, conversation_history, count_message_tokens, update_token_usage
         ),
-        SYSTEM_PROMPT,
+        build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
         config.HISTORY_FILE,
         logger,
         config,
@@ -551,7 +555,7 @@ def chat():
                         if limits and limits.get("should_summarize"):
                             try:
                                 response = generate_conversation_summary(
-                                    SYSTEM_PROMPT,
+                                    build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
                                     config.CONVERSATION_HISTORY,
                                     config.SUMMARIZATION_CONFIG,
                                     config.MODEL,
@@ -575,7 +579,7 @@ def chat():
                                 else:
                                     reset_conversation_with_summary(
                                         summary=summary_text,
-                                        system_prompt=SYSTEM_PROMPT,
+                                        system_prompt=build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
                                         user_input="",
                                         conversation_history=config.CONVERSATION_HISTORY,
                                         append_func=append_to_history_with_count,
@@ -753,7 +757,7 @@ def prepare_query_context(user_prompt):
         check_limits,
         generate_conversation_summary,
         reset_conversation_with_summary,
-        SYSTEM_PROMPT,
+        build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
         config,  # Always pass live config for in-function reads
         post_social_media_summaries,
         logger,

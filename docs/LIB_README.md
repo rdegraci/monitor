@@ -6,7 +6,7 @@ Key points up-front
 - monitor.lib contains focused modules that encapsulate single responsibilities (connectors, helpers, editors, memory, rate limiting, token accounting, etc.).
 - monitor.lib.token_management is the canonical token counting and update API for the platform. Other modules (notably rate_limiter.py) should use that API rather than duplicating token accounting logic.
 - rate_limiter.py provides request and token rate limiting with built-in token estimation.
-- Several modules in lib are integration points with core systems (history, conversation, tooling, LLM adapters) and with external adapters (redis_utils, semantic_store, text_vector_store, tool_loading).
+- Several modules in lib are integration points with core systems (history, conversation, tooling, LLM adapters) and with external adapters (redis_utils, semantic_store, tool_loading).
 - If you add a new helper module, register it with core or tool-loading when it provides tool-like behavior or needs to be exposed to macros/workflows.
 
 High-level architecture
@@ -59,7 +59,6 @@ Files in src/monitor/lib (one-line responsibilities)
 - terminal_commands.py — Shell subprocess orchestration and command launching utilities.
 - text_file_editor.py — Stateful text/buffer editor logic, undo/redo, and editor session management.
 - text_to_speech.py — Speech output utilities for LLM or system messages.
-- text_vector_store.py — Vector storage for text embeddings and similarity search.
 - token_management.py — Canonical token counting, usage tracking, and update API for LLM requests; used across platform features.
 - todo.py — Task and todo list management utilities.
 - todo_redis.py — Redis-backed persistence for todo lists.
@@ -78,7 +77,6 @@ Key integrations and responsibilities
 - External adapters and stores:
   - redis_utils.py provides a Redis-backed memory/context store for session persistence and fast access.
   - semantic_store.py provides embedding and vector search integration for retrieval.
-  - text_vector_store (if present in your installation) should be treated as a separate vector store adapter — align schema and integration with semantic_store semantics.
   - tool_loading.py is the canonical place for registering dynamically-discoverable tools that may interact with external adapters.
 - Token & rate control:
   - token_management.py is the canonical API for counting and updating token usage across LLM requests. All modules that consume or charge tokens MUST call into this API to ensure consistent accounting and telemetry.

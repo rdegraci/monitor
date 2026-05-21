@@ -27,7 +27,7 @@ from monitor.lib.token_management import (
     update_token_usage,
     token_budgeter,
 )
-from monitor.lib.system_prompt import SYSTEM_PROMPT
+from monitor.lib.system_prompt import build_system_prompt
 from monitor.lib.progress import progress_dots
 
 from monitor.lib.llm_utils import (
@@ -378,7 +378,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                 logger.info("Attempting auto-summarization due to input window limit...")
                 try:
                     summary_response = generate_conversation_summary(
-                        SYSTEM_PROMPT,
+                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
                         _cfg().CONVERSATION_HISTORY,
                         _cfg().SUMMARIZATION_CONFIG,
                         _cfg().MODEL,
@@ -413,7 +413,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
                     reset_conversation_with_summary(
                         summary_content or "",
-                        SYSTEM_PROMPT,
+                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
                         last_user_content,
                         _cfg().CONVERSATION_HISTORY,
                         append_to_history_with_count,
@@ -494,7 +494,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                 )
                 try:
                     summary_response = generate_conversation_summary(
-                        SYSTEM_PROMPT,
+                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
                         _cfg().CONVERSATION_HISTORY,
                         _cfg().SUMMARIZATION_CONFIG,
                         _cfg().MODEL,
@@ -529,7 +529,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
                     reset_conversation_with_summary(
                         summary_content or "",
-                        SYSTEM_PROMPT,
+                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
                         last_user_content,
                         _cfg().CONVERSATION_HISTORY,
                         append_to_history_with_count,
