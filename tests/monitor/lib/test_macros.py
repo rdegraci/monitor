@@ -92,11 +92,14 @@ class TestMacros(unittest.TestCase):
             macros.MACRO_VALUES.clear()
             macros.configure_macros()
 
+            # MAC-4: new precedence (lowest → highest): public, file, ephemeral, private.
+            # dict.update is last-wins, so ephemeral (runtime-added) now outranks
+            # file-based macros on reload.
             expected_calls = [
-                unittest.mock.call(macros.MACRO_VALUES, macros.EPHEMERAL_MACRO_VALUES),
                 unittest.mock.call(macros.MACRO_VALUES, macros.PUBLIC_MACRO_VALUES),
                 unittest.mock.call(macros.MACRO_VALUES, mock_additional_macros),
-                unittest.mock.call(macros.MACRO_VALUES, macros.PRIVATE_MACRO_VALUES)
+                unittest.mock.call(macros.MACRO_VALUES, macros.EPHEMERAL_MACRO_VALUES),
+                unittest.mock.call(macros.MACRO_VALUES, macros.PRIVATE_MACRO_VALUES),
             ]
             self.assertEqual(mock_update_macros.call_count, 4)
             mock_update_macros.assert_has_calls(expected_calls)

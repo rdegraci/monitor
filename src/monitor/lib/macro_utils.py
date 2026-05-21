@@ -1,18 +1,76 @@
-"""Contains stateless macro helpers for loading, updating, and recursive expansion. No macro state, config, or CLI integration here."""
+"""Contains stateless macro helpers for loading, updating, and recursive expansion. No macro state, config, or CLI integration here.
+
+TRUST MODEL (see also: monitor.lib.macros docstring)
+---------------------------------------------------
+``tcl_macro_expand`` invokes ``tkinter.Tcl().eval(...)`` on macro bodies, which
+is full Tcl code execution — not a sandboxed templating language. Tcl scripts
+can ``exec`` shell commands, touch the filesystem, and read environment
+variables. Treat any macros file or runtime-added macro as executable code,
+not configuration. This is the single boundary to gate if you ever need to
+expand macros from a less-trusted source.
+"""
 
 import json
 import logging
 import os
 import re
-import tkinter
 
 from monitor.lib.colors import print_blue
 
 logger = logging.getLogger(__name__)
 
+# MAC-3: tkinter is imported lazily inside tcl_macro_expand so that environments
+# without python3-tk installed (headless servers, slim Docker images, CI
+# containers) can still use the macro subsystem for non-Tcl macros. Module-level
+# import here previously broke the entire CLI startup chain on those systems.
+#
+# MAC-8: Cached Tcl interpreter. tkinter.Tcl() allocation is non-trivial, and
+# re-creating one per macro evaluation is wasteful. We cache one interpreter
+# and re-bind the `puts` command on each call (because the result_output
+# closure differs per call). State (variables, procs) set by user Tcl code
+# persists between macro evaluations — same as a long-running tclsh session.
+_TCL_INTERP = None
+_TCL_IMPORT_ERROR = None  # cached so we surface the import failure once, clearly
+
+
+def _get_tcl_interpreter():
+    """Return a cached tkinter.Tcl() interpreter, importing tkinter lazily.
+
+    Returns None and logs a clear error if tkinter is not available. Callers
+    must handle the None return gracefully.
+    """
+    global _TCL_INTERP, _TCL_IMPORT_ERROR
+    if _TCL_INTERP is not None:
+        return _TCL_INTERP
+    if _TCL_IMPORT_ERROR is not None:
+        return None
+    try:
+        import tkinter
+    except Exception as e:
+        _TCL_IMPORT_ERROR = e
+        logger.error(
+            "tkinter (Python Tk bindings) is required for {{tcl ...}} macros "
+            "but could not be imported: %s. Install your platform's python3-tk "
+            "package, or avoid Tcl macros. Non-Tcl macros continue to work.",
+            e,
+        )
+        return None
+    try:
+        _TCL_INTERP = tkinter.Tcl()
+        return _TCL_INTERP
+    except Exception as e:
+        _TCL_IMPORT_ERROR = e
+        logger.error("Failed to create Tcl interpreter: %s", e, exc_info=True)
+        return None
+
 
 def load_additional_macros(macro_file_path):
     """Load additional macros from a specified JSON file.
+
+    MAC-7: a missing file is silently treated as "no additional macros" (the
+    common case for users who haven't created one). A *malformed* file is
+    surfaced to stderr in addition to the log so the user notices that their
+    custom macros disappeared because of a syntax error.
 
     Args:
         macro_file_path (str): The path to the JSON macro file.
@@ -28,10 +86,21 @@ def load_additional_macros(macro_file_path):
     try:
         with open(expanded_path, "r") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.error(
-            "Error loading macros from %s: %s", expanded_path, e
+    except FileNotFoundError:
+        logger.debug("Macros file not found at %s; using empty macro set", expanded_path)
+        return {}
+    except json.JSONDecodeError as e:
+        msg = (
+            f"Macros file at {expanded_path} has invalid JSON ({e.msg} at "
+            f"line {e.lineno} col {e.colno}); no custom macros loaded. "
+            f"Run :edit_macros to fix."
         )
+        logger.error(msg)
+        try:
+            import sys
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
         return {}
 
 
@@ -172,14 +241,20 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 return ''
 
             try:
+                tk_interp = _get_tcl_interpreter()
+                if tk_interp is None:
+                    return '[TCL ERROR: Tcl interpreter unavailable (tkinter not installed)]'
                 result_output = []
-                tk_interp = tkinter.Tcl()
 
                 def python_puts(*args):
                     # Concatenate given arguments like standard TCL puts
                     joined = ' '.join(str(a) for a in args)
                     result_output.append(joined)
 
+                # Re-bind on every call so the closure captures THIS call's
+                # result_output list. tkinter.createcommand overwrites an
+                # existing command with the same name, which is the behavior
+                # we want with a cached interpreter.
                 tk_interp.createcommand("puts", python_puts)
 
                 try:
@@ -201,15 +276,29 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
             return '[TCL ERROR: {}]'.format(str(e_outer))
 
 
-    def expand_inner_expression(expression, macro_context=None):
+    # MAC-9: bound on nested-delimiter recursion depth. Pathological inputs
+    # like 100k nested `{{...}}` would otherwise blow the Python stack with
+    # RecursionError. 64 is well above any legitimate use case.
+    MAX_RECURSION_DEPTH = 64
+
+    def expand_inner_expression(expression, macro_context=None, _depth=0):
         """Main recursive parser for macro expanding innermost occurrence.
 
         Args:
             expression (str): The macro expression.
+            macro_context: Original macro string for error logging.
+            _depth (int): Internal recursion depth counter; bail at MAX_RECURSION_DEPTH.
 
         Returns:
             tuple[str, bool, bool]: (New expression, whether any expansion occurred, is_terminal)
         """
+        if _depth > MAX_RECURSION_DEPTH:
+            logger.error(
+                "Macro expansion exceeded recursion depth %d; aborting. Expression head: %r",
+                MAX_RECURSION_DEPTH,
+                expression[:120],
+            )
+            return ('[MACRO ERROR: max recursion depth {} exceeded]'.format(MAX_RECURSION_DEPTH), True, True)
         try:
             idx_open, _ = find_next_delim(expression, delim_open)
             if idx_open == -1:
@@ -339,7 +428,7 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                     )
                     return new_expression, True, False
 
-                expanded_inner, inner_changed, _ = expand_inner_expression(macro_body, macro_context=macro if macro_context is None else macro_context)
+                expanded_inner, inner_changed, _ = expand_inner_expression(macro_body, macro_context=macro if macro_context is None else macro_context, _depth=_depth + 1)
                 logger.debug("Expanding inner macro: %s", macro_body)
                 is_terminal = False
 
@@ -367,14 +456,28 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 close_count0, delim_escape + delim_close, macro
             )
             return '[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]'.format(macro)
+        # MAC-2: cap the expansion loop so cyclic macro references (e.g.
+        # "foo": "{{bar}}", "bar": "{{foo}}") can't infinite-loop. 64 is more
+        # than enough for any legitimate nesting depth; the inner-expansion
+        # recursion handles deep nesting within a single pass.
+        MAX_EXPANSION_ITERATIONS = 64
         any_expansions = False
         macro_to_expand = macro
-        while True:
+        iterations = 0
+        while iterations < MAX_EXPANSION_ITERATIONS:
+            iterations += 1
             new_macro, changed, is_terminal = expand_inner_expression(macro_to_expand, macro_context=macro)
             any_expansions = any_expansions or changed
             if not changed or new_macro == macro_to_expand or is_terminal:
                 break
             macro_to_expand = new_macro
+        else:
+            logger.error(
+                "Macro expansion exceeded %d iterations; likely a cycle. Original macro: %r",
+                MAX_EXPANSION_ITERATIONS,
+                macro,
+            )
+            return '[MACRO ERROR: cycle detected after {} iterations]'.format(MAX_EXPANSION_ITERATIONS)
 
         logger.debug("Expanded macro: %s", macro_to_expand)
 

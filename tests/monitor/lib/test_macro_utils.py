@@ -27,25 +27,25 @@ class TestMacroUtils(unittest.TestCase):
             os.unlink(temp_path)
 
     def test_load_additional_macros_file_not_found(self):
-        """Test loading macros from non-existent file returns empty dict."""
-        with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
+        """Missing file returns empty dict; MAC-7 downgraded this to debug-level."""
+        with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             result = macro_utils.load_additional_macros('nonexistent_file.json')
-        
+
         self.assertEqual(result, {})
-        self.assertTrue(any("Error loading macros" in log for log in cm.output))
+        self.assertTrue(any("not found" in log for log in cm.output))
 
     def test_load_additional_macros_invalid_json(self):
-        """Test loading macros from file with invalid JSON."""
+        """Invalid JSON returns empty dict and surfaces an ERROR log."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             f.write('{"invalid": json}')  # Invalid JSON
             temp_path = f.name
-        
+
         try:
             with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
                 result = macro_utils.load_additional_macros(temp_path)
-            
+
             self.assertEqual(result, {})
-            self.assertTrue(any("Error loading macros" in log for log in cm.output))
+            self.assertTrue(any("invalid JSON" in log for log in cm.output))
         finally:
             os.unlink(temp_path)
 
@@ -193,13 +193,12 @@ class TestMacroUtils(unittest.TestCase):
                 os.unlink(temp_path)
 
     def test_load_additional_macros_with_tilde_path_nonexistent(self):
-        """Test load_additional_macros returns {} and logs error for non-existent '~' (home) file path."""
-        fake_home_dir = os.path.expanduser("~")
+        """Non-existent '~' (home) file path returns {} silently (MAC-7: debug, not error)."""
         bogus_tilde_path = os.path.join('~', 'this', 'file_does_not_exist_xyz.json')
-        with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
+        with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             result = macro_utils.load_additional_macros(bogus_tilde_path)
         self.assertEqual(result, {})
-        self.assertTrue(any("Error loading macros" in log for log in cm.output))
+        self.assertTrue(any("not found" in log for log in cm.output))
 
     def test_load_additional_macros_path_expansion_with_mock(self):
         """Test load_additional_macros expands '~' using os.path.expanduser via mock."""
@@ -213,12 +212,12 @@ class TestMacroUtils(unittest.TestCase):
         mock_expanduser.assert_any_call('~/fake_macros.json')
 
     def test_load_additional_macros_path_expansion_mock_error(self):
-        """Test load_additional_macros returns {} and logs error if file missing at expanded '~' path (mocked expanduser)."""
+        """Missing file at expanded '~' path returns {} silently (MAC-7: debug, not error)."""
         with patch('os.path.expanduser', side_effect=lambda p: '/mock/home/nonexistent.json'):
-            with self.assertLogs('monitor.lib.macro_utils', level='ERROR') as cm:
+            with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
                 result = macro_utils.load_additional_macros('~/nonexistent.json')
             self.assertEqual(result, {})
-            self.assertTrue(any("Error loading macros" in log for log in cm.output))
+            self.assertTrue(any("not found" in log for log in cm.output))
 
     def test_tcl_macro_expand_macro_in_non_tcl(self):
         """

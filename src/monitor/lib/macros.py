@@ -1,4 +1,26 @@
-"""Handles macro orchestration, configuration, global macro state, and all CLI/user commands. Calls stateless helpers from macro_utils."""
+"""Handles macro orchestration, configuration, global macro state, and all CLI/user commands. Calls stateless helpers from macro_utils.
+
+TRUST MODEL
+-----------
+The macros subsystem supports a {{tcl ...}} form that evaluates arbitrary Tcl
+code in a tkinter.Tcl() interpreter on the host. Tcl is *not* a sandboxed
+templating language; it can `exec` shell commands, read/write files, open
+sockets, and read environment variables.
+
+Implications:
+- ``macros.json`` is effectively executable code. Treat it with the same trust
+  as a shell script you would source. Do not import macros files from
+  untrusted sources, do not sync them across machines without review, and do
+  not accept Tcl macros from network input.
+- Macros added at runtime via ``<key=value`` (``add_macro_definition``) are
+  also unsandboxed. Anything the user types after ``<key=`` becomes
+  executable on next expansion if it uses the ``tcl`` form.
+- PRIVATE_MACRO_VALUES in this module are the only macros that cannot be
+  overridden by user input (precedence: PUBLIC < file < EPHEMERAL < PRIVATE).
+
+If you ever need to evaluate macros from a less-trusted source, the Tcl
+expansion path in ``macro_utils.tcl_macro_expand`` is the boundary to gate.
+"""
 
 import json
 import logging
@@ -43,17 +65,22 @@ PUBLIC_MACRO_VALUES = {
 def configure_macros():
     """Load, update, and configure all macro dictionaries into global MACRO_VALUES.
 
-    Loads additional macros from a file using macro_utils and combines them in
-    the correct precedence order: built-ins first (ephemeral, public), then file-based,
-    then private. The global MACRO_VALUES will be updated in-place.
+    MAC-4: precedence order (lowest → highest), since dict.update is last-wins:
+      1. PUBLIC_MACRO_VALUES — hardcoded built-in defaults
+      2. additional_macros (file-based) — user persistent overrides
+      3. EPHEMERAL_MACRO_VALUES — runtime-added by user via `<key=value`;
+         must outrank file so a reload doesn't clobber the user's current-session
+         redefinitions
+      4. PRIVATE_MACRO_VALUES — hardcoded internal macros that must not be
+         user-overridable
 
     Returns:
         None
     """
     additional_macros = load_additional_macros(config.MACRO_FILE_PATH)
-    update_macros(MACRO_VALUES, EPHEMERAL_MACRO_VALUES)
     update_macros(MACRO_VALUES, PUBLIC_MACRO_VALUES)
     update_macros(MACRO_VALUES, additional_macros)
+    update_macros(MACRO_VALUES, EPHEMERAL_MACRO_VALUES)
     update_macros(MACRO_VALUES, PRIVATE_MACRO_VALUES)
 
 
