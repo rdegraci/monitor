@@ -596,7 +596,13 @@ def chat():
 
             # Use live history count for bug-free prompt display after summarization or history reset:
             tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
-            context_remaining = config.MAX_TOKEN_COUNT - tokens_in_history
+            # Prefer MODEL_INPUT_WINDOW (CONTEXT_WINDOW - OUTPUT_WINDOW) as the
+            # budget for the C indicator so the displayed remaining matches the
+            # input-side gate the send path actually enforces. Fall back to
+            # MAX_TOKEN_COUNT when MODEL_INPUT_WINDOW isn't configured.
+            input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
+            context_budget = input_window if isinstance(input_window, int) and input_window > 0 else config.MAX_TOKEN_COUNT
+            context_remaining = context_budget - tokens_in_history
             rate_remaining = None
             try:
                 limiter = getattr(rate_limiter, "RATE_LIMITER", None)
@@ -631,6 +637,7 @@ def chat():
                 conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
                 tokens_remaining=context_remaining,  # live calculation based on current history
                 context_remaining=context_remaining,
+                context_budget=context_budget,
                 rate_remaining=rate_remaining,
                 total_used=total_used,
                 last_used=last_used,

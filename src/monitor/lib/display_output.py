@@ -53,7 +53,7 @@ def highlightMarkdown(query_result):
     print("*******************")
     print("Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S\n"))
 
-def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None, last_used=None, last_used_estimated: bool | None = None):
+def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None, last_used=None, last_used_estimated: bool | None = None, context_budget=None):
     """Format the prompt display for the CLI.
 
     Args:
@@ -96,11 +96,14 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 except Exception as log_err:
                     print(f"Error logging negative context_remaining: {log_err}")
             
-            # Calculate percentage remaining
+            # Calculate percentage remaining. Prefer the caller-supplied
+            # `context_budget` (typically MODEL_INPUT_WINDOW so the percent
+            # matches the input-side gate the send path enforces); fall back
+            # to MAX_TOKEN_COUNT for callers that don't pass it.
             try:
-                max_tokens = getattr(config, 'MAX_TOKEN_COUNT', None)
-                if max_tokens and max_tokens > 0:
-                    remaining_percent = (context_remaining / max_tokens) * 100
+                budget = context_budget if isinstance(context_budget, int) and context_budget > 0 else getattr(config, 'MAX_TOKEN_COUNT', None)
+                if budget and budget > 0:
+                    remaining_percent = (context_remaining / budget) * 100
                     context_color = red if context_remaining == 0 else blue
                     c_count = f"{context_color}{context_remaining} ({remaining_percent:.0f}%){reset}"
                 else:
@@ -119,7 +122,15 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 from monitor.lib.rate_limiter import RATE_LIMITER
                 try:
                     limit = getattr(RATE_LIMITER, 'limit', None)
-                    current = getattr(RATE_LIMITER, 'current_usage', None)
+                    # `current_usage` is a method (`get_current_usage()`),
+                    # not an attribute. The prior code did
+                    # `getattr(RATE_LIMITER, 'current_usage', None)` which
+                    # always returned None and silently disabled this
+                    # fallback. Call the real API.
+                    current = None
+                    get_current = getattr(RATE_LIMITER, 'get_current_usage', None)
+                    if callable(get_current):
+                        current = get_current()
                     if limit is not None and current is not None:
                         rate_remaining = limit - current
                 except Exception:
