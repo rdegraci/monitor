@@ -164,6 +164,63 @@ MODEL_SWITCH_SUMMARY_MESSAGE = "Conversation reset/autosummarized to fit new mod
 TOKEN_EXCEED_WARNING = "Warning: Token usage exceeds the new model context window. Please summarize or reset."
 
 
+def get_prompt_safety_margin():
+    """Compute a conservative safety margin for displayed prompt context remaining."""
+    safety_margin = 128
+    try:
+        if getattr(config, "AGENT", False):
+            return 512
+
+        tool_indicators = (
+            getattr(config, "TOOLS_ENABLED", False),
+            getattr(config, "TOOL_CALLS_ENABLED", False),
+            getattr(config, "RESPONSES_API_MODE", False),
+            getattr(config, "RESPONSE_API_MODE", False),
+            getattr(config, "USE_RESPONSES_API", False),
+            getattr(config, "RESPONSES_API", False),
+        )
+        tool_active = any(bool(flag) for flag in tool_indicators)
+        if tool_active:
+            safety_margin = 256
+
+        history = getattr(config, "CONVERSATION_HISTORY", None) or []
+        recent_history = list(history[-12:])
+        tool_heavy = False
+        for message in recent_history:
+            if not isinstance(message, dict):
+                continue
+
+            role = message.get("role", "")
+            if role in ("tool", "function"):
+                tool_heavy = True
+                break
+
+            structured_tool_fields = (
+                "tool_calls",
+                "function_call",
+                "call_id",
+                "output",
+            )
+            if any(field in message and message.get(field) is not None for field in structured_tool_fields):
+                tool_heavy = True
+                break
+
+            content = message.get("content", None)
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and any(
+                        key in item and item.get(key) is not None
+                        for key in structured_tool_fields
+                    ):
+                        tool_heavy = True
+                        break
+                if tool_heavy:
+                    break
+    except Exception:
+        safety_margin = 128
+    return safety_margin
+
+
 def post_social_media_summaries():
     """Generate and post summaries to social media (robust error handling per platform)"""
 
@@ -607,6 +664,21 @@ def chat():
             input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
             context_budget = input_window if isinstance(input_window, int) and input_window > 0 else config.MAX_TOKEN_COUNT
             context_remaining = context_budget - tokens_in_history
+            prompt_safety_margin = get_prompt_safety_margin()
+            adjusted_context_remaining = max(0, context_remaining - prompt_safety_margin)
+            logger.info(
+                "Prompt context remaining computed: raw_context_remaining=%s safety_margin=%s adjusted_context_remaining=%s",
+                context_remaining,
+                prompt_safety_margin,
+                adjusted_context_remaining,
+            )
+            logger.debug(
+                "Prompt safety margin selected: margin=%s context_remaining=%s adjusted_context_remaining=%s",
+                prompt_safety_margin,
+                context_remaining,
+                adjusted_context_remaining,
+            )
+
             rate_remaining = None
             try:
                 limiter = getattr(rate_limiter, "RATE_LIMITER", None)
@@ -639,8 +711,8 @@ def chat():
             last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
             prompt = format_prompt_display(
                 conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
-                tokens_remaining=context_remaining,  # live calculation based on current history
-                context_remaining=context_remaining,
+                tokens_remaining=adjusted_context_remaining,  # adjusted for display safety margin
+                context_remaining=adjusted_context_remaining,
                 context_budget=context_budget,
                 rate_remaining=rate_remaining,
                 total_used=total_used,
