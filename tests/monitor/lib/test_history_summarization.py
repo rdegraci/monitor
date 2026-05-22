@@ -88,11 +88,12 @@ def conversation_and_config(sample_conversation, config):
         lambda convo, cfg: _fill_tokens_to_threshold(cfg, convo, cfg.SUMMARIZATION_CONFIG, cfg.MAX_TOKEN_COUNT),
         True
     ),
-    (
-        "conversation_size",
-        lambda convo, cfg: _fill_to_conversation_size(cfg, convo, cfg.CONVERSATION_MAX_SIZE),
-        True
-    ),
+    # NOTE: a "conversation_size" positive case used to live here. It tested
+    # that hitting CONVERSATION_MAX_SIZE (with token pressure) triggered
+    # summarization. The trigger has been removed (token pressure alone now
+    # drives compaction; message count is observation-only), so the positive
+    # case no longer applies. The two negative cases below still verify that
+    # conversation_size does NOT cause summarization on its own.
     (
         "time_limit_seconds",
         lambda convo, cfg: _simulate_time_trigger(cfg, convo, cfg.SUMMARIZATION_CONFIG['triggers']['time_limit_seconds']),

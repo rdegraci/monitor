@@ -710,7 +710,13 @@ def chat():
             last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
             last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
             prompt = format_prompt_display(
-                conversation_count=len(config.CONVERSATION_HISTORY),  # IMPORTANT: Use live state for accuracy
+                # H reports the count of user/assistant/tool messages — system
+                # messages are excluded so a fresh session shows H:0 (rather
+                # than H:1 for the system prompt that's in history from startup).
+                conversation_count=sum(
+                    1 for m in config.CONVERSATION_HISTORY
+                    if isinstance(m, dict) and m.get("role") != "system"
+                ),
                 tokens_remaining=adjusted_context_remaining,  # adjusted for display safety margin
                 context_remaining=adjusted_context_remaining,
                 context_budget=context_budget,
@@ -720,16 +726,13 @@ def chat():
                 last_used_estimated=last_used_estimated,
                 cwd=os.getcwd(),
                 model=config.MODEL,  # live config.MODEL value
-                # Show H:<count>/<cap> instead of H:<count>(<delta>). The
-                # /<cap> form makes the limit obvious without mental math and
-                # matches the polarity of how fuel-gauge / disk-usage style
-                # indicators are typically read. Falls back to no denominator
-                # when CONVERSATION_MAX_SIZE is unset or non-positive.
-                extra_history_str=(
-                    f"/{config.CONVERSATION_MAX_SIZE}"
-                    if isinstance(config.CONVERSATION_MAX_SIZE, int) and config.CONVERSATION_MAX_SIZE > 0
-                    else ""
-                ),
+                # H shows the current message count only. Compaction is now
+                # driven by token pressure (not message count), so there's no
+                # meaningful cap to display alongside. The count drops to ~3
+                # naturally after each compaction (reset rebuilds history as
+                # [system, summary, last_user_input]) and climbs back as
+                # messages accumulate.
+                extra_history_str="",
             )
             user_input = get_input(prompt, session=session)
 

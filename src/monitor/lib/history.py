@@ -793,35 +793,27 @@ def check_limits(
             logger.info(
                 f"Messages using many tokens ({avg_tokens_per_message:.1f}/msg). Consider ':history_size {optimal_history_size}'"
             )
-    # Gate secondary triggers behind token pressure.
+    # Compaction policy:
     #
     # The token trigger (``over_token_limit``, derived from
     # ``token_threshold * max_token_count``) is the primary, load-bearing
-    # compaction signal. The other three triggers (history-size, time, memory)
-    # used to fire summarization on their own, which produced nuisance
-    # compactions in common situations:
+    # compaction signal. The remaining secondary triggers (time, memory) only
+    # contribute to ``should_summarize`` when token usage is also above
+    # ``SECONDARY_PRESSURE_RATIO`` of ``max_token_count``.
     #
-    #   - ``time_limit_seconds`` (default 3600s) → any pause longer than an
-    #     hour triggered a full summarization LLM call on the next message,
-    #     even when conversation was small.
-    #   - ``memory_limit_mb`` measures the Python object size in MB and rarely
-    #     fires in practice, but when it does it's decoupled from actual LLM
-    #     budget pressure.
-    #   - ``CONVERSATION_MAX_SIZE`` (message count) triggers regardless of
-    #     message size, so short-message conversations summarize early.
-    #
-    # New shape: secondary triggers only contribute to ``should_summarize``
-    # when token usage is also above ``SECONDARY_PRESSURE_RATIO`` of
-    # ``max_token_count``. The token trigger continues to fire on its own.
-    # Raw trigger flags are still surfaced in ``trigger_reasons`` so callers
-    # and tests can inspect which underlying conditions were observed.
+    # ``over_history_limit`` (CONVERSATION_MAX_SIZE / message-count check) is
+    # NO LONGER a trigger. Token pressure handles compaction; message count
+    # alone is a poor proxy for "should we compact" because it ignores
+    # per-message size variance. The flag is still computed and surfaced in
+    # ``trigger_reasons['history']`` for observability — callers can inspect
+    # "history is at N messages" without it firing compaction.
     SECONDARY_PRESSURE_RATIO = 0.5
     under_secondary_pressure = (
         isinstance(max_token_count, int)
         and max_token_count > 0
         and total_token_count > SECONDARY_PRESSURE_RATIO * max_token_count
     )
-    secondary_trigger = over_history_limit or time_limit_exceeded or memory_limit_exceeded
+    secondary_trigger = time_limit_exceeded or memory_limit_exceeded
     should_summarize = over_token_limit or (under_secondary_pressure and secondary_trigger)
     logger.debug(
         f"[CHECK_LIMITS EXIT] should_summarize = {should_summarize} "
