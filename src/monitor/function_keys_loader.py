@@ -51,7 +51,7 @@ def load_function_keys_config(file_path=None):
         file_path: Optional path to function_keys.json or config directory.
 
     Returns:
-        Normalized function key mapping.
+        Normalized function key group mapping.
 
     Raises:
         RuntimeError: If the file is missing, invalid, or fails validation.

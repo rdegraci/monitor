@@ -364,7 +364,7 @@ def open_function_keys_editor(path=None):
 
 
 def edit_function_keys_command(arg=None):
-    """Edit function key mappings and apply them after saving.
+    """Edit grouped function key bindings and apply them after saving.
 
     Args:
         arg: Optional dispatcher argument. If provided as a string path, it is
@@ -379,8 +379,9 @@ def edit_function_keys_command(arg=None):
         if not config_path:
             return None
 
-        mapping = load_function_keys_config(config_path)
-        configure_function_key_insertions(mapping)
+        grouped_bindings = load_function_keys_config(config_path)
+        configure_function_key_insertions(grouped_bindings)
+        logger.info("Applied grouped function key bindings from %s", config_path)
         print(f"Function keys configuration updated and applied: {config_path}")
         return config_path
     except Exception as e:
