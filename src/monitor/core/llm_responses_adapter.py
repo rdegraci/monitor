@@ -80,6 +80,16 @@ MESSAGE_CONTENT_LIST_ITEM_KEYS = ("content", "text", "message")
 MAX_FUNCTION_CALL_ITERATIONS = 256
 SUMMARY_MAX_OUTPUT_TOKENS = 2048
 
+# Safety margin applied to input_window before deciding whether a request
+# fits the model's context. `count_message_tokens` undercounts by 10-30% on
+# Responses API payloads because it doesn't see server-side cached context
+# (chained via previous_response_id), tool definitions, or the wrapping
+# overhead on `function_call_output` items. We budget against a slightly
+# smaller window so an undercounted estimate that "fits" doesn't trip an
+# OpenAI 400 context_length_exceeded on the wire. 0.85 catches most
+# undercounts; lower it further if 400s persist on your traffic.
+INPUT_WINDOW_SAFETY_RATIO = 0.85
+
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
     global client
@@ -637,17 +647,28 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                     iw = getattr(config, "MODEL_INPUT_WINDOW", None)
                     cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
                     input_window = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
+                    # Effective budget = safety-margined input_window. Used
+                    # for "should I trim" and "is this still too big" checks.
+                    # The TRIM TARGET below stays at 80% of input_window
+                    # (tighter than the safety budget) so trimming reliably
+                    # brings the payload below the effective budget.
+                    effective_input_window = (
+                        int(input_window * INPUT_WINDOW_SAFETY_RATIO)
+                        if input_window is not None else None
+                    )
                     if input_window is not None:
                         try:
                             followup_input = followup_params.get(REQUEST_PARAM_INPUT)
                             if isinstance(followup_input, list):
                                 followup_tokens = count_message_tokens(followup_input)
                                 logger.info(
-                                    "Pre-flight follow-up payload token check: original=%s tokens, limit=%s tokens",
+                                    "Pre-flight follow-up payload token check: original=%s tokens, effective limit=%s tokens (input_window=%s, safety=%.2f)",
                                     followup_tokens,
+                                    effective_input_window,
                                     input_window,
+                                    INPUT_WINDOW_SAFETY_RATIO,
                                 )
-                                if followup_tokens > input_window:
+                                if followup_tokens > effective_input_window:
                                     trim_target = max(1, int(input_window * 0.8))
                                     trimmed_input = []
                                     running_tokens = 0
@@ -717,10 +738,11 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                     final_followup_tokens,
                                     input_window,
                                 )
-                                if final_followup_tokens > input_window:
+                                if final_followup_tokens > effective_input_window:
                                     logger.warning(
-                                        "Skipping follow-up responses.create because final payload still exceeds context window (%s tokens > %s)",
+                                        "Skipping follow-up responses.create because final payload still exceeds effective context window (%s tokens > %s; safety-margined from %s)",
                                         final_followup_tokens,
+                                        effective_input_window,
                                         input_window,
                                     )
                                     break
@@ -1620,10 +1642,19 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
         input_window_limit = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
         if input_window_limit is None:
             logger.debug("Input size gating is disabled: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured (responses API)")
-        elif estimated_tokens > input_window_limit:
-            error_msg = f"Input too large: {estimated_tokens} tokens vs input window {input_window_limit}. Cannot send request to responses API. Please reduce your input or send a smaller request."
-            logger.error(error_msg)
-            return None, error_msg
+        else:
+            # Apply safety margin — count_message_tokens undercounts by 10-30%
+            # vs. OpenAI's actual input-token tally for Responses API payloads
+            # (server-side cached context, tool definitions, output-item wrapping).
+            effective_input_window_limit = int(input_window_limit * INPUT_WINDOW_SAFETY_RATIO)
+            if estimated_tokens > effective_input_window_limit:
+                error_msg = (
+                    f"Input too large: {estimated_tokens} tokens vs effective input window "
+                    f"{effective_input_window_limit} (safety-margined from {input_window_limit}). "
+                    f"Cannot send request to responses API. Please reduce your input or send a smaller request."
+                )
+                logger.error(error_msg)
+                return None, error_msg
 
         # Apply rate limiting if configured
         if hasattr(config, "RATE_LIMITER") and rate_limiter.RATE_LIMITER:
