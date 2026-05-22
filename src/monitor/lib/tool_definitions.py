@@ -41,6 +41,7 @@ from monitor.lib.text_file_editor import (
 
 from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_text_file_editor_tools, get_first_segment, remove_openai_editor_tools
 from monitor.lib.protocol_engine import modify_source_code
+from monitor.lib.find_files import find_files
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.todo import add_todo, list_todos, update_todo, clear_todos
 
@@ -74,6 +75,7 @@ AVAILABLE_TOOLS = {
     "deploy_model": deploy_model_command,
     "monitor_model_performance": monitor_model_performance_command,
     "modify_source_code": modify_source_code,
+    "find_files": find_files,
     "run_python_tests": run_python_tests,
     "text_file_or_directory_view": text_file_or_directory_view,
     "text_file_create": text_file_create,
@@ -248,6 +250,47 @@ TOOL_DESCRIPTIONS = [
           "required": ["source_file", "modification_request"]
         }
       }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_files",
+            "description": (
+                "Find files by basename pattern, recursively, under a root directory. "
+                "Always recurses. Common build/cache directories (.git, node_modules, "
+                ".venv, __pycache__, DerivedData, .build, Pods, etc.) are pruned by "
+                "default. Use this to locate files BEFORE reading them with cat_file. "
+                "Pattern is a glob (*, ?, [...]) matched against each file's basename. "
+                "Case-sensitive. To scope to a subdirectory, set `root` rather than "
+                "embedding a path in the pattern."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": (
+                            "Basename glob pattern, e.g. '*.py', 'test_*.swift', "
+                            "'Manager*.swift'. A leading '**/' is stripped. Patterns "
+                            "containing '/' are rejected — use `root` for directory scoping."
+                        ),
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Directory to search under. Defaults to cwd.",
+                    },
+                    "include_hidden": {
+                        "type": "boolean",
+                        "description": "If true, include hidden files and dirs. Default false.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Cap on number of results. Default 200.",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
     },
     {
         "type": "function",
@@ -689,6 +732,37 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "modification_request"
       ],
       "type": "object"
+    }
+  },
+  {
+    "description": (
+        "Find files by basename pattern, recursively, under a root directory. "
+        "Excludes common build/cache dirs by default (.git, node_modules, "
+        ".venv, __pycache__, DerivedData, .build, Pods, etc.). Use `root` to "
+        "scope to a subdirectory; patterns with '/' are rejected."
+    ),
+    "name": "find_files",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Basename glob pattern, e.g. '*.py' or 'test_*.swift'."
+        },
+        "root": {
+          "type": "string",
+          "description": "Directory to search. Defaults to cwd."
+        },
+        "include_hidden": {
+          "type": "boolean",
+          "description": "If true, include hidden files. Default false."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Cap on number of results. Default 200."
+        }
+      },
+      "required": ["pattern"]
     }
   },
   {
