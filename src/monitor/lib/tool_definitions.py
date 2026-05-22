@@ -41,6 +41,7 @@ from monitor.lib.text_file_editor import (
 
 from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_text_file_editor_tools, get_first_segment, remove_openai_editor_tools
 from monitor.lib.protocol_engine import modify_source_code
+from monitor.lib.test_runner import run_python_tests
 from monitor.lib.todo import add_todo, list_todos, update_todo, clear_todos
 
 TOOL_STATE = {}
@@ -73,6 +74,7 @@ AVAILABLE_TOOLS = {
     "deploy_model": deploy_model_command,
     "monitor_model_performance": monitor_model_performance_command,
     "modify_source_code": modify_source_code,
+    "run_python_tests": run_python_tests,
     "text_file_or_directory_view": text_file_or_directory_view,
     "text_file_create": text_file_create,
     "text_file_str_replace_in_file": text_file_str_replace_in_file,
@@ -246,6 +248,46 @@ TOOL_DESCRIPTIONS = [
           "required": ["source_file", "modification_request"]
         }
       }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python_tests",
+            "description": (
+                "Run pytest from the current working directory and return the exit code, "
+                "a one-line summary, and the (tail-truncated) test output. Use this AFTER "
+                "making code changes to verify them, or to investigate a specific failing "
+                "test before fixing. SIDE EFFECT: tests can write files, touch databases, "
+                "or send network requests — this is not a read-only operation. Prefer "
+                "scoping with `path` (e.g. 'tests/monitor/lib/test_foo.py') over running "
+                "the full suite."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path or pattern to scope the test run. Defaults to "
+                            "'tests/' if that directory exists in cwd, else '.'."
+                        ),
+                    },
+                    "pytest_args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of additional pytest CLI flags, e.g. "
+                            "['-k', 'test_foo'] or ['-x', '-v']. Leading '-' required."
+                        ),
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Max runtime before the test process is killed. Default 120.",
+                    },
+                },
+                "required": [],
+            },
+        },
     },
     {
         "type": "function",
@@ -647,6 +689,34 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "modification_request"
       ],
       "type": "object"
+    }
+  },
+  {
+    "description": (
+        "Run pytest from the current working directory and return the exit code, "
+        "a one-line summary, and the (tail-truncated) test output. SIDE EFFECT: "
+        "tests can write files, touch databases, or send network requests. "
+        "Prefer scoping with `path` over full-suite runs."
+    ),
+    "name": "run_python_tests",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional path or pattern to scope the run."
+        },
+        "pytest_args": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Optional list of additional pytest CLI flags."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Max runtime before the test process is killed."
+        }
+      },
+      "required": []
     }
   },
   {
