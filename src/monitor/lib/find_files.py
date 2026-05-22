@@ -59,7 +59,7 @@ DEFAULT_EXCLUDED_DIRS = frozenset({
 })
 
 
-def find_files(pattern: str, root: str = None, include_hidden: bool = False, max_results: int = None):
+def find_files(pattern: str, root: str | None = None, include_hidden: bool = False, max_results: int | None = None):
     """Find files matching a glob pattern under root, returning a structured result.
 
     Args:

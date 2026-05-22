@@ -22,7 +22,7 @@ MAX_OUTPUT_CHARS = 10000
 DEFAULT_TIMEOUT_SECONDS = 120
 
 
-def run_python_tests(path: str = None, pytest_args: list = None, timeout_seconds: int = None):
+def run_python_tests(path: str | None = None, pytest_args: list | None = None, timeout_seconds: int | None = None):
     """Run pytest in the current working directory and return a structured result dict.
 
     Args:

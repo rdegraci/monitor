@@ -39,6 +39,7 @@ dependencies = [
     "openai==2.9.0",
     "requests==2.31.0",
     "joblib==1.4.2",
+    "mypy==2.1.0",
     # Platform-specific libmagic bindings to enable seamless file type detection:
     # - python-magic for non-Windows platforms
     # - python-magic-bin for Windows platforms

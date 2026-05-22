@@ -43,6 +43,7 @@ from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_te
 from monitor.lib.protocol_engine import modify_source_code
 from monitor.lib.find_files import find_files
 from monitor.lib.test_runner import run_python_tests
+from monitor.lib.type_checker import type_check_python
 from monitor.lib.todo import add_todo, list_todos, update_todo, clear_todos
 
 TOOL_STATE = {}
@@ -77,6 +78,7 @@ AVAILABLE_TOOLS = {
     "modify_source_code": modify_source_code,
     "find_files": find_files,
     "run_python_tests": run_python_tests,
+    "type_check_python": type_check_python,
     "text_file_or_directory_view": text_file_or_directory_view,
     "text_file_create": text_file_create,
     "text_file_str_replace_in_file": text_file_str_replace_in_file,
@@ -326,6 +328,45 @@ TOOL_DESCRIPTIONS = [
                     "timeout_seconds": {
                         "type": "integer",
                         "description": "Max runtime before the test process is killed. Default 120.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "type_check_python",
+            "description": (
+                "Run a Python type checker (mypy or pyright) on a path and return the exit "
+                "code, summary, and tail-truncated output. Prefers mypy; falls back to pyright. "
+                "Use AFTER making Python type-affecting changes to verify types still check, "
+                "or to investigate a specific type error before fixing. Checker reads project "
+                "config (mypy.ini, pyproject.toml [tool.mypy] / [tool.pyright], pyrightconfig.json) "
+                "so strictness is project-defined. Read-only with respect to source (may write "
+                "checker cache files like .mypy_cache/)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Path to check. Defaults to 'src/' if that directory exists in "
+                            "cwd, else '.'."
+                        ),
+                    },
+                    "checker": {
+                        "type": "string",
+                        "enum": ["mypy", "pyright"],
+                        "description": (
+                            "Force a specific checker. Default: auto-detect (prefers mypy)."
+                        ),
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Max runtime before checker is killed. Default 120.",
                     },
                 },
                 "required": [],
@@ -788,6 +829,32 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "timeout_seconds": {
           "type": "integer",
           "description": "Max runtime before the test process is killed."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "description": (
+        "Run a Python type checker (mypy or pyright) and return exit code, summary, "
+        "and tail-truncated output. Prefers mypy; falls back to pyright. "
+        "Reads project config for strictness. Read-only with respect to source."
+    ),
+    "name": "type_check_python",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to check. Defaults to 'src/' if present, else '.'."
+        },
+        "checker": {
+          "type": "string",
+          "description": "Force checker: 'mypy' or 'pyright'. Default: auto-detect."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Max runtime before checker is killed. Default 120."
         }
       },
       "required": []
