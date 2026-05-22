@@ -65,8 +65,8 @@ Testing:
 - Test public APIs and observable outcomes — never internals, private helpers, or exact internal call order.
 - Simulate failure through boundary state (filesystem, env vars, dependency injection) — never by patching internals.
 - Use real tempfiles/dirs when filesystem behavior is under test. Avoid monkeypatching Path, __file__, or low-level OS primitives.
-- If a behavior is hard to test cleanly, expose a small public seam in production code rather than testing internals.
-- If a test requires a hack to pass, redesign the test or the code.
+- If a behavior is hard to test cleanly, do not test internals or add a public seam just to make the test possible.
+- If a test would require a hack to pass, do not write the test; explain why instead.
 - Prefer running the tests over reasoning about whether code "should" work.
 
 Response style:
