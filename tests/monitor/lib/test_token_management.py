@@ -78,7 +78,7 @@ class TestTokenManagement(unittest.TestCase):
     def test_update_token_usage_with_response_object(self):
         """Test updating token usage with a response object containing usage info."""
         config.TOTAL_TOKEN_COUNT = 200
-        
+
         mock_response = MagicMock()
         mock_response.usage.total_tokens = 75
 
@@ -88,6 +88,64 @@ class TestTokenManagement(unittest.TestCase):
         self.assertEqual(config.TOTAL_TOKEN_COUNT, 275)
         self.assertEqual(config.LAST_REQUEST_TOKEN_COUNT, 75)
         self.assertEqual(config.LAST_REQUEST_USED_ESTIMATE, False)
+
+    def test_update_token_usage_accumulates_session_cost(self):
+        """When a response object is passed, SESSION_COST_USD grows by the
+        cost litellm reports for that response. Patches litellm.completion_cost
+        at the dependency boundary (not a private/internal in our code)."""
+        config.TOTAL_TOKEN_COUNT = 0
+        config.SESSION_COST_USD = 0.0
+
+        mock_response = MagicMock()
+        mock_response.usage.total_tokens = 100
+
+        with patch("litellm.completion_cost", return_value=0.0042):
+            update_token_usage(mock_response)
+
+        self.assertAlmostEqual(config.SESSION_COST_USD, 0.0042, places=6)
+
+        # A second response should keep accumulating, not overwrite.
+        with patch("litellm.completion_cost", return_value=0.0010):
+            update_token_usage(mock_response)
+
+        self.assertAlmostEqual(config.SESSION_COST_USD, 0.0052, places=6)
+
+    def test_session_total_tokens_persists_across_total_token_count_reset(self):
+        """SESSION_TOTAL_TOKENS is the cumulative session counter — it must
+        keep growing across update_token_usage calls even when
+        TOTAL_TOKEN_COUNT is reset elsewhere (simulating compaction)."""
+        config.TOTAL_TOKEN_COUNT = 0
+        config.SESSION_TOTAL_TOKENS = 0
+
+        update_token_usage(100)
+        self.assertEqual(config.SESSION_TOTAL_TOKENS, 100)
+
+        # Simulate a compaction that reassigns TOTAL_TOKEN_COUNT to "current
+        # history size" — SESSION_TOTAL_TOKENS must NOT follow.
+        config.TOTAL_TOKEN_COUNT = 30
+
+        update_token_usage(50)
+
+        # TOTAL_TOKEN_COUNT was reset and then incremented by 50 → 80
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, 80)
+        # SESSION_TOTAL_TOKENS kept accumulating regardless: 100 + 50 = 150
+        self.assertEqual(config.SESSION_TOTAL_TOKENS, 150)
+
+    def test_update_token_usage_cost_failure_does_not_break_token_count(self):
+        """If litellm.completion_cost raises, token counting still works."""
+        config.TOTAL_TOKEN_COUNT = 0
+        config.SESSION_COST_USD = 0.0
+
+        mock_response = MagicMock()
+        mock_response.usage.total_tokens = 100
+
+        with patch("litellm.completion_cost", side_effect=RuntimeError("rate table miss")):
+            result = update_token_usage(mock_response)
+
+        self.assertEqual(result, 100)
+        self.assertEqual(config.TOTAL_TOKEN_COUNT, 100)
+        # Cost stays at 0 because litellm raised, but tokens were counted.
+        self.assertEqual(config.SESSION_COST_USD, 0.0)
 
     def test_update_token_usage_with_invalid_response_object(self):
         """Test updating token usage with a response object without usage info."""

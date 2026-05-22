@@ -155,6 +155,25 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         if total_used is not None:
             used_color = red if total_used == 0 else blue
             u_count = f"{used_color}{total_used}{reset}"
+            # Optional cost estimate after U. Controlled by config.SHOW_COST_ESTIMATE
+            # (default True if unset in YAML). The tilde signals "estimate" —
+            # cache hits and provider-specific pricing quirks make the number
+            # accurate to roughly ±20%. Resets on set_model().
+            try:
+                if getattr(config, "SHOW_COST_ESTIMATE", True):
+                    session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
+                    if session_cost > 0:
+                        # Show 3 decimals for sub-dollar amounts (so single-
+                        # request costs like $0.012 stay visible) and switch
+                        # to 2 decimals once the cumulative cost reaches $1.
+                        if session_cost < 1.0:
+                            cost_str = f"{session_cost:.3f}"
+                        else:
+                            cost_str = f"{session_cost:.2f}"
+                        u_count = f"{u_count} (~${cost_str})"
+            except Exception:
+                # Cost annotation must never break the prompt display.
+                logger.debug("Failed to format SESSION_COST_USD", exc_info=True)
     except Exception as e:
         u_count = "Error in calculating total usage"
         logger.error(f"Error: {e}", exc_info=True)

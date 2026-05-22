@@ -706,7 +706,13 @@ def chat():
                         pass
             except Exception:
                 rate_remaining = None
-            total_used = getattr(config, "TOTAL_TOKEN_COUNT", None)
+            # U reads SESSION_TOTAL_TOKENS (pure cumulative, parallel to
+            # SESSION_COST_USD) rather than TOTAL_TOKEN_COUNT, which is
+            # overwritten by compaction with "current history size" and so
+            # would drop dramatically after each summarization. The new
+            # counter persists across compaction and only resets on
+            # set_model() or :reset_history.
+            total_used = getattr(config, "SESSION_TOTAL_TOKENS", None)
             last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
             last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
             prompt = format_prompt_display(

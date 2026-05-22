@@ -493,6 +493,20 @@ LINKEDIN_CLIENT_API = None
 DEFAULT_EXCLUDE_EXTENSIONS = None
 DEFAULT_EXCLUDE_GLOBS = None
 FUNCTION_KEY_INSERTIONS = {}
+# Cost-display feature. SHOW_COST_ESTIMATE is read from config.yaml
+# (default True if absent). SESSION_COST_USD accumulates the litellm-reported
+# cost of each LLM response in this session; it resets to 0 on set_model().
+# Display side is opt-out — set SHOW_COST_ESTIMATE: false in YAML to hide it.
+SHOW_COST_ESTIMATE = None
+# Pure cumulative session counters, parallel to each other:
+#   - SESSION_TOTAL_TOKENS: tokens consumed across all LLM calls this session
+#   - SESSION_COST_USD: USD cost of those tokens per litellm's rate tables
+# Both reset on set_model() (rates differ between models) and on
+# :reset_history (user-explicit fresh start). NEITHER resets on compaction —
+# compaction shrinks history, but the tokens were already spent and the
+# summarization call itself spends more.
+SESSION_TOTAL_TOKENS = 0
+SESSION_COST_USD = 0.0
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
@@ -510,7 +524,7 @@ def configure_globals():
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
     global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
-    global FUNCTION_KEY_INSERTIONS
+    global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -604,6 +618,7 @@ def configure_globals():
     )
 
     EXTERNAL_SERVICES = yaml_config.get("EXTERNAL_SERVICES", False)
+    SHOW_COST_ESTIMATE = yaml_config.get("SHOW_COST_ESTIMATE", True)
     SUMMARY_TWITCH = yaml_config.get("SUMMARY_TWITCH", False)
     SUMMARY_LINKEDIN = yaml_config.get("SUMMARY_LINKEDIN", False)
     SUMMARY_TWITTER = yaml_config.get("SUMMARY_TWITTER", False)
@@ -1044,7 +1059,7 @@ def set_model(model_key: str) -> bool:
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
-    global CONVERSATION_HISTORY, RESPONSE_ID
+    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1121,6 +1136,11 @@ def set_model(model_key: str) -> bool:
 
     MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
     TOTAL_TOKEN_COUNT = 0
+    # Reset cumulative session counters: rates change per model, so
+    # accumulating across a model switch would mix prices/tokens of
+    # different rates. Both reset together to stay consistent.
+    SESSION_TOTAL_TOKENS = 0
+    SESSION_COST_USD = 0.0
 
     if isinstance(CONVERSATION_HISTORY, list):
         CONVERSATION_HISTORY.clear()

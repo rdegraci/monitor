@@ -262,6 +262,10 @@ def reset_conversation_history_command(arg=None):
         config.CONVERSATION_HISTORY.clear()
         config.CONVERSATION_HISTORY.append({"role": "system", "content": build_system_prompt(session_id=getattr(config, "SESSION_ID", None))})
         config.TOTAL_TOKEN_COUNT = 0
+        # :reset_history is user-explicit "start fresh" — clear the session
+        # cumulative counters too so U and (~$N.NN) reset alongside.
+        config.SESSION_TOTAL_TOKENS = 0
+        config.SESSION_COST_USD = 0.0
         config.RESPONSE_ID = None
         print("Conversation history was reset to initial system prompt.")
     except Exception as e:

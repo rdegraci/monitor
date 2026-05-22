@@ -155,7 +155,7 @@ def get_last_request_token_usage() -> tuple[int | None, bool]:
         return None, False
 
 
-def update_token_usage(tokens_or_response, *, used_estimate: bool = False):
+def update_token_usage(tokens_or_response, *, used_estimate: bool = False, response=None):
     """
     Canonical function to update the total token count in config.TOTAL_TOKEN_COUNT.
     This is THE ONLY approved location for token count increment logic.
@@ -165,6 +165,13 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False):
     Args:
         tokens_or_response (int or object):
           int for token count, or object with `usage.total_tokens` attribute
+        used_estimate (bool): True if the int was a pre-call estimate rather
+          than provider-reported actual.
+        response: Optional model response object used purely for cost
+          computation via litellm.completion_cost. Pass the original LLM
+          response when available even if you also passed extracted token
+          count in `tokens_or_response`. Without this, cost cannot be
+          computed and the (~$N.NN) display stays at $0.
 
     Returns:
         int: Updated total token count
@@ -193,6 +200,8 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False):
                     set_last_request_token_usage(int(tokens), used_estimate=False)
                 except Exception:
                     logger.error("Failed to set last request token usage from response usage", exc_info=True)
+            # Cost computation handled below alongside the int-path so a
+            # single block covers both call conventions.
         elif isinstance(tokens_or_response, (int, float)):
             tokens = int(tokens_or_response)
             try:
@@ -218,9 +227,43 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False):
         # Ensure tokens is not None before performing addition
         tokens_to_add = 0 if tokens is None else tokens
 
+        # Cost computation. Accept the response either as the primary arg
+        # (when it's a model response object) or via the `response=` kwarg
+        # (when the caller already extracted tokens but still has the
+        # response in scope). Wrapped in its own try/except so litellm
+        # failures (unknown model, stale rates, malformed response) NEVER
+        # break the token-counting path. Cost is an estimate — caching
+        # discounts aren't reliably visible to litellm — and resets on
+        # set_model() and :reset_history.
+        cost_response = None
+        if response is not None:
+            cost_response = response
+        elif hasattr(tokens_or_response, "usage"):
+            cost_response = tokens_or_response
+        if cost_response is not None:
+            try:
+                import litellm
+                cost = litellm.completion_cost(completion_response=cost_response)
+                if isinstance(cost, (int, float)) and cost > 0:
+                    current_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
+                    config.SESSION_COST_USD = current_cost + float(cost)
+            except Exception:
+                logger.debug("Failed to compute completion cost via litellm", exc_info=True)
+
         # Update the count
         try:
             config.TOTAL_TOKEN_COUNT += tokens_to_add
+            # Also accumulate into the pure-cumulative session counter.
+            # SESSION_TOTAL_TOKENS, unlike TOTAL_TOKEN_COUNT, is never
+            # overwritten by compaction paths — it reflects spend across
+            # the whole session, paralleling SESSION_COST_USD. Display
+            # reads from this for U so the indicator stays meaningful
+            # across compactions.
+            try:
+                current_session = getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+                config.SESSION_TOTAL_TOKENS = current_session + tokens_to_add
+            except Exception:
+                logger.debug("Failed to update SESSION_TOTAL_TOKENS", exc_info=True)
             return config.TOTAL_TOKEN_COUNT
         except Exception:
             logger.error("Failed to update TOTAL_TOKEN_COUNT", exc_info=True)

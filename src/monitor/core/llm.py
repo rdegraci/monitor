@@ -704,7 +704,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             logger.info(f"{log_prefix} LLM token usage: {details}")
         except Exception:
             pass
-        update_token_usage(actual_used, used_estimate=fallback_estimated)
+        update_token_usage(actual_used, used_estimate=fallback_estimated, response=response)
         rate_limiter.RATE_LIMITER.add_request(actual_used, request_id=request_id)
 
         logger.debug(f"{log_prefix} Received response from the language model.")

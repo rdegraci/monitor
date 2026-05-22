@@ -369,7 +369,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
         # Update token usage and rate limiter immediately for the initial response
         try:
-            update_token_usage(actual_tokens, used_estimate=used_estimate)
+            update_token_usage(actual_tokens, used_estimate=used_estimate, response=response)
             logger.debug(
                 f"Updated token usage with {actual_tokens} tokens from OpenAI response"
             )
@@ -814,7 +814,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                     # Update token usage and rate limiter for follow-up
                     try:
-                        update_token_usage(follow_tokens, used_estimate=follow_used_estimate)
+                        update_token_usage(follow_tokens, used_estimate=follow_used_estimate, response=followup_response)
                         logger.debug(
                             f"Updated token usage with {follow_tokens} tokens from follow-up OpenAI response"
                         )
@@ -1418,7 +1418,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                         # Update token usage and rate limiter for summary
                         try:
-                            update_token_usage(summary_tokens, used_estimate=summary_used_estimate)
+                            update_token_usage(summary_tokens, used_estimate=summary_used_estimate, response=summary_response)
                             logger.debug(
                                 f"Updated token usage with {summary_tokens} tokens from summarization OpenAI response"
                             )
