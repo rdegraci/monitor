@@ -17,5 +17,39 @@
     "todo_extract": "Scan the code for TODO/FIXME comments or unresolved issues. List them by file/line, prioritize by urgency, and suggest resolutions as a table. {{rank_improvements}} for prioritization",
     "multi_file_refactor": "Propose refactors across multiple files (e.g., rename a shared function or update API). {{do_diff}} and list affected files, provide unified diffs, and ensure consistency. Warn on breaking changes ",
     "deploy_check": "Review changes for deployment readiness: check for new deps, env vars, migration needs, or config updates. {{do_diff}} and suggest a deployment checklist as a Markdown table",
-    "rank_examine": "Given the specified type, {{rank_improvements}} Type: "
+    "rank_examine": "Given the specified type, {{rank_improvements}} Type: ",
+
+    "branch": "{{tcl if {[catch {exec git branch --show-current} b]} {puts \"(not in git)\"} else {puts $b}}}",
+    "sha": "{{tcl if {[catch {exec git rev-parse --short HEAD} s]} {puts \"(not in git)\"} else {puts $s}}}",
+    "git_clean": "{{tcl if {[catch {exec git rev-parse --is-inside-work-tree}]} {puts \"(not in git)\"} elseif {[catch {exec git diff --quiet}]} {puts \"DIRTY\"} else {puts \"clean\"}}}",
+    "recent_commits": "Recent commits:\n{{tcl if {[catch {exec git log --oneline -10} c]} {puts \"(not in git or no commits)\"} else {puts $c}}}",
+    "branch_age": "{{tcl if {[catch {exec git log -1 --pretty=format:%ar} a]} {puts \"(no commits)\"} else {puts $a}}}",
+    "is_git_repo": "{{tcl if {[catch {exec git rev-parse --is-inside-work-tree}]} {puts \"not in a git repo\"} else {puts \"in a git repo\"}}}",
+
+    "today": "{{tcl puts [clock format [clock seconds] -format {%Y-%m-%d}]}}",
+    "now": "{{tcl puts [clock format [clock seconds] -format {%Y-%m-%d %H:%M}]}}",
+    "weekday": "{{tcl puts [clock format [clock seconds] -format {%A}]}}",
+
+    "cwd": "{{tcl puts [pwd]}}",
+    "home": "{{tcl if {[info exists env(HOME)]} {puts $env(HOME)} else {puts \"(HOME not set)\"}}}",
+    "hostname": "{{tcl puts [info hostname]}}",
+
+    "py_project": "{{tcl if {[file exists pyproject.toml]} {puts \"pyproject.toml-based Python project\"} elseif {[file exists setup.py]} {puts \"setup.py-based Python project\"} elseif {[file exists requirements.txt]} {puts \"requirements.txt-based Python project\"} else {puts \"no Python project markers in cwd\"}}}",
+    "py_version": "{{tcl if {[catch {exec python --version} v]} {puts \"python not on PATH\"} else {puts $v}}}",
+    "py_deps_head": "{{tcl if {[catch {set f [open requirements.txt r]} err]} {puts \"no requirements.txt\"} else {set out [list]; set i 0; while {$i < 20 && [gets $f line] >= 0} {lappend out $line; incr i}; close $f; puts [join $out \"\n\"]}}}",
+    "py_files": "{{tcl puts [llength [glob -nocomplain -directory . -tails -type f *.py **/*.py]]}}",
+
+    "ios_xcode_version": "{{tcl if {[catch {exec xcodebuild -version} v]} {puts \"Xcode not installed or not on PATH\"} else {puts $v}}}",
+    "ios_swift_version": "{{tcl if {[catch {exec swift --version} v]} {puts \"swift not on PATH\"} else {puts [lindex [split $v \"\n\"] 0]}}}",
+    "ios_project_files": "{{tcl set p [glob -nocomplain *.xcodeproj *.xcworkspace Package.swift]; if {$p eq {}} {puts \"no Xcode/SPM project in cwd\"} else {puts $p}}}",
+    "ios_swift_files_count": "{{tcl if {[catch {exec find . -name {*.swift} -type f} files]} {puts \"(unable to count)\"} else {puts [llength [split [string trim $files] \"\n\"]]}}}",
+    "ios_booted_simulator": "{{tcl if {[catch {exec xcrun simctl list devices booted} d]} {puts \"simctl unavailable (Xcode not installed?)\"} else {puts $d}}}",
+    "ios_schemes": "{{tcl if {[catch {exec xcodebuild -list} l]} {puts \"no xcodebuild project in cwd\"} else {puts $l}}}",
+    "ios_pkg_swift_head": "{{tcl if {[catch {set f [open Package.swift r]} err]} {puts \"no Package.swift\"} else {set out [list]; set i 0; while {$i < 30 && [gets $f line] >= 0} {lappend out $line; incr i}; close $f; puts [join $out \"\n\"]}}}",
+
+    "debug_ctx": "{{tcl if {[info exists env(DEBUG_PROMPT)] && $env(DEBUG_PROMPT) eq \"1\"} {puts \"DEBUG MODE: extra verbose\"} else {puts \"\"}}}",
+
+    "branch_diff": "On branch {{branch}}. {{do_diff}} {{rank_improvements}}",
+    "context_audit": "Date: {{today}}. Project: {{py_project}}. Branch: {{branch}}. {{branch_status}}",
+    "commit_with_age": "Latest commit ({{branch_age}}): {{tcl if {[catch {exec git log -1 --pretty=format:%s} m]} {puts \"(no commits)\"} else {puts $m}}}"
 }

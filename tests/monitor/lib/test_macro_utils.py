@@ -267,22 +267,27 @@ class TestMacroUtils(unittest.TestCase):
 
     def test_tcl_macro_no_recursive_expansion(self):
         """
-        Test that TCL macros do not recursively expand inner macros.
-        This is an important change in behavior - TCL macros now pass through 
-        inner macro expressions literally.
+        TCL macro bodies pass inner macro expressions through literally —
+        `(inner)` inside a `(tcl ...)` body is NOT expanded to `expanded_inner`
+        before Tcl sees it. Tcl then processes the literal text.
+
+        Previously this test pinned the broken passthrough behavior (result
+        == original input). After the MAC-OUT-1 / MAC-OUT-2 engine fixes, the
+        Tcl body is actually evaluated. `puts (inner)` in Tcl prints
+        `(inner)` literally, so the macro result is `(inner)` — confirming
+        the inner macro was NOT expanded before evaluation.
         """
-        # Define macros
         values = {
-            "inner": "expanded_inner", 
+            "inner": "expanded_inner",
             "outer": "(inner)"
         }
-        
-        # The TCL macro should NOT expand (inner) inside it
+
         result = macro_utils.recursive_macro_expand("(tcl puts (inner))", values, "(", ")", "\\")
-        # Should output literal "(inner)" as TCL puts, not "expanded_inner"
-        self.assertEqual(result, "(tcl puts (inner))")
-        
-        # Compare with regular (non-TCL) macro expansion
+        # Tcl evaluates `puts (inner)`, prints the literal "(inner)" — NOT
+        # the expanded "expanded_inner" that the (outer) macro would produce.
+        self.assertEqual(result, "(inner)")
+
+        # Regular (non-TCL) macro expansion still recurses
         regular_result = macro_utils.recursive_macro_expand("(outer)", values, "(", ")", "\\")
         self.assertEqual(regular_result, "expanded_inner")
 
@@ -309,11 +314,11 @@ class TestMacroUtils(unittest.TestCase):
 
     def test_tcl_error_reporting(self):
         """
-        Test that TCL errors are properly reported in the new format.
+        TCL evaluation errors are reported via the `[TCL ERROR: ...]`
+        sentinel in the macro result.
         """
-        # TCL syntax error
         result = macro_utils.recursive_macro_expand("(tcl invalid tcl syntax;@#)", {}, "(", ")", "\\")
-        self.assertIn('invalid tcl syntax;', result)
+        self.assertIn('[TCL ERROR', result)
 
     def test_unescape_literal_parens_behavior(self):
         """

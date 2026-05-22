@@ -160,6 +160,66 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
     close_escaped = re.escape(delim_close)
     TCL_MACRO_MAIN_REGEX = re.compile(rf'^\s*(?:{open_escaped}tcl\s+(.+){close_escaped}|tcl\s+(.+))\s*$', re.DOTALL)
 
+    def _looks_like_tcl_macro(text, pos):
+        """Return True iff text starting at pos begins with whitespace+'tcl'+(whitespace or end).
+
+        Used by the outer brace scanner to decide whether to switch from
+        macro-delimiter nesting to Tcl-aware brace nesting at the macro
+        boundary.
+        """
+        n = len(text)
+        # Skip leading whitespace
+        while pos < n and text[pos] in " \t\n\r":
+            pos += 1
+        if not text.startswith("tcl", pos):
+            return False
+        after = pos + 3
+        return after == n or text[after] in " \t\n\r"
+
+    def _find_tcl_aware_close(body, start_pos, dclose, descape):
+        """Find the macro close `dclose` at Tcl-brace-depth 0 from start_pos.
+
+        Walks `body` tracking Tcl `{` / `}` nesting. Honors backslash escapes:
+          - `\\{` and `\\}` are literal Tcl braces (no depth change).
+          - `\\<dclose>` is a literal macro-close (not a real close).
+        Returns the index where `dclose` begins, or -1 if no balanced close.
+
+        Limitation: braces inside Tcl double-quoted strings ARE counted toward
+        depth. Practical Tcl macros with balanced braces in strings still work;
+        only unbalanced braces inside strings would fail. Real Tcl parsing
+        treats string-internal braces as literal, but that requires a full
+        Tcl tokenizer; this heuristic covers the common cases.
+        """
+        depth = 0
+        i = start_pos
+        n = len(body)
+        close_len = len(dclose)
+        while i < n:
+            # Macro-engine escape on the close delim: \}}
+            if (
+                body[i:i + len(descape)] == descape
+                and body[i + len(descape):i + len(descape) + close_len] == dclose
+            ):
+                i += len(descape) + close_len
+                continue
+            # Tcl-style backslash escape on a single brace: \{ or \}
+            if body[i] == "\\" and i + 1 < n and body[i + 1] in "{}":
+                i += 2
+                continue
+            # Macro close at Tcl depth 0?
+            if depth == 0 and body[i:i + close_len] == dclose:
+                return i
+            # Tcl brace tracking
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+                if depth < 0:
+                    # Malformed: more } than { before reaching macro close.
+                    return -1
+            i += 1
+        return -1
+
     def unescape_literal_parens(text):
         """Unescape any delim-escaped parentheses and general delimiters, converting them to literal characters.
         Macro recursion/expansion is NEVER done inside these escapes.
@@ -357,32 +417,51 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 return final_expanded, final_expanded != expression, False
 
             search_start = idx_open + len(delim_open)
-            nesting = 1
-            idx = search_start
-            while nesting > 0:
-                idx_next_open, _ = find_next_delim(expression, delim_open, idx)
-                idx_close, _ = find_next_delim(expression, delim_close, idx)
-                if idx_close == -1:
+
+            # MAC-OUT-2: for Tcl macros, scan with Tcl-aware brace nesting so
+            # the macro close delimiter isn't confused with a Tcl block's
+            # closing `}`. Without this, a body like `if {a} {b} else {c}`
+            # followed by `}}` (macro close) sees the FIRST `}}` pair as
+            # end-of-{c} + first-`}`-of-`}}`, truncating the captured body
+            # by one brace.
+            if _looks_like_tcl_macro(expression, search_start):
+                idx_close_current = _find_tcl_aware_close(
+                    expression, search_start, delim_close, delim_escape
+                )
+                if idx_close_current == -1:
                     logger.error(
-                        "Missing closing macro delimiter (%s) in expression: %s",
+                        "Missing closing macro delimiter (%s) in TCL macro expression: %s",
                         delim_close,
                         expression,
                     )
                     return expression, False, False
-                if idx_next_open != -1 and idx_next_open < idx_close:
-                    nesting += 1
-                    idx = idx_next_open + len(delim_open)
-                else:
-                    nesting -= 1
-                    if nesting == 0:
-                        idx_close_current = idx_close
-                        break
-                    idx = idx_close + len(delim_close)
             else:
-                logger.error(
-                    "Mismatched macro delimiters in expression: %s", expression
-                )
-                return expression, False, False
+                nesting = 1
+                idx = search_start
+                while nesting > 0:
+                    idx_next_open, _ = find_next_delim(expression, delim_open, idx)
+                    idx_close, _ = find_next_delim(expression, delim_close, idx)
+                    if idx_close == -1:
+                        logger.error(
+                            "Missing closing macro delimiter (%s) in expression: %s",
+                            delim_close,
+                            expression,
+                        )
+                        return expression, False, False
+                    if idx_next_open != -1 and idx_next_open < idx_close:
+                        nesting += 1
+                        idx = idx_next_open + len(delim_open)
+                    else:
+                        nesting -= 1
+                        if nesting == 0:
+                            idx_close_current = idx_close
+                            break
+                        idx = idx_close + len(delim_close)
+                else:
+                    logger.error(
+                        "Mismatched macro delimiters in expression: %s", expression
+                    )
+                    return expression, False, False
 
             macro_body = expression[
                 idx_open + len(delim_open) : idx_close_current
@@ -468,9 +547,15 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
             iterations += 1
             new_macro, changed, is_terminal = expand_inner_expression(macro_to_expand, macro_context=macro)
             any_expansions = any_expansions or changed
-            if not changed or new_macro == macro_to_expand or is_terminal:
+            # MAC-OUT-1: always capture the new expansion before checking break
+            # conditions. The previous code broke FIRST and only assigned in
+            # the loop-continuation branch, which silently discarded Tcl macro
+            # results (is_terminal=True for Tcl evaluations, which means break
+            # fires before the assignment).
+            if changed and new_macro != macro_to_expand:
+                macro_to_expand = new_macro
+            if not changed or is_terminal:
                 break
-            macro_to_expand = new_macro
         else:
             logger.error(
                 "Macro expansion exceeded %d iterations; likely a cycle. Original macro: %r",
