@@ -20,13 +20,13 @@ import shutil  # For config file backup/copy
 import sys
 
 from monitor import config
-from monitor.config import configure_subsystems, load_environment_globals, start_logging, load_model_config
-from monitor.config import set_model  # Import set_model for CLI model override.
+from monitor.config import configure_subsystems, load_environment_globals, load_model_config, set_model, start_logging
 from monitor.core.built_ins import configure_built_ins
 from monitor.core.conversation import chat
 from monitor.core.conversation import process_input  # Import process_input to feed lines through the conversation input pipeline.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
+from monitor.core.version import VERSION
 from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
 from monitor.lib.macros import configure_macros
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
@@ -34,6 +34,7 @@ from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT han
 from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
 
 logger = logging.getLogger(__name__)
+
 
 def _reset_config(force: bool = False):
     """Reset and optionally back up per-user config files to Monitor package defaults.
@@ -123,6 +124,7 @@ def _reset_config(force: bool = False):
     print("\nReset operation complete. Exiting.")
     sys.exit(0)
 
+
 def run_script(script_path: str) -> int:
     """Execute commands from a script file, one command per non-empty, non-comment line.
 
@@ -177,6 +179,9 @@ def run_script(script_path: str) -> int:
         logger.info("Executing script command (line %d): %s", lineno, line)
         try:
             # Feed the line through the conversation input pipeline, emulating interactive input.
+            if line == ":version":
+                print(f"monitor {VERSION}")
+                return 0
             result = process_input(line, history_file, session)
         except Exception as e:
             logger.error("Error executing command on line %d: %s", lineno, e, exc_info=True)
@@ -202,6 +207,7 @@ def run_script(script_path: str) -> int:
             logger.info("Script requested exit after line %d.", lineno)
             return 0
     return 0
+
 
 def main():
     """Main entry point.
@@ -245,6 +251,12 @@ def main():
         "--models",
         action="store_true",
         help="List available models and exit.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"monitor {VERSION}",
+        help="Print the Monitor version and exit.",
     )
     parser.add_argument(
         "--debug",
@@ -345,7 +357,6 @@ def main():
 
     configure_subsystems()
 
-
     # Try to start the status UDS server if enabled via environment variable.
     if os.environ.get("MONITOR_ENABLE_STATUS") == "1":
         try:
@@ -354,8 +365,7 @@ def main():
         except Exception:
             logger.exception("Failed to start status UDS server")
 
-
-    # Built-ins 
+    # Built-ins
     configure_built_ins()
 
     # Prompt Macros - For great justice, all your base are belong to us
@@ -403,6 +413,6 @@ and scripts can access the conversation query API during execution."""
                 logger.info("Closed conversation log file.")
         except Exception as e:
             logger.error(f"Error closing conversation log file: {e}", exc_info=True)
-            
+
 if __name__ == "__main__":
     main()
