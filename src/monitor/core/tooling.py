@@ -21,7 +21,7 @@ SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 # TC-2: cap on the depth of nested tool-call dispatches. handle_tool_call
 # recurses when the model's reply also contains tool_calls; an adversarial
 # prompt or runaway agent loop would otherwise stack-overflow.
-MAX_TOOL_CALL_DEPTH = 16
+MAX_TOOL_CALL_DEPTH = 32
 
 
 def parse_function_args(function_args):
