@@ -10,13 +10,20 @@
 #
 # This module now exposes:
 #   - SYSTEM_PROMPT_TEMPLATE: the static base prompt (no session-specific bits)
-#   - build_system_prompt(session_id=None): assembles the final prompt fresh
-#     on every call, no global state mutated
+#   - build_system_prompt(session_id=None): returns the static prompt, with an
+#     optional session-ID guidance line appended when requested
+#   - build_user_prompt_prefix(session_id=None): loads the runtime instructions
+#     and coding conventions as a separate prefix for user messages
 #   - SYSTEM_PROMPT: backward-compat alias for the static template; callers
-#     that don't need session injection can still use it
+#     that don't need prompt assembly can still use it
 #
-# Callers that need the session ID line should call
-# build_system_prompt(session_id=config.SESSION_ID) at the call site.
+# Callers that need the runtime prefix should call
+# build_user_prompt_prefix() at the call site.
+
+from pathlib import Path
+
+import appdirs
+
 
 SYSTEM_PROMPT_TEMPLATE = """
 You are a coding assistant invoked from a CLI harness. Use the file-system, git, and source-modification tools available to you rather than asking the user to run commands.
@@ -82,28 +89,62 @@ Never trade correctness or test design quality for speed.
 """
 
 
+def _runtime_instructions_path():
+    """Return the runtime instructions file path."""
+    return Path(appdirs.user_config_dir("monitor")) / "instructions.md"
+
+
+def _runtime_coding_conventions_path():
+    """Return the runtime coding conventions file path."""
+    return Path(appdirs.user_config_dir("monitor")) / "coding_conventions.md"
+
+
+def _seed_runtime_file(runtime_path, packaged_path):
+    """Seed a runtime prompt file from its packaged source if needed."""
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    if runtime_path.exists():
+        return
+    # Copy the packaged source into the user config root.
+    runtime_path.write_text(packaged_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def _read_runtime_file(runtime_path, packaged_path):
+    """Read a runtime prompt file, seeding it from the packaged source if missing."""
+    _seed_runtime_file(runtime_path, packaged_path)
+    return runtime_path.read_text(encoding="utf-8")
+
+
+def _load_runtime_instructions():
+    """Load the runtime instructions from the packaged source file."""
+    packaged_path = Path(__file__).resolve().parents[1] / "instructions.md"
+    return _read_runtime_file(_runtime_instructions_path(), packaged_path)
+
+
+def _load_runtime_coding_conventions():
+    """Load the runtime coding conventions from the packaged source file."""
+    packaged_path = Path(__file__).resolve().parents[1] / "coding_conventions.md"
+    return _read_runtime_file(_runtime_coding_conventions_path(), packaged_path)
+
+
 def build_system_prompt(session_id=None):
-    """Return the assembled system prompt, optionally with a session-ID instruction appended.
-
-    Args:
-        session_id: If provided, appends a line instructing the model to use
-            this session ID in todo tool calls. If None, only the static
-            template is returned.
-
-    Returns:
-        str: The fully assembled system prompt.
-    """
-    if not session_id:
+    """Return the static system prompt template, optionally with session guidance."""
+    if session_id is None:
         return SYSTEM_PROMPT_TEMPLATE
+    return SYSTEM_PROMPT_TEMPLATE + f"\nSession ID: {session_id}\n"
+
+
+def build_user_prompt_prefix():
+    """Return the runtime instructions and coding conventions prefix for user messages."""
     return (
-        SYSTEM_PROMPT_TEMPLATE
-        + f"\nCurrent session ID: {session_id}. Use this SESSION_ID in all todo tool calls.\n"
+        _load_runtime_instructions().rstrip("\n")
+        + "\n"
+        + _load_runtime_coding_conventions().rstrip("\n")
+        + "\n"
     )
 
 
 # Backward-compat alias. Existing callers that import SYSTEM_PROMPT directly
-# will get the static template (without session injection). Migrate to
-# build_system_prompt(session_id=...) at the call site to get the
-# session-aware version. The name remains a plain string, so monkeypatching
-# in tests continues to work.
+# will get the static template. Migrate to build_system_prompt() for the
+# system prompt and build_user_prompt_prefix() for the runtime user-message
+# prefix.
 SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE

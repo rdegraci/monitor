@@ -161,18 +161,6 @@ class TestMacroUtils(unittest.TestCase):
         # Should have debug logs for entering the function
         self.assertTrue(any("Entering recursive_macro_expand" in log for log in cm.output))
 
-    def test_recursive_macro_expand_info_logging_on_expansion(self):
-        """Test that macro expansion logs info when expansions occur.""" 
-        values = {"name": "John"}
-        
-        with self.assertLogs('monitor.lib.macro_utils', level='INFO') as cm:
-            result = macro_utils.recursive_macro_expand("{{name}}", values, "{{", "}}", "\\")
-        
-        self.assertEqual(result, "John")
-        # Should log the macro expansion at info level
-        self.assertTrue(any("Macro expansion:" in log for log in cm.output))
-
-
     def test_load_additional_macros_with_tilde_path(self):
         """Test load_additional_macros properly loads a file using a '~' path (user home expansion)."""
         test_macros = {

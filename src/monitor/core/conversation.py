@@ -14,7 +14,7 @@ from prompt_toolkit.completion import PathCompleter
 
 from monitor import config
 
-from monitor.lib.system_prompt import SYSTEM_PROMPT, build_system_prompt
+from monitor.lib.system_prompt import SYSTEM_PROMPT, build_system_prompt, build_user_prompt_prefix
 
 from monitor.lib.input_modes import (
     handle_single_line,
@@ -162,6 +162,25 @@ PIPELINE_FAILURE_FORMAT = "Pipeline step {step} failed: {error}"
 USER_LOG_FORMAT = "User: {input}\n"
 MODEL_SWITCH_SUMMARY_MESSAGE = "Conversation reset/autosummarized to fit new model window."
 TOKEN_EXCEED_WARNING = "Warning: Token usage exceeds the new model context window. Please summarize or reset."
+
+
+def build_prefixed_user_text(user_text):
+    """Prefix user text for model/history submission when needed."""
+    prefix = build_user_prompt_prefix()
+    text = "" if user_text is None else str(user_text)
+    if not prefix:
+        return text
+    if text.startswith(prefix):
+        return text
+    return f"{prefix}{text}"
+
+
+def build_prefixed_model_text(user_text):
+    """Return raw built-in commands unchanged; otherwise prefix model-bound text."""
+    text = "" if user_text is None else str(user_text)
+    if text.startswith(":") or text.startswith("/"):
+        return text
+    return build_prefixed_user_text(text)
 
 
 def get_prompt_safety_margin():
@@ -344,10 +363,10 @@ def process_pipeline_directives(directives):
     """
     current_input = None
     for idx, directive in enumerate(directives):
-        history = [{"role": "system", "content": build_system_prompt(session_id=getattr(config, "SESSION_ID", None))}]
+        history = [{"role": "system", "content": build_system_prompt(config.SESSION_ID)}]
         if current_input:
-            history.append({"role": "user", "content": current_input})
-        history.append({"role": "user", "content": directive})
+            history.append({"role": "user", "content": build_prefixed_model_text(current_input)})
+        history.append({"role": "user", "content": build_prefixed_model_text(directive)})
         # 1. Canonical token count using token_management
         # All token estimation and usage logic must call count_message_tokens
         estimated_tokens = count_message_tokens(history)
@@ -404,7 +423,8 @@ def process_input(user_input, history_file, session):
         )
         return False
 
-    # Process multiple commands
+    # Process multiple commands using raw user input so built-in commands are not prefixed.
+    # Model-bound content is prefixed later only when it is sent to the model/history.
     from monitor.core.command_processing import (
         process_command,
         process_cd_command,
@@ -414,6 +434,12 @@ def process_input(user_input, history_file, session):
     commands = user_input.split(COMMAND_DELIMITER)
     should_exit = False
     for command in commands:
+        command = command.strip()
+        if not command:
+            continue
+        if command in ("exit", "/exit"):
+            handle_exit_command(command, history_file)
+            return True
         if process_command(command, history_file):
             should_exit = True
     return should_exit
@@ -455,7 +481,8 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, se
         input_mode = determine_input_mode(first_line, session)
         logger.debug(f"Input mode determined: {input_mode}")
 
-        # Process input according to mode, passing the existing session so continuations use same PromptSession
+        # Process input according to mode, passing the existing session so continuations use same PromptSession.
+        # Only the final user message line that will be sent to the model is prefixed; command strings stay raw.
         # process_input_mode expects (first_line, input_mode, session)
         lines = process_input_mode(first_line, input_mode, session)
 
@@ -538,7 +565,7 @@ def chat():
     # affected conversation.py's local binding (from-import semantics), so
     # other modules sent the prompt without the session-ID line, and re-init
     # compounded duplicate session-ID lines. Call sites that need the prompt
-    # now call build_system_prompt(session_id=config.SESSION_ID) directly.
+    # now call build_system_prompt() directly.
 
     # Initialize chat history
     history_file = config.HISTORY_FILE
@@ -547,7 +574,7 @@ def chat():
         lambda message, conversation_history, count_message_tokens, update_token_usage: append_to_history_with_count(
             message, conversation_history, count_message_tokens, update_token_usage
         ),
-        build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
+        build_system_prompt(config.SESSION_ID),
         config.HISTORY_FILE,
         logger,
         config,
@@ -612,7 +639,7 @@ def chat():
                         if limits and limits.get("should_summarize"):
                             try:
                                 response = generate_conversation_summary(
-                                    build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
+                                    build_system_prompt(config.SESSION_ID),
                                     config.CONVERSATION_HISTORY,
                                     config.SUMMARIZATION_CONFIG,
                                     config.MODEL,
@@ -636,7 +663,7 @@ def chat():
                                 else:
                                     reset_conversation_with_summary(
                                         summary=summary_text,
-                                        system_prompt=build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
+                                        system_prompt=build_system_prompt(config.SESSION_ID),
                                         user_input="",
                                         conversation_history=config.CONVERSATION_HISTORY,
                                         append_func=append_to_history_with_count,
@@ -805,7 +832,7 @@ def prepare_query_context(user_prompt):
     4) Appending the final `user_prompt` into `config.CONVERSATION_HISTORY` via
        `append_conversation_history`, which may also trigger summarization/rotation logic.
 
-    Token counting/usage must use canonical helpers from `monitor.lib.token_management`
+    Token counting/usage must use canonical helpers from monitor.lib.token_management
     (enforced by downstream history functions).
 
     Args:
@@ -831,14 +858,14 @@ def prepare_query_context(user_prompt):
     logger.debug("Preparing query context...")
     prepend_memory_to_history()
     append_conversation_history(
-        user_prompt,
+        build_prefixed_model_text(user_prompt),
         config.CONVERSATION_HISTORY,
         update_conversation_logs,
         handle_token_limit,  # This will use live config.MAX_TOKEN_COUNT
         check_limits,
         generate_conversation_summary,
         reset_conversation_with_summary,
-        build_system_prompt(session_id=getattr(config, "SESSION_ID", None)),
+        build_system_prompt(config.SESSION_ID),
         config,  # Always pass live config for in-function reads
         post_social_media_summaries,
         logger,

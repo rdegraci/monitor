@@ -152,7 +152,7 @@ def execute_command(command_result: CommandResult, original_command: str, histor
         # Handle explicit exit requests: perform legacy side-effects via handle_exit_command
         if command_result.command_type == CommandType.EXIT or command_result.exit_requested:
             # Use the legacy handler to perform signal/print side-effects
-            handle_exit_command(original_command)
+            handle_exit_command(original_command, history_file)
             command_result.exit_requested = True
             return command_result
 
@@ -287,10 +287,14 @@ def process_cd_command(command, first_word):
 
 
 def process_command(command, history_file):
-    """Process a single command in REPL context and return exit flag"""
+    """Process a single REPL command and return the exit flag."""
 
-    if not command.strip():
+    normalized_command = command.strip()
+    if not normalized_command:
         return False
+
+    if normalized_command.lower() in {"exit", "/exit"}:
+        return handle_exit_command(normalized_command, history_file)
 
     # Save command history
     try:
@@ -322,6 +326,11 @@ def process_command(command, history_file):
             config.MACRO_DELIMITER_ESCAPE,
         )
 
+    result = evaluate_command(command)
+    if result.command_type == CommandType.EXIT or result.exit_requested:
+        handle_exit_command(command, history_file)
+        return True
+
     # Legacy behavior: exit command handling is performed during execution phase.
     # Evaluate the command (side-effect-free)
     result = evaluate_command(command)
@@ -335,7 +344,7 @@ def process_command(command, history_file):
 
     return result.exit_requested
 
-def handle_exit_command(command):
+def handle_exit_command(command, history_file=None):
     """Handle exit commands and return exit flag"""
     if command.lower() in ["/exit", "exit"]:
         if command.lower() == "/exit":

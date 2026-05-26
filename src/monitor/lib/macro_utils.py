@@ -569,10 +569,6 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
         # Final processing: handle escaped delimiters by converting them to literals
         macro_expansion = unescape_literal_parens(macro_to_expand)
 
-        if any_expansions or macro_expansion != macro:
-            logger.info("Macro expansion: %s", str(macro_expansion))
-            print_blue(macro_expansion)
-
         return macro_expansion
 
     except Exception as e:
