@@ -41,9 +41,9 @@ class DummyBindings:
     def __init__(self):
         self.registered = []
 
-    def add(self, key_name):
+    def add(self, key_name, **kwargs):
         def decorator(handler):
-            self.registered.append((key_name, handler))
+            self.registered.append((key_name, handler, kwargs))
             return handler
 
         return decorator
@@ -70,6 +70,32 @@ class DummyUI:
 
     def accept(self, item):
         self.accepted.append(item)
+
+
+def _two_group_config():
+    """Spec-shape grouped config used by selector tests."""
+    return {
+        "group1": {
+            "F1": {"text": "build", "description": "Insert build"},
+            "F2": {"text": "test", "description": "Insert tests"},
+        },
+        "group2": {
+            "F3": {"text": "status", "description": "Show status"},
+        },
+    }
+
+
+@pytest.fixture(autouse=True)
+def captured_prints(monkeypatch):
+    """Capture every line our keyboard module routes through _print_above_prompt.
+
+    In production this goes through prompt-toolkit's run_in_terminal — we don't
+    want to invoke that during tests (it requires a live application), so we
+    replace the helper with a list sink for every test in this module.
+    """
+    sink = []
+    monkeypatch.setattr(keyboard, "_print_above_prompt", lambda text: sink.append(text))
+    return sink
 
 
 def test_validate_function_keys_config_accepts_grouped_json_shape():
@@ -177,45 +203,31 @@ def test_load_function_keys_config_rejects_malformed_json(monkeypatch):
         function_keys_loader.load_function_keys_config()
 
 
-def test_configure_function_key_insertions_uses_active_group_and_normalizes_values():
-    """It stores only the active group's supported keys and extracts nested text values."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                },
-                "group2": {
-                    "F3": {"text": "status", "description": "Show status"},
-                },
-            },
-        }
-    )
+def test_configure_function_key_insertions_activates_first_group():
+    """It activates the first configured group at startup (spec: session-local default)."""
+    keyboard.configure_function_key_insertions(_two_group_config())
 
+    assert keyboard.ACTIVE_FUNCTION_KEY_GROUP == "group1"
     assert keyboard.FUNCTION_KEY_INSERTIONS == {
         "f1": "build",
         "f2": "test",
     }
 
 
+def test_configure_function_key_insertions_resets_to_first_group_on_reload():
+    """It resets the active group to the first on every reload (spec: non-persistence)."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.switch_active_function_key_group("group2")
+    assert keyboard.ACTIVE_FUNCTION_KEY_GROUP == "group2"
+
+    keyboard.configure_function_key_insertions(_two_group_config())
+
+    assert keyboard.ACTIVE_FUNCTION_KEY_GROUP == "group1"
+
+
 def test_get_function_key_selector_entries_exposes_selector_data_from_active_group():
     """It exposes selector entries for the active group without insertion text."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                },
-                "group2": {
-                    "F3": {"text": "status", "description": "Show status"},
-                },
-            },
-        }
-    )
+    keyboard.configure_function_key_insertions(_two_group_config())
 
     selector_entries = keyboard.get_function_key_selector_entries()
 
@@ -227,20 +239,7 @@ def test_get_function_key_selector_entries_exposes_selector_data_from_active_gro
 
 def test_get_function_key_selector_data_exposes_selector_state_from_active_group():
     """It exposes selector state for the active group."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                },
-                "group2": {
-                    "F3": {"text": "status", "description": "Show status"},
-                },
-            },
-        }
-    )
+    keyboard.configure_function_key_insertions(_two_group_config())
 
     selector_data = keyboard.get_function_key_selector_data()
 
@@ -251,135 +250,167 @@ def test_get_function_key_selector_data_exposes_selector_state_from_active_group
     }
 
 
-def test_register_function_key_handlers_registers_selector_key():
-    """It registers the selector entry point instead of raw insertion handlers."""
+def test_register_function_key_handlers_binds_all_f1_through_f8_unconditionally():
+    """It binds every F1-F8 so live group switching keeps each key reachable."""
     keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                }
-            },
-        }
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
     )
     bindings = DummyBindings()
 
     keyboard.register_function_key_handlers(bindings)
 
-    assert [item[0] for item in bindings.registered] == ["f1", "f12", "tab", "escape"]
+    bound_user_keys = [item[0] for item in bindings.registered if item[0].startswith("f") and item[0] != "f12"]
+    assert bound_user_keys == ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8"]
+
+
+def test_register_function_key_handlers_gates_tab_and_escape_to_selector_open():
+    """It attaches a selector-open filter to Tab and Escape so normal keys still work."""
+    keyboard.configure_function_key_insertions(
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
+    )
+    bindings = DummyBindings()
+
+    keyboard.register_function_key_handlers(bindings)
+
+    by_key = {item[0]: item[2] for item in bindings.registered}
+    assert "filter" in by_key["tab"]
+    assert "filter" in by_key["escape"]
+    assert by_key.get("f12", {}).get("filter") is None
+
+
+def test_register_function_key_handlers_marks_escape_eager():
+    """Escape uses eager=True so it fires immediately past prompt-toolkit's meta-key wait."""
+    keyboard.configure_function_key_insertions(
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
+    )
+    bindings = DummyBindings()
+
+    keyboard.register_function_key_handlers(bindings)
+
+    by_key = {item[0]: item[2] for item in bindings.registered}
+    assert by_key["escape"].get("eager") is True
+    assert by_key["tab"].get("eager") is None
 
 
 def test_selector_open_uses_current_selection_and_accepts_preview_item():
-    """It opens the selector and accepts the selected preview entry."""
+    """It opens the selector and pushes preview entries to the UI."""
     keyboard.configure_function_key_insertions(
         {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                }
-            },
+            "group1": {
+                "F1": {"text": "build", "description": "Insert build"},
+                "F2": {"text": "test", "description": "Insert tests"},
+            }
         }
     )
     ui = DummyUI([])
 
-    keyboard.open_function_key_selector(ui)
+    keyboard.open_function_key_selector(ui=ui)
 
     assert ui.items == [
         {"group_name": "group1", "key": "F1", "description": "Insert build"},
         {"group_name": "group1", "key": "F2", "description": "Insert tests"},
     ]
-    assert ui.selected_index == 0
     assert ui.closed is False
     assert ui.accepted == []
 
 
-def test_selector_tab_moves_to_next_item():
-    """It advances the selector selection when tab is pressed."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                }
-            },
-        }
-    )
+def test_selector_tab_does_nothing_when_selector_is_closed():
+    """It is a no-op when the selector is not open (preserves normal tab behavior)."""
+    keyboard.configure_function_key_insertions(_two_group_config())
     ui = DummyUI(keyboard.get_function_key_selector_entries())
 
-    keyboard.handle_function_key_selector_tab(ui)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=ui)
 
-    assert ui.items == [
-        {"group_name": "group1", "key": "F1", "description": "Insert build"},
-        {"group_name": "group1", "key": "F2", "description": "Insert tests"},
-    ]
-    assert ui.selected_index == 0
-    assert ui.closed is False
-    assert ui.accepted == []
+    assert keyboard.get_function_key_selector_data()["preview_group"] == "group1"
 
 
-def test_selector_escape_closes_without_accepting():
-    """It closes the selector without accepting when escape is pressed."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                }
-            },
-        }
-    )
-    ui = DummyUI(keyboard.get_function_key_selector_entries())
+def test_selector_tab_advances_preview_when_open():
+    """It advances to the next group when the selector is open."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.open_function_key_selector(ui=None)
 
-    keyboard.handle_function_key_selector_escape(ui)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
 
-    assert keyboard.get_function_key_selector_data() == {
-        "open": False,
-        "active_group": "group1",
-        "preview_group": "group1",
-    }
+    assert keyboard.get_function_key_selector_data()["preview_group"] == "group2"
 
 
-def test_selector_confirm_accepts_current_preview_item():
-    """It accepts the current preview entry when confirm is pressed."""
-    keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                    "F2": {"text": "test", "description": "Insert tests"},
-                }
-            },
-        }
-    )
-    ui = DummyUI(keyboard.get_function_key_selector_entries())
+def test_selector_tab_wraps_back_to_first_group():
+    """It wraps preview selection back to the first group."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.open_function_key_selector(ui=None)
 
-    keyboard.handle_function_key_selector_confirm_key(ui)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
 
-    assert keyboard.get_function_key_selector_data() == {
-        "open": False,
-        "active_group": "group1",
-        "preview_group": "group1",
-    }
+    assert keyboard.get_function_key_selector_data()["preview_group"] == "group1"
+
+
+def test_selector_escape_closes_without_changing_active_group():
+    """It closes the selector and leaves the active group unchanged."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.open_function_key_selector(ui=None)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
+
+    keyboard.handle_function_key_selector_escape_key(DummyEvent(), ui=None)
+
+    data = keyboard.get_function_key_selector_data()
+    assert data["open"] is False
+    assert data["active_group"] == "group1"
+    assert data["preview_group"] == "group1"
+
+
+def test_selector_escape_prints_visible_cancel_feedback(captured_prints):
+    """Escape prints a visible 'cancelled' line so the user sees the close take effect."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    keyboard.handle_function_key_selector_escape_key(DummyEvent(), ui=None)
+
+    assert len(captured_prints) == 1
+    assert "Selector cancelled" in captured_prints[0]
+    assert "group1" in captured_prints[0]
+
+
+def test_selector_confirm_prints_visible_active_group_feedback(captured_prints):
+    """F12 confirm prints the new active group so the user sees the switch take effect."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+
+    assert any("Active group: group2" in line for line in captured_prints)
+
+
+def test_selector_confirm_activates_previewed_group():
+    """F12 while open switches the active group to the previewed one."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.open_function_key_selector(ui=None)
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
+
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+
+    data = keyboard.get_function_key_selector_data()
+    assert data["open"] is False
+    assert data["active_group"] == "group2"
+    assert keyboard.FUNCTION_KEY_INSERTIONS == {"f3": "status"}
+
+
+def test_selector_does_not_open_when_no_groups_configured():
+    """F12 with no groups configured is a no-op (no empty selector)."""
+    keyboard.configure_function_key_insertions({})
+
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+
+    assert keyboard.get_function_key_selector_data()["open"] is False
 
 
 def test_insert_function_key_text_uses_active_group_insertion():
     """It inserts configured text for the active group."""
     keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                }
-            },
-        }
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
     )
     event = DummyEvent("hello")
 
@@ -392,14 +423,7 @@ def test_insert_function_key_text_uses_active_group_insertion():
 def test_insert_function_key_text_inserts_without_space_when_buffer_empty():
     """It inserts configured text directly when the buffer is empty."""
     keyboard.configure_function_key_insertions(
-        {
-            "active_group": "group1",
-            "groups": {
-                "group1": {
-                    "F1": {"text": "build", "description": "Insert build"},
-                }
-            },
-        }
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
     )
     event = DummyEvent()
 
@@ -407,3 +431,52 @@ def test_insert_function_key_text_inserts_without_space_when_buffer_empty():
 
     assert event.app.current_buffer.inserted == ["build"]
     assert event.app.current_buffer.text == "build"
+
+
+def test_insert_function_key_text_after_group_switch_uses_new_group_text():
+    """Switching groups makes the new group's text active for all F1-F8 keys."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.switch_active_function_key_group("group2")
+    event = DummyEvent()
+
+    keyboard.insert_function_key_text(event, "f3")
+
+    assert event.app.current_buffer.inserted == ["status"]
+
+
+def test_insert_function_key_text_is_noop_when_active_group_has_no_binding():
+    """A bound F-key with no entry in the active group inserts nothing."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    event = DummyEvent()
+
+    keyboard.insert_function_key_text(event, "f3")  # F3 is in group2, not active group1
+
+    assert event.app.current_buffer.inserted == []
+
+
+def test_selector_open_renders_full_reference_and_hint(captured_prints):
+    """It writes the multi-group reference plus hint above the prompt safely."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+
+    assert len(captured_prints) == 1
+    rendered = captured_prints[0]
+    assert "[group1] (active)" in rendered
+    assert "[group2]" in rendered
+    assert "F1: Insert build" in rendered
+    assert "F2: Insert tests" in rendered
+    assert "F3: Show status" in rendered
+    assert "TAB to cycle. F12 to choose. ESC to cancel." in rendered
+
+
+def test_selector_tab_renders_preview_group(captured_prints):
+    """It writes preview output above the prompt on each Tab."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
+
+    assert len(captured_prints) == 1
+    assert "Function key selector: group2" in captured_prints[0]

@@ -1,8 +1,27 @@
 import logging
 
+from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.filters import Condition
+
 from monitor.lib.voice_to_text import VoiceToText
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _print_above_prompt(text):
+    """Print ``text`` above the running prompt without corrupting the UI.
+
+    Wraps prompt-toolkit's ``run_in_terminal`` so the prompt is properly hidden
+    while we write, then restored. Calling ``event.app.print_text`` directly
+    from a key handler is documented to "destroy the UI" — the message appears
+    but the prompt's redraw state stays half-broken until something else (an
+    Enter submission, a resize) forces a refresh.
+    """
+    def do_print():
+        print(text, end="")
+    run_in_terminal(do_print)
+
+USER_FUNCTION_KEYS = tuple(f"f{i}" for i in range(1, 9))
 
 VOICE_TO_TEXT = None
 FUNCTION_KEY_INSERTIONS = {}
@@ -21,84 +40,51 @@ def configure_voice_to_text():
     VOICE_TO_TEXT = VoiceToText()  # Configure with device/model as needed
 
 
-def _normalize_function_key_mapping(group_name, group_mapping):
-    """Normalize a grouped function-key mapping to F1-F24 text entries."""
-    normalized_mapping = {}
+def _normalize_function_key_groups(function_key_insertions):
+    """Normalize the validated grouped function-key config.
 
-    if not isinstance(group_mapping, dict):
-        LOGGER.info("skipping function key group %s: expected mapping", group_name)
-        return normalized_mapping
-
-    for key, value in group_mapping.items():
-        if not isinstance(key, str):
-            continue
-
-        normalized_key = key.lower()
-        if not normalized_key.startswith("f"):
-            continue
-        if not normalized_key[1:].isdigit():
-            continue
-
-        key_number = int(normalized_key[1:])
-        if not 1 <= key_number <= 24:
-            continue
-        if normalized_key in normalized_mapping:
-            LOGGER.info(
-                "duplicate function key ignored in group %s: %s",
-                group_name,
-                normalized_key,
-            )
-            continue
-
-        description = None
-        text = None
-        if isinstance(value, dict):
-            description = value.get("description")
-            text = value.get("text")
-        elif isinstance(value, str):
-            text = value
-
-        if isinstance(text, str):
-            normalized_mapping[normalized_key] = {"text": text, "description": description}
-
-    return normalized_mapping
-
-
-def _normalize_function_key_configuration(function_key_insertions):
-    """Normalize supported grouped function-key configuration shapes."""
-    active_group = None
+    Accepts the spec shape only: a top-level dict whose keys are group names
+    and whose values are dicts mapping F-key names (F1-F8) to entries with
+    ``text`` and ``description`` fields. Pre-validated by
+    ``monitor.function_keys.validate_function_keys_config`` in the production
+    path; this normalizer also tolerates direct in-process callers by silently
+    dropping anything outside F1-F8 or missing ``text``.
+    """
     groups = {}
-
     if not isinstance(function_key_insertions, dict):
-        return active_group, groups
+        return groups
 
-    if "groups" in function_key_insertions and isinstance(function_key_insertions.get("groups"), dict):
-        active_group = function_key_insertions.get("active_group")
-        raw_groups = function_key_insertions.get("groups", {})
-        if isinstance(active_group, str):
-            active_group = active_group.strip() or None
-        else:
-            active_group = None
-    else:
-        raw_groups = function_key_insertions
-
-    for group_name, group_mapping in raw_groups.items():
+    for group_name, group_mapping in function_key_insertions.items():
         if not isinstance(group_name, str):
-            LOGGER.info("skipping function key group with non-string name: %r", group_name)
             continue
-
         normalized_group_name = group_name.strip()
-        if not normalized_group_name:
+        if not normalized_group_name or not isinstance(group_mapping, dict):
             continue
 
-        normalized_mapping = _normalize_function_key_mapping(normalized_group_name, group_mapping)
-        if normalized_mapping:
-            groups[normalized_group_name] = normalized_mapping
+        normalized_group = {}
+        for key, value in group_mapping.items():
+            if not isinstance(key, str):
+                continue
+            normalized_key = key.lower()
+            if normalized_key not in USER_FUNCTION_KEYS:
+                continue
+            if not isinstance(value, dict):
+                continue
+            text = value.get("text")
+            if not isinstance(text, str) or not text:
+                continue
+            description = value.get("description")
+            if not isinstance(description, str):
+                description = ""
+            normalized_group[normalized_key] = {"text": text, "description": description}
 
-    if active_group not in groups:
-        active_group = next(iter(groups), None)
+        if normalized_group:
+            groups[normalized_group_name] = normalized_group
 
-    return active_group, groups
+    return groups
+
+
+SELECTOR_HINT = "TAB to cycle. F12 to choose. ESC to cancel."
 
 
 def _format_function_key_selector_output(group_name):
@@ -112,20 +98,32 @@ def _format_function_key_selector_output(group_name):
     return "\n".join(lines) + "\n"
 
 
+def _format_function_keys_quick_reference():
+    """Format every configured group and its bindings as a single reference block."""
+    if not FUNCTION_KEY_GROUPS:
+        return "Function keys: no groups configured\n"
+
+    lines = ["Function keys:"]
+    for group_name in FUNCTION_KEY_GROUPS:
+        marker = " (active)" if group_name == ACTIVE_FUNCTION_KEY_GROUP else ""
+        lines.append(f"  [{group_name}]{marker}")
+        for entry in get_function_key_selector_entries(group_name):
+            lines.append(f"    {entry['key']}: {entry['description']}")
+    lines.append("")
+    lines.append(SELECTOR_HINT)
+    return "\n".join(lines) + "\n"
+
+
+def _print_function_keys_quick_reference():
+    """Render the full multi-group reference + hint on selector open."""
+    _print_above_prompt(_format_function_keys_quick_reference())
+    LOGGER.info("function key quick reference displayed")
+
+
 def _print_function_key_selector_output(group_name):
-    """Print the current function-key selector contents for the user."""
-    rendered_output = _format_function_key_selector_output(group_name)
-    print(rendered_output)
+    """Print the current function-key selector contents above the prompt."""
+    _print_above_prompt(_format_function_key_selector_output(group_name))
     LOGGER.info("function key selector displayed for group=%s", group_name)
-
-
-def _reset_function_key_selector_state():
-    """Reset selector runtime state to the normal prompt state."""
-    global FUNCTION_KEY_SELECTOR_STATE
-    FUNCTION_KEY_SELECTOR_STATE = {
-        "open": False,
-        "preview_group": None,
-    }
 
 
 def _set_active_function_key_group(group_name):
@@ -133,7 +131,6 @@ def _set_active_function_key_group(group_name):
     global ACTIVE_FUNCTION_KEY_GROUP
     global ACTIVE_FUNCTION_KEY_MAPPING
     global FUNCTION_KEY_INSERTIONS
-    global FUNCTION_KEY_SELECTOR_STATE
 
     if group_name not in FUNCTION_KEY_GROUPS:
         ACTIVE_FUNCTION_KEY_GROUP = None
@@ -145,9 +142,7 @@ def _set_active_function_key_group(group_name):
     ACTIVE_FUNCTION_KEY_GROUP = group_name
     ACTIVE_FUNCTION_KEY_MAPPING = FUNCTION_KEY_GROUPS[group_name]
     FUNCTION_KEY_INSERTIONS = {
-        key_name: entry.get("text", "")
-        for key_name, entry in ACTIVE_FUNCTION_KEY_MAPPING.items()
-        if key_name in {f"f{i}" for i in range(1, 9)}
+        key_name: entry["text"] for key_name, entry in ACTIVE_FUNCTION_KEY_MAPPING.items()
     }
     FUNCTION_KEY_SELECTOR_STATE["preview_group"] = group_name
     return True
@@ -157,37 +152,28 @@ def configure_function_key_insertions(function_key_insertions):
     """Store validated grouped function-key text insertions.
 
     Args:
-        function_key_insertions: Normalized mapping of group names to key
-            mappings. Each key mapping contains validated function-key names
-            mapped to string values or dictionaries with text/description.
+        function_key_insertions: Top-level dict of group names to F-key mappings,
+            as produced by ``validate_function_keys_config``. The first group in
+            iteration order is activated; selection is session-local per spec.
     """
     global FUNCTION_KEY_GROUPS
     global FUNCTION_KEY_INSERTIONS
     global ACTIVE_FUNCTION_KEY_GROUP
     global ACTIVE_FUNCTION_KEY_MAPPING
-    global FUNCTION_KEY_SELECTOR_STATE
 
-    FUNCTION_KEY_GROUPS = {}
+    FUNCTION_KEY_GROUPS = _normalize_function_key_groups(function_key_insertions)
     FUNCTION_KEY_INSERTIONS = {}
-
-    active_group, normalized_groups = _normalize_function_key_configuration(function_key_insertions)
-    FUNCTION_KEY_GROUPS = normalized_groups
+    FUNCTION_KEY_SELECTOR_STATE["open"] = False
+    FUNCTION_KEY_SELECTOR_STATE["preview_group"] = None
 
     if not FUNCTION_KEY_GROUPS:
         ACTIVE_FUNCTION_KEY_GROUP = None
         ACTIVE_FUNCTION_KEY_MAPPING = {}
-        FUNCTION_KEY_SELECTOR_STATE = {"open": False, "preview_group": None}
         LOGGER.info("no valid function key groups configured")
         return
 
-    if active_group not in FUNCTION_KEY_GROUPS:
-        active_group = next(iter(FUNCTION_KEY_GROUPS))
-
-    _set_active_function_key_group(active_group)
-    FUNCTION_KEY_SELECTOR_STATE = {
-        "open": False,
-        "preview_group": ACTIVE_FUNCTION_KEY_GROUP,
-    }
+    first_group = next(iter(FUNCTION_KEY_GROUPS))
+    _set_active_function_key_group(first_group)
     LOGGER.info(
         "loaded %d function key group(s); active group=%s",
         len(FUNCTION_KEY_GROUPS),
@@ -235,7 +221,7 @@ def activate_next_function_key_group():
 
 
 def get_function_key_selector_entries(group_name=None):
-    """Return selector entries for a group."""
+    """Return selector entries (group name, key, description) for a group."""
     entries = []
 
     if group_name is None:
@@ -244,7 +230,7 @@ def get_function_key_selector_entries(group_name=None):
             group_name = ACTIVE_FUNCTION_KEY_GROUP
 
     if group_name in FUNCTION_KEY_GROUPS:
-        for key_name in (f"f{i}" for i in range(1, 25)):
+        for key_name in USER_FUNCTION_KEYS:
             entry = FUNCTION_KEY_GROUPS[group_name].get(key_name)
             if not entry:
                 continue
@@ -272,35 +258,39 @@ def get_function_key_selector_data():
     }
 
 
-def register_function_key_handlers(key_bindings):
-    """Register active-group F1-F8 insertions and selector controls."""
-    bound_keys = 0
-    for key_name in (f"f{i}" for i in range(1, 9)):
-        if key_name not in FUNCTION_KEY_INSERTIONS:
-            continue
+_selector_open_filter = Condition(lambda: FUNCTION_KEY_SELECTOR_STATE.get("open", False))
 
+
+def register_function_key_handlers(key_bindings):
+    """Register F1-F8 insertion handlers and selector controls.
+
+    F1-F8 are bound unconditionally so live group switching keeps every user-
+    assignable key reachable; the insertion handler is a no-op when the active
+    group has no text for the pressed key. F12 always opens/confirms the
+    selector. Tab and Escape only fire while the selector is open so normal
+    tab-completion and escape-to-abort behavior is preserved otherwise.
+    """
+    for key_name in USER_FUNCTION_KEYS:
         def handler(event, key_name=key_name):
             insert_function_key_text(event, key_name)
 
         key_bindings.add(key_name)(handler)
-        bound_keys += 1
 
-    def _bind_selector(key_name, handler):
-        key_bindings.add(key_name)(handler)
+    key_bindings.add("f12")(handle_function_key_selector_key)
+    key_bindings.add("tab", filter=_selector_open_filter)(handle_function_key_selector_tab_key)
+    # ``eager=True`` short-circuits prompt-toolkit's meta-key wait so a bare
+    # ESC fires immediately instead of stalling for the meta-sequence timeout.
+    key_bindings.add("escape", filter=_selector_open_filter, eager=True)(handle_function_key_selector_escape_key)
 
-    _bind_selector("f12", handle_function_key_selector_key)
-    _bind_selector("tab", handle_function_key_selector_tab_key)
-    _bind_selector("escape", handle_function_key_selector_escape_key)
-
-    LOGGER.debug("registered %d function key handler(s)", bound_keys)
+    LOGGER.debug("registered function key handlers (F1-F8 + selector F12/Tab/Escape)")
 
 
 def insert_function_key_text(event, key_name):
-    """Insert configured text for a validated function key.
+    """Insert configured text for an active-group F-key.
 
     Args:
         event: The keyboard event.
-        key_name: Validated function key name such as "f1" or "f10".
+        key_name: Function key name such as "f1".
     """
     buffer = event.app.current_buffer
     entry = ACTIVE_FUNCTION_KEY_MAPPING.get(key_name, {})
@@ -336,11 +326,14 @@ def _update_selector_ui(ui, *, close=False, accept=False):
 
 def open_function_key_selector(ui=None):
     """Open the function-key selector."""
+    if not FUNCTION_KEY_GROUPS:
+        LOGGER.info("function key selector not opened: no groups configured")
+        return
     FUNCTION_KEY_SELECTOR_STATE["open"] = True
     if FUNCTION_KEY_SELECTOR_STATE.get("preview_group") not in FUNCTION_KEY_GROUPS:
         FUNCTION_KEY_SELECTOR_STATE["preview_group"] = ACTIVE_FUNCTION_KEY_GROUP
     _update_selector_ui(ui)
-    _print_function_key_selector_output(FUNCTION_KEY_SELECTOR_STATE.get("preview_group"))
+    _print_function_keys_quick_reference()
     LOGGER.info("function key selector opened")
 
 
@@ -348,12 +341,18 @@ def close_function_key_selector(cancelled=False, ui=None):
     """Close the function-key selector.
 
     Args:
-        cancelled: Whether the selector was cancelled.
+        cancelled: Whether the selector was cancelled (Escape) vs confirmed (F12).
+        ui: Optional selector UI to close alongside internal state.
     """
     FUNCTION_KEY_SELECTOR_STATE["open"] = False
     FUNCTION_KEY_SELECTOR_STATE["preview_group"] = ACTIVE_FUNCTION_KEY_GROUP
     _update_selector_ui(ui, close=True)
-    _reset_function_key_selector_state()
+    if cancelled:
+        _print_above_prompt(
+            f"Selector cancelled (active group: {ACTIVE_FUNCTION_KEY_GROUP})\n"
+        )
+    else:
+        _print_above_prompt(f"Active group: {ACTIVE_FUNCTION_KEY_GROUP}\n")
     LOGGER.info("function key selector closed cancelled=%s", cancelled)
 
 
@@ -385,7 +384,9 @@ def preview_next_function_key_group(ui=None):
 
 
 def handle_function_key_selector_key(event, ui=None):
-    """Open or confirm the selector."""
+    """Open the selector when closed, or confirm the preview group when open."""
+    if not FUNCTION_KEY_GROUPS:
+        return
     if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
         open_function_key_selector(ui=ui)
         return
@@ -393,18 +394,15 @@ def handle_function_key_selector_key(event, ui=None):
     preview_group = FUNCTION_KEY_SELECTOR_STATE.get("preview_group")
     if preview_group in FUNCTION_KEY_GROUPS:
         switch_active_function_key_group(preview_group)
-    close_function_key_selector(cancelled=False, ui=ui)
     _update_selector_ui(ui, accept=True)
+    close_function_key_selector(cancelled=False, ui=ui)
     LOGGER.info("function key selector confirmed group=%s", ACTIVE_FUNCTION_KEY_GROUP)
 
 
 def handle_function_key_selector_confirm_key(event, ui=None):
     """Confirm the selector using the current preview group."""
     if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
-        if ui is not None:
-            _update_selector_ui(ui, accept=True)
         return
-
     preview_group = FUNCTION_KEY_SELECTOR_STATE.get("preview_group")
     if preview_group in FUNCTION_KEY_GROUPS:
         switch_active_function_key_group(preview_group)
@@ -414,34 +412,17 @@ def handle_function_key_selector_confirm_key(event, ui=None):
 
 
 def handle_function_key_selector_tab_key(event, ui=None):
-    """Cycle the selector preview to the next group."""
-    if ui is not None:
-        preview_next_function_key_group(ui=ui)
-        if not FUNCTION_KEY_SELECTOR_STATE.get("open", False) and hasattr(ui, "select_next"):
-            ui.select_next()
-        return
+    """Cycle the selector preview to the next group (spec: Tab when open)."""
     if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
         return
     preview_next_function_key_group(ui=ui)
 
 
-def handle_function_key_selector_tab(event, ui=None):
-    """Compatibility wrapper for selector tab handling."""
-    handle_function_key_selector_tab_key(event, ui=ui)
-
-
 def handle_function_key_selector_escape_key(event, ui=None):
-    """Cancel the selector."""
+    """Cancel the selector (spec: Escape when open, no-op otherwise)."""
     if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
         return
     close_function_key_selector(cancelled=True, ui=ui)
-    if ui is not None and hasattr(ui, "close"):
-        ui.close()
-
-
-def handle_function_key_selector_escape(event, ui=None):
-    """Compatibility wrapper for selector escape handling."""
-    handle_function_key_selector_escape_key(event, ui=ui)
 
 
 # Define the handler for Ctrl + Left Arrow
