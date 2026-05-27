@@ -292,6 +292,22 @@ def test_register_function_key_handlers_marks_escape_eager():
     assert by_key["tab"].get("eager") is None
 
 
+def test_register_function_key_handlers_binds_keys_any_with_selector_filter():
+    """The catch-all 'any key cancels' binding is registered with the selector filter."""
+    from prompt_toolkit.keys import Keys
+
+    keyboard.configure_function_key_insertions(
+        {"group1": {"F1": {"text": "build", "description": "Insert build"}}}
+    )
+    bindings = DummyBindings()
+
+    keyboard.register_function_key_handlers(bindings)
+
+    any_entries = [item for item in bindings.registered if item[0] is Keys.Any]
+    assert len(any_entries) == 1
+    assert "filter" in any_entries[0][2]
+
+
 def test_selector_open_uses_current_selection_and_accepts_preview_item():
     """It opens the selector and pushes preview entries to the UI."""
     keyboard.configure_function_key_insertions(
@@ -373,7 +389,9 @@ def test_selector_escape_prints_visible_cancel_feedback(captured_prints):
 
 
 def test_selector_confirm_prints_visible_active_group_feedback(captured_prints):
-    """F12 confirm prints the new active group so the user sees the switch take effect."""
+    """F12 confirm prints the new active group in yellow with a leading newline."""
+    from monitor.lib.colors import reset, yellow
+
     keyboard.configure_function_key_insertions(_two_group_config())
     keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
     keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
@@ -381,7 +399,12 @@ def test_selector_confirm_prints_visible_active_group_feedback(captured_prints):
 
     keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
 
-    assert any("Active group: group2" in line for line in captured_prints)
+    matching = [line for line in captured_prints if "Active group: group2" in line]
+    assert matching, "expected an 'Active group: group2' line"
+    line = matching[0]
+    assert line.startswith("\n"), "confirm output should start with a newline"
+    assert yellow in line
+    assert reset in line
 
 
 def test_selector_confirm_activates_previewed_group():
@@ -454,6 +477,55 @@ def test_insert_function_key_text_is_noop_when_active_group_has_no_binding():
     assert event.app.current_buffer.inserted == []
 
 
+class _AnyKeyEvent:
+    """Event stand-in for prompt_toolkit's Keys.Any handler: carries .data."""
+
+    def __init__(self, data, text=""):
+        self.data = data
+        self.app = DummyApp(text)
+
+
+def test_typing_a_letter_while_selector_open_cancels_and_inserts(captured_prints):
+    """While the selector is open, a regular keystroke cancels it and inserts the char."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    event = _AnyKeyEvent("h")
+    keyboard.handle_function_key_selector_any_key(event, ui=None)
+
+    assert keyboard.get_function_key_selector_data()["open"] is False
+    assert event.app.current_buffer.inserted == ["h"]
+    assert captured_prints == []  # silent cancel — the inserted char is the feedback
+
+
+def test_typing_special_key_while_selector_open_cancels_without_inserting(captured_prints):
+    """Non-printable event.data (e.g., empty for arrow keys) cancels silently, no insert."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    event = _AnyKeyEvent("")
+    keyboard.handle_function_key_selector_any_key(event, ui=None)
+
+    assert keyboard.get_function_key_selector_data()["open"] is False
+    assert event.app.current_buffer.inserted == []
+
+
+def test_pressing_f1_while_selector_open_cancels_and_inserts_text(captured_prints):
+    """F1-F8 close the selector silently and proceed with their normal insertion."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
+    captured_prints.clear()
+
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+
+    assert keyboard.get_function_key_selector_data()["open"] is False
+    assert event.app.current_buffer.inserted == ["build"]
+    assert captured_prints == []  # silent — the inserted text is the feedback
+
+
 def test_selector_open_renders_full_reference_and_hint(captured_prints):
     """It writes the multi-group reference plus hint above the prompt safely."""
     keyboard.configure_function_key_insertions(_two_group_config())
@@ -467,11 +539,11 @@ def test_selector_open_renders_full_reference_and_hint(captured_prints):
     assert "F1: Insert build" in rendered
     assert "F2: Insert tests" in rendered
     assert "F3: Show status" in rendered
-    assert "TAB to cycle. F12 to choose. ESC to cancel." in rendered
+    assert "TAB to cycle. F12 to choose. ESC to cancel. Any key to dismiss." in rendered
 
 
 def test_selector_tab_renders_preview_group(captured_prints):
-    """It writes preview output above the prompt on each Tab."""
+    """It writes preview output above the prompt on each Tab, with a leading newline."""
     keyboard.configure_function_key_insertions(_two_group_config())
     keyboard.handle_function_key_selector_key(DummyEvent(), ui=None)
     captured_prints.clear()
@@ -479,4 +551,6 @@ def test_selector_tab_renders_preview_group(captured_prints):
     keyboard.handle_function_key_selector_tab_key(DummyEvent(), ui=None)
 
     assert len(captured_prints) == 1
-    assert "Function key selector: group2" in captured_prints[0]
+    rendered = captured_prints[0]
+    assert rendered.startswith("\n"), "preview output should start with a newline"
+    assert "Function key selector: group2" in rendered

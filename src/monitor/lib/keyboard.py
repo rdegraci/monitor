@@ -2,7 +2,9 @@ import logging
 
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
+from prompt_toolkit.keys import Keys
 
+from monitor.lib.colors import reset, yellow
 from monitor.lib.voice_to_text import VoiceToText
 
 LOGGER = logging.getLogger(__name__)
@@ -84,15 +86,15 @@ def _normalize_function_key_groups(function_key_insertions):
     return groups
 
 
-SELECTOR_HINT = "TAB to cycle. F12 to choose. ESC to cancel."
+SELECTOR_HINT = "TAB to cycle. F12 to choose. ESC to cancel. Any key to dismiss."
 
 
 def _format_function_key_selector_output(group_name):
     """Format the current function-key selector group and entries for display."""
     if group_name not in FUNCTION_KEY_GROUPS:
-        return "Function key selector: no active group\n"
+        return "\nFunction key selector: no active group\n"
 
-    lines = [f"Function key selector: {group_name}"]
+    lines = ["", f"Function key selector: {group_name}"]
     for entry in get_function_key_selector_entries(group_name):
         lines.append(f"{entry['key']}: {entry['description']}")
     return "\n".join(lines) + "\n"
@@ -281,17 +283,28 @@ def register_function_key_handlers(key_bindings):
     # ``eager=True`` short-circuits prompt-toolkit's meta-key wait so a bare
     # ESC fires immediately instead of stalling for the meta-sequence timeout.
     key_bindings.add("escape", filter=_selector_open_filter, eager=True)(handle_function_key_selector_escape_key)
+    # Catch-all: any other key while the selector is open cancels it silently
+    # and (for printable chars) inserts the typed character. Keys.Any only
+    # matches when no more-specific binding does, so F12 / Tab / Escape and
+    # F1-F8 still win.
+    key_bindings.add(Keys.Any, filter=_selector_open_filter)(handle_function_key_selector_any_key)
 
-    LOGGER.debug("registered function key handlers (F1-F8 + selector F12/Tab/Escape)")
+    LOGGER.debug("registered function key handlers (F1-F8 + selector F12/Tab/Escape/Any)")
 
 
 def insert_function_key_text(event, key_name):
     """Insert configured text for an active-group F-key.
 
+    If the selector is open, close it silently first — the user pressed an
+    F-key, so they're done browsing; the inserted text is the visible feedback.
+
     Args:
         event: The keyboard event.
         key_name: Function key name such as "f1".
     """
+    if FUNCTION_KEY_SELECTOR_STATE.get("open", False):
+        close_function_key_selector(cancelled=True, silent=True)
+
     buffer = event.app.current_buffer
     entry = ACTIVE_FUNCTION_KEY_MAPPING.get(key_name, {})
     text = entry.get("text", "")
@@ -337,23 +350,31 @@ def open_function_key_selector(ui=None):
     LOGGER.info("function key selector opened")
 
 
-def close_function_key_selector(cancelled=False, ui=None):
+def close_function_key_selector(cancelled=False, ui=None, silent=False):
     """Close the function-key selector.
 
     Args:
-        cancelled: Whether the selector was cancelled (Escape) vs confirmed (F12).
+        cancelled: Whether the selector was cancelled (Escape / implicit) vs
+            confirmed (F12).
         ui: Optional selector UI to close alongside internal state.
+        silent: When True, suppress the user-facing "cancelled" / "active group"
+            line. Used by implicit-cancel paths (typing a normal character or
+            an F1-F8 insertion key while the selector is open) where the
+            visible feedback is the character/insertion itself.
     """
     FUNCTION_KEY_SELECTOR_STATE["open"] = False
     FUNCTION_KEY_SELECTOR_STATE["preview_group"] = ACTIVE_FUNCTION_KEY_GROUP
     _update_selector_ui(ui, close=True)
-    if cancelled:
-        _print_above_prompt(
-            f"Selector cancelled (active group: {ACTIVE_FUNCTION_KEY_GROUP})\n"
-        )
-    else:
-        _print_above_prompt(f"Active group: {ACTIVE_FUNCTION_KEY_GROUP}\n")
-    LOGGER.info("function key selector closed cancelled=%s", cancelled)
+    if not silent:
+        if cancelled:
+            _print_above_prompt(
+                f"Selector cancelled (active group: {ACTIVE_FUNCTION_KEY_GROUP})\n"
+            )
+        else:
+            _print_above_prompt(
+                f"\n{yellow}Active group: {ACTIVE_FUNCTION_KEY_GROUP}{reset}\n"
+            )
+    LOGGER.info("function key selector closed cancelled=%s silent=%s", cancelled, silent)
 
 
 def preview_next_function_key_group(ui=None):
@@ -423,6 +444,25 @@ def handle_function_key_selector_escape_key(event, ui=None):
     if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
         return
     close_function_key_selector(cancelled=True, ui=ui)
+
+
+def handle_function_key_selector_any_key(event, ui=None):
+    """Any non-selector key cancels the selector and lets the keystroke through.
+
+    Bound to ``Keys.Any`` with a selector-open filter. ``Keys.Any`` only fires
+    when no more-specific binding matches, so the dedicated F12 / Tab / Escape
+    handlers still win and F1-F8 still hit their insertion handler (which
+    closes the selector itself). What's left for this handler is the
+    "user typed a regular character while the selector was open" case: close
+    silently and insert the character so it shows up in the prompt as if the
+    selector had never been there.
+    """
+    if not FUNCTION_KEY_SELECTOR_STATE.get("open", False):
+        return
+    close_function_key_selector(cancelled=True, ui=ui, silent=True)
+    data = event.data
+    if data and len(data) == 1 and data.isprintable():
+        event.app.current_buffer.insert_text(data)
 
 
 # Define the handler for Ctrl + Left Arrow
