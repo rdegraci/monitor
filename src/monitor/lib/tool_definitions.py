@@ -44,7 +44,7 @@ from monitor.lib.protocol_engine import modify_source_code
 from monitor.lib.find_files import find_files
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.type_checker import type_check_python
-from monitor.lib.todo import add_todo, list_todos, update_todo, clear_todos
+from monitor.lib.todo import add_todo, list_todos, update_todo, delete_todo, clear_todos
 
 TOOL_STATE = {}
 
@@ -86,6 +86,7 @@ AVAILABLE_TOOLS = {
     "add_todo": add_todo,
     "list_todos": list_todos,
     "update_todo": update_todo,
+    "delete_todo": delete_todo,
     "clear_todos": clear_todos,
     "agent_create": agent_create,
     "agent_kill": agent_kill,
@@ -433,16 +434,15 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "add_todo",
-            "description": "Add a new todo item to the list for the given session.",
+            "description": "Add a new todo item to the current session's list. The session is determined automatically; do not pass it.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string", "description": "The session identifier."},
                     "item": {"type": "string", "description": "The todo item description."},
-                    "priority": {"type": "integer", "description": "Optional priority (higher number = higher priority).", "default": 0},
+                    "priority": {"type": "integer", "description": "Higher number sorts earlier in list_todos.", "default": 0},
                     "notes": {"type": "string", "description": "Notes for the todo item."}
                 },
-                "required": ["session_id", "item"]
+                "required": ["item"]
             }
         }
     },
@@ -450,13 +450,11 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "list_todos",
-            "description": "Retrieve the current todo list for the given session as a JSON array of items including a 'notes' field.",
+            "description": "Retrieve the current session's todo list as a JSON array, sorted by priority (highest first); each item includes id, status, priority, and notes.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "session_id": {"type": "string", "description": "The session identifier."}
-                },
-                "required": ["session_id"]
+                "properties": {},
+                "required": []
             }
         }
     },
@@ -464,16 +462,31 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "update_todo",
-            "description": "Update the status of a todo item at the given index for the session.",
+            "description": "Update a todo addressed by its id (from add_todo or list_todos). Provide at least one of status, item, notes, or priority.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string", "description": "The session identifier."},
-                    "index": {"type": "integer", "description": "The index of the todo item to update (0-based)."},
-                    "status": {"type": "string", "description": "The new status (e.g., 'done', 'in_progress').", "default": "done"},
-                    "notes": {"type": "string", "description": "Optional notes to update for the todo item."}
+                    "id": {"type": "string", "description": "The id of the todo to update."},
+                    "status": {"type": "string", "description": "New status, e.g. 'in_progress' or 'done'."},
+                    "item": {"type": "string", "description": "New description text for the todo."},
+                    "notes": {"type": "string", "description": "Notes to set on the todo."},
+                    "priority": {"type": "integer", "description": "New priority (higher sorts earlier)."}
                 },
-                "required": ["session_id", "index", "status"]
+                "required": ["id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_todo",
+            "description": "Remove a single todo addressed by its id (from add_todo or list_todos).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The id of the todo to remove."}
+                },
+                "required": ["id"]
             }
         }
     },
@@ -481,13 +494,11 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "clear_todos",
-            "description": "Clear the todo list for the given session.",
+            "description": "Clear the current session's entire plan (all todos).",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "session_id": {"type": "string", "description": "The session identifier."}
-                },
-                "required": ["session_id"]
+                "properties": {},
+                "required": []
             }
         }
     },
@@ -889,20 +900,16 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Add a new todo item to the list for the given session.",
+    "description": "Add a new todo item to the current session's list. The session is determined automatically; do not pass it.",
     "name": "add_todo",
     "parameters": {
       "properties": {
-        "session_id": {
-          "description": "The session identifier.",
-          "type": "string"
-        },
         "item": {
           "description": "The todo item description.",
           "type": "string"
         },
         "priority": {
-          "description": "Optional priority (higher number = higher priority).",
+          "description": "Higher number sorts earlier in list_todos.",
           "type": "integer",
           "default": 0
         },
@@ -912,72 +919,74 @@ GEMINI_TOOL_DESCRIPTIONS = [
         }
       },
       "required": [
-        "session_id",
         "item"
       ],
       "type": "object"
     }
   },
   {
-    "description": "Retrieve the current todo list for the given session as a JSON array of items including a 'notes' field.",
+    "description": "Retrieve the current session's todo list as a JSON array, sorted by priority (highest first); each item includes id, status, priority, and notes.",
     "name": "list_todos",
     "parameters": {
-      "properties": {
-        "session_id": {
-          "description": "The session identifier.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "session_id"
-      ],
+      "properties": {},
+      "required": [],
       "type": "object"
     }
   },
   {
-    "description": "Update the status of a todo item at the given index for the session.",
+    "description": "Update a todo addressed by its id (from add_todo or list_todos). Provide at least one of status, item, notes, or priority.",
     "name": "update_todo",
     "parameters": {
       "properties": {
-        "session_id": {
-          "description": "The session identifier.",
+        "id": {
+          "description": "The id of the todo to update.",
           "type": "string"
-        },
-        "index": {
-          "description": "The index of the todo item to update (0-based).",
-          "type": "integer"
         },
         "status": {
-          "description": "The new status (e.g., 'done', 'in_progress').",
-          "type": "string",
-          "default": "done"
+          "description": "New status, e.g. 'in_progress' or 'done'.",
+          "type": "string"
+        },
+        "item": {
+          "description": "New description text for the todo.",
+          "type": "string"
         },
         "notes": {
-          "description": "Optional notes to update for the todo item.",
+          "description": "Notes to set on the todo.",
           "type": "string"
+        },
+        "priority": {
+          "description": "New priority (higher sorts earlier).",
+          "type": "integer"
         }
       },
       "required": [
-        "session_id",
-        "index",
-        "status"
+        "id"
       ],
       "type": "object"
     }
   },
   {
-    "description": "Clear the todo list for the given session.",
-    "name": "clear_todos",
+    "description": "Remove a single todo addressed by its id (from add_todo or list_todos).",
+    "name": "delete_todo",
     "parameters": {
       "properties": {
-        "session_id": {
-          "description": "The session identifier.",
+        "id": {
+          "description": "The id of the todo to remove.",
           "type": "string"
         }
       },
       "required": [
-        "session_id"
+        "id"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Clear the current session's entire plan (all todos).",
+    "name": "clear_todos",
+    "parameters": {
+      "properties": {},
+      "required": [],
       "type": "object"
     }
   },

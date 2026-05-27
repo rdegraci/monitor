@@ -7,7 +7,7 @@ from .redis_utils import get_redis_client
 logger = logging.getLogger(__name__)
 
 TODO_KEY_FORMAT = "todo:{session_id}:coding_task"
-TODO_TTL = 1800  # 30 minutes (default)
+TODO_TTL = 28800  # 8 hours — single source of truth for todo expiry
 _TODO_MEMORY_STORE = {}
 _TODO_MEMORY_LOCK = Lock()
 

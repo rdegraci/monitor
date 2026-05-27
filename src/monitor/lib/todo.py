@@ -1,240 +1,325 @@
 import json
 import logging
-from typing import List, Dict, Any
+import uuid
+from typing import Any, Dict, List
 
 from . import todo_redis as _todo_store
 
 logger = logging.getLogger(__name__)
 
-TODO_KEY_PREFIX = "todo:"
-TODO_KEY_SUFFIX = ":coding_task"
-TODO_TTL = 28800  # 8 hours, adjustable
 
-def _session_id_from_key(key: str) -> str:
-    """Extract the session_id from a key of the form f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"."""
+def _resolve_session_id() -> str:
+    """Resolve the todo session id from the harness session (the one shown in
+    the system prompt as ``Session ID: ...``).
+
+    Read lazily from ``monitor.config`` so there's no import cycle and we always
+    pick up the current run's id. Falls back to ``"default"`` when the harness
+    hasn't assigned one yet (e.g. when tools are exercised outside a configured
+    run).
+    """
     try:
-        if not key.startswith(TODO_KEY_PREFIX):
-            logger.warning(f"Key does not start with expected prefix: key={key}")
-            return key
-        if not key.endswith(TODO_KEY_SUFFIX):
-            logger.warning(f"Key does not end with expected suffix: key={key}")
-            return key[len(TODO_KEY_PREFIX):]
-        start = len(TODO_KEY_PREFIX)
-        end = len(key) - len(TODO_KEY_SUFFIX)
-        return key[start:end]
-    except Exception as e:
-        logger.error(f"Error extracting session_id from key={key}: {e}")
-        return key
+        import monitor.config as config
 
-def save_todo_to_memory(*, key: str, value: str, ttl: int) -> None:
-    """
-    Adapter: convert key/value usage to session_id-based API.
-    """
-    session_id = _session_id_from_key(key)
-    todos: List[Dict[str, Any]] = []
+        session_id = getattr(config, "SESSION_ID", None)
+    except Exception:
+        session_id = None
+    return session_id or "default"
+
+
+def _read_todos(session_id: str, *, context: str) -> List[Dict[str, Any]]:
+    """Read the session's todos as a list, coercing malformed data to []."""
+    value = _todo_store.read_todo_from_memory(session_id=session_id)
+    if isinstance(value, list):
+        return value
     if value:
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                todos = parsed
-            else:
-                logger.error(f"Invalid todos value for session_id={session_id}: not a list (type: {type(parsed)})")
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"JSON decode error in save_todo_to_memory for session_id={session_id}: {e}")
-    _todo_store.save_todo_to_memory(session_id=session_id, todos=todos, ttl=ttl)
+        logger.error(
+            "Invalid todos for %s: stored value is not a list (type=%s); resetting",
+            context,
+            type(value).__name__,
+        )
+    return []
 
-def read_todo_from_memory(key: str) -> str | None:
-    """
-    Adapter: read todos from session_id-based API and return as JSON string or None.
-    """
-    session_id = _session_id_from_key(key)
-    todos = _todo_store.read_todo_from_memory(session_id=session_id)
-    if not todos:
-        return None
-    try:
-        return json.dumps(todos)
-    except (TypeError, ValueError) as e:
-        logger.error(f"JSON encode error in read_todo_from_memory for session_id={session_id}: {e}")
-        return None
 
-def clear_todo_from_memory(key: str) -> None:
-    """
-    Adapter: clear todos using session_id-based API.
-    """
-    session_id = _session_id_from_key(key)
-    _todo_store.clear_todo_from_memory(session_id=session_id)
+def _new_id(existing_ids: set) -> str:
+    """Generate a short stable id unique among ``existing_ids``."""
+    while True:
+        candidate = uuid.uuid4().hex[:8]
+        if candidate not in existing_ids:
+            return candidate
 
-def _get_todo_key(session_id: str) -> str:
-    """Generate the Redis key for the todo list based on session_id."""
-    return f"{TODO_KEY_PREFIX}{session_id}{TODO_KEY_SUFFIX}"
 
-def add_todo(session_id: str, item: str, priority: int = 0, notes: str | None = None) -> str:
+def _ensure_ids(todos: List[Dict[str, Any]]) -> bool:
+    """Backfill ids for any item lacking one (migration / model-added items).
+
+    Returns True if any item was mutated, so callers can persist.
     """
-    Add a new todo item to the list for the given session.
-    
-    :param session_id: The session identifier.
-    :param item: The todo item description.
-    :param priority: Optional priority (higher number = higher priority).
-    :param notes: Optional notes for the todo item. If not provided, stored as an empty string "" for schema consistency.
-    :return: A JSON string indicating success and containing the action, session_id, item, priority, and the new count.
-             Items are stored as dictionaries with keys {'item', 'status', 'priority', 'notes'}.
-             Example: {"ok": true, "action": "add_todo", "session_id": "...", "item": "...", "priority": 1, "count": 3}
-    """
-    key = _get_todo_key(session_id)
-    current_list = read_todo_from_memory(key)
-    todos: List[Dict[str, Any]] = []
-    if current_list:
-        try:
-            todos = json.loads(current_list)
-            if not isinstance(todos, list):
-                logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
-                todos = []
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"JSON decode error reading todos for session_id={session_id}: {e}")
-            todos = []
-    todos.append({"item": item, "status": "pending", "priority": priority, "notes": notes or ""})
-    # Optionally sort by priority if desired: todos.sort(key=lambda x: x['priority'], reverse=True)
-    save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
-    logger.info(f"Added todo item for session_id={session_id}: item={item}, priority={priority}")
-    print(f"Added work item: session_id={session_id}, item={item}, priority={priority}")
-    response = {
-        "ok": True,
-        "action": "add_todo",
-        "session_id": session_id,
-        "item": item,
-        "priority": priority,
-        "count": len(todos),
+    changed = False
+    existing = {
+        t["id"] for t in todos if isinstance(t, dict) and t.get("id")
     }
-    return json.dumps(response)
+    for entry in todos:
+        if isinstance(entry, dict) and not entry.get("id"):
+            new_id = _new_id(existing)
+            entry["id"] = new_id
+            existing.add(new_id)
+            changed = True
+    return changed
 
-def list_todos(session_id: str) -> str:
-    """
-    Retrieve the current todo list for the given session as a JSON array string.
-    
-    :param session_id: The session identifier.
-    :return: A JSON array string of todo items, each as {'item': str, 'status': str, 'priority': int, 'notes': str}.
-             Example: [{"item": "...", "status": "pending", "priority": 0, "notes": ""}, ...]
-    """
-    key = _get_todo_key(session_id)
-    current_list = read_todo_from_memory(key)
-    todos: List[Dict[str, Any]] = []
-    if current_list:
-        try:
-            todos = json.loads(current_list)
-            if not isinstance(todos, list):
-                logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
-                todos = []
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"JSON decode error listing todos for session_id={session_id}: {e}")
-            todos = []
-    for _idx, _item in enumerate(todos):
-        if isinstance(_item, dict) and "notes" not in _item:
-            _item["notes"] = ""
-    logger.info(f"Listed todos for session_id={session_id}: found {len(todos)} item(s)")
-    print(f"List work items: session_id={session_id}, count={len(todos)}")
-    return json.dumps(todos)
 
-def update_todo(session_id: str, index: int, status: str = "done", notes: str | None = None) -> str:
-    """
-    Update the status of a todo item at the given index for the session.
-    
-    :param session_id: The session identifier.
-    :param index: The index of the todo item to update (0-based).
-    :param status: The new status (e.g., 'done', 'in_progress').
-    :param notes: Optional notes to set on the todo item. If provided and non-empty (not ""), updates the item's 'notes' field.
-    :return: A JSON string indicating success or failure.
-             Success: {"ok": true, "action": "update_todo", "session_id": "...", "index": 0, "status": "...", "item": {...}}
-             Failure (no list): {"ok": false, "action": "update_todo", "error": "not_found", "reason": "no todos for session", "session_id": "...", "index": 0, "status": "..."}
-             Failure (index out of range): {"ok": false, "action": "update_todo", "error": "index_out_of_range", "session_id": "...", "index": 0, "count": <len>}
-             The "item" in the success response reflects the updated item, which may include a 'notes' field.
-    """
-    key = _get_todo_key(session_id)
-    current_list = read_todo_from_memory(key)
-    if not current_list:
-        logger.info(f"Update failed for session_id={session_id}, index={index}, status={status}: no todos found")
-        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=no todos found")
-        error_resp = {
-            "ok": False,
-            "action": "update_todo",
-            "error": "not_found",
-            "reason": "no todos for session",
-            "session_id": session_id,
-            "index": index,
-            "status": status,
-        }
-        return json.dumps(error_resp)
+def _find_index(todos: List[Dict[str, Any]], todo_id: str) -> int:
+    """Return the list index of the item with ``todo_id``, or -1."""
+    for i, entry in enumerate(todos):
+        if isinstance(entry, dict) and entry.get("id") == todo_id:
+            return i
+    return -1
+
+
+def _priority_of(entry: Dict[str, Any]) -> int:
+    """Best-effort integer priority for an item (defaults to 0)."""
     try:
-        todos: List[Dict[str, Any]] = json.loads(current_list)
-        if not isinstance(todos, list):
-            logger.error(f"Invalid todos data for session_id={session_id}: not a list (type: {type(todos)})")
-            print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=stored value is not a list")
-            error_resp = {
+        return int(entry.get("priority", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def add_todo(item: str, notes: str | None = None, priority: int = 0) -> str:
+    """Add a new todo to the current session's plan and return its id.
+
+    The session is taken from the harness session id, not a parameter.
+
+    :param priority: Higher number sorts earlier in list_todos (default 0).
+    :return: JSON ``{"ok", "action", "session_id", "id", "item", "priority", "count"}``.
+             Items are stored as ``{"id", "item", "status", "priority", "notes"}``
+             with status "pending".
+    """
+    session_id = _resolve_session_id()
+    todos = _read_todos(session_id, context=f"add_todo session={session_id}")
+    _ensure_ids(todos)
+    existing = {t["id"] for t in todos if isinstance(t, dict) and t.get("id")}
+    new_id = _new_id(existing)
+    todos.append(
+        {
+            "id": new_id,
+            "item": item,
+            "status": "pending",
+            "priority": priority,
+            "notes": notes or "",
+        }
+    )
+    _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
+    logger.info(
+        "add_todo session=%s id=%s item=%r priority=%s count=%d",
+        session_id,
+        new_id,
+        item,
+        priority,
+        len(todos),
+    )
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "add_todo",
+            "session_id": session_id,
+            "id": new_id,
+            "item": item,
+            "priority": priority,
+            "count": len(todos),
+        }
+    )
+
+
+def list_todos() -> str:
+    """Return the current session's plan as a JSON array, highest priority first.
+
+    Ties keep insertion order (stable sort). Storage stays insertion-ordered;
+    only this view is sorted, which is safe because items are addressed by id.
+
+    :return: JSON array of ``{"id", "item", "status", "priority", "notes"}``.
+             Use each item's ``id`` with update_todo / delete_todo.
+    """
+    session_id = _resolve_session_id()
+    todos = _read_todos(session_id, context=f"list_todos session={session_id}")
+    changed = _ensure_ids(todos)
+    for entry in todos:
+        if not isinstance(entry, dict):
+            continue
+        if "notes" not in entry:
+            entry["notes"] = ""
+            changed = True
+        if "priority" not in entry:
+            entry["priority"] = 0
+            changed = True
+    if changed:
+        _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
+    ordered = sorted(todos, key=lambda e: -_priority_of(e))
+    logger.info("list_todos session=%s count=%d", session_id, len(ordered))
+    return json.dumps(ordered)
+
+
+def _read_for_mutation(session_id: str, action: str, **echo: Any):
+    """Read todos for an id-addressed mutation.
+
+    Returns ``(todos, None)`` on success, or ``(None, error_json)`` when there
+    are no todos or the stored value is malformed.
+    """
+    value = _todo_store.read_todo_from_memory(session_id=session_id)
+    if not value:
+        logger.info("%s session=%s: no todos", action, session_id)
+        return None, json.dumps(
+            {
                 "ok": False,
-                "action": "update_todo",
+                "action": action,
+                "error": "not_found",
+                "reason": "no todos for session",
+                "session_id": session_id,
+                **echo,
+            }
+        )
+    if not isinstance(value, list):
+        logger.error("%s session=%s: stored value is not a list", action, session_id)
+        return None, json.dumps(
+            {
+                "ok": False,
+                "action": action,
                 "error": "decode_error",
                 "reason": "stored value is not a list",
                 "session_id": session_id,
-                "index": index,
-                "status": status,
+                **echo,
             }
-            return json.dumps(error_resp)
-    except (json.JSONDecodeError, TypeError) as e:
-        logger.error(f"JSON decode error updating todos for session_id={session_id}: {e}")
-        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=json decode error")
-        error_resp = {
-            "ok": False,
-            "action": "update_todo",
-            "error": "decode_error",
-            "reason": "json_decode_error",
-            "session_id": session_id,
-            "index": index,
-            "status": status,
-        }
-        return json.dumps(error_resp)
-    if 0 <= index < len(todos):
+        )
+    return value, None
+
+
+def update_todo(
+    id: str,
+    status: str | None = None,
+    item: str | None = None,
+    notes: str | None = None,
+    priority: int | None = None,
+) -> str:
+    """Update a todo addressed by ``id``.
+
+    Provide at least one of ``status`` (e.g. "in_progress", "done"), ``item``
+    (new description), ``notes``, or ``priority``. Empty strings for item/notes
+    are ignored; ``priority`` of 0 is honored.
+
+    :return: JSON success ``{"ok": true, ..., "item": {...}}`` or an error
+             envelope (``not_found`` / ``decode_error`` / ``id_not_found`` /
+             ``nothing_to_update``).
+    """
+    session_id = _resolve_session_id()
+    todos, error = _read_for_mutation(session_id, "update_todo", id=id)
+    if error is not None:
+        return error
+
+    _ensure_ids(todos)
+    index = _find_index(todos, id)
+    if index == -1:
+        logger.info("update_todo session=%s id=%s: not found", session_id, id)
+        return json.dumps(
+            {
+                "ok": False,
+                "action": "update_todo",
+                "error": "id_not_found",
+                "session_id": session_id,
+                "id": id,
+            }
+        )
+
+    if status is None and not item and not notes and priority is None:
+        return json.dumps(
+            {
+                "ok": False,
+                "action": "update_todo",
+                "error": "nothing_to_update",
+                "reason": "provide at least one of status, item, notes, priority",
+                "session_id": session_id,
+                "id": id,
+            }
+        )
+
+    if status is not None:
         todos[index]["status"] = status
-        if notes is not None and notes != "":
-            todos[index]["notes"] = notes
-        save_todo_to_memory(key=key, value=json.dumps(todos), ttl=TODO_TTL)
-        logger.info(f"Updated todo for session_id={session_id}, index={index}, status={status}: update succeeded")
-        print(f"Updated work item: session_id={session_id}, index={index}, status={status}")
-        resp = {
+    if item:
+        todos[index]["item"] = item
+    if notes:
+        todos[index]["notes"] = notes
+    if priority is not None:
+        todos[index]["priority"] = priority
+
+    _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
+    logger.info(
+        "update_todo session=%s id=%s status=%s priority=%s",
+        session_id,
+        id,
+        status,
+        priority,
+    )
+    return json.dumps(
+        {
             "ok": True,
             "action": "update_todo",
             "session_id": session_id,
-            "index": index,
-            "status": status,
+            "id": id,
             "item": todos[index],
         }
-        return json.dumps(resp)
-    else:
-        logger.warning(f"Update failed for session_id={session_id}, index={index}, status={status}: index out of range")
-        print(f"Update failed: session_id={session_id}, index={index}, status={status}, reason=index out of range, count={len(todos)}")
-        error_resp = {
-            "ok": False,
-            "action": "update_todo",
-            "error": "index_out_of_range",
+    )
+
+
+def delete_todo(id: str) -> str:
+    """Remove a single todo addressed by ``id``.
+
+    :return: JSON success ``{"ok": true, ..., "removed": {...}, "count": N}`` or
+             an error envelope (``not_found`` / ``decode_error`` / ``id_not_found``).
+    """
+    session_id = _resolve_session_id()
+    todos, error = _read_for_mutation(session_id, "delete_todo", id=id)
+    if error is not None:
+        return error
+
+    _ensure_ids(todos)
+    index = _find_index(todos, id)
+    if index == -1:
+        logger.info("delete_todo session=%s id=%s: not found", session_id, id)
+        return json.dumps(
+            {
+                "ok": False,
+                "action": "delete_todo",
+                "error": "id_not_found",
+                "session_id": session_id,
+                "id": id,
+            }
+        )
+
+    removed = todos.pop(index)
+    _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
+    logger.info(
+        "delete_todo session=%s id=%s count=%d", session_id, id, len(todos)
+    )
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "delete_todo",
             "session_id": session_id,
-            "index": index,
+            "id": id,
+            "removed": removed,
             "count": len(todos),
         }
-        return json.dumps(error_resp)
+    )
 
-def clear_todos(session_id: str) -> str:
+
+def clear_todos() -> str:
+    """Clear the current session's entire plan.
+
+    :return: JSON ``{"ok", "action", "session_id"}``.
     """
-    Clear the todo list for the given session by deleting the key.
-    
-    :param session_id: The session identifier.
-    :return: A JSON string indicating success of the clear operation.
-             Example: {"ok": true, "action": "clear_todos", "session_id": "..."}
-    """
-    key = _get_todo_key(session_id)
-    clear_todo_from_memory(key)
-    logger.info(f"Cleared todos for session_id={session_id}")
-    print(f"Cleared all work items: session_id={session_id}")
-    response = {
-        "ok": True,
-        "action": "clear_todos",
-        "session_id": session_id,
-    }
-    return json.dumps(response)
+    session_id = _resolve_session_id()
+    _todo_store.clear_todo_from_memory(session_id=session_id)
+    logger.info("clear_todos session=%s", session_id)
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "clear_todos",
+            "session_id": session_id,
+        }
+    )
