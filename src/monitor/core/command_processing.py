@@ -289,12 +289,8 @@ def process_cd_command(command, first_word):
 def process_command(command, history_file):
     """Process a single REPL command and return the exit flag."""
 
-    normalized_command = command.strip()
-    if not normalized_command:
+    if not command.strip():
         return False
-
-    if normalized_command.lower() in {"exit", "/exit"}:
-        return handle_exit_command(normalized_command, history_file)
 
     # Save command history
     try:
@@ -327,18 +323,8 @@ def process_command(command, history_file):
         )
 
     result = evaluate_command(command)
-    if result.command_type == CommandType.EXIT or result.exit_requested:
-        handle_exit_command(command, history_file)
-        return True
-
-    # Legacy behavior: exit command handling is performed during execution phase.
-    # Evaluate the command (side-effect-free)
-    result = evaluate_command(command)
-
-    # Execute side-effects based on evaluation
     result = execute_command(result, command, history_file)
 
-    # If command execution produced an error, ensure it's displayed (redundant guard)
     if result.error:
         print(f"{yellow}{result.error}{reset}")
 
