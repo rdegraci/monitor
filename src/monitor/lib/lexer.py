@@ -9,7 +9,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
-from monitor.lib.keyboard import register_function_key_handlers
+from monitor.lib.keyboard import get_preview_range, register_function_key_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,37 @@ history = FileHistory(history_file)
 
 
 class RedAfter120Lexer(Lexer):
-    """Custom lexer for red text after 120 characters."""
+    """Lexer: red past column 120, plus light-gray F-key preview text.
+
+    The F-key "preview" is real buffer text that should render gray while it's
+    pending (cursor still at its end). We read the pending range from the
+    keyboard module each render; once the user types/moves, the range is no
+    longer returned and the text renders normally ("accepted").
+    """
 
     def lex_document(self, document):
+        preview = get_preview_range(document.cursor_position)
+
+        def style_for(global_pos, local_col):
+            if preview is not None and preview[0] <= global_pos < preview[1]:
+                return "class:fkey-preview"
+            if local_col >= 120:
+                return "class:red"
+            return ""
+
         def get_line(lineno):
             line = document.lines[lineno]
-            if len(line) <= 120:
-                return [("", line)]
-            else:
-                return [("", line[:120]), ("class:red", line[120:])]
+            if not line:
+                return [("", "")]
+            line_start = document.translate_row_col_to_index(lineno, 0)
+            fragments = []
+            for col, char in enumerate(line):
+                style_class = style_for(line_start + col, col)
+                if fragments and fragments[-1][0] == style_class:
+                    fragments[-1][1].append(char)
+                else:
+                    fragments.append((style_class, [char]))
+            return [(style_class, "".join(chars)) for style_class, chars in fragments]
 
         return get_line
 
@@ -34,6 +56,7 @@ class RedAfter120Lexer(Lexer):
 style = Style.from_dict(
     {
         "red": "ansired",
+        "fkey-preview": "#888888",
     }
 )
 

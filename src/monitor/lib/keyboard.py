@@ -35,22 +35,45 @@ FUNCTION_KEY_SELECTOR_STATE = {
     "preview_group": None,
 }
 
-# Tracks the most recent F1-F8 insertion so a following Tab can replace it with
-# the next F-key's text ("cycle" mode). Cleared implicitly: the cycle Tab
-# binding's filter requires the cursor to still sit at ``end_pos``, so any
-# typing / cursor move makes the next Tab fall through to normal completion.
-FUNCTION_KEY_CYCLE_STATE = {
-    "key": None,       # last inserted F-key name, e.g. "f1"
-    "text": None,      # exact inserted text, including any leading space
-    "end_pos": None,   # cursor position immediately after insertion
+# Tracks the most recent F1-F8 insertion as a "preview": the text lives in the
+# buffer as real characters but is rendered light-gray by the lexer while it's
+# still pending. Pending = the cursor is still parked at ``end``. Tab cycles the
+# preview to the next F-key; ESC discards it; typing / cursor-move / ENTER
+# "accept" it (it simply renders normal once the cursor leaves ``end``, and is
+# submitted as ordinary text). Offsets are buffer positions; ``end`` is where
+# the cursor sits immediately after the insertion.
+FUNCTION_KEY_PREVIEW = {
+    "key": None,     # last inserted F-key name, e.g. "f1"
+    "start": None,   # buffer offset where the preview text begins
+    "end": None,     # buffer offset where it ends (cursor sits here while pending)
 }
 
 
-def _reset_function_key_cycle_state():
-    """Forget the last F-key insertion so Tab stops cycling."""
-    FUNCTION_KEY_CYCLE_STATE["key"] = None
-    FUNCTION_KEY_CYCLE_STATE["text"] = None
-    FUNCTION_KEY_CYCLE_STATE["end_pos"] = None
+def _reset_function_key_preview():
+    """Forget the pending F-key preview (Tab stops cycling, lexer stops graying)."""
+    FUNCTION_KEY_PREVIEW["key"] = None
+    FUNCTION_KEY_PREVIEW["start"] = None
+    FUNCTION_KEY_PREVIEW["end"] = None
+
+
+def get_preview_range(cursor_position):
+    """Return ``(start, end)`` of the pending F-key preview, or ``None``.
+
+    Returns a range only while the preview is armed and the supplied cursor is
+    still at its end — so the moment the user types or moves the cursor, the
+    text is considered accepted and this returns ``None`` (lexer renders it
+    normally, Tab/ESC stop acting on it). Called by the lexer each render and by
+    the preview-pending key filter.
+    """
+    if FUNCTION_KEY_PREVIEW["key"] is None:
+        return None
+    start = FUNCTION_KEY_PREVIEW["start"]
+    end = FUNCTION_KEY_PREVIEW["end"]
+    if start is None or end is None or start >= end:
+        return None
+    if cursor_position != end:
+        return None
+    return (start, end)
 
 
 def configure_voice_to_text():
@@ -154,7 +177,7 @@ def _set_active_function_key_group(group_name):
     global ACTIVE_FUNCTION_KEY_MAPPING
     global FUNCTION_KEY_INSERTIONS
 
-    _reset_function_key_cycle_state()
+    _reset_function_key_preview()
 
     if group_name not in FUNCTION_KEY_GROUPS:
         ACTIVE_FUNCTION_KEY_GROUP = None
@@ -285,14 +308,14 @@ def get_function_key_selector_data():
 _selector_open_filter = Condition(lambda: FUNCTION_KEY_SELECTOR_STATE.get("open", False))
 
 
-def _cursor_at_cycle_anchor():
-    """True when a Tab should cycle the last F-key insertion to the next key.
+def _preview_pending():
+    """True when an F-key preview is pending and the cursor is still at its end.
 
-    Requires an armed cycle, a closed selector, and the live cursor still parked
-    at the end of the last insertion — so a single keystroke or cursor move
-    after the F-key insertion lets Tab fall through to normal completion.
+    Gates both the Tab-cycle and ESC-discard bindings, so they only fire while
+    the preview is genuinely active; a keystroke or cursor move moves the cursor
+    off the end, the preview is accepted, and Tab/ESC revert to their defaults.
     """
-    if FUNCTION_KEY_CYCLE_STATE.get("key") is None:
+    if FUNCTION_KEY_PREVIEW["key"] is None:
         return False
     if FUNCTION_KEY_SELECTOR_STATE.get("open", False):
         return False
@@ -302,10 +325,10 @@ def _cursor_at_cycle_anchor():
         buffer = get_app().current_buffer
     except Exception:
         return False
-    return buffer.cursor_position == FUNCTION_KEY_CYCLE_STATE.get("end_pos")
+    return get_preview_range(buffer.cursor_position) is not None
 
 
-_post_insertion_cycle_filter = Condition(_cursor_at_cycle_anchor)
+_preview_pending_filter = Condition(_preview_pending)
 
 
 def register_function_key_handlers(key_bindings):
@@ -325,10 +348,13 @@ def register_function_key_handlers(key_bindings):
 
     key_bindings.add("f12")(handle_function_key_selector_key)
     key_bindings.add("tab", filter=_selector_open_filter)(handle_function_key_selector_tab_key)
-    # Post-insertion cycle: Tab right after an F-key insertion swaps in the next
-    # F-key's text. Filtered so it only wins over the default Tab handler while
-    # the cursor is still at the end of that insertion.
-    key_bindings.add("tab", filter=_post_insertion_cycle_filter)(handle_function_key_cycle_tab_key)
+    # Preview cycle: Tab while an F-key preview is pending swaps in the next
+    # F-key's (still-gray) text. Filtered so it only wins over the default Tab
+    # handler while the cursor is still at the end of the preview.
+    key_bindings.add("tab", filter=_preview_pending_filter)(handle_function_key_cycle_tab_key)
+    # Preview discard: ESC while a preview is pending deletes the gray text.
+    # eager=True skips the meta-key wait, same as the selector ESC.
+    key_bindings.add("escape", filter=_preview_pending_filter, eager=True)(handle_function_key_preview_escape_key)
     # ``eager=True`` short-circuits prompt-toolkit's meta-key wait so a bare
     # ESC fires immediately instead of stalling for the meta-sequence timeout.
     key_bindings.add("escape", filter=_selector_open_filter, eager=True)(handle_function_key_selector_escape_key)
@@ -358,17 +384,21 @@ def insert_function_key_text(event, key_name):
     entry = ACTIVE_FUNCTION_KEY_MAPPING.get(key_name, {})
     text = entry.get("text", "")
     if not text:
-        _reset_function_key_cycle_state()
+        _reset_function_key_preview()
         return
     LOGGER.info("function key triggered: %s -> %r", key_name, text)
     if buffer.text:
         text = " " + text
+
+    start = buffer.cursor_position
     buffer.insert_text(text)
 
-    # Arm cycle mode: a following Tab (cursor still here) swaps to the next key.
-    FUNCTION_KEY_CYCLE_STATE["key"] = key_name
-    FUNCTION_KEY_CYCLE_STATE["text"] = text
-    FUNCTION_KEY_CYCLE_STATE["end_pos"] = buffer.cursor_position
+    # Arm the preview: the text is real buffer content but renders gray while the
+    # cursor stays at ``end``. Tab cycles it, ESC discards it, anything else
+    # accepts it.
+    FUNCTION_KEY_PREVIEW["key"] = key_name
+    FUNCTION_KEY_PREVIEW["start"] = start
+    FUNCTION_KEY_PREVIEW["end"] = buffer.cursor_position
 
 
 def _next_cycle_function_key(current_key):
@@ -416,7 +446,7 @@ def open_function_key_selector(ui=None):
     if not FUNCTION_KEY_GROUPS:
         LOGGER.info("function key selector not opened: no groups configured")
         return
-    _reset_function_key_cycle_state()
+    _reset_function_key_preview()
     FUNCTION_KEY_SELECTOR_STATE["open"] = True
     if FUNCTION_KEY_SELECTOR_STATE.get("preview_group") not in FUNCTION_KEY_GROUPS:
         FUNCTION_KEY_SELECTOR_STATE["preview_group"] = ACTIVE_FUNCTION_KEY_GROUP
@@ -515,46 +545,54 @@ def handle_function_key_selector_tab_key(event, ui=None):
 
 
 def handle_function_key_cycle_tab_key(event, ui=None):
-    """Replace the just-inserted F-key text with the next F-key's text.
+    """Replace the pending preview text with the next F-key's text (stays gray).
 
-    Armed by ``insert_function_key_text`` and gated by
-    ``_post_insertion_cycle_filter`` so it only runs when the cursor is still at
-    the end of the last insertion. Re-validates against the live buffer and
-    bails (clearing state) if anything has shifted, so a stale arm can't corrupt
-    the buffer.
+    Armed by ``insert_function_key_text`` and gated by ``_preview_pending_filter``
+    so it only runs while the cursor is still at the preview end. Re-validates
+    against the live buffer and bails (clearing state) if anything has shifted,
+    so a stale preview can't corrupt the buffer.
     """
-    if FUNCTION_KEY_CYCLE_STATE.get("key") is None:
-        return
-
     buffer = event.app.current_buffer
-    anchor = FUNCTION_KEY_CYCLE_STATE.get("end_pos")
-    last_text = FUNCTION_KEY_CYCLE_STATE.get("text") or ""
-    if anchor is None or buffer.cursor_position != anchor:
-        _reset_function_key_cycle_state()
+    rng = get_preview_range(buffer.cursor_position)
+    if rng is None:
+        _reset_function_key_preview()
         return
+    start, end = rng
 
-    next_key = _next_cycle_function_key(FUNCTION_KEY_CYCLE_STATE["key"])
+    next_key = _next_cycle_function_key(FUNCTION_KEY_PREVIEW["key"])
     if next_key is None:
-        _reset_function_key_cycle_state()
+        _reset_function_key_preview()
         return
     new_text = ACTIVE_FUNCTION_KEY_MAPPING.get(next_key, {}).get("text", "")
     if not new_text:
-        _reset_function_key_cycle_state()
+        _reset_function_key_preview()
         return
 
     # Re-apply the empty-buffer leading-space rule against whatever precedes the
-    # insertion, so cycling matches what a fresh F-key press would have produced.
-    start_pos = anchor - len(last_text)
-    if buffer.text[:start_pos]:
+    # preview, so cycling matches what a fresh F-key press would have produced.
+    if buffer.text[:start]:
         new_text = " " + new_text
 
-    buffer.delete_before_cursor(len(last_text))
+    buffer.delete_before_cursor(end - start)
     buffer.insert_text(new_text)
 
-    FUNCTION_KEY_CYCLE_STATE["key"] = next_key
-    FUNCTION_KEY_CYCLE_STATE["text"] = new_text
-    FUNCTION_KEY_CYCLE_STATE["end_pos"] = buffer.cursor_position
-    LOGGER.info("function key cycle -> %s", next_key)
+    FUNCTION_KEY_PREVIEW["key"] = next_key
+    FUNCTION_KEY_PREVIEW["start"] = start
+    FUNCTION_KEY_PREVIEW["end"] = buffer.cursor_position
+    LOGGER.info("function key preview cycle -> %s", next_key)
+
+
+def handle_function_key_preview_escape_key(event, ui=None):
+    """Discard the pending preview: delete the gray text and disarm."""
+    buffer = event.app.current_buffer
+    rng = get_preview_range(buffer.cursor_position)
+    if rng is None:
+        _reset_function_key_preview()
+        return
+    start, end = rng
+    buffer.delete_before_cursor(end - start)
+    _reset_function_key_preview()
+    LOGGER.info("function key preview discarded")
 
 
 def handle_function_key_selector_escape_key(event, ui=None):

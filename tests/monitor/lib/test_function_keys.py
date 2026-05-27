@@ -639,6 +639,106 @@ def test_tab_cycle_resets_on_group_switch():
     assert event.app.current_buffer.text == "build"  # unchanged: cycle was reset
 
 
+def test_get_preview_range_active_only_while_cursor_at_end():
+    """get_preview_range returns the range at the anchor, None once the cursor moves."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")  # inserts "one" at [0, 3]
+
+    assert keyboard.get_preview_range(3) == (0, 3)
+    assert keyboard.get_preview_range(2) is None  # cursor moved off the end
+    assert keyboard.get_preview_range(4) is None
+
+
+def test_get_preview_range_none_after_reset():
+    """No preview is reported once disarmed."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    keyboard._reset_function_key_preview()
+
+    assert keyboard.get_preview_range(3) is None
+
+
+def test_escape_discards_pending_preview():
+    """ESC while a preview is pending deletes the gray text and disarms."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent("hello ")
+    keyboard.insert_function_key_text(event, "f1")
+    # buffer non-empty -> leading space added: "hello  one"? no: "hello " + " one"
+    assert event.app.current_buffer.text == "hello  one"
+
+    keyboard.handle_function_key_preview_escape_key(event, ui=None)
+
+    assert event.app.current_buffer.text == "hello "  # preview removed
+    assert keyboard.get_preview_range(event.app.current_buffer.cursor_position) is None
+
+
+def test_escape_discard_is_noop_without_preview():
+    """ESC discard does nothing when no preview is pending."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent("typed text")
+
+    keyboard.handle_function_key_preview_escape_key(event, ui=None)
+
+    assert event.app.current_buffer.text == "typed text"
+
+
+def test_lexer_grays_pending_preview_range():
+    """The lexer paints the pending preview range with the fkey-preview style."""
+    from prompt_toolkit.document import Document
+
+    from monitor.lib.lexer import RedAfter120Lexer
+
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")  # preview "one" at [0, 3]
+
+    document = Document("one", cursor_position=3)
+    get_line = RedAfter120Lexer().lex_document(document)
+
+    assert get_line(0) == [("class:fkey-preview", "one")]
+
+
+def test_lexer_does_not_gray_once_cursor_moves():
+    """Once the cursor leaves the preview end, the text renders normally (accepted)."""
+    from prompt_toolkit.document import Document
+
+    from monitor.lib.lexer import RedAfter120Lexer
+
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")  # preview "one" at [0, 3]
+
+    # User typed an "x": cursor now at 4, past the preview end.
+    document = Document("onex", cursor_position=4)
+    get_line = RedAfter120Lexer().lex_document(document)
+
+    assert get_line(0) == [("", "onex")]
+
+
+def test_lexer_grays_preview_and_keeps_red_after_120():
+    """Preview gray and red-past-120 compose on the same line."""
+    from prompt_toolkit.document import Document
+
+    from monitor.lib.lexer import RedAfter120Lexer
+
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")  # preview at [0, 3]
+
+    long_line = "one" + ("a" * 130)  # 133 chars; preview is the first 3
+    document = Document(long_line, cursor_position=3)
+    get_line = RedAfter120Lexer().lex_document(document)
+    fragments = get_line(0)
+
+    assert fragments[0] == ("class:fkey-preview", "one")
+    # remainder splits at column 120 into normal then red
+    assert fragments[1][0] == ""
+    assert fragments[-1][0] == "class:red"
+    assert "".join(text for _, text in fragments) == long_line
+
+
 def test_selector_open_renders_full_reference_and_hint(captured_prints):
     """It writes the multi-group reference plus hint above the prompt safely."""
     keyboard.configure_function_key_insertions(_two_group_config())
