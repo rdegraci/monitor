@@ -10,15 +10,31 @@ from monitor.lib import keyboard
 
 
 class DummyBuffer:
-    """Simple buffer that records inserted text."""
+    """Buffer stand-in with a cursor that records inserted text.
+
+    Mirrors enough of prompt_toolkit.buffer.Buffer for the keyboard handlers:
+    cursor-aware insert_text and delete_before_cursor. ``inserted`` keeps the
+    history of insert_text calls for assertions.
+    """
 
     def __init__(self, text=""):
         self.text = text
+        self.cursor_position = len(text)
         self.inserted = []
 
     def insert_text(self, text):
         self.inserted.append(text)
-        self.text += text
+        pos = self.cursor_position
+        self.text = self.text[:pos] + text + self.text[pos:]
+        self.cursor_position = pos + len(text)
+
+    def delete_before_cursor(self, count):
+        pos = self.cursor_position
+        start = max(0, pos - count)
+        deleted = self.text[start:pos]
+        self.text = self.text[:start] + self.text[pos:]
+        self.cursor_position = start
+        return deleted
 
 
 class DummyApp:
@@ -82,6 +98,17 @@ def _two_group_config():
         "group2": {
             "F3": {"text": "status", "description": "Show status"},
         },
+    }
+
+
+def _cycle_config():
+    """Single group with three consecutive F-keys, for cycle tests."""
+    return {
+        "g": {
+            "F1": {"text": "one", "description": "d1"},
+            "F2": {"text": "two", "description": "d2"},
+            "F3": {"text": "three", "description": "d3"},
+        }
     }
 
 
@@ -526,6 +553,92 @@ def test_pressing_f1_while_selector_open_cancels_and_inserts_text(captured_print
     assert captured_prints == []  # silent — the inserted text is the feedback
 
 
+def test_tab_cycle_after_f_key_advances_through_keys():
+    """After an F-key insertion, Tab replaces the text with the next key's text."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    assert event.app.current_buffer.text == "one"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "two"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "three"
+
+
+def test_tab_cycle_wraps_last_key_back_to_first():
+    """Cycling past the last configured key wraps around to the first."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f3")
+    assert event.app.current_buffer.text == "three"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "one"
+
+
+def test_tab_cycle_skips_unconfigured_keys():
+    """Cycling only visits configured F-keys (sparse groups skip the gaps)."""
+    keyboard.configure_function_key_insertions(
+        {
+            "g": {
+                "F1": {"text": "one", "description": "d"},
+                "F3": {"text": "three", "description": "d"},
+            }
+        }
+    )
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    assert event.app.current_buffer.text == "one"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "three"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "one"
+
+
+def test_tab_cycle_is_noop_when_cursor_moved():
+    """If the user types after the F-key, the cursor diverges and Tab does not cycle."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    event.app.current_buffer.insert_text("X")  # user typed; cursor past anchor
+    assert event.app.current_buffer.text == "oneX"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+
+    assert event.app.current_buffer.text == "oneX"  # unchanged
+    # State was cleared; a second Tab also does nothing.
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "oneX"
+
+
+def test_tab_cycle_preserves_leading_space_with_nonempty_buffer():
+    """Cycling re-applies the leading-space rule against the preceding text."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent("hello")
+    keyboard.insert_function_key_text(event, "f1")
+    assert event.app.current_buffer.text == "hello one"
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "hello two"
+
+
+def test_tab_cycle_resets_on_group_switch():
+    """Switching the active group disarms the cycle (old key is meaningless)."""
+    keyboard.configure_function_key_insertions(_two_group_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    assert event.app.current_buffer.text == "build"
+
+    keyboard.switch_active_function_key_group("group2")
+
+    keyboard.handle_function_key_cycle_tab_key(event, ui=None)
+    assert event.app.current_buffer.text == "build"  # unchanged: cycle was reset
+
+
 def test_selector_open_renders_full_reference_and_hint(captured_prints):
     """It writes the multi-group reference plus hint above the prompt safely."""
     keyboard.configure_function_key_insertions(_two_group_config())
@@ -539,7 +652,8 @@ def test_selector_open_renders_full_reference_and_hint(captured_prints):
     assert "F1: Insert build" in rendered
     assert "F2: Insert tests" in rendered
     assert "F3: Show status" in rendered
-    assert "TAB to cycle. F12 to choose. ESC to cancel. Any key to dismiss." in rendered
+    assert "TAB to cycle groups. F12 to choose. ESC to cancel. Any key to dismiss." in rendered
+    assert "After an F-key insert, TAB cycles F1-F8." in rendered
 
 
 def test_selector_tab_renders_preview_group(captured_prints):
