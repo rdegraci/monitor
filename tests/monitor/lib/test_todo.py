@@ -267,6 +267,47 @@ def test_clear_todos_empties_plan():
 # --- store fallback ---------------------------------------------------------
 
 
+def test_add_prints_terminal_feedback(capsys):
+    """The model's add_todo call echoes a visible '[todo +] ...' line."""
+    todo.add_todo("Build the parser", priority=5)
+    out = capsys.readouterr().out
+    assert "[task +]" in out
+    assert "Build the parser" in out
+    assert "P5" in out
+
+
+def test_update_prints_status_transition(capsys):
+    """An update echoes the actual change, e.g. 'status: pending -> done'."""
+    new_id = _add("Task")
+    capsys.readouterr()  # drain the add's output
+    todo.update_todo(id=new_id, status="done")
+    out = capsys.readouterr().out
+    assert "[task ~]" in out
+    assert "pending -> done" in out
+
+
+def test_delete_and_clear_print_feedback(capsys):
+    new_id = _add("Task A")
+    _add("Task B")
+    capsys.readouterr()
+    todo.delete_todo(id=new_id)
+    todo.clear_todos()
+    out = capsys.readouterr().out
+    assert "[task -]" in out
+    assert "Task A" in out
+    assert "[task !]" in out
+    assert "cleared 1 item" in out  # one item remained after the delete
+
+
+def test_list_prints_count_summary(capsys):
+    _add("a"); _add("b"); _add("c")
+    capsys.readouterr()
+    todo.list_todos()
+    out = capsys.readouterr().out
+    assert "[task =]" in out
+    assert "listed 3 items" in out
+
+
 def test_fallback_isolated_per_session():
     todo_redis.save_todo_to_memory(session_id="s1", todos=[{"item": "one"}])
     todo_redis.save_todo_to_memory(session_id="s2", todos=[{"item": "two"}])

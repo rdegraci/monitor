@@ -3,9 +3,21 @@ import logging
 import uuid
 from typing import Any, Dict, List
 
+from monitor.lib.colors import blue, reset
+
 from . import todo_redis as _todo_store
 
 logger = logging.getLogger(__name__)
+
+
+def _print_todo_action(symbol: str, message: str) -> None:
+    """Print one-line terminal feedback for an LLM-triggered todo action.
+
+    The model's tool result still comes back as the JSON envelope; this is a
+    side-channel echo to the user's terminal so they can see the plan being
+    built/edited as the model works.
+    """
+    print(f"{blue}[task {symbol}]{reset} {message}")
 
 
 def _resolve_session_id() -> str:
@@ -115,6 +127,7 @@ def add_todo(item: str, notes: str | None = None, priority: int = 0) -> str:
         priority,
         len(todos),
     )
+    _print_todo_action("+", f"{new_id} P{priority} {item}")
     return json.dumps(
         {
             "ok": True,
@@ -153,6 +166,7 @@ def list_todos() -> str:
         _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
     ordered = sorted(todos, key=lambda e: -_priority_of(e))
     logger.info("list_todos session=%s count=%d", session_id, len(ordered))
+    _print_todo_action("=", f"listed {len(ordered)} item{'s' if len(ordered) != 1 else ''}")
     return json.dumps(ordered)
 
 
@@ -238,6 +252,10 @@ def update_todo(
             }
         )
 
+    # Capture pre-mutation values so the terminal echo can show what actually
+    # changed (e.g. "status: pending -> done") rather than just what was set.
+    before = dict(todos[index])
+
     if status is not None:
         todos[index]["status"] = status
     if item:
@@ -255,6 +273,17 @@ def update_todo(
         status,
         priority,
     )
+    changes = []
+    if status is not None and before.get("status") != status:
+        changes.append(f"status: {before.get('status')} -> {status}")
+    if item and before.get("item") != item:
+        changes.append(f"item: {item!r}")
+    if notes and before.get("notes") != notes:
+        changes.append(f"notes: {notes!r}")
+    if priority is not None and before.get("priority") != priority:
+        changes.append(f"priority: {before.get('priority')} -> {priority}")
+    detail = "; ".join(changes) if changes else "(no effective change)"
+    _print_todo_action("~", f"{id} {detail}")
     return json.dumps(
         {
             "ok": True,
@@ -296,6 +325,7 @@ def delete_todo(id: str) -> str:
     logger.info(
         "delete_todo session=%s id=%s count=%d", session_id, id, len(todos)
     )
+    _print_todo_action("-", f"{id} {removed.get('item', '')}")
     return json.dumps(
         {
             "ok": True,
@@ -314,8 +344,12 @@ def clear_todos() -> str:
     :return: JSON ``{"ok", "action", "session_id"}``.
     """
     session_id = _resolve_session_id()
+    # Read first so we can report the count being cleared.
+    existing = _todo_store.read_todo_from_memory(session_id=session_id) or []
+    count = len(existing) if isinstance(existing, list) else 0
     _todo_store.clear_todo_from_memory(session_id=session_id)
-    logger.info("clear_todos session=%s", session_id)
+    logger.info("clear_todos session=%s removed=%d", session_id, count)
+    _print_todo_action("!", f"cleared {count} item{'s' if count != 1 else ''}")
     return json.dumps(
         {
             "ok": True,

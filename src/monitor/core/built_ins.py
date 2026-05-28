@@ -237,8 +237,8 @@ def next_steps_command(arg: Any = None) -> None:
     next_steps(branch, main_branch)
 
 
-def todos_command(arg: Any = None) -> None:
-    """Print the current session's todo plan, highest priority first.
+def tasks_command(arg: Any = None) -> None:
+    """Print the current session's task plan, highest priority first.
 
     Reads the same per-session plan the model manages via the todo tools, so the
     user can see what's being tracked. Takes no arguments.
@@ -252,7 +252,7 @@ def todos_command(arg: Any = None) -> None:
         items = []
 
     if not items:
-        print("No todos for this session.")
+        print("No tasks for this session.")
         return
 
     print(f"Plan ({len(items)} item{'s' if len(items) != 1 else ''}):")
@@ -260,19 +260,19 @@ def todos_command(arg: Any = None) -> None:
         status = entry.get("status", "")
         priority = entry.get("priority", 0)
         item = entry.get("item", "")
-        todo_id = entry.get("id", "")
-        print(f"  [{status}] P{priority} {item}  ({todo_id})")
+        task_id = entry.get("id", "")
+        print(f"  [{status}] P{priority} {item}  ({task_id})")
         notes = entry.get("notes", "")
         if notes:
             print(f"      notes: {notes}")
 
 
-def clear_todos_command(arg: Any = None) -> None:
-    """Clear the current session's todo plan."""
+def clear_tasks_command(arg: Any = None) -> None:
+    """Clear the current session's task plan."""
     from monitor.lib.todo import clear_todos
 
     clear_todos()
-    print("Cleared the session todo plan.")
+    print("Cleared the session task plan.")
 
 
 def configure_built_ins() -> None:
@@ -377,14 +377,14 @@ def configure_built_ins() -> None:
                     "description": "Open user preferences for editing.",
                 },
                 {
-                    "command": ":todos",
-                    "function": _make_callable(todos_command),
-                    "description": "Show the current session's todo plan (the list the model manages via todo tools).",
+                    "command": ":tasks",
+                    "function": _make_callable(tasks_command),
+                    "description": "Show the current session's task plan (the list the model manages via task tools).",
                 },
                 {
-                    "command": ":clear_todos",
-                    "function": _make_callable(clear_todos_command),
-                    "description": "Clear the current session's todo plan.",
+                    "command": ":clear_tasks",
+                    "function": _make_callable(clear_tasks_command),
+                    "description": "Clear the current session's task plan.",
                 },
                 {
                     "command": ":next_steps",
