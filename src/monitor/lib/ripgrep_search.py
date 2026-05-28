@@ -8,6 +8,10 @@ logger = logging.getLogger(__name__)
 # Send up to 15% of the input token window
 SEARCH_EVALUATION_DIVISOR = 15
 
+# Cap search runtime so a ripgrep/grep over a huge tree can't hang the
+# request-serialized harness indefinitely.
+SEARCH_TIMEOUT_SECONDS = 30
+
 DEFAULT_EXCLUDE_EXTENSIONS = []
 DEFAULT_EXCLUDE_GLOBS = []
 
@@ -266,6 +270,7 @@ def ripgrep_search(
             capture_output=True,
             text=True,
             check=False,  # don't raise error if no matches
+            timeout=SEARCH_TIMEOUT_SECONDS,
         )
 
         # Provide a clearer message than raw ripgrep output when filetype is unknown.
@@ -289,6 +294,8 @@ def ripgrep_search(
         if stdout:
             return stdout
         return f"No matches found. Searched for: {term}"
+    except subprocess.TimeoutExpired:
+        return f"Error running ripgrep: search timed out after {SEARCH_TIMEOUT_SECONDS}s."
     except FileNotFoundError:
         # Fallback to grep if ripgrep is unavailable.
         try:
@@ -392,6 +399,7 @@ def grep_search(
             capture_output=True,
             text=True,
             check=False,
+            timeout=SEARCH_TIMEOUT_SECONDS,
         )
 
         if result.returncode == 1:
@@ -407,6 +415,8 @@ def grep_search(
         if stdout:
             return stdout
         return f"No matches found. Searched for: {term}"
+    except subprocess.TimeoutExpired:
+        return f"Error running grep: search timed out after {SEARCH_TIMEOUT_SECONDS}s."
     except FileNotFoundError:
         raise
     except Exception as e:

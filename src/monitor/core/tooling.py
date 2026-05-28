@@ -285,6 +285,13 @@ def handle(function_call):
 def create_tool_result_message(result, error, tool_call_id):
     """Create a message for tool execution result.
 
+    This is the single normalization point for tool return values: tools may
+    return a dict, a JSON string, or raw text — whatever is natural for them —
+    and this function coerces all of them to a string for the model (dicts via
+    json.dumps, with a str() fallback). Don't standardize tool return types
+    upstream or add a tool-result path that bypasses this; the heterogeneity is
+    intentional and reconciled here.
+
     Ensures content is a JSON-encoded string. Non-string results are JSON-serialized;
     if serialization fails, falls back to str(content). Minimal logging is emitted
     when coercion or fallback occurs.

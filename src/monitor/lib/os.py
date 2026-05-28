@@ -507,8 +507,17 @@ def run_patch(patch_file_path: str):
     try:
         # If external 'patch' command is available, use it.
         if shutil.which('patch'):
-            command = f'patch -p0 < {patch_file_path}'
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            # Pass the patch via stdin with list args (no shell) so a path like
+            # "x; rm -rf ~" can't be interpreted by a shell. timeout guards
+            # against a patch that prompts and hangs waiting on input.
+            with open(patch_file_path, 'r', encoding='utf-8') as patch_fh:
+                result = subprocess.run(
+                    ['patch', '-p0'],
+                    stdin=patch_fh,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
             if result.returncode == 0:
                 logger.debug("Patch command succeeded")
                 return json.dumps({
@@ -537,6 +546,12 @@ def run_patch(patch_file_path: str):
                 "error": msg,
                 "patch_file": patch_file_path
             })
+    except FileNotFoundError:
+        logger.error("Patch file does not exist: %s", patch_file_path)
+        return json.dumps({"error": f"Patch file '{patch_file_path}' does not exist."})
+    except subprocess.TimeoutExpired:
+        logger.error("Patch command timed out for %s", patch_file_path)
+        return json.dumps({"error": "Patch command timed out after 60s."})
     except subprocess.CalledProcessError as e:
         logger.error("Patch failed: %s", e.stderr)
         return json.dumps({
