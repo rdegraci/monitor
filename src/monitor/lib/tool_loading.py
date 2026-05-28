@@ -276,13 +276,13 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "save_to_memory",
-                "description": "Save a value in Redis under the specified key. Optionally applies a Time-To-Live (TTL) to the key-value pair.",
+                "description": "DEPRECATED — prefer update_memory. Save a value under the given key for later recall in this session.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "key": {"type": "string", "description": "The Redis key under which the value is stored."},
-                        "value": {"type": "string", "description": "The value to be stored."},
-                        "ttl": {"type": "integer", "description": "Optional time in seconds after which the key should expire. A minimum ttl value would be 900 for short term memory and a maximum value of 1800 for long term memory."}
+                        "key": {"type": "string", "description": "Short descriptive key to store the value under."},
+                        "value": {"type": "string", "description": "The value to remember."},
+                        "ttl": {"type": "integer", "description": "How long to remember it, in seconds. ~900 (15 min) for short-term, up to ~1800 (30 min) for longer-lived facts."}
                     },
                     "required": ["key", "value", "ttl"]
                 }
@@ -298,11 +298,11 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "read_from_memory",
-                "description": "Retrieve a value from Redis based on the specified key.",
+                "description": "Recall a previously remembered fact by its key. Use to look up something stored earlier in this session via update_memory (or save_to_memory) — e.g. a user-stated preference, a project fact, or context from an earlier turn. The 'conversation:' namespace prefix is handled automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "key": {"type": "string", "description": "The Redis key from which to retrieve the value."}
+                        "key": {"type": "string", "description": "The key the value was remembered under."}
                     },
                     "required": ["key"]
                 }
@@ -318,12 +318,12 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "update_memory",
-                "description": "Save a new entry of user input and corresponding system response to Redis.",
+                "description": "Remember an exchange so it can be recalled later in this session (canonical 'remember this' tool — prefer this over save_to_memory). Use when the user asks you to remember something, or when a fact stated in this turn (a preference, a project detail, context) will likely matter later but won't naturally be carried in the conversation history. Pass the user's statement as user_input and your acknowledgement/response as response; the key is derived automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "user_input": {"type": "string", "description": "The user's input to be stored."},
-                        "response": {"type": "string", "description": "The system's response to be stored."}
+                        "user_input": {"type": "string", "description": "The user's statement — the thing being remembered (e.g. 'I prefer Swift over Python')."},
+                        "response": {"type": "string", "description": "Your acknowledgement or how you'll act on it (e.g. 'Noted — I'll default to Swift examples')."}
                     },
                     "required": ["user_input", "response"]
                 }
@@ -339,7 +339,7 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "fetch_memory_keys_as_json",
-                "description": "Fetch all keys from Redis matching conversation:* and return them as a JSON array of strings.",
+                "description": "List the keys of everything remembered so far in this session, as a JSON array. Use when you need to enumerate what the user has asked you to remember — e.g. to answer 'what do you remember about me?' or to find a stored key without recalling its value.",
                 "parameters": {
                     "type": "object",
                     "properties": {}
@@ -356,13 +356,13 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "delete_from_memory",
-                "description": "Delete a value from Redis-based memory by specifying the key. Useful for forgetting facts, preferences, or conversation memory.",
+                "description": "Forget a previously remembered fact by its key. Use when the user asks you to forget something they earlier asked you to remember, or when a stored fact has become stale or wrong. The 'conversation:' prefix is handled automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "key": {
                             "type": "string",
-                            "description": "The key for the memory entry to delete (with or without the 'conversation:' prefix, e.g. 'favorite_color' or 'conversation:favorite_color')."
+                            "description": "The key of the memory to forget (e.g. 'favorite_color')."
                         }
                     },
                     "required": ["key"]

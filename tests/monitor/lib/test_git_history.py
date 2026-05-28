@@ -47,6 +47,36 @@ def test_search_no_matches_message(mock_run):
     mock_run.return_value = _completed(stdout="")
     out = git_history.search_commit_history("nonexistent")
     assert "No commits found" in out
+    assert "regex=true" not in out  # no false-positive hint on plain literal
+
+
+@patch("monitor.lib.git_history.subprocess.run")
+def test_search_no_matches_hints_at_regex_when_pipe_in_literal_query(mock_run):
+    """A literal query containing '|' silently means 'find the pipe character';
+    the no-match message must surface that the user likely meant alternation."""
+    mock_run.return_value = _completed(stdout="")
+    out = git_history.search_commit_history("def a|def b|def c")
+    assert "No commits found" in out
+    assert "regex=true" in out
+    assert "regex metacharacters" in out
+
+
+@patch("monitor.lib.git_history.subprocess.run")
+def test_search_no_hint_when_regex_already_true(mock_run):
+    """Don't suggest regex=true when the user already passed it."""
+    mock_run.return_value = _completed(stdout="")
+    out = git_history.search_commit_history("foo|bar", regex=True)
+    assert "No commits found" in out
+    assert "regex=true" not in out
+
+
+@patch("monitor.lib.git_history.subprocess.run")
+def test_search_no_false_positive_hint_on_common_code_chars(mock_run):
+    """A literal query like 'self.foo(' has dots and parens but no regex intent."""
+    mock_run.return_value = _completed(stdout="")
+    out = git_history.search_commit_history("self.foo(arg)")
+    assert "No commits found" in out
+    assert "regex=true" not in out
 
 
 @patch("monitor.lib.git_history.subprocess.run")

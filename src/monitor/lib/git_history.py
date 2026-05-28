@@ -9,12 +9,20 @@ closes the same option-injection gap for the diff-range positions.
 """
 
 import logging
+import re
 import subprocess
 
 logger = logging.getLogger(__name__)
 
 HISTORY_TIMEOUT_SECONDS = 30
 MAX_OUTPUT_CHARS = 10000
+
+# Strong regex-intent signals — when a literal query contains one of these the
+# user (or model) almost certainly meant regex=True, so we add a hint to the
+# no-match message rather than reporting a silent miss. Common-in-code chars
+# like '.', '(', '[', '*', '+', '?', '{' are intentionally excluded to avoid
+# false-positive hints on plain code searches like "self.foo" or "func(arg)".
+_REGEX_METACHAR_HINT = re.compile(r"\||\\[bBwWdDsS]|\(\?|\[\^")
 
 
 def _run_git(cmd):
@@ -81,7 +89,13 @@ def search_commit_history(query, regex=False, path=None, max_results=20):
     out = result.stdout.strip()
     if not out:
         kind = "matching regex" if regex else "containing"
-        return f"No commits found that added or removed text {kind}: {query}"
+        message = f"No commits found that added or removed text {kind}: {query}"
+        # In literal mode a query like 'foo|bar' is searched verbatim (pipe and
+        # all). Surface that so a regex-intent typo doesn't look like absence
+        # of data.
+        if not regex and _REGEX_METACHAR_HINT.search(query):
+            message += " (query contains regex metacharacters; did you mean regex=true?)"
+        return message
     return _truncate(out)
 
 

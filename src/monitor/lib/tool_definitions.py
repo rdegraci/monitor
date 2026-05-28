@@ -173,12 +173,12 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "search_commit_history",
-            "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first.",
+            "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first. By default the query is treated as a literal string: special characters like '|', '\\b', '\\w', '\\d', '\\s', '(?', '[^' have no special meaning unless you also pass regex=true.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "The exact code or text to look for across history."},
-                    "regex": {"type": "boolean", "description": "Treat query as a regular expression instead of a literal string.", "default": False},
+                    "regex": {"type": "boolean", "description": "Set true when the query uses regex syntax — pipes for OR (e.g. 'foo|bar'), word boundaries ('\\b'), character classes ('\\w', '\\d', '\\s'), or lookarounds ('(?...)'). Default is literal-string search.", "default": False},
                     "path": {"type": "string", "description": "Optional file or directory to limit the search to."},
                     "max_results": {"type": "integer", "description": "Maximum number of commits to return (newest first).", "default": 20}
                 },
@@ -479,7 +479,7 @@ TOOL_DESCRIPTIONS = [
                         "default": False
                     }
                 },
-                "required": ["term", "filetype", "word"]
+                "required": ["term"]
             }
         }
     },
@@ -711,12 +711,12 @@ GEMINI_TOOL_DESCRIPTIONS = [
     "name": "perform_git_diff_previous"
   },
   {
-    "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first.",
+    "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first. By default the query is treated as a literal string: special characters like '|', '\\b', '\\w', '\\d', '\\s', '(?', '[^' have no special meaning unless you also pass regex=true.",
     "name": "search_commit_history",
     "parameters": {
       "properties": {
         "query": {"description": "The exact code or text to look for across history.", "type": "string"},
-        "regex": {"description": "Treat query as a regular expression instead of a literal string.", "type": "boolean", "default": False},
+        "regex": {"description": "Set true when the query uses regex syntax — pipes for OR (e.g. 'foo|bar'), word boundaries ('\\b'), character classes ('\\w', '\\d', '\\s'), or lookarounds ('(?...)'). Default is literal-string search.", "type": "boolean", "default": False},
         "path": {"description": "Optional file or directory to limit the search to.", "type": "string"},
         "max_results": {"description": "Maximum number of commits to return (newest first).", "type": "integer", "default": 20}
       },
@@ -985,9 +985,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
         }
       },
       "required": [
-        "term",
-        "filetype",
-        "word"
+        "term"
       ],
       "type": "object"
     }
