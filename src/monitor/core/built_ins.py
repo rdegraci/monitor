@@ -236,6 +236,44 @@ def next_steps_command(arg: Any = None) -> None:
     next_steps(branch, main_branch)
 
 
+def todos_command(arg: Any = None) -> None:
+    """Print the current session's todo plan, highest priority first.
+
+    Reads the same per-session plan the model manages via the todo tools, so the
+    user can see what's being tracked. Takes no arguments.
+    """
+    import json
+    from monitor.lib.todo import list_todos
+
+    try:
+        items = json.loads(list_todos())
+    except (json.JSONDecodeError, TypeError):
+        items = []
+
+    if not items:
+        print("No todos for this session.")
+        return
+
+    print(f"Plan ({len(items)} item{'s' if len(items) != 1 else ''}):")
+    for entry in items:
+        status = entry.get("status", "")
+        priority = entry.get("priority", 0)
+        item = entry.get("item", "")
+        todo_id = entry.get("id", "")
+        print(f"  [{status}] P{priority} {item}  ({todo_id})")
+        notes = entry.get("notes", "")
+        if notes:
+            print(f"      notes: {notes}")
+
+
+def clear_todos_command(arg: Any = None) -> None:
+    """Clear the current session's todo plan."""
+    from monitor.lib.todo import clear_todos
+
+    clear_todos()
+    print("Cleared the session todo plan.")
+
+
 def configure_built_ins() -> None:
     """
     Register all built-in commands required by the application.
@@ -336,6 +374,16 @@ def configure_built_ins() -> None:
                     "command": ":preferences",
                     "function": _make_callable(open_preferences_command),
                     "description": "Open user preferences for editing.",
+                },
+                {
+                    "command": ":todos",
+                    "function": _make_callable(todos_command),
+                    "description": "Show the current session's todo plan (the list the model manages via todo tools).",
+                },
+                {
+                    "command": ":clear_todos",
+                    "function": _make_callable(clear_todos_command),
+                    "description": "Clear the current session's todo plan.",
                 },
                 {
                     "command": ":next_steps",
