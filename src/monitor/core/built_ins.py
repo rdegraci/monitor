@@ -15,6 +15,7 @@ from monitor.core.modes import design_mode_command, dev_mode_command
 
 from monitor.lib.built_ins_utils import append_function_to_built_ins
 from monitor.lib.commit_analysis import next_steps
+from monitor.lib.git import get_default_branch
 from monitor.lib.built_in_commands import clean_missing_values_command, normalize_data_command
 from monitor.lib.built_in_commands import (
     edit_function_keys_command,
@@ -170,8 +171,8 @@ def next_steps_command(arg: Any = None) -> None:
 
     Accepts a single optional string containing one or two whitespace-separated tokens:
     the feature branch name and optionally the main branch name. When only one token
-    is provided, defaults the main branch to "master". When both are provided,
-    calls next_steps(branch, main_branch).
+    is provided, the main branch is auto-detected (the repo's default branch). When
+    both are provided, calls next_steps(branch, main_branch).
 
     Args:
       arg: Optional string of the form "<branch>" or "<branch> <main_branch>".
@@ -192,7 +193,7 @@ def next_steps_command(arg: Any = None) -> None:
         if help_text.lower() in ("help", "-h", "--help"):
             print(
                 "Usage: :next_steps <branch> [<main_branch>]\n"
-                'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+                "Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, the repo's default branch is auto-detected.\n"
                 "Examples:\n"
                 "  :next_steps my-feature\n"
                 "  :next_steps my-feature main\n"
@@ -220,7 +221,7 @@ def next_steps_command(arg: Any = None) -> None:
     parts = text.split()
     if len(parts) == 1:
         branch = parts[0]
-        main_branch = "master"
+        main_branch = get_default_branch()
     elif len(parts) == 2:
         branch, main_branch = parts
     else:

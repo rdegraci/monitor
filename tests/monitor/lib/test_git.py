@@ -139,46 +139,27 @@ def test_perform_git_stash_no_subcommand(mock_run):
     mock_run.assert_not_called()
 
 @patch('monitor.lib.git.run_git_capture')
-def test_perform_git_log_range_success(mock_run):
-    mock_run.side_effect = [
-        ('abc000', '', None),  # merge-base output (base commit)
-        ('abc123\x1fFirst commit\x1f1688169600\nbcd234\x1fSecond commit\x1f1688256000', '', None),  # log output with unit separator
-    ]
-    output = git.perform_git_log_range('abc123', 'def456')
-    assert isinstance(output, list)
-    assert all(isinstance(c, dict) for c in output)
-    assert mock_run.call_count == 2
-    calls = mock_run.call_args_list
-    cmd1 = calls[0][0][0]
-    cmd2 = calls[1][0][0]
-    assert cmd1[0] == 'git' and cmd1[1] == 'merge-base'
-    assert 'abc123' in cmd1 and 'def456' in cmd1
-    assert cmd2[0] == 'git' and 'log' in cmd2
-    assert '--no-pager' in cmd2
-    assert any('..' in part for part in cmd2)
+def test_get_default_branch_from_origin_head(mock_run):
+    mock_run.return_value = ('origin/main', '', None)
+    assert git.get_default_branch() == 'main'
+
 
 @patch('monitor.lib.git.run_git_capture')
-def test_perform_git_log_range_merge_base_failure(mock_run):
-    mock_run.return_value = ('', 'error determining merge base', 'error')
-    output = git.perform_git_log_range('abc123', 'def456')
-    assert isinstance(output, list) and output == []
-    assert mock_run.call_count == 1
-    cmd = mock_run.call_args[0][0]
-    assert cmd[0] == 'git' and cmd[1] == 'merge-base'
-    assert 'abc123' in cmd and 'def456' in cmd
+def test_get_default_branch_falls_back_to_local_main(mock_run):
+    # origin/HEAD lookup fails, then local 'main' exists.
+    mock_run.side_effect = [(None, None, 'err'), ('sha', '', None)]
+    assert git.get_default_branch() == 'main'
+
 
 @patch('monitor.lib.git.run_git_capture')
-def test_perform_git_log_range_log_failure(mock_run):
-    mock_run.side_effect = [
-        ('abc000', '', None),
-        ('', 'error getting log', 'error'),
-    ]
-    output = git.perform_git_log_range('abc123', 'def456')
-    assert isinstance(output, list) and output == []
-    assert mock_run.call_count == 2
-    calls = mock_run.call_args_list
-    cmd1 = calls[0][0][0]
-    cmd2 = calls[1][0][0]
-    assert cmd1[0] == 'git' and cmd1[1] == 'merge-base'
-    assert cmd2[0] == 'git' and 'log' in cmd2
-    assert '--no-pager' in cmd2
+def test_get_default_branch_falls_back_to_master(mock_run):
+    # origin fails, 'main' missing, 'master' exists.
+    mock_run.side_effect = [(None, None, 'err'), (None, None, 'err'), ('sha', '', None)]
+    assert git.get_default_branch() == 'master'
+
+
+@patch('monitor.lib.git.run_git_capture')
+def test_get_default_branch_defaults_to_main(mock_run):
+    # everything fails -> default 'main'.
+    mock_run.side_effect = [(None, None, 'err'), (None, None, 'err'), (None, None, 'err')]
+    assert git.get_default_branch() == 'main'

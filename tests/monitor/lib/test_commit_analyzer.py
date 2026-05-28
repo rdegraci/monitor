@@ -1,85 +1,111 @@
-import pytest
-from unittest.mock import patch, MagicMock
 import logging
+
+import pytest
+from unittest.mock import MagicMock, patch
+
 from monitor.lib import commit_analyzer
 
-class DummyCommit:
-    def __init__(self, message, hexsha, date, diff='diff --git...'):
-        self.message = message
-        self.hexsha = hexsha
-        self.committed_date = date
-        self.diff = diff
+LOGGER = logging.getLogger("monitor.lib.commit_analyzer.test")
 
-@patch('monitor.lib.commit_analyzer.litellm.completion')
-@patch('monitor.lib.commit_analyzer.perform_git_show')
-@patch('monitor.lib.commit_analyzer.perform_git_log_range')
-def test_analyze_commits_summary_and_next_steps(mock_log_range, mock_show, mock_litellm):
-    """
-    Test CommitAnalyzer.analyze_commits and suggest_next_steps provide
-    summary and actionable steps for commits in the range with synthetic commit dicts.
-    """
-    # Setup fake commit data for perform_git_log_range
-    dummy_commit_dict = {
-        'message': 'Initial commit.',
-        'hexsha': 'abc123',
-        'committed_date': 1680000000
-    }
-    mock_log_range.return_value = [dummy_commit_dict]
 
-    dummy_commit_diff = 'diff --git...'
-    mock_show.return_value = dummy_commit_diff
+def _llm(content):
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=MagicMock(content=content))]
+    return resp
 
-    # Fake LLM summary response
-    mock_litellm.return_value = MagicMock()
-    mock_litellm.return_value.choices = [MagicMock(message=MagicMock(content='Summary of change.\n1. Do X\n2. Do Y'))]
 
-    logger = logging.getLogger('monitor.lib.commit_analyzer.test')
-    analyzer = commit_analyzer.CommitAnalyzer('feature-branch', logger, main_branch='main', llm_model='test-model')
+@patch("monitor.lib.commit_analyzer.litellm.completion")
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_analyze_and_next_steps_happy_path(mock_git, mock_llm):
+    """Summary then next-steps; the diff is sent to the LLM only once (not re-sent)."""
+    mock_git.return_value = ("commit abc\n+new_code_line\n", "", None)
+    mock_llm.side_effect = [_llm("This branch adds X."), _llm("1. Do X\n2. Do Y")]
+
+    analyzer = commit_analyzer.CommitAnalyzer("feature", LOGGER, main_branch="main", llm_model="test-model")
+    assert analyzer.has_commits is True
+    assert analyzer.fetch_error is None
+
     summary, diff = analyzer.analyze_commits()
-    assert 'Summary' in summary
-    assert 'diff' in diff
+    assert summary == "This branch adds X."
+    assert "diff" in diff or "new_code_line" in diff  # colorized commit log
 
     steps = analyzer.suggest_next_steps(summary)
-    assert any('Do' in step for step in steps)
+    assert steps == ["Do X", "Do Y"]
 
-@patch('monitor.lib.commit_analyzer.litellm.completion')
-@patch('monitor.lib.commit_analyzer.perform_git_show')
-@patch('monitor.lib.commit_analyzer.perform_git_log_range')
-def test_no_commits_path_returns_warning_and_fallback(mock_log_range, mock_show, mock_litellm):
-    """
-    Test that analyze_commits returns warning and sensible fallback steps when no commits are present.
-    """
-    # simulate empty commit list
-    mock_log_range.return_value = []
-    mock_show.return_value = ''
-    logger = logging.getLogger('monitor.lib.commit_analyzer.test')
-    analyzer = commit_analyzer.CommitAnalyzer('empty-branch', logger, main_branch='main', llm_model='test-model')
-    summary, diff = analyzer.analyze_commits()
-    assert 'No commits found' in summary or summary == 'No commits found for analysis. Make sure you\'re on a topic branch that branches off of main/master.'
+    # The next-steps prompt must not re-embed the diff (sent once in analyze_commits).
+    next_steps_prompt = mock_llm.call_args_list[1].kwargs["messages"][0]["content"]
+    assert "new_code_line" not in next_steps_prompt
 
-    steps = analyzer.suggest_next_steps(summary)
-    assert isinstance(steps, list)
-    assert len(steps) >= 2
 
-@patch('monitor.lib.commit_analyzer.yaml.safe_load', return_value={'branch_name': 'abc', 'main_branch': 'main'})
-@patch('monitor.lib.commit_analyzer.find_config_file', return_value='/fake/path/config.yaml')
-@patch('builtins.open')
-def test_load_config_success(mock_open, mock_find, mock_safe_load):
-    result = commit_analyzer.load_config()
-    assert result['branch_name'] == 'abc'
-    assert result['main_branch'] == 'main'
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_fetch_error_is_recorded(mock_git):
+    """A git failure is captured as fetch_error, not silently treated as empty."""
+    mock_git.return_value = (None, None, "An error occurred ...: fatal: bad revision 'nope'")
+    analyzer = commit_analyzer.CommitAnalyzer("nope", LOGGER, main_branch="main", llm_model="m")
+    assert analyzer.has_commits is False
+    assert analyzer.fetch_error and "bad revision" in analyzer.fetch_error
 
-@patch('monitor.lib.commit_analyzer.yaml.safe_load', side_effect=Exception('fail'))
-@patch('builtins.open', side_effect=FileNotFoundError)
-def test_load_config_missing_or_bad_file(mock_open, mock_safe_load):
-    result = commit_analyzer.load_config()
-    assert result['branch_name'] == 'main'
-    assert result['main_branch'] == 'main'
 
-@patch('monitor.lib.commit_analyzer.recursive_macro_expand', side_effect=lambda c, v, o, cl, e: c)
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_no_commits_yields_message_and_no_fabricated_steps(mock_git):
+    """An empty range yields a clear message and NO fabricated next steps."""
+    mock_git.return_value = ("", "", None)
+    analyzer = commit_analyzer.CommitAnalyzer("empty", LOGGER, main_branch="main", llm_model="m")
+    summary, _ = analyzer.analyze_commits()
+    assert "No commits found" in summary
+    assert analyzer.suggest_next_steps(summary) == []
+
+
+@patch("monitor.lib.commit_analyzer.litellm.completion", side_effect=RuntimeError("api down"))
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_analyze_commits_raises_on_llm_error(mock_git, mock_llm):
+    """LLM failure propagates instead of returning a placeholder summary."""
+    mock_git.return_value = ("commit abc\n+code\n", "", None)
+    analyzer = commit_analyzer.CommitAnalyzer("feature", LOGGER, main_branch="main", llm_model="m")
+    with pytest.raises(RuntimeError):
+        analyzer.analyze_commits()
+
+
+@patch("monitor.lib.commit_analyzer.litellm.completion", side_effect=RuntimeError("api down"))
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_suggest_next_steps_raises_on_llm_error_no_fabrication(mock_git, mock_llm):
+    """LLM failure propagates instead of returning fabricated generic steps."""
+    mock_git.return_value = ("commit abc\n+code\n", "", None)
+    analyzer = commit_analyzer.CommitAnalyzer("feature", LOGGER, main_branch="main", llm_model="m")
+    with pytest.raises(RuntimeError):
+        analyzer.suggest_next_steps("some summary")
+
+
+@patch("monitor.lib.commit_analyzer.litellm.completion")
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_commit_log_is_capped(mock_git, mock_llm):
+    """A huge commit log is truncated before going to the LLM."""
+    big = "x" * (commit_analyzer.MAX_COMMIT_LOG_CHARS + 5000)
+    mock_git.return_value = (big, "", None)
+    analyzer = commit_analyzer.CommitAnalyzer("feature", LOGGER, main_branch="main", llm_model="m")
+    assert len(analyzer.commit_log) <= commit_analyzer.MAX_COMMIT_LOG_CHARS + 100
+    assert "truncated" in analyzer.commit_log
+
+
+@patch("monitor.lib.commit_analyzer.run_git_capture")
+def test_analyze_branch_raises_on_fetch_error(mock_git):
+    mock_git.return_value = (None, None, "fatal: bad revision")
+    with pytest.raises(RuntimeError):
+        commit_analyzer.analyze_branch_for_summary_and_steps(
+            "nope", LOGGER, model="m", main_branch="main"
+        )
+
+
+def test_parse_steps_handles_varied_markers():
+    out = commit_analyzer._parse_steps("1. alpha\n2) beta\n- gamma\n* delta\n• epsilon")
+    assert out == ["alpha", "beta", "gamma", "delta", "epsilon"]
+
+
+def test_parse_steps_falls_back_to_raw_when_no_markers():
+    assert commit_analyzer._parse_steps("just some prose") == ["just some prose"]
+
+
+@patch("monitor.lib.commit_analyzer.recursive_macro_expand", side_effect=lambda c, v, o, cl, e: c)
 def test_build_commit_message_query_input(mock_expand):
-    """
-    Test that build_commit_message_query_input includes diff text.
-    """
-    out = commit_analyzer.build_commit_message_query_input('sample-diff', {}, '<<', '>>', '\\')
-    assert 'sample-diff' in out
+    out = commit_analyzer.build_commit_message_query_input("sample-diff", {}, "<<", ">>", "\\")
+    assert "sample-diff" in out

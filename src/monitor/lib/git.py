@@ -7,6 +7,28 @@ from .git_utils import ensure_non_empty_string, run_git_capture, print_highlight
 logger = logging.getLogger(__name__)
 
 
+def get_default_branch():
+    """Best-effort detection of the repository's default branch.
+
+    Tries origin's HEAD symbolic ref, then a local ``main``, then ``master``,
+    falling back to ``"main"``. Used so :next_steps can default the comparison
+    branch to whatever this repo actually uses instead of assuming ``master``.
+    """
+    stdout, _, error = run_git_capture(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
+    )
+    if not error and stdout and stdout.strip():
+        ref = stdout.strip()
+        return ref.split("/", 1)[1] if "/" in ref else ref
+    for candidate in ("main", "master"):
+        _, _, err = run_git_capture(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{candidate}"]
+        )
+        if not err:
+            return candidate
+    return "main"
+
+
 def perform_git_status():
     """
     Execute a git status to get the current state of the repository.
@@ -269,39 +291,3 @@ def perform_git_stash(subcommand=None):
     return output or f"git stash {subcommand or ''} executed with no output."
 
 
-def perform_git_log_range(main_branch, topic_branch):
-    """
-    Get commits from the merge base between main_branch and topic_branch to topic_branch's HEAD.
-    Returns a list of dicts: { 'hash', 'message', 'timestamp' }
-    """
-    logger.debug("Entering perform_git_log_range: %s..%s", main_branch, topic_branch)
-    try:
-        merge_base_cmd = ['git', 'merge-base', main_branch, topic_branch]
-        merge_stdout, _, merge_error = run_git_capture(merge_base_cmd)
-        if merge_error:
-            raise RuntimeError(merge_error)
-        merge_base = merge_stdout.strip()
-
-        log_cmd = ['git', '--no-pager', 'log', '--format=%H%x1f%s%x1f%ct', f'{merge_base}..{topic_branch}']
-        log_stdout, _, log_error = run_git_capture(log_cmd)
-        if log_error:
-            raise RuntimeError(log_error)
-
-        commits = []
-        for line in log_stdout.strip().splitlines():
-            if not line.strip():
-                continue
-            parts = line.split('\x1f')
-            if len(parts) != 3:
-                logger.debug("Skipping malformed git log line: %r", line)
-                continue
-            hash_, message, timestamp = parts
-            commits.append({
-                'hash': hash_,
-                'message': message,
-                'timestamp': timestamp
-            })
-        return commits
-    except Exception as e:
-        logger.error("Error in perform_git_log_range: %s", e, exc_info=True)
-        return []
