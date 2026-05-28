@@ -56,6 +56,22 @@ def _reset_function_key_preview():
     FUNCTION_KEY_PREVIEW["end"] = None
 
 
+def get_preview_state_signature():
+    """Return a hashable signature of the current preview state.
+
+    The lexer's cache key uses this so that toggling the gray-range state (e.g.
+    clearing on submit, or arming a new preview) invalidates the cached
+    rendered fragments even when the document text is unchanged. Without this,
+    prompt-toolkit's BufferControl would return cached gray fragments after we
+    reset the preview, because its cache key is (document.text, lexer hash).
+    """
+    return (
+        FUNCTION_KEY_PREVIEW.get("key"),
+        FUNCTION_KEY_PREVIEW.get("start"),
+        FUNCTION_KEY_PREVIEW.get("end"),
+    )
+
+
 def get_preview_range(cursor_position):
     """Return ``(start, end)`` of the pending F-key preview, or ``None``.
 
@@ -355,6 +371,14 @@ def register_function_key_handlers(key_bindings):
     # Preview discard: ESC while a preview is pending deletes the gray text.
     # eager=True skips the meta-key wait, same as the selector ESC.
     key_bindings.add("escape", filter=_preview_pending_filter, eager=True)(handle_function_key_preview_escape_key)
+    # Preview accept on submit: clearing the preview before validate_and_handle
+    # forces one more lexer pass with no gray range, so the submitted line is
+    # frozen into scrollback in normal color (not gray). Bind both Ctrl-M (CR)
+    # and Ctrl-J (NL) because terminals emit one or the other for ENTER
+    # depending on raw/cooked mode — Keys.Enter doesn't exist in prompt_toolkit,
+    # and binding the string "enter" silently matched nothing.
+    key_bindings.add(Keys.ControlM, filter=_preview_pending_filter)(handle_function_key_preview_enter_key)
+    key_bindings.add(Keys.ControlJ, filter=_preview_pending_filter)(handle_function_key_preview_enter_key)
     # ``eager=True`` short-circuits prompt-toolkit's meta-key wait so a bare
     # ESC fires immediately instead of stalling for the meta-sequence timeout.
     key_bindings.add("escape", filter=_selector_open_filter, eager=True)(handle_function_key_selector_escape_key)
@@ -580,6 +604,26 @@ def handle_function_key_cycle_tab_key(event, ui=None):
     FUNCTION_KEY_PREVIEW["start"] = start
     FUNCTION_KEY_PREVIEW["end"] = buffer.cursor_position
     LOGGER.info("function key preview cycle -> %s", next_key)
+
+
+def handle_function_key_preview_enter_key(event, ui=None):
+    """Accept the pending preview and submit.
+
+    Why this is more elaborate than "just call validate_and_handle":
+    prompt-toolkit's BufferControl caches its rendered fragments under the key
+    ``(document.text, lexer.invalidation_hash())``. Clearing the preview state
+    on its own changes our lexer's invalidation_hash, *but* the cache entry for
+    the prior key is still authoritative for the final render-as-done frame —
+    so the gray line gets frozen into scrollback even after the preview is
+    "accepted." To force the render cache to miss we also mutate the buffer
+    (append a space) before submitting: changing document.text guarantees a
+    fresh cache key and a fresh lex with the cleared preview state. The
+    trailing space is harmless to both shell commands and LLM prompts.
+    """
+    _reset_function_key_preview()
+    buf = event.app.current_buffer
+    buf.insert_text(" ")
+    buf.validate_and_handle()
 
 
 def handle_function_key_preview_escape_key(event, ui=None):

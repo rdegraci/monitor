@@ -9,7 +9,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 
-from monitor.lib.keyboard import get_preview_range, register_function_key_handlers
+from monitor.lib.keyboard import get_preview_range, get_preview_state_signature, register_function_key_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,15 @@ class RedAfter120Lexer(Lexer):
     keyboard module each render; once the user types/moves, the range is no
     longer returned and the text renders normally ("accepted").
     """
+
+    def invalidation_hash(self):
+        # prompt-toolkit's BufferControl caches rendered fragments using
+        # (document.text, lexer.invalidation_hash()) as the key. Our lex output
+        # also depends on the global preview state (not just the document), so
+        # toggling that state must change the hash — otherwise resetting the
+        # preview before submit returns cached gray fragments and the final
+        # render-as-done frame stays gray in scrollback.
+        return get_preview_state_signature()
 
     def lex_document(self, document):
         preview = get_preview_range(document.cursor_position)

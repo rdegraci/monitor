@@ -21,6 +21,12 @@ class DummyBuffer:
         self.text = text
         self.cursor_position = len(text)
         self.inserted = []
+        self.submitted = False
+
+    def validate_and_handle(self):
+        """Track buffer submission (the real prompt_toolkit Buffer exits the
+        prompt loop here; in tests we just record that it was called)."""
+        self.submitted = True
 
     def insert_text(self, text):
         self.inserted.append(text)
@@ -674,6 +680,47 @@ def test_escape_discards_pending_preview():
     assert keyboard.get_preview_range(event.app.current_buffer.cursor_position) is None
 
 
+def test_enter_with_preview_pending_clears_preview_and_busts_cache_before_submitting():
+    """ENTER must (a) clear the preview, (b) mutate the buffer to force
+    BufferControl's fragment cache to miss, and (c) submit — in that order.
+    Without the buffer mutation the cached gray fragments get frozen into
+    scrollback for the unchanged document.text."""
+    keyboard.configure_function_key_insertions(_cycle_config())
+    event = DummyEvent()
+    keyboard.insert_function_key_text(event, "f1")
+    text_before_enter = event.app.current_buffer.text
+    assert keyboard.FUNCTION_KEY_PREVIEW["key"] is not None  # armed
+    assert event.app.current_buffer.submitted is False
+
+    keyboard.handle_function_key_preview_enter_key(event, ui=None)
+
+    # Preview is disarmed (so the lexer's invalidation_hash flips too).
+    assert keyboard.FUNCTION_KEY_PREVIEW["key"] is None
+    # document.text changed (trailing space appended) — guarantees a fresh
+    # cache key, and thus a fresh lex without the gray range.
+    assert event.app.current_buffer.text == text_before_enter + " "
+    # And the line did submit.
+    assert event.app.current_buffer.submitted is True
+
+
+def test_register_function_key_handlers_binds_enter_with_preview_filter():
+    """The ENTER override is gated by the preview-pending filter and bound to
+    both Ctrl-M and Ctrl-J (Keys.Enter doesn't exist in prompt_toolkit;
+    terminals emit one of these for ENTER depending on raw/cooked mode)."""
+    from prompt_toolkit.keys import Keys
+
+    keyboard.configure_function_key_insertions(_cycle_config())
+    bindings = DummyBindings()
+
+    keyboard.register_function_key_handlers(bindings)
+
+    enter_keys = [item[0] for item in bindings.registered if item[0] in (Keys.ControlM, Keys.ControlJ)]
+    assert Keys.ControlM in enter_keys and Keys.ControlJ in enter_keys, enter_keys
+    for item in bindings.registered:
+        if item[0] in (Keys.ControlM, Keys.ControlJ):
+            assert "filter" in item[2]
+
+
 def test_escape_discard_is_noop_without_preview():
     """ESC discard does nothing when no preview is pending."""
     keyboard.configure_function_key_insertions(_cycle_config())
@@ -715,6 +762,25 @@ def test_lexer_does_not_gray_once_cursor_moves():
     get_line = RedAfter120Lexer().lex_document(document)
 
     assert get_line(0) == [("", "onex")]
+
+
+def test_lexer_invalidation_hash_changes_when_preview_toggles():
+    """prompt-toolkit caches lexer output by (document.text, invalidation_hash);
+    clearing the preview must change the hash so the cache misses and the
+    submitted line re-renders without the gray styling."""
+    from monitor.lib.lexer import RedAfter120Lexer
+
+    keyboard.configure_function_key_insertions(_cycle_config())
+    lexer = RedAfter120Lexer()
+
+    keyboard.insert_function_key_text(DummyEvent(), "f1")
+    armed_hash = lexer.invalidation_hash()
+    assert armed_hash[0] is not None  # preview key set
+
+    keyboard._reset_function_key_preview()
+    cleared_hash = lexer.invalidation_hash()
+    assert cleared_hash != armed_hash
+    assert cleared_hash[0] is None
 
 
 def test_lexer_grays_preview_and_keeps_red_after_120():
