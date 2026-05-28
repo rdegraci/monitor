@@ -1,13 +1,16 @@
-import os
-import tempfile
 import logging
+import os
+import shlex
+import subprocess
+import tempfile
 
-from monitor import config 
+import litellm
+
+from monitor import config
 
 from monitor.lib.macros import MACRO_VALUES
 from monitor.lib.colors import yellow, reset
 from monitor.lib.commit_analyzer import build_commit_message_query_input
-from monitor.core.conversation import query
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged  # Import centralized git wrappers
 
 logger = logging.getLogger('monitor.core.commit')
@@ -47,30 +50,56 @@ def make_commit_command(arg=None, print_func=print):
 
         # Generate suggested commit message (title, body)
         logger.info("Requesting suggested commit message for staged changes.")
-        commit_message = get_suggested_commit_message(diff_output)
+        try:
+            commit_message = get_suggested_commit_message(diff_output)
+        except KeyboardInterrupt:
+            print_func("\nCommit message generation cancelled. Nothing committed.")
+            return
+        except Exception as e:
+            logger.error("Commit message generation failed: %s", e, exc_info=True)
+            print_func(
+                f"{yellow}Couldn't generate a commit message: {e}{reset}\n"
+                "Your staged changes are untouched — try again, or commit manually."
+            )
+            return
         logger.info("Received suggested commit message.")
         print_func(f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n")
 
         resp = input("Use this commit message? [y/yes] to accept, [e/edit] to edit, [n/no] to abort: ").strip().lower()
         if resp in ("e", "edit"):
             logger.info("User selected 'Edit'. Opening editor for commit message editing.")
-            with tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".COMMIT_EDITMSG", encoding="utf-8") as tf:
+            tf = tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".COMMIT_EDITMSG", encoding="utf-8")
+            try:
                 tf.write(commit_message)
                 tf.flush()
+                tf.close()  # release the handle so the editor can write to it
                 editor = os.environ.get("EDITOR", "vim")
                 try:
-                    os.system(f"{editor} {tf.name}")
-                    logger.debug(f"Editor {editor} launched for commit message editing via os.system.")
+                    # shlex.split honors a multi-word $EDITOR (e.g. "code --wait")
+                    # and the list form runs without a shell, so the editor value
+                    # can't be used for command injection.
+                    proc = subprocess.run(shlex.split(editor) + [tf.name])
+                except FileNotFoundError:
+                    logger.error("Editor %r not found. Aborting commit.", editor)
+                    print_func(f"Editor '{editor}' not found. Aborting.")
+                    return
                 except Exception as ex:
                     logger.error(f"Could not open editor: {ex}. Aborting.", exc_info=True)
-                    print(f"Could not open editor: {ex}\nAborting.")
+                    print_func(f"Could not open editor: {ex}\nAborting.")
                     return
-                tf.seek(0)
+                # A non-zero editor exit means "abort" (same convention as git commit).
+                if proc.returncode != 0:
+                    logger.info("Editor exited with status %d. Aborting commit.", proc.returncode)
+                    print_func(f"Editor exited with non-zero status {proc.returncode}. Aborting.")
+                    return
                 with open(tf.name, "r", encoding="utf-8") as f:
-                    edited_msg = f.read().strip()
-                os.unlink(tf.name)
-                final_message = edited_msg
+                    final_message = f.read().strip()
                 logger.debug("Edited commit message loaded from temporary file.")
+            finally:
+                try:
+                    os.unlink(tf.name)
+                except OSError:
+                    pass
         elif resp in ("y", "yes"):
             final_message = commit_message
         else:
@@ -101,7 +130,12 @@ def make_commit_command(arg=None, print_func=print):
 
 def get_suggested_commit_message(diff_output):
     """
-    Returns a suggested commit message based on staged git changes.
+    Return a suggested commit message based on staged git changes.
+
+    Uses a stateless ``litellm.completion`` call rather than ``query()`` so the
+    diff and the generated message are NOT appended to the live conversation
+    history — generating a commit message shouldn't pollute the model's context
+    or token/cost accounting for subsequent turns.
     """
     logger.debug("Entering get_suggested_commit_message to generate message from staged changes.")
     try:
@@ -113,9 +147,15 @@ def get_suggested_commit_message(diff_output):
             macro_delim_escape=config.MACRO_DELIMITER_ESCAPE
         )
         logger.debug("Built commit message query input for staged changes.")
-        message = query(query_input)
+        response = litellm.completion(
+            model=config.MODEL,
+            messages=[
+                {"role": "system", "content": "You write clear, conventional git commit messages."},
+                {"role": "user", "content": query_input},
+            ],
+        )
         logger.debug("Generated suggested commit message.")
-        return message
+        return response.choices[0].message.content or ""
     except Exception as e:
         logger.error(f"Error generating suggested commit message: {e}", exc_info=True)
         raise

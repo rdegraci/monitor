@@ -80,27 +80,30 @@ class TestCommitCommand(unittest.TestCase):
         with self.assertRaises(Exception):
             commit.get_staged_diff(silent=True)
 
-    @patch("monitor.core.commit.query")
+    @patch("monitor.core.commit.litellm.completion")
     @patch("monitor.core.commit.build_commit_message_query_input")
-    def test_get_suggested_commit_message_builds_and_queries(
-        self, mock_build, mock_query
+    def test_get_suggested_commit_message_builds_and_completes(
+        self, mock_build, mock_completion
     ):
-        """Builder and query are called and result is returned."""
-        mock_build.return_value = {"input": "query_input"}
-        mock_query.return_value = "Suggested commit"
+        """Builder is called and the stateless completion result is returned."""
+        mock_build.return_value = "query_input"
+        message = MagicMock()
+        message.content = "Suggested commit"
+        mock_completion.return_value.choices = [MagicMock(message=message)]
         diff = "diff --git ..."
 
         result = commit.get_suggested_commit_message(diff)
 
         self.assertEqual(result, "Suggested commit")
-        # Loosened assertion: ensure 'diff' kwarg equals diff and query was called
         self.assertTrue(mock_build.called)
         _, kwargs = mock_build.call_args
         self.assertEqual(kwargs.get("diff"), diff)
-        self.assertTrue(mock_query.called)
+        # Uses a stateless completion, not the history-mutating query().
+        self.assertFalse(hasattr(commit, "query"))
+        self.assertTrue(mock_completion.called)
 
     @patch("os.unlink")
-    @patch("monitor.core.commit.os.system", return_value=0)
+    @patch("monitor.core.commit.subprocess.run")
     @patch("monitor.core.commit.perform_git_commit")
     @patch("monitor.core.commit.tempfile.NamedTemporaryFile")
     @patch("monitor.core.commit.get_suggested_commit_message", return_value="msg")
@@ -113,16 +116,17 @@ class TestCommitCommand(unittest.TestCase):
         mock_get_suggested,
         mock_tmpfile,
         mock_perform_git_commit,
-        mock_system,
+        mock_run,
         mock_unlink,
     ):
         """Edit flow uses edited content for commit and prints success."""
         mock_input.side_effect = ["e", "y"]
+        mock_run.return_value = MagicMock(returncode=0)
 
-        # Mock temp file creation
+        # Mock temp file creation (used directly, not as a context manager)
         mock_file = MagicMock()
         mock_file.name = "tempfile"
-        mock_tmpfile.return_value.__enter__.return_value = mock_file
+        mock_tmpfile.return_value = mock_file
 
         # Mock reading edited content
         open_cm = MagicMock()
@@ -141,6 +145,41 @@ class TestCommitCommand(unittest.TestCase):
         assert (
             "✅ Commit created successfully" in combined_printed
         ), "Success message not printed after edit flow. Captured: %s" % outputs
+
+    @patch("os.unlink")
+    @patch("monitor.core.commit.subprocess.run")
+    @patch("monitor.core.commit.perform_git_commit")
+    @patch("monitor.core.commit.tempfile.NamedTemporaryFile")
+    @patch("monitor.core.commit.get_suggested_commit_message", return_value="msg")
+    @patch("monitor.core.commit.get_staged_diff", return_value="diff --git ...")
+    @patch("monitor.core.commit.input")
+    def test_make_commit_command_editor_nonzero_exit_aborts(
+        self,
+        mock_input,
+        mock_get_staged_diff,
+        mock_get_suggested,
+        mock_tmpfile,
+        mock_perform_git_commit,
+        mock_run,
+        mock_unlink,
+    ):
+        """A non-zero editor exit aborts the commit and still cleans up the temp file."""
+        mock_input.side_effect = ["e"]
+        mock_run.return_value = MagicMock(returncode=1)
+        mock_file = MagicMock()
+        mock_file.name = "tempfile"
+        mock_tmpfile.return_value = mock_file
+
+        outputs = []
+
+        def capprint(msg, *a, **k):
+            outputs.append(str(msg))
+
+        commit.make_commit_command(print_func=capprint)
+
+        mock_perform_git_commit.assert_not_called()
+        mock_unlink.assert_called_once_with("tempfile")  # cleaned up despite abort
+        assert any("non-zero status" in o for o in outputs), outputs
 
     @patch("monitor.core.commit.perform_git_commit")
     @patch("monitor.core.commit.get_suggested_commit_message", return_value="msg")
@@ -163,7 +202,7 @@ class TestCommitCommand(unittest.TestCase):
         ), "Abort message not printed on 'n'. Captured: %s" % outputs
 
     @patch("os.unlink")
-    @patch("monitor.core.commit.os.system", return_value=0)
+    @patch("monitor.core.commit.subprocess.run")
     @patch("monitor.core.commit.perform_git_commit")
     @patch("monitor.core.commit.tempfile.NamedTemporaryFile")
     @patch("monitor.core.commit.get_suggested_commit_message", return_value="msg")
@@ -176,16 +215,17 @@ class TestCommitCommand(unittest.TestCase):
         mock_get_suggested,
         mock_tmpfile,
         mock_perform_git_commit,
-        mock_system,
+        mock_run,
         mock_unlink,
     ):
         """Abort when edited message is empty; no commit attempted."""
         mock_input.side_effect = ["e", "y"]
+        mock_run.return_value = MagicMock(returncode=0)
 
-        # Mock temp file creation
+        # Mock temp file creation (used directly, not as a context manager)
         mock_file = MagicMock()
         mock_file.name = "tempfile"
-        mock_tmpfile.return_value.__enter__.return_value = mock_file
+        mock_tmpfile.return_value = mock_file
 
         # Mock reading empty content after edit
         open_cm = MagicMock()
@@ -227,6 +267,40 @@ class TestCommitCommand(unittest.TestCase):
         assert (
             "Git commit failed:" in combined_printed
         ), "Commit failure message not printed. Captured: %s" % outputs
+
+    @patch("monitor.core.commit.perform_git_commit")
+    @patch("monitor.core.commit.get_suggested_commit_message", side_effect=RuntimeError("rate limited"))
+    @patch("monitor.core.commit.get_staged_diff", return_value="diff --git ...")
+    def test_make_commit_command_generation_failure_is_friendly(
+        self, mock_get_staged_diff, mock_get_suggested, mock_perform_git_commit
+    ):
+        """A message-generation failure prints a friendly message and commits nothing."""
+        outputs = []
+
+        def capprint(msg, *a, **k):
+            outputs.append(str(msg))
+
+        commit.make_commit_command(print_func=capprint)
+        mock_perform_git_commit.assert_not_called()
+        combined = "\n".join(outputs)
+        assert "Couldn't generate a commit message" in combined, outputs
+        assert "staged changes are untouched" in combined, outputs
+
+    @patch("monitor.core.commit.perform_git_commit")
+    @patch("monitor.core.commit.get_suggested_commit_message", side_effect=KeyboardInterrupt)
+    @patch("monitor.core.commit.get_staged_diff", return_value="diff --git ...")
+    def test_make_commit_command_generation_cancelled_is_friendly(
+        self, mock_get_staged_diff, mock_get_suggested, mock_perform_git_commit
+    ):
+        """Ctrl-C during generation aborts cleanly without a traceback or commit."""
+        outputs = []
+
+        def capprint(msg, *a, **k):
+            outputs.append(str(msg))
+
+        commit.make_commit_command(print_func=capprint)
+        mock_perform_git_commit.assert_not_called()
+        assert any("cancelled" in o.lower() for o in outputs), outputs
 
     @patch("monitor.core.commit.get_staged_diff", side_effect=Exception("oops"))
     def test_make_commit_command_top_level_exception(self, mock_get_staged_diff):
