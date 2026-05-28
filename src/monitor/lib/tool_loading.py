@@ -799,27 +799,25 @@ def add_openai_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool
           "function": {
             "name": "modify_source_code",
             "description": (
-                "Modifies the source code in place at the specified file path. "
-                "The operation will overwrite or replace the file as needed to accomplish the requested modification. "
-                "If the file does not exist, it will be created. "
-                "This is the tool to use for all updates, replacements, refactoring, or complete rewrites of existing files."
+                "Edit a source file via a natural-language modification_request. "
+                "If the file exists at source_file, it is modified in place; if it does not exist, it is created. "
+                "Edge case: if your modification_request itself asks to *create* a file at a path that already exists, "
+                "no change is made and the existing file is preserved. "
+                "Use for any code update, replacement, refactor, or rewrite — and in particular for large files where a "
+                "precise text replacement would be impractical or exceed context limits."
             ),
             "parameters": {
               "type": "object",
               "properties": {
                 "source_file": {
                   "type": "string",
-                  "description": "The path to the file to modify or rewrite."
+                  "description": "The path to the file to modify or create."
                 },
                 "modification_request": {
                   "type": "string",
-                  "description": "A natural language description of how to modify the source code (e.g., 'add logging to track each step')."
+                  "description": "A natural language description of the change to apply (e.g., 'add logging to track each step')."
                 }
               },
-              "notes": (
-                  "Attempting to create a file at an existing path will result in a NO-OP: "
-                  "the existing file will not be modified."
-                  ),
               "required": ["source_file", "modification_request"]
             }
           }
