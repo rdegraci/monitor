@@ -20,6 +20,7 @@ from monitor.lib.git import (
     perform_git_diff_file,
     perform_git_show
 )
+from monitor.lib.git_history import search_commit_history, blame_lines, perform_git_diff_range
 from monitor.lib.os import (
     list_directory_contents,
     cat_file,
@@ -61,6 +62,9 @@ AVAILABLE_TOOLS = {
     "perform_git_diff_file": perform_git_diff_file,
     "perform_git_diff_previous": perform_git_diff_previous,
     "perform_git_show": perform_git_show,
+    "search_commit_history": search_commit_history,
+    "blame_lines": blame_lines,
+    "perform_git_diff_range": perform_git_diff_range,
     "list_directory_contents": list_directory_contents,
     "cat_file": cat_file,
     "cat_file_range": cat_file_range,
@@ -162,6 +166,55 @@ TOOL_DESCRIPTIONS = [
                     }
                 },
                 "required": ["ref"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_commit_history",
+            "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The exact code or text to look for across history."},
+                    "regex": {"type": "boolean", "description": "Treat query as a regular expression instead of a literal string.", "default": False},
+                    "path": {"type": "string", "description": "Optional file or directory to limit the search to."},
+                    "max_results": {"type": "integer", "description": "Maximum number of commits to return (newest first).", "default": 20}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "blame_lines",
+            "description": "Show which commit last modified each line in a range of a file (git blame). Use to find when specific lines were last changed and in which commit — e.g. to check whether suspect lines came from your recent work or an older commit.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The file to blame."},
+                    "start_line": {"type": "integer", "description": "First line of the range (1-based)."},
+                    "end_line": {"type": "integer", "description": "Last line of the range (1-based, >= start_line)."}
+                },
+                "required": ["path", "start_line", "end_line"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "perform_git_diff_range",
+            "description": "Show the diff between two commits, branches, or tags (git diff <base> <target>). Use to compare any two points in history — e.g. a known-good commit vs now, your branch point vs HEAD, or one release tag vs another — to see exactly what changed between them.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "base": {"type": "string", "description": "The starting ref (commit hash, branch, or tag)."},
+                    "target": {"type": "string", "description": "The ending ref to compare against base."},
+                    "path": {"type": "string", "description": "Optional file or directory to limit the diff to."}
+                },
+                "required": ["base", "target"]
             }
         }
     },
@@ -656,6 +709,46 @@ GEMINI_TOOL_DESCRIPTIONS = [
   {
     "description": "Performs a `git diff HEAD^` to identify changes of the current commit compared to the previous commit. This function should be used to determine the difference between the current commit and its parent (the previous commit).",
     "name": "perform_git_diff_previous"
+  },
+  {
+    "description": "Find the commits that first introduced or later removed a specific piece of code or text across the repository's history. Use this to determine whether a bug or a line predates recent changes — e.g. 'when did this function/string first appear?' or 'was this already broken before my commits?'. Returns matching commits (short hash, date, subject), newest first.",
+    "name": "search_commit_history",
+    "parameters": {
+      "properties": {
+        "query": {"description": "The exact code or text to look for across history.", "type": "string"},
+        "regex": {"description": "Treat query as a regular expression instead of a literal string.", "type": "boolean", "default": False},
+        "path": {"description": "Optional file or directory to limit the search to.", "type": "string"},
+        "max_results": {"description": "Maximum number of commits to return (newest first).", "type": "integer", "default": 20}
+      },
+      "required": ["query"],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Show which commit last modified each line in a range of a file (git blame). Use to find when specific lines were last changed and in which commit — e.g. to check whether suspect lines came from your recent work or an older commit.",
+    "name": "blame_lines",
+    "parameters": {
+      "properties": {
+        "path": {"description": "The file to blame.", "type": "string"},
+        "start_line": {"description": "First line of the range (1-based).", "type": "integer"},
+        "end_line": {"description": "Last line of the range (1-based, >= start_line).", "type": "integer"}
+      },
+      "required": ["path", "start_line", "end_line"],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Show the diff between two commits, branches, or tags (git diff <base> <target>). Use to compare any two points in history — e.g. a known-good commit vs now, your branch point vs HEAD, or one release tag vs another — to see exactly what changed between them.",
+    "name": "perform_git_diff_range",
+    "parameters": {
+      "properties": {
+        "base": {"description": "The starting ref (commit hash, branch, or tag).", "type": "string"},
+        "target": {"description": "The ending ref to compare against base.", "type": "string"},
+        "path": {"description": "Optional file or directory to limit the diff to.", "type": "string"}
+      },
+      "required": ["base", "target"],
+      "type": "object"
+    }
   },
   {
     "description": "List the contents of a directory at the given path. Use this function when you need to know the files (if any) in the directory at the given path.",

@@ -42,6 +42,8 @@ Working style:
 - Be terse. Don't summarize what a diff already shows. Don't narrate internal deliberation.
 - If something is uncertain, say so. Don't claim a fix without verifying the code matches the claim.
 - When fixing a bug, fix the root cause first. If you must apply a workaround, comment why and reference the root cause.
+- When a bug might predate your recent changes, use search_commit_history (to find when the code/string was introduced) and blame_lines (to see which commit last touched suspect lines) before assuming it's a regression.
+- To see exactly what changed between two points in history (e.g. a known-good commit and now), use perform_git_diff_range to diff the two refs.
 - When discovering broken or dead code (syntax errors, never-called functions), report it explicitly rather than silently working around it.
 
 When to ask vs. act:
