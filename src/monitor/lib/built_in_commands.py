@@ -523,6 +523,64 @@ def reasoning_command(arg: str = None) -> None:
     except Exception as e:
         print_colored_error(f"Could not set reasoning effort: {e}")
 
+def _ttl_minutes_from_api_value(api_value):
+    """Convert Anthropic's ``cache_control.ttl`` string ("5m" or "1h") to an
+    integer-minute count for display purposes. Defaults to 60 (1h)."""
+    if api_value == "5m":
+        return 5
+    return 60  # treats "1h" and anything unrecognized as the default
+
+
+def _print_ttl_help(current_minutes):
+    print("Set the Anthropic prompt-cache TTL for the system + tools breakpoints.")
+    print("Usage: :ttl <minutes>")
+    print("Valid values:")
+    print("  :ttl 5    — 5-minute cache (write at 1.25x base input cost)")
+    print("  :ttl 60   — 1-hour cache (write at 2x base input cost; wins when idle >5min)")
+    print("Reads cost 0.1x base for both TTLs. The final-user-message breakpoint")
+    print("stays at 5m regardless (it changes every turn).")
+    print(f"Current TTL: {current_minutes} minutes.")
+
+
+def ttl_command(arg: str = None) -> None:
+    """
+    Configure the Anthropic prompt-cache TTL at runtime.
+
+    Usage:
+        :ttl              — show help and current TTL
+        :ttl <minutes>    — set to 5 or 60 minutes
+
+    Affects only Anthropic models; OpenAI prompt caching is automatic and
+    needs no directive. The final-user-message cache breakpoint stays at 5m
+    regardless of this setting because it moves every turn.
+    """
+    current_api = getattr(config, "ANTHROPIC_CACHE_TTL", "1h")
+    current_minutes = _ttl_minutes_from_api_value(current_api)
+
+    arg_provided = arg is not None and str(arg).strip() != ""
+    if not arg_provided or str(arg).strip().lower() in {"help", "?", "-h", "--help"}:
+        _print_ttl_help(current_minutes)
+        return
+
+    text = str(arg).strip()
+    try:
+        minutes = int(text)
+    except ValueError:
+        print_colored_error(f"Could not parse '{text}' as an integer.")
+        _print_ttl_help(current_minutes)
+        return
+
+    if minutes == 5:
+        config.ANTHROPIC_CACHE_TTL = "5m"
+        print_yellow("Anthropic prompt-cache TTL set to 5 minutes (system + tools breakpoints).")
+    elif minutes == 60:
+        config.ANTHROPIC_CACHE_TTL = "1h"
+        print_yellow("Anthropic prompt-cache TTL set to 1 hour (system + tools breakpoints).")
+    else:
+        print_colored_error(f"Invalid value: {minutes}. Anthropic supports only 5 or 60 minutes.")
+        _print_ttl_help(current_minutes)
+
+
 def llm_command(arg: str = None) -> None:
     """
     Change the active LLM model at runtime.

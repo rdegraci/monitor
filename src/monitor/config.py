@@ -508,6 +508,15 @@ SHOW_COST_ESTIMATE = None
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
 
+# Anthropic prompt-cache TTL for the system + tools breakpoints. Must be one
+# of "5m" or "1h" (Anthropic's only supported values). Default is "1h": writes
+# cost 2x base input (vs 1.25x for 5m) but cache survives 12x longer, which
+# wins for any interactive session with >5min idle between asks. The final
+# user-message breakpoint is intentionally left at the 5m default — it changes
+# every turn, so a long TTL would buy nothing. User-tunable at runtime via the
+# :ttl built-in command.
+ANTHROPIC_CACHE_TTL = "1h"
+
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
     global CONVERSATION_MAX_SIZE, RATE_LIMITING_CONFIG, MEMORY_SERVICES, STARTUP_TIME

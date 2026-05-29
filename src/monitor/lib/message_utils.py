@@ -298,6 +298,21 @@ def is_anthropic_model(model_name):
     logger.debug("Model %s is not an Anthropic model", model_name)
     return False
 
+def _system_cache_control():
+    """Build the cache_control dict for the system-message breakpoint, honoring
+    the user-configurable TTL (config.ANTHROPIC_CACHE_TTL). Read at call time
+    so runtime changes via the :ttl command take effect on the next API call.
+    Note: the final-user-message breakpoint elsewhere in this module stays at
+    the 5m default — that breakpoint moves every turn, so a long TTL adds
+    write cost without saving anything."""
+    from monitor import config as _config
+    ttl = getattr(_config, "ANTHROPIC_CACHE_TTL", "1h")
+    cc = {"type": "ephemeral"}
+    if ttl and ttl != "5m":  # 5m is Anthropic's default; omit to keep payload minimal
+        cc["ttl"] = ttl
+    return cc
+
+
 def prepare_messages_with_cache_control(messages, model_name):
     """
     Prepare messages with cache_control for Anthropic models to enable efficient caching.
@@ -339,9 +354,11 @@ def prepare_messages_with_cache_control(messages, model_name):
     for i, message in enumerate(prepared_messages):
         if message.get('role') == 'system':
             try:
-                # Create a new message with cache_control
+                # Create a new message with cache_control. Honor the
+                # user-configurable TTL (config.ANTHROPIC_CACHE_TTL) so a
+                # stable system prompt benefits from the long-TTL cache.
                 system_message = message.copy()
-                system_message['cache_control'] = {'type': 'ephemeral'}
+                system_message['cache_control'] = _system_cache_control()
                 prepared_messages[i] = system_message
                 system_modified = True
                 logger.debug("Added cache_control to system message at index %s", i)

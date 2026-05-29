@@ -234,9 +234,21 @@ def inject_anthropic_properties(function_array: list) -> list:
         return transformed
 
     last_copy = dict(transformed[-1])
-    last_copy["cache_control"] = {"type": "ephemeral"}
+    last_copy["cache_control"] = _anthropic_cache_control()
     transformed[-1] = last_copy
     return transformed
+
+
+def _anthropic_cache_control() -> dict:
+    """Build the cache_control dict for the tools breakpoint, honoring the
+    user-configurable TTL (config.ANTHROPIC_CACHE_TTL). Read at call time so
+    runtime changes via the :ttl command take effect on the next API call."""
+    from monitor import config as _config
+    ttl = getattr(_config, "ANTHROPIC_CACHE_TTL", "1h")
+    cc = {"type": "ephemeral"}
+    if ttl and ttl != "5m":  # 5m is Anthropic's default; omit field to keep payload minimal
+        cc["ttl"] = ttl
+    return cc
 
 def get_first_segment(model_string: str) -> str:
     """

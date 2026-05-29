@@ -28,6 +28,7 @@ from monitor.lib.built_in_commands import (
     reload_macros_command,
     llm_command,
     reasoning_command,
+    ttl_command,
     trim_history_command,
     compact_history_command,
 )
@@ -345,6 +346,11 @@ def configure_built_ins() -> None:
                     "command": ":reasoning",
                     "function": _make_callable(reasoning_command),
                     "description": "Change reasoning effort (minimal/low/medium/high). Usage: :reasoning <level> or :reasoning help.",
+                },
+                {
+                    "command": ":ttl",
+                    "function": _make_callable(ttl_command),
+                    "description": "Configure the Anthropic prompt-cache TTL (5 or 60 minutes). Usage: :ttl <minutes> or :ttl for help.",
                 },
                 {
                     "command": ":macros",

@@ -33,7 +33,7 @@ def test_function_tools_unchanged_except_last_gets_cache_control():
     assert out[0] == tools[0]  # untouched
     assert out[1]["type"] == "function"
     assert out[1]["function"]["name"] == "b"
-    assert out[1]["cache_control"] == {"type": "ephemeral"}
+    assert out[1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
 
 def test_native_tool_is_flattened_to_type_and_name():
@@ -46,8 +46,8 @@ def test_native_tool_is_flattened_to_type_and_name():
     assert "function" not in out[0]
     assert out[0]["type"] == "text_editor_20250728"
     assert out[0]["name"] == "str_replace_based_edit_tool"
-    # cache_control still attached to the last entry
-    assert out[0]["cache_control"] == {"type": "ephemeral"}
+    # cache_control still attached to the last entry (with 1h default TTL)
+    assert out[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
 
 def test_mixed_array_flattens_native_and_preserves_function_tools():
@@ -63,7 +63,7 @@ def test_mixed_array_flattens_native_and_preserves_function_tools():
     assert out[1] == {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"}
     # last function tool gets cache_control
     assert out[2]["type"] == "function" and out[2]["function"]["name"] == "omega"
-    assert out[2]["cache_control"] == {"type": "ephemeral"}
+    assert out[2]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
 
 def test_does_not_mutate_caller_array():
@@ -91,3 +91,23 @@ def test_malformed_native_entry_passes_through():
 def test_empty_or_non_list_input_passes_through():
     assert inject_anthropic_properties([]) == []
     assert inject_anthropic_properties(None) is None
+
+
+# --- TTL configuration -------------------------------------------------------
+
+
+def test_tools_breakpoint_uses_5m_when_configured(monkeypatch):
+    """:ttl 5 must drop the ttl field so the payload stays minimal — 5m is
+    Anthropic's documented default when ttl is omitted."""
+    from monitor import config as cfg
+    monkeypatch.setattr(cfg, "ANTHROPIC_CACHE_TTL", "5m", raising=False)
+    out = inject_anthropic_properties([_function_tool("only")])
+    assert out[0]["cache_control"] == {"type": "ephemeral"}
+    assert "ttl" not in out[0]["cache_control"]
+
+
+def test_tools_breakpoint_uses_1h_when_configured(monkeypatch):
+    from monitor import config as cfg
+    monkeypatch.setattr(cfg, "ANTHROPIC_CACHE_TTL", "1h", raising=False)
+    out = inject_anthropic_properties([_function_tool("only")])
+    assert out[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
