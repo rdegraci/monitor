@@ -508,6 +508,15 @@ SHOW_COST_ESTIMATE = None
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
 
+# Maximum consecutive LLM rounds that may return tool_calls within a single
+# user turn before handle_tool_call aborts the chain. Counts ROUNDS, not
+# individual tool calls — multiple tool calls in one model response count as
+# one round. The counter resets when a new user message starts the next turn.
+# 128 is generous: even an 8-10 item todo plan with view+edit+test per item
+# rarely exceeds ~50 rounds. A half-way warning fires at MAX_TOOL_CALL_DEPTH //
+# 2 to surface long autonomous chains before the hard abort.
+MAX_TOOL_CALL_DEPTH = 128
+
 # Anthropic prompt-cache TTL for the system + tools breakpoints. Must be one
 # of "5m" or "1h" (Anthropic's only supported values). Default is "1h": writes
 # cost 2x base input (vs 1.25x for 5m) but cache survives 12x longer, which

@@ -25,6 +25,18 @@ from pathlib import Path
 import appdirs
 
 
+# Per-project override of the runtime prompt files. Captured once at startup
+# from the cwd via configure_runtime_prompt_paths(). For MONITOR.md the chain
+# is <cwd>/MONITOR.md → <cwd>/build/MONITOR.md → <cwd>/AGENTS.md → appdir.
+# For MONITOR_CONVENTIONS.md it's <cwd>/MONITOR_CONVENTIONS.md →
+# <cwd>/build/MONITOR_CONVENTIONS.md → appdir (no AGENTS analogue exists).
+# :cd later in the session does NOT re-resolve — paths are frozen at process
+# start. None means "no override was found, use the appdir copy with
+# seed-from-packaged behavior."
+_OVERRIDE_INSTRUCTIONS_PATH = None
+_OVERRIDE_CODING_CONVENTIONS_PATH = None
+
+
 SYSTEM_PROMPT_TEMPLATE = """
 You are a coding assistant invoked from a CLI harness. Use the file-system, git, and source-modification tools available to you rather than asking the user to run commands.
 
@@ -49,6 +61,8 @@ Working style:
 
 When to ask vs. act:
 - For routine, scoped tasks (fix one bug, rename one variable, add one test), act directly.
+- When the user accepts an offer you just made — any affirmative reply ("yes", "proceed", "do it", "sounds good", "go ahead", "start now", "go", "continue", "next", "ok", "do that", or similar) — execute it as described. No re-asking, no re-scoping, no requesting clarification. The destructive-operation rule below still applies. If mid-execution you find the offer was genuinely under-specified, pause then; do not pre-emptively re-confirm.
+- Do not end execution-phase responses with offer-shaped phrasing — "If you want, I can…", "Would you like me to…", "Should I proceed with…", "Shall I start with…", "Let me know if…". These phrases re-cast already-approved work as a new offer and force the user to confirm again, turning what should be a single autonomous run into a stop-and-go negotiation. Instead, execute the next step in the same turn. If you must pause, state the specific reason directly ("Pausing because this would force-push to main — confirm?"), not as a polite optional offer.
 - For ambiguous tasks ("clean this up", "make it better"), present findings first and let the user pick scope.
 - If a task uncovers something significantly bigger than the original ask, pause and surface it before continuing.
 - For destructive or hard-to-reverse operations, always confirm even if similar operations were approved earlier in the session.
@@ -58,7 +72,10 @@ Planning multi-step work:
 - For work spanning multiple steps or turns (a feature, a cross-file refactor, a bug that needs investigation before fixes), use the per-session todo tools to plan and track: add_todo to lay out the steps, update_todo to mark one in_progress when you start it and done when it lands, delete_todo to drop steps that fall away.
 - list_todos returns the current plan, highest priority first — treat it as your working memory across turns: consult it to resume work, and keep it accurate as the plan changes.
 - Add newly discovered work as todos instead of silently widening scope; surface large additions to the user first.
-- Skip todos for trivial single-step tasks — the overhead isn't worth it. Plan only when the work is genuinely multi-step.
+- Default to using todos. Skip them ONLY for pure Q&A (no file mutations) or a single one-shot tool call; for anything else — multi-step work, multi-file edits, read-then-edit sequences, any task that crosses turns — plan with todos upfront so the user can see the intent before execution.
+- Todo operations are session-local bookkeeping. Add, update, complete, and delete items as you work without asking the user to approve each change.
+- Treat the `notes` field as static supporting context (blockers, file pointers, gotchas), NOT as an activity log. Don't update notes to record what you just did or what you're about to do — use `status` (pending/in_progress/done) for progress and `item` for action items. Updating notes is not work; it's a substitute for work. If you find yourself writing into `notes` in lieu of editing code or running tools, stop and do the actual work instead.
+- Once a plan is laid out (or the work is clear from the request), execute todos in order without re-confirming each step. The user already approved the plan by asking for the work; do not pause to ask "should I do step N?" Pause only for: genuinely destructive or hard-to-reverse operations (data loss, history rewrites, force-pushes), discovery that the scope is materially bigger than the original ask, or a todo item whose intent is actually ambiguous.
 
 Common pitfalls to avoid:
 - Don't catch `Exception` broadly. Catch the specific exception class the code can raise. Broad catches hide bugs.
@@ -100,12 +117,12 @@ Never trade correctness or test design quality for speed.
 
 def _runtime_instructions_path():
     """Return the runtime instructions file path."""
-    return Path(appdirs.user_config_dir("monitor")) / "instructions.md"
+    return Path(appdirs.user_config_dir("monitor")) / "MONITOR.md"
 
 
 def _runtime_coding_conventions_path():
     """Return the runtime coding conventions file path."""
-    return Path(appdirs.user_config_dir("monitor")) / "coding_conventions.md"
+    return Path(appdirs.user_config_dir("monitor")) / "MONITOR_CONVENTIONS.md"
 
 
 def _seed_runtime_file(runtime_path, packaged_path):
@@ -123,15 +140,73 @@ def _read_runtime_file(runtime_path, packaged_path):
     return runtime_path.read_text(encoding="utf-8")
 
 
+def configure_runtime_prompt_paths(startup_cwd):
+    """Resolve per-project overrides for MONITOR.md and MONITOR_CONVENTIONS.md
+    from ``startup_cwd``. Called once at app startup; the result is frozen for
+    the rest of the session so an interactive :cd does NOT swap which prompt
+    file is read. Pass ``None`` to clear any prior override (mainly for tests).
+
+    Resolution order:
+      MONITOR.md         : <cwd>/MONITOR.md → <cwd>/build/MONITOR.md →
+                            <cwd>/AGENTS.md → appdir copy
+      MONITOR_CONVENTIONS.md : <cwd>/MONITOR_CONVENTIONS.md →
+                            <cwd>/build/MONITOR_CONVENTIONS.md → appdir copy
+
+    AGENTS.md (the emerging cross-tool agent-instructions convention) is
+    accepted as a fallback ONLY for MONITOR.md. The conventions file is
+    monitor-specific so there is no AGENTS equivalent. The monitor-specific
+    name beats the cross-tool name within each location chain.
+
+    Args:
+        startup_cwd: The directory captured at process start (typically
+            ``os.getcwd()``).
+    """
+    global _OVERRIDE_INSTRUCTIONS_PATH, _OVERRIDE_CODING_CONVENTIONS_PATH
+
+    if startup_cwd is None:
+        _OVERRIDE_INSTRUCTIONS_PATH = None
+        _OVERRIDE_CODING_CONVENTIONS_PATH = None
+        return
+
+    cwd = Path(startup_cwd)
+    _OVERRIDE_INSTRUCTIONS_PATH = _resolve_override(
+        cwd,
+        ["MONITOR.md", "build/MONITOR.md", "AGENTS.md"],
+    )
+    _OVERRIDE_CODING_CONVENTIONS_PATH = _resolve_override(
+        cwd,
+        ["MONITOR_CONVENTIONS.md", "build/MONITOR_CONVENTIONS.md"],
+    )
+
+
+def _resolve_override(cwd, relative_candidates):
+    """Return the first file from ``relative_candidates`` that exists under
+    ``cwd``, or ``None`` if none match. ``is_file()`` is used so a directory
+    of the same name is correctly skipped."""
+    for rel in relative_candidates:
+        candidate = cwd / rel
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _load_runtime_instructions():
-    """Load the runtime instructions from the packaged source file."""
-    packaged_path = Path(__file__).resolve().parents[1] / "instructions.md"
+    """Load the runtime instructions. If a startup-cwd override was resolved
+    by configure_runtime_prompt_paths(), read that file directly (no seeding).
+    Otherwise fall back to the appdir copy, seeding from the packaged source
+    on first run."""
+    if _OVERRIDE_INSTRUCTIONS_PATH is not None:
+        return _OVERRIDE_INSTRUCTIONS_PATH.read_text(encoding="utf-8")
+    packaged_path = Path(__file__).resolve().parents[1] / "MONITOR.md"
     return _read_runtime_file(_runtime_instructions_path(), packaged_path)
 
 
 def _load_runtime_coding_conventions():
-    """Load the runtime coding conventions from the packaged source file."""
-    packaged_path = Path(__file__).resolve().parents[1] / "coding_conventions.md"
+    """Load the runtime coding conventions. Same override/fallback shape as
+    _load_runtime_instructions."""
+    if _OVERRIDE_CODING_CONVENTIONS_PATH is not None:
+        return _OVERRIDE_CODING_CONVENTIONS_PATH.read_text(encoding="utf-8")
+    packaged_path = Path(__file__).resolve().parents[1] / "MONITOR_CONVENTIONS.md"
     return _read_runtime_file(_runtime_coding_conventions_path(), packaged_path)
 
 

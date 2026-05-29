@@ -32,6 +32,7 @@ from monitor.lib.macros import configure_macros
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
+from monitor.lib.system_prompt import configure_runtime_prompt_paths
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +365,11 @@ def main():
             logger.info("Status UDS server started at: %s", socket_path)
         except Exception:
             logger.exception("Failed to start status UDS server")
+
+    # Snapshot the startup cwd to resolve any per-project prompt overrides
+    # (MONITOR.md / MONITOR_CONVENTIONS.md in the cwd). Frozen for the rest
+    # of the session — :cd later does NOT re-resolve.
+    configure_runtime_prompt_paths(os.getcwd())
 
     # Built-ins
     configure_built_ins()

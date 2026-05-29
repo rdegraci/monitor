@@ -20,8 +20,9 @@ SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 
 # TC-2: cap on the depth of nested tool-call dispatches. handle_tool_call
 # recurses when the model's reply also contains tool_calls; an adversarial
-# prompt or runaway agent loop would otherwise stack-overflow.
-MAX_TOOL_CALL_DEPTH = 32
+# prompt or runaway agent loop would otherwise stack-overflow. The active
+# value lives in config.MAX_TOOL_CALL_DEPTH so it's tunable at runtime
+# without an import-time freeze.
 
 
 def parse_function_args(function_args):
@@ -132,14 +133,25 @@ def handle_tool_call(response, _depth=0):
     instead of stack-overflowing.
     """
 
-    if _depth >= MAX_TOOL_CALL_DEPTH:
+    max_depth = config.MAX_TOOL_CALL_DEPTH
+    if _depth >= max_depth:
         logger.error(
             "handle_tool_call: depth %d reached MAX_TOOL_CALL_DEPTH %d; aborting chain",
-            _depth, MAX_TOOL_CALL_DEPTH,
+            _depth, max_depth,
         )
         return (
-            f"Tool-call chain exceeded the maximum depth of {MAX_TOOL_CALL_DEPTH}. "
+            f"Tool-call chain exceeded the maximum depth of {max_depth}. "
             "Stopping to prevent runaway recursion. The user can retry with a fresh prompt."
+        )
+
+    # Fire a single half-way warning as a heads-up that this turn is running
+    # a long autonomous chain. Equality (not >=) ensures we log exactly once
+    # per chain instead of spamming every round past the threshold.
+    if _depth == max_depth // 2:
+        logger.warning(
+            "handle_tool_call: depth %d of %d reached half of MAX_TOOL_CALL_DEPTH "
+            "(long autonomous chain). The hard abort fires at %d.",
+            _depth, max_depth, max_depth,
         )
 
     from monitor.core.conversation import (

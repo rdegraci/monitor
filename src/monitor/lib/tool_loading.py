@@ -641,7 +641,7 @@ def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_
             "type": "function",
             "function": {
                 "name": "text_file_or_directory_view",
-                "description": "View the contents of a file (with optional line range) or list the contents of a directory. Use for inspecting code before editing it. File output includes syntax highlighting and line numbers; directory output lists files and subdirectories.",
+                "description": "View the contents of a file (with optional line range) or list the contents of a directory. Use for inspecting code before editing it. File output includes syntax highlighting and line numbers; directory output lists files and subdirectories. On failure: if the path is reported missing, verify the path with a parent-directory listing before retrying or assuming the file doesn't exist.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -680,7 +680,7 @@ def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_
             "type": "function",
             "function": {
                 "name": "text_file_create",
-                "description": "Create a new file with the specified content. Fails if the file already exists. Parent directories are created automatically if missing. PREFER this over modify_source_code when you're creating a file from scratch with known content — it's deterministic, faster, and avoids invoking a secondary model.",
+                "description": "Create a new file with the specified content. Fails if the file already exists. Parent directories are created automatically if missing. PREFER this over modify_source_code when you're creating a file from scratch with known content — it's deterministic, faster, and avoids invoking a secondary model. On failure (file already exists): do NOT blindly retry with modify_source_code — first view the existing file, then either use text_file_str_replace_in_file for targeted edits, or use modify_source_code only if a wholesale rewrite is genuinely intended.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -713,7 +713,7 @@ def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_
             "type": "function",
             "function": {
                 "name": "text_file_str_replace_in_file",
-                "description": "Replace an exact string in a file with new content. The old_str must match exactly (whitespace, indentation, and newlines included) AND must match exactly once — the call fails on zero matches or multiple matches. If the snippet you want to change appears in more than one place, include surrounding context in old_str so the match is unique. PREFER this over modify_source_code for any precise edit where you know the exact text to change — it's deterministic, fast, and reviewable. Use modify_source_code only when the change genuinely can't be expressed as exact text replacement.",
+                "description": "Replace an exact string in a file with new content. The old_str must match exactly (whitespace, indentation, and newlines included) AND must match exactly once — the call fails on zero matches or multiple matches. If the snippet you want to change appears in more than one place, include surrounding context in old_str so the match is unique. PREFER this over modify_source_code for any precise edit where you know the exact text to change — it's deterministic, fast, and reviewable. Use modify_source_code only when the change genuinely can't be expressed as exact text replacement. On failure: zero matches → view the file to confirm the exact text (whitespace/indentation often differs from what you remember) before retrying or considering modify_source_code; multiple matches → expand old_str to include surrounding lines so the match becomes unique, do NOT switch tools.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -750,7 +750,7 @@ def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_
             "type": "function",
             "function": {
                 "name": "text_file_insert_text_at_line",
-                "description": "Insert new text at a specific line in a file. The text is inserted BEFORE the given 1-based line number — insert_line=1 inserts at the top of the file; insert_line=N+1 (where N is the file's current line count) appends to the end. PREFER this over modify_source_code for additions where you know exactly where to insert. Use modify_source_code only when the placement is genuinely fuzzy (e.g. 'add validation somewhere appropriate').",
+                "description": "Insert new text at a specific line in a file. The text is inserted BEFORE the given 1-based line number — insert_line=1 inserts at the top of the file; insert_line=N+1 (where N is the file's current line count) appends to the end. PREFER this over modify_source_code for additions where you know exactly where to insert. Use modify_source_code only when the placement is genuinely fuzzy (e.g. 'add validation somewhere appropriate'). On failure (line out of range): view the file to confirm the current line count before retrying with a corrected insert_line; do not switch to modify_source_code just to work around the range error.",
                 "parameters": {
                     "type": "object",
                     "properties": {

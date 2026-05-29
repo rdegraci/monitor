@@ -500,7 +500,7 @@ TOOL_DESCRIPTIONS = [
                 "properties": {
                     "item": {"type": "string", "description": "The todo item description."},
                     "priority": {"type": "integer", "description": "Higher number sorts earlier in list_todos.", "default": 0},
-                    "notes": {"type": "string", "description": "Notes for the todo item."}
+                    "notes": {"type": "string", "description": "Static supporting context for the todo — blockers, file pointers, gotchas (e.g. 'see auth_service.py:120', 'blocked on PR #42'). Do NOT use notes as a progress log; use `status` (pending/in_progress/done) for progress and `item` for the action itself. Notes should rarely change once written."}
                 },
                 "required": ["item"]
             }
@@ -529,7 +529,7 @@ TOOL_DESCRIPTIONS = [
                     "id": {"type": "string", "description": "The id of the todo to update."},
                     "status": {"type": "string", "description": "New status, e.g. 'in_progress' or 'done'."},
                     "item": {"type": "string", "description": "New description text for the todo."},
-                    "notes": {"type": "string", "description": "Notes to set on the todo."},
+                    "notes": {"type": "string", "description": "Static supporting context for the todo — blockers, file pointers, gotchas. Do NOT use notes as a progress log; use `status` for progress and `item` for the action itself. Update notes only when underlying context changes (e.g., a blocker is resolved), not to record what you just did."},
                     "priority": {"type": "integer", "description": "New priority (higher sorts earlier)."}
                 },
                 "required": ["id"]
@@ -1012,7 +1012,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "default": 0
         },
         "notes": {
-          "description": "Notes for the todo item.",
+          "description": "Static supporting context for the todo — blockers, file pointers, gotchas (e.g. 'see auth_service.py:120', 'blocked on PR #42'). Do NOT use notes as a progress log; use `status` (pending/in_progress/done) for progress and `item` for the action itself. Notes should rarely change once written.",
           "type": "string"
         }
       },
@@ -1049,7 +1049,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "type": "string"
         },
         "notes": {
-          "description": "Notes to set on the todo.",
+          "description": "Static supporting context for the todo — blockers, file pointers, gotchas. Do NOT use notes as a progress log; use `status` for progress and `item` for the action itself. Update notes only when underlying context changes (e.g., a blocker is resolved), not to record what you just did.",
           "type": "string"
         },
         "priority": {

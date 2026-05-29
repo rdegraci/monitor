@@ -135,7 +135,7 @@ def test_modify_source_code_file_not_found_returns_dict(tmp_path):
 
 
 def test_modify_source_code_does_not_inject_swift_guidance(tmp_path, monkeypatch):
-    """The .swift logging block was moved into coding_conventions.md; the
+    """The .swift logging block was moved into MONITOR_CONVENTIONS.md; the
     modification_request must reach the engine unchanged regardless of
     file extension."""
     from unittest.mock import Mock
