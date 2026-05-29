@@ -4,13 +4,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 from monitor.lib.tool_loading import (
-    add_weather_tools, 
-    add_memory_tools, 
+    add_weather_tools,
+    add_memory_tools,
     add_text_file_editor_tools,
+    add_text_file_neutral_tools,
+    add_anthropic_native_editor_tools,
     remove_text_file_editor_tools,
-    get_first_segment, 
+    remove_text_file_neutral_tools,
+    remove_anthropic_native_editor_tools,
+    get_first_segment,
     remove_openai_editor_tools,
-    add_openai_editor_tools
+    add_openai_editor_tools,
 )
 from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE
 
@@ -29,11 +33,34 @@ def configure_tools():
     # unconditionally so test mocks of get_first_segment are exercised.
     provider = get_first_segment(config.MODEL)
     if provider == 'anthropic':
-        add_text_file_editor_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+        # Each Anthropic release ships a distinct native editor tool; if the
+        # current model has a matching gate, use ONLY that native tool so the
+        # model picks its trained-for protocol unambiguously. If no gate
+        # matches (Opus, Haiku, or a newer release we haven't gated yet), fall
+        # back to the provider-neutral surgical tools so the model still has
+        # an editing pathway.
+        #
+        # Strip-then-add: two Anthropic releases can share a tool *name* but
+        # differ in *type* (e.g. claude-sonnet-4 vs claude-opus-4-7 both name
+        # "str_replace_based_edit_tool" but use different protocol types).
+        # add_tool dedups by name, so a runtime :model switch between such
+        # releases would otherwise keep the previous model's stale `type`.
+        # Stripping first ensures the new tool's `type` lands cleanly.
+        remove_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        has_native = add_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+        if has_native:
+            remove_text_file_neutral_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        else:
+            add_text_file_neutral_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
     elif provider == 'openai':
-        remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        # OpenAI gets the provider-neutral surgical tools alongside
+        # modify_source_code. Strip any leftover Anthropic-native declarations
+        # so a runtime switch from an Anthropic model doesn't leave dangling
+        # tool entries OpenAI's API would reject or ignore.
+        add_text_file_neutral_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
         add_openai_editor_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
     elif provider == 'gemini':
         # Gemini relies on the parallel GEMINI_TOOL_DESCRIPTIONS catalog.
         # Strip both provider-specific editor sets from TOOL_DESCRIPTIONS

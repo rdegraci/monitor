@@ -825,6 +825,16 @@ MAX_LINES_PER_CHUNK = 1000
 MAX_CHARS_PER_CHUNK = 100000
 TOKEN_BUDGET_PER_CHUNK = 20000
 
+# Hard cap on the source file modify_source_code will accept. Sized for ~15-20K
+# lines of typical source — anything larger is almost always generated code,
+# vendored bundles, minified output, or a file that should be refactored before
+# automated editing.
+MAX_SOURCE_FILE_BYTES = 1024 * 1024  # 1 MiB
+
+# Cap on the diff text included in the tool result so the model isn't flooded
+# with the entire change set every call.
+MAX_DIFF_RESULT_CHARS = 8000
+
 
 def _configure_protocol_engine_limits():
     global MAX_LINES_PER_CHUNK, MAX_CHARS_PER_CHUNK, TOKEN_BUDGET_PER_CHUNK
@@ -1048,6 +1058,28 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
         token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK,
     )
     ENGINE.reset_state()
+
+    # Hard size guard. Refuse files larger than MAX_SOURCE_FILE_BYTES rather
+    # than loading them into memory and kicking off an enormous chunked edit;
+    # files past 1 MiB are almost always generated, vendored, or minified.
+    try:
+        file_size = os.path.getsize(source_file)
+    except FileNotFoundError:
+        return {"ok": False, "file": source_file, "error": f"Unable to open {source_file}. Does not exist."}
+    except Exception as e:
+        logger.error("Error stat-ing %s: %s", source_file, str(e))
+        return {"ok": False, "file": source_file, "error": f"Error checking size of {source_file}: {e}"}
+    if file_size > MAX_SOURCE_FILE_BYTES:
+        return {
+            "ok": False,
+            "file": source_file,
+            "error": (
+                f"File is {file_size} bytes; exceeds the {MAX_SOURCE_FILE_BYTES}-byte "
+                f"(1 MiB) limit. Files this large are almost always generated, vendored, "
+                f"or minified — edit a smaller, focused file, or pre-split the work."
+            ),
+        }
+
     original_source_content = None
     try:
         with open(source_file, "r") as file:
@@ -1065,39 +1097,11 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
                 print_func(f"{yellow}Analysis of the source code may take up to 45 seconds of inference/reasoning.{reset}")
                 print_func(f"{yellow}Large or complex source code (>500 LOC) may take longer or require multiple modifications.{reset}")
     except FileNotFoundError:
-        return f"Unable to open {source_file}. Does not exist."
+        return {"ok": False, "file": source_file, "error": f"Unable to open {source_file}. Does not exist."}
     except Exception as e:
         logger.error("Error reading file %s: %s", source_file, str(e))
-        return f"Error reading file {source_file}: {str(e)}"
+        return {"ok": False, "file": source_file, "error": f"Error reading file {source_file}: {str(e)}"}
     try:
-        # Inject Swift-specific logging guidance into the modification_request when applicable
-        ext = os.path.splitext(source_file)[1].lower()
-        if ext == ".swift":
-            swift_instr = """
-            When editing Swift, follow these logging rules:
-            1) logger.trace(): entry/exit, significant internal state snapshots, and rare diagnostic details — keep sparse.
-            2) logger.info(): important runtime state changes, completed major tasks, config or lifecycle events.
-            3) logger.warning(): use for recoverable/soft errors respectively.
-            4) Never use logger.debug() or logger.error(), these are reserved for human developers. 
-            5) Do not add logs in hot loops or for trivial local values.
-            6) Add at most one additional log per changed function unless necessary.
-
-            - Good trace uses:
-              - logger.trace("Entering parseInput, id=%s", userId)
-              - logger.trace("Computed X=%d from Y=%d", x, y)
-            - Good info uses:
-              - logger.info("Service started on port %d", port)
-              - logger.info("Processed batch %d: %d records", batchId, count)
-            - Avoid:
-              - Logging every intermediate calculation inside performance-sensitive loops
-              - Replacing structured errors with verbose debug dumps
-            """
-            if modification_request:
-                modification_request = modification_request + "\n\n" + swift_instr
-            else:
-                modification_request = swift_instr
-            logger.debug("Injected Swift logging guidance into modification_request for %s", source_file)
-
         modified_script = ENGINE.fetch_modified_script(
             script_content=source_content,
             modification_request=modification_request,
@@ -1113,6 +1117,9 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
         except Exception as e:
             logger.error("Error reading updated file %s: %s", source_file, str(e))
 
+        # Compute and display the diff (terminal-visible via print_func), and
+        # keep a string copy to ship back in the tool result.
+        diff_for_result = ""
         diff_text = None
         git_err = None
         is_git_repo = _is_inside_git_work_tree(cwd=os.path.dirname(os.path.abspath(source_file)) or None)
@@ -1132,21 +1139,59 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
                 diff_text = str(diff_text) + "\n"
             if not _try_print_diff_helper(str(diff_text), print_func=print_func):
                 _highlight_and_print_diff(str(diff_text), print_func=print_func)
+            diff_for_result = str(diff_text)
         else:
+            import difflib
+            diff_for_result = "".join(difflib.unified_diff(
+                (original_source_content or "").splitlines(keepends=True),
+                (updated_content or "").splitlines(keepends=True),
+                fromfile=f"a/{source_file}",
+                tofile=f"b/{source_file}",
+            ))
             _print_unified_diff(original_source_content or "", updated_content or "", source_file, print_func=print_func)
 
-        return modified_script
+        # Detect engine retry-exhaustion markers embedded in the returned text
+        # (the engine signals some failures by returning a sentinel string
+        # rather than raising).
+        failure_markers = (
+            "Modification process failed",
+            "Manual intervention required",
+            "No content collected to save",
+        )
+        if not modified_script or any(m in (modified_script or "") for m in failure_markers):
+            return {
+                "ok": False,
+                "file": source_file,
+                "error": modified_script or "Engine returned no content.",
+            }
+
+        if len(diff_for_result) > MAX_DIFF_RESULT_CHARS:
+            diff_for_result = diff_for_result[:MAX_DIFF_RESULT_CHARS] + "\n... [diff truncated] ..."
+
+        try:
+            lines_changed = (
+                len((updated_content or "").splitlines())
+                - len((original_source_content or "").splitlines())
+            )
+        except Exception:
+            lines_changed = None
+
+        return {
+            "ok": True,
+            "file": source_file,
+            "lines_changed": lines_changed,
+            "diff": diff_for_result,
+            "message": f"Modified {source_file}",
+        }
     except Exception as e:
         print_func(
             f"{red}\nFailed to implement modifications to {source_file}.{reset}\n{red}Attempting to re-modify.{reset}"
         )
         logger.error("Error in modify_source_code: %s", str(e))
 
-        # Return error message instead of raising exception to maintain tool contract
-        # This allows LLM to understand failure and avoid retry loops
         error_msg = str(e)
         if "No content collected to save" in error_msg:
-            return (
+            error_text = (
                 f"MODIFICATION FAILED: All automatic retries exhausted for {source_file}. "
                 f"The AI model consistently failed to follow required chunk formatting instructions. "
                 f"This indicates a fundamental model compliance issue that cannot be resolved through retries. "
@@ -1154,4 +1199,5 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
                 f"Original error: {error_msg}"
             )
         else:
-            return f"MODIFICATION FAILED: Unable to modify {source_file}. Error: {error_msg}"
+            error_text = f"MODIFICATION FAILED: Unable to modify {source_file}. Error: {error_msg}"
+        return {"ok": False, "file": source_file, "error": error_text}

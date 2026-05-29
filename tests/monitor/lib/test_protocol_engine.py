@@ -52,17 +52,25 @@ def test_modify_source_code_success(tmp_path, monkeypatch):
 
     # Mock the global ENGINE's fetch_modified_script method
     def mock_fetch_modified_script(script_content, modification_request, source_file):
-        return "all done!\nTask completed successfully."
+        # Simulate the engine writing the file
+        with open(source_file, "w") as out:
+            out.write("foo\nadded line\n")
+        return "Done."
 
-    # Ensure the module-level ENGINE is initialized before we monkeypatch it.
     protocol_engine.configure_protocol_engine()
-    # Replace the ENGINE singleton with a fake for this test
-    fake_engine = mock = Mock()
+    fake_engine = Mock()
     monkeypatch.setattr(protocol_engine, "ENGINE", fake_engine, raising=False)
     monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script, raising=False)
 
     out = protocol_engine.modify_source_code(str(file_path), "bar")
-    assert isinstance(out, str)
+    assert isinstance(out, dict)
+    assert out["ok"] is True
+    assert out["file"] == str(file_path)
+    assert out["message"].startswith("Modified ")
+    assert isinstance(out["diff"], str)
+    # Engine added a line; lines_changed should reflect a net delta of 1 or 2
+    # depending on whether the original had a trailing newline.
+    assert out["lines_changed"] in (1, 2)
 
 def test_global_retry_logic_in_modify_source_code(tmp_path, monkeypatch):
     from unittest.mock import Mock
@@ -83,9 +91,70 @@ def test_global_retry_logic_in_modify_source_code(tmp_path, monkeypatch):
     monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script, raising=False)
     monkeypatch.setattr(protocol_engine.ENGINE, "reset_state", lambda: None, raising=False)
 
-    # The current modify_source_code implementation should NOT raise an exception
-    # when fetch_modified_script returns a string (even an error string)
+    # When the engine returns a sentinel failure string, modify_source_code
+    # must surface that as ok=False with the engine's message in `error` —
+    # not silently pass it back as a "success" payload.
     result = protocol_engine.modify_source_code(str(file_path), "test modification")
-    assert isinstance(result, str)
-    assert "Modification process failed after all automatic retries" in result
+    assert isinstance(result, dict)
+    assert result["ok"] is False
+    assert "Modification process failed after all automatic retries" in result["error"]
 
+
+
+def test_modify_source_code_rejects_oversize_file(tmp_path, monkeypatch):
+    """Files larger than MAX_SOURCE_FILE_BYTES are refused before any LLM work."""
+    from unittest.mock import Mock
+
+    file_path = tmp_path / "huge.py"
+    # Write just over the limit using a sparse-ish approach.
+    with open(file_path, "wb") as f:
+        f.write(b"x" * (protocol_engine.MAX_SOURCE_FILE_BYTES + 1))
+
+    # Mock engine — but we expect modify_source_code to bail before calling it.
+    protocol_engine.configure_protocol_engine()
+    fake_engine = Mock()
+    fetch = Mock()
+    monkeypatch.setattr(protocol_engine, "ENGINE", fake_engine, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", fetch, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "reset_state", lambda: None, raising=False)
+
+    result = protocol_engine.modify_source_code(str(file_path), "anything")
+    assert isinstance(result, dict)
+    assert result["ok"] is False
+    assert "exceeds" in result["error"]
+    assert "1 MiB" in result["error"]
+    fetch.assert_not_called()
+
+
+def test_modify_source_code_file_not_found_returns_dict(tmp_path):
+    """Missing files return a structured error, not a bare string."""
+    result = protocol_engine.modify_source_code(str(tmp_path / "nope.py"), "x")
+    assert isinstance(result, dict)
+    assert result["ok"] is False
+    assert "Does not exist" in result["error"]
+
+
+def test_modify_source_code_does_not_inject_swift_guidance(tmp_path, monkeypatch):
+    """The .swift logging block was moved into coding_conventions.md; the
+    modification_request must reach the engine unchanged regardless of
+    file extension."""
+    from unittest.mock import Mock
+
+    file_path = tmp_path / "Foo.swift"
+    with open(file_path, "w") as f:
+        f.write("import Foundation\n")
+
+    seen_requests = []
+
+    def mock_fetch_modified_script(script_content, modification_request, source_file):
+        seen_requests.append(modification_request)
+        return "ok"
+
+    protocol_engine.configure_protocol_engine()
+    fake_engine = Mock()
+    monkeypatch.setattr(protocol_engine, "ENGINE", fake_engine, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "reset_state", lambda: None, raising=False)
+
+    protocol_engine.modify_source_code(str(file_path), "Add logging.")
+    assert seen_requests == ["Add logging."]  # not appended with swift block

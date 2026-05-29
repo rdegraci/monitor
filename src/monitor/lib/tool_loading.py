@@ -180,8 +180,15 @@ def inject_openai_properties(function_array: List[Dict[str, Any]]) -> List[Dict[
 
 def inject_anthropic_properties(function_array: list) -> list:
     """
-    Return a copy of ``function_array`` with ``cache_control`` added to the
-    last tool definition, marking it as an Anthropic cache breakpoint.
+    Return a copy of ``function_array`` adapted for Anthropic's API:
+
+    1. Flatten Anthropic-native tools (any entry whose ``type`` isn't
+       ``"function"``) from the LiteLLM/OpenAI nested ``{type, function: {name,
+       description, parameters}}`` shape into the flat ``{type, name}`` shape
+       Anthropic expects. Without this Anthropic rejects native tools with
+       ``tools.N.<type>.function: Extra inputs are not permitted``.
+    2. Add ``cache_control`` to the last entry as an Anthropic prompt-cache
+       breakpoint.
 
     C-1: previously this function mutated ``function_array`` and its last
     dict in place. Because the caller (``function_descriptions``) passes the
@@ -191,25 +198,45 @@ def inject_anthropic_properties(function_array: list) -> list:
     the key remained — mostly harmless (providers ignore extra keys) but
     state pollution that violates the harness's "configure-style functions
     must be idempotent and side-effect-free on shared state" invariant.
+    The copy-first pattern is preserved below.
 
     Args:
         function_array (list): List of dictionaries containing function definitions
 
     Returns:
-        list: Shallow copy of ``function_array`` with the last entry replaced
-        by a copy that has ``cache_control`` added.
+        list: Copy of ``function_array`` with native tools flattened and
+        ``cache_control`` added to the final entry.
     """
     if not function_array or not isinstance(function_array, list):
         return function_array
 
-    if not isinstance(function_array[-1], dict):
-        return list(function_array)
+    transformed = []
+    for tool in function_array:
+        if not isinstance(tool, dict):
+            transformed.append(tool)
+            continue
+        tool_type = tool.get("type")
+        if tool_type and tool_type != "function":
+            # Anthropic-native protocol tool (e.g. text_editor_20250728);
+            # strip the LiteLLM/OpenAI nesting and keep only {type, name}.
+            fn = tool.get("function")
+            name = fn.get("name") if isinstance(fn, dict) else None
+            if name:
+                transformed.append({"type": tool_type, "name": name})
+            else:
+                # Malformed native entry — let it through so the API failure
+                # is loud and diagnosable rather than silently swallowed.
+                transformed.append(tool)
+        else:
+            transformed.append(tool)
 
-    new_array = list(function_array)
-    last_copy = dict(new_array[-1])
+    if not transformed or not isinstance(transformed[-1], dict):
+        return transformed
+
+    last_copy = dict(transformed[-1])
     last_copy["cache_control"] = {"type": "ephemeral"}
-    new_array[-1] = last_copy
-    return new_array
+    transformed[-1] = last_copy
+    return transformed
 
 def get_first_segment(model_string: str) -> str:
     """
@@ -585,50 +612,15 @@ def remove_modelling_tools(tool_descriptions: List[Dict[str, Any]], tool_state: 
     remove_tool(tool_descriptions, tool_state, 'deploy_model')
     remove_tool(tool_descriptions, tool_state, 'monitor_model_performance')
 
-def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
-    """
-    Claude can use an Anthropic-defined text editor tool to view and modify text files, 
-    helping you debug, fix, and improve your code or other text documents. This allows 
-    Claude to directly interact with your files, providing hands-on assistance 
-    rather than just suggesting changes.
-    Note: These are Text editor tools for Claude 4
-    """
-    if "anthropic/claude-sonnet-4-20250514" in config.MODEL:
-        add_tool(
-            tool_descriptions,
-            gemini_tool_descriptions,
-            tool_state,
-            {
-                "type": "function",
-                "function": {
-                    "name": "str_replace_based_edit_tool",
-                    "description": "Anthropic-defined text editor tool",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                }
-            }
-        )
-    
-    if "anthropic/claude-3-7-sonnet-20250219" in config.MODEL:
-        add_tool(
-            tool_descriptions,
-            gemini_tool_descriptions,
-            tool_state,
-            {
-                "type": "function",
-                "function": {
-                    "name": "str_replace_editor",
-                    "description": "Anthropic-defined text editor tool",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                }
-            }
-        )
+def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    """Add the provider-neutral surgical text-edit tools.
 
+    These four tools are plain local Python functions (no Anthropic-specific
+    server-side semantics). They can be exposed to any provider — descriptions
+    are written so the model prefers them over the slower, less-predictable
+    natural-language ``modify_source_code`` fallback whenever the edit can be
+    expressed as exact text.
+    """
     add_tool(
         tool_descriptions,
         gemini_tool_descriptions,
@@ -637,7 +629,7 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
             "type": "function",
             "function": {
                 "name": "text_file_or_directory_view",
-                "description": "View the contents of a file with optional line range or list the contents of a directory. When viewing files, supports syntax highlighting and line numbers. When viewing directories, lists all contained files and subdirectories.",
+                "description": "View the contents of a file (with optional line range) or list the contents of a directory. Use for inspecting code before editing it. File output includes syntax highlighting and line numbers; directory output lists files and subdirectories.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -676,7 +668,7 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
             "type": "function",
             "function": {
                 "name": "text_file_create",
-                "description": "Create a new file with the specified content. Will fail if the file already exists.",
+                "description": "Create a new file with the specified content. Fails if the file already exists. Parent directories are created automatically if missing. PREFER this over modify_source_code when you're creating a file from scratch with known content — it's deterministic, faster, and avoids invoking a secondary model.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -706,10 +698,10 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
         gemini_tool_descriptions,
         tool_state,
         {
-            "type": "function", 
+            "type": "function",
             "function": {
                 "name": "text_file_str_replace_in_file",
-                "description": "Replace a specific string in a file with new content. The old string must match exactly including whitespace and newlines.",
+                "description": "Replace an exact string in a file with new content. The old_str must match exactly (whitespace, indentation, and newlines included) AND must match exactly once — the call fails on zero matches or multiple matches. If the snippet you want to change appears in more than one place, include surrounding context in old_str so the match is unique. PREFER this over modify_source_code for any precise edit where you know the exact text to change — it's deterministic, fast, and reviewable. Use modify_source_code only when the change genuinely can't be expressed as exact text replacement.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -728,7 +720,7 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
                         },
                         "new_str": {
                             "type": "string",
-                            "description": " The new text to insert in place of the old text."
+                            "description": "The new text to insert in place of the old text."
                         }
                     },
                     "required": ["path", "old_str", "new_str"],
@@ -746,7 +738,7 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
             "type": "function",
             "function": {
                 "name": "text_file_insert_text_at_line",
-                "description": "Insert text at a specific location in a file.",
+                "description": "Insert new text at a specific line in a file. The text is inserted BEFORE the given 1-based line number — insert_line=1 inserts at the top of the file; insert_line=N+1 (where N is the file's current line count) appends to the end. PREFER this over modify_source_code for additions where you know exactly where to insert. Use modify_source_code only when the placement is genuinely fuzzy (e.g. 'add validation somewhere appropriate').",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -761,7 +753,7 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
                         },
                         "insert_line": {
                             "type": "integer",
-                            "description": "The line number after which to insert the text (0 for beginning of file).",
+                            "description": "The 1-based line number BEFORE which to insert the new text. Use 1 to insert at the top; use (current line count + 1) to append at the end.",
                             "minimum": 1
                         },
                         "new_str": {
@@ -776,15 +768,90 @@ def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_t
         }
     )
 
+
+# Anthropic releases ship distinct native editor tool names per model. Each
+# entry maps a model-string fragment to the native tool the matching model
+# expects. configure_tools uses these to decide between native and the
+# provider-neutral surgical fallback.
+# Each entry maps a model-string fragment to (tool_type, tool_name) for the
+# Anthropic-native editor tool that release expects. ``tool_type`` is the
+# Anthropic API protocol version (e.g. "text_editor_20250728"); ``tool_name``
+# is the public function name the model emits in its tool calls. Multiple
+# releases can share a name (e.g. "str_replace_based_edit_tool" used across
+# several editor protocol versions).
+_ANTHROPIC_NATIVE_GATES = (
+    # (model substring, tool_type, tool_name)
+    ("anthropic/claude-sonnet-4-20250514", "function", "str_replace_based_edit_tool"),
+    ("anthropic/claude-3-7-sonnet-20250219", "function", "str_replace_editor"),
+    ("anthropic/claude-opus-4-7", "text_editor_20250728", "str_replace_based_edit_tool"),
+    ("anthropic/claude-sonnet-4-6", "text_editor_20250728", "str_replace_based_edit_tool"),
+)
+
+
+def add_anthropic_native_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]) -> bool:
+    """Register Anthropic-native editor tool declarations for the matching model.
+
+    Returns True if any native tool was added (i.e., the current ``config.MODEL``
+    matches one of the gates), False otherwise. Callers use the return value to
+    decide whether to fall back to the surgical text_file_* tools.
+    """
+    added_any = False
+    for gate, tool_type, tool_name in _ANTHROPIC_NATIVE_GATES:
+        if gate in (config.MODEL or ""):
+            add_tool(
+                tool_descriptions,
+                gemini_tool_descriptions,
+                tool_state,
+                {
+                    "type": tool_type,
+                    "function": {
+                        "name": tool_name,
+                        "description": "Anthropic-defined text editor tool",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    }
+                }
+            )
+            added_any = True
+    return added_any
+
+
+def remove_anthropic_native_editor_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    """Unconditionally remove all Anthropic-native editor declarations.
+
+    Used by non-Anthropic provider branches AND by the anthropic branch as a
+    strip-then-add step, so a runtime ``:model`` switch between two Anthropic
+    models that share a tool name but differ in ``type`` (e.g. Sonnet 4
+    "function" vs Opus 4.7 "text_editor_20250728") refreshes cleanly. Tool
+    names are deduplicated because multiple gates can share a name.
+    """
+    for tool_name in {name for _, _, name in _ANTHROPIC_NATIVE_GATES}:
+        remove_tool(tool_descriptions, tool_state, tool_name)
+
+
+def remove_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    """Unconditionally remove the provider-neutral surgical text-file tools."""
+    for name in (
+        "text_file_or_directory_view",
+        "text_file_create",
+        "text_file_str_replace_in_file",
+        "text_file_insert_text_at_line",
+    ):
+        remove_tool(tool_descriptions, tool_state, name)
+
+
+def add_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
+    """Backwards-compatible: register Anthropic-native (if matching) + neutral surgical."""
+    add_anthropic_native_editor_tools(tool_descriptions, gemini_tool_descriptions, tool_state)
+    add_text_file_neutral_tools(tool_descriptions, gemini_tool_descriptions, tool_state)
+
+
 def remove_text_file_editor_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
-    if "anthropic/claude-sonnet-4-20250514" in config.MODEL:
-        remove_tool(tool_descriptions, tool_state, 'str_replace_based_edit_tool')
-    if "anthropic/claude-3-7-sonnet-20250219" in config.MODEL:
-        remove_tool(tool_descriptions, tool_state, 'str_replace_editor')
-    remove_tool(tool_descriptions, tool_state, 'text_file_or_directory_view')
-    remove_tool(tool_descriptions, tool_state, 'text_file_create')
-    remove_tool(tool_descriptions, tool_state, 'text_file_str_replace_in_file')
-    remove_tool(tool_descriptions, tool_state, 'text_file_insert_text_at_line')
+    """Backwards-compatible: remove Anthropic-native + neutral surgical."""
+    remove_anthropic_native_editor_tools(tool_descriptions, tool_state)
+    remove_text_file_neutral_tools(tool_descriptions, tool_state)
 
 def remove_openai_editor_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
     remove_tool(tool_descriptions, tool_state, 'modify_source_code')
@@ -799,12 +866,15 @@ def add_openai_editor_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool
           "function": {
             "name": "modify_source_code",
             "description": (
-                "Edit a source file via a natural-language modification_request. "
+                "Edit a source file via a natural-language modification_request. **Fallback tool.** "
+                "Use ONLY when the change genuinely can't be expressed as exact text edits — e.g. fuzzy "
+                "intent like 'make this idiomatic', or sweeping refactors across many sites in one pass. "
+                "For precise edits where you know the target text, PREFER the surgical "
+                "text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create tools: "
+                "they are deterministic, faster, reviewable, and don't invoke a second LLM. "
                 "If the file exists at source_file, it is modified in place; if it does not exist, it is created. "
-                "Edge case: if your modification_request itself asks to *create* a file at a path that already exists, "
-                "no change is made and the existing file is preserved. "
-                "Use for any code update, replacement, refactor, or rewrite — and in particular for large files where a "
-                "precise text replacement would be impractical or exceed context limits."
+                "Edge case: if your modification_request itself asks to *create* a file at a path that already "
+                "exists, no change is made and the existing file is preserved."
             ),
             "parameters": {
               "type": "object",

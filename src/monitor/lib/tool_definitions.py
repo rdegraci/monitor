@@ -37,7 +37,8 @@ from monitor.lib.text_file_editor import (
     text_file_or_directory_view,
     text_file_create,
     text_file_str_replace_in_file,
-    text_file_insert_text_at_line
+    text_file_insert_text_at_line,
+    str_replace_based_edit_tool,
 )
 
 from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_text_file_editor_tools, get_first_segment, remove_openai_editor_tools
@@ -87,6 +88,11 @@ AVAILABLE_TOOLS = {
     "text_file_create": text_file_create,
     "text_file_str_replace_in_file": text_file_str_replace_in_file,
     "text_file_insert_text_at_line": text_file_insert_text_at_line,
+    # Anthropic-native editor tool dispatcher (both names route through the
+    # same dispatcher; the model emits one or the other depending on which
+    # native gate matched at configure_tools time).
+    "str_replace_based_edit_tool": str_replace_based_edit_tool,
+    "str_replace_editor": str_replace_based_edit_tool,
     "add_todo": add_todo,
     "list_todos": list_todos,
     "update_todo": update_todo,
@@ -282,12 +288,15 @@ TOOL_DESCRIPTIONS = [
       "function": {
         "name": "modify_source_code",
         "description": (
-            "Edit a source file via a natural-language modification_request. "
+            "Edit a source file via a natural-language modification_request. **Fallback tool.** "
+            "Use ONLY when the change genuinely can't be expressed as exact text edits — e.g. fuzzy "
+            "intent like 'make this idiomatic', or sweeping refactors across many sites in one pass. "
+            "For precise edits where you know the target text, PREFER the surgical "
+            "text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create tools: "
+            "they are deterministic, faster, reviewable, and don't invoke a second LLM. "
             "If the file exists at source_file, it is modified in place; if it does not exist, it is created. "
-            "Edge case: if your modification_request itself asks to *create* a file at a path that already exists, "
-            "no change is made and the existing file is preserved. "
-            "Use for any code update, replacement, refactor, or rewrite — and in particular for large files where a "
-            "precise text replacement would be impractical or exceed context limits."
+            "Edge case: if your modification_request itself asks to *create* a file at a path that already "
+            "exists, no change is made and the existing file is preserved."
         ),
         "parameters": {
           "type": "object",
@@ -857,7 +866,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Edit a source file via a natural-language modification_request. If the file exists at source_file, it is modified in place; if it does not exist, it is created. Edge case: if your modification_request itself asks to *create* a file at a path that already exists, no change is made and the existing file is preserved. Use for any code update, replacement, refactor, or rewrite — and in particular for large files where a precise text replacement would be impractical or exceed context limits.",
+    "description": "Edit a source file via a natural-language modification_request. **Fallback tool.** Use ONLY when the change genuinely can't be expressed as exact text edits — e.g. fuzzy intent like 'make this idiomatic', or sweeping refactors across many sites in one pass. For precise edits where you know the target text, PREFER the surgical text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create tools: they are deterministic, faster, reviewable, and don't invoke a second LLM. If the file exists at source_file, it is modified in place; if it does not exist, it is created. Edge case: if your modification_request itself asks to *create* a file at a path that already exists, no change is made and the existing file is preserved.",
     "name": "modify_source_code",
     "parameters": {
       "properties": {

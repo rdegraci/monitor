@@ -117,3 +117,26 @@ If a tool needs to infer architecture, rely on this order:
 5. dependency direction
 
 Use this order consistently when you summarize the repo, pick files, or estimate impact. These conventions must remain stable so tool output remains predictable and useful.
+
+## Swift logging conventions
+
+When editing Swift files, follow these logging rules:
+
+1. `logger.trace()` — function entry/exit, significant internal state snapshots, and rare diagnostic details. Keep sparse.
+2. `logger.info()` — important runtime state changes, completed major tasks, configuration or lifecycle events.
+3. `logger.warning()` — recoverable or soft errors.
+4. Never use `logger.debug()` or `logger.error()`; those are reserved for human developers.
+5. Do not add logs in hot loops or for trivial local values.
+6. Add at most one additional log per changed function unless necessary.
+
+Use Swift string interpolation in log messages, not C-style format placeholders:
+
+- Good:
+  - `logger.trace("Entering parseInput, id=\(userId)")`
+  - `logger.trace("Computed x=\(x) from y=\(y)")`
+  - `logger.info("Service started on port \(port)")`
+  - `logger.info("Processed batch \(batchId): \(count) records")`
+- Avoid:
+  - `logger.trace("Entering parseInput, id=%s", userId)`  (printf style — wrong for Swift)
+  - Logging every intermediate calculation inside performance-sensitive loops
+  - Replacing structured errors with verbose debug dumps
