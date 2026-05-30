@@ -369,13 +369,29 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             except Exception as be:
                 logger.error(f"Early token budgeting failed: {be}", exc_info=True)
 
-        # Input/window-size gating and auto-summarization (replaces MODEL_MAX_TPM size gating)
-        if input_window_limit is not None and estimated_tokens > input_window_limit:
+        # Input/window-size gating and auto-summarization. Trigger fires at the
+        # SOFT threshold (config.AUTO_COMPACT_THRESHOLD_RATIO × input_window) so
+        # compaction runs proactively, well before the hard ceiling. The hard
+        # ceiling at the `return None, ...` check below remains as a backstop
+        # for cases where compaction can't bring the prompt under (e.g. a
+        # single huge tool result).
+        _compact_ratio = getattr(_cfg(), "AUTO_COMPACT_THRESHOLD_RATIO", 0.30)
+        _soft_threshold = (
+            int(input_window_limit * _compact_ratio)
+            if input_window_limit is not None
+            else None
+        )
+        if _soft_threshold is not None and estimated_tokens > _soft_threshold:
             if (
                 getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False)
                 and not summarization_attempted
             ):
-                logger.info("Attempting auto-summarization due to input window limit...")
+                logger.info(
+                    "Attempting auto-summarization: prompt %d tokens exceeds soft threshold %d "
+                    "(%.0f%% of %d-token input window).",
+                    estimated_tokens, _soft_threshold,
+                    _compact_ratio * 100, input_window_limit,
+                )
                 try:
                     summary_response = generate_conversation_summary(
                         build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),

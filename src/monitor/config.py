@@ -508,6 +508,19 @@ SHOW_COST_ESTIMATE = None
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
 
+# Auto-compaction soft-trigger threshold, as a fraction of the active model's
+# input window. When the assembled prompt exceeds this fraction, the harness
+# runs summarization proactively — well before the hard input-window ceiling
+# — to bend the quadratic cost curve. 0.30 is the recommended default:
+# meaningful savings on long sessions without compacting so often that cache
+# invalidations or summary information-loss become net negative. The hard
+# ceiling at core/llm.py:472 remains as a backstop for cases where
+# compaction can't bring the prompt under (single huge tool result, etc.).
+# Gated by ENABLE_AUTO_SUMMARIZE_ON_LIMIT — if that's false, neither soft
+# nor hard summarization fires. Set this to 1.0 to disable the soft trigger
+# and revert to compact-only-at-overflow behavior.
+AUTO_COMPACT_THRESHOLD_RATIO = 0.30
+
 # Maximum consecutive LLM rounds that may return tool_calls within a single
 # user turn before handle_tool_call aborts the chain. Counts ROUNDS, not
 # individual tool calls — multiple tool calls in one model response count as
@@ -697,6 +710,28 @@ def configure_globals():
         logger.warning("Invalid ECS_TIMEOUT value %r; defaulting to 90", raw_timeout)
         ECS_TIMEOUT = 90
     ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get("ENABLE_AUTO_SUMMARIZE_ON_LIMIT")
+
+    # Override the soft auto-compaction threshold from YAML if provided. Clamp
+    # to (0, 1] to keep the trigger sane — 0 or negative would compact on
+    # every turn, > 1 would never fire. Invalid values fall back to the
+    # module-level default (0.30).
+    global AUTO_COMPACT_THRESHOLD_RATIO
+    _ratio_raw = yaml_config.get("AUTO_COMPACT_THRESHOLD_RATIO")
+    if _ratio_raw is not None:
+        try:
+            _ratio_val = float(_ratio_raw)
+            if 0.0 < _ratio_val <= 1.0:
+                AUTO_COMPACT_THRESHOLD_RATIO = _ratio_val
+            else:
+                logger.warning(
+                    "AUTO_COMPACT_THRESHOLD_RATIO=%r outside (0, 1]; keeping default %s",
+                    _ratio_raw, AUTO_COMPACT_THRESHOLD_RATIO,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "AUTO_COMPACT_THRESHOLD_RATIO=%r is not a number; keeping default %s",
+                _ratio_raw, AUTO_COMPACT_THRESHOLD_RATIO,
+            )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")
     AGENT = yaml_config.get("AGENT", False)

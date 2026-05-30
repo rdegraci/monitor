@@ -5,6 +5,13 @@ MODEL_INPUT_TIER: 4  # Input tier/plan selector for model usage limits (integer)
 CONVERSATION_MAX_SIZE: 50  # Maximum number of messages retained per conversation
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
 
+# Soft auto-compaction threshold as a fraction of the model's input window.
+# Defaults to 0.30 (30%). Uncomment and tune to trade cost vs. context-retention:
+# lower values compact more aggressively (cheaper, more risk of summary info loss);
+# higher values let history grow further (more cache benefit, higher per-turn cost).
+# 1.0 disables the soft trigger entirely (revert to compact-only-at-overflow).
+# AUTO_COMPACT_THRESHOLD_RATIO: 0.30
+
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000
 
