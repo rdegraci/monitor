@@ -581,6 +581,50 @@ def ttl_command(arg: str = None) -> None:
         _print_ttl_help(current_minutes)
 
 
+def _print_max_tokens_help(current_value):
+    print("Cap output tokens for non-reasoning model calls (max_completion_tokens).")
+    print("Usage: :max_tokens <N>")
+    print("Reasoning models (gpt-5-style) use REASONING_MAX_COMPLETION_TOKENS instead;")
+    print("this cap does not affect them. Raise the value for long-form generation,")
+    print("lower it to cut runaway tail-end completions.")
+    print(f"Current cap: {current_value} tokens.")
+
+
+def max_tokens_command(arg: str = None) -> None:
+    """
+    Configure the non-reasoning output-token cap at runtime.
+
+    Usage:
+        :max_tokens          — show help and current cap
+        :max_tokens <N>      — set cap to N (positive integer)
+
+    Affects only non-reasoning model calls. Reasoning models continue to
+    use REASONING_MAX_COMPLETION_TOKENS, which is sized for chain-of-thought.
+    """
+    current = getattr(config, "MAX_COMPLETION_TOKENS", 8192)
+
+    arg_provided = arg is not None and str(arg).strip() != ""
+    if not arg_provided or str(arg).strip().lower() in {"help", "?", "-h", "--help"}:
+        _print_max_tokens_help(current)
+        return
+
+    text = str(arg).strip()
+    try:
+        new_cap = int(text)
+    except ValueError:
+        print_colored_error(f"Could not parse '{text}' as an integer.")
+        _print_max_tokens_help(current)
+        return
+
+    if new_cap < 1:
+        print_colored_error(f"Invalid value: {new_cap}. Must be >= 1.")
+        _print_max_tokens_help(current)
+        return
+
+    config.MAX_COMPLETION_TOKENS = new_cap
+    print_yellow(f"Output-token cap set to {new_cap} (non-reasoning model calls).")
+
+
 def llm_command(arg: str = None) -> None:
     """
     Change the active LLM model at runtime.

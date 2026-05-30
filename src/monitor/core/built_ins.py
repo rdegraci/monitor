@@ -27,6 +27,7 @@ from monitor.lib.built_in_commands import (
     edit_macros_command,
     reload_macros_command,
     llm_command,
+    max_tokens_command,
     reasoning_command,
     ttl_command,
     trim_history_command,
@@ -351,6 +352,11 @@ def configure_built_ins() -> None:
                     "command": ":ttl",
                     "function": _make_callable(ttl_command),
                     "description": "Configure the Anthropic prompt-cache TTL (5 or 60 minutes). Usage: :ttl <minutes> or :ttl for help.",
+                },
+                {
+                    "command": ":max_tokens",
+                    "function": _make_callable(max_tokens_command),
+                    "description": "Cap output tokens for non-reasoning model calls. Usage: :max_tokens <N> or :max_tokens for help.",
                 },
                 {
                     "command": ":macros",

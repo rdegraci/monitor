@@ -542,6 +542,16 @@ RECENT_TURNS_PRESERVED_ON_COMPACT = 6
 # full summarization. Set to a large number to effectively disable demotion.
 OLD_TOOL_BODY_TURNS_THRESHOLD = 3
 
+# Cap on output tokens for non-reasoning model calls. Sent as
+# max_completion_tokens to litellm so the provider truncates long
+# completions instead of letting them run to whatever the model decides on
+# its own. Default 8192 covers any reasonable coding response (~6K words);
+# bump higher at runtime via :max_tokens N for long-form generation.
+# Reasoning models (gpt-5-style) use REASONING_MAX_COMPLETION_TOKENS
+# instead — they need a much larger budget because reasoning tokens count
+# against the output cap.
+MAX_COMPLETION_TOKENS = 8192
+
 # Maximum consecutive LLM rounds that may return tool_calls within a single
 # user turn before handle_tool_call aborts the chain. Counts ROUNDS, not
 # individual tool calls — multiple tool calls in one model response count as
@@ -778,6 +788,26 @@ def configure_globals():
     # Override OLD_TOOL_BODY_TURNS_THRESHOLD from YAML. Same clamp shape as
     # the related thresholds — must be >= 1 (zero would demote everything,
     # including the in-flight turn). Invalid values fall back to the default.
+    # Override MAX_COMPLETION_TOKENS from YAML. Must be a positive integer.
+    # Invalid values fall back to the module-level default.
+    global MAX_COMPLETION_TOKENS
+    _mct_raw = yaml_config.get("MAX_COMPLETION_TOKENS")
+    if _mct_raw is not None:
+        try:
+            _mct_val = int(_mct_raw)
+            if _mct_val >= 1:
+                MAX_COMPLETION_TOKENS = _mct_val
+            else:
+                logger.warning(
+                    "MAX_COMPLETION_TOKENS=%r must be >= 1; keeping default %d",
+                    _mct_raw, MAX_COMPLETION_TOKENS,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "MAX_COMPLETION_TOKENS=%r is not an integer; keeping default %d",
+                _mct_raw, MAX_COMPLETION_TOKENS,
+            )
+
     global OLD_TOOL_BODY_TURNS_THRESHOLD
     _demote_raw = yaml_config.get("OLD_TOOL_BODY_TURNS_THRESHOLD")
     if _demote_raw is not None:

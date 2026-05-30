@@ -28,6 +28,14 @@ RECENT_TURNS_PRESERVED_ON_COMPACT: 12
 # live before summarization. Drop to 3 for tighter compression.
 OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 
+# Cap on output tokens for non-reasoning model calls. Sent as
+# max_completion_tokens so the provider truncates long completions instead
+# of letting them run to whatever the model decides. Default 8192 covers any
+# reasonable coding response (~6K words); raise for long-form generation
+# (`:max_tokens N` at runtime, or set here for sticky). Reasoning models use
+# REASONING_MAX_COMPLETION_TOKENS instead — this cap does not affect them.
+# MAX_COMPLETION_TOKENS: 8192
+
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000
 

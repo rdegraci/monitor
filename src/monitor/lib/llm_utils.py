@@ -324,10 +324,12 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
     prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
     if isinstance(prefix, str):
         prefix = prefix.strip()
+    is_reasoning = False
     if isinstance(prefix, str) and prefix:
         try:
             pattern = re.compile(re.escape(prefix), re.IGNORECASE)
             if pattern.search(model):
+                is_reasoning = True
                 kwargs.update(
                     reasoning_effort=config.REASONING_EFFORT,
                     max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
@@ -335,6 +337,16 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                 )
         except re.error:
             pass
+
+    # For non-reasoning calls, apply the general MAX_COMPLETION_TOKENS cap so
+    # the provider truncates long completions instead of running to whatever
+    # the model picks on its own. Reasoning models already set their own,
+    # larger cap above — don't overwrite it. drop_params=True lets litellm
+    # translate the param name per provider.
+    if not is_reasoning:
+        _cap = getattr(config, "MAX_COMPLETION_TOKENS", None)
+        if isinstance(_cap, int) and _cap > 0:
+            kwargs["max_completion_tokens"] = _cap
 
     return litellm.completion(**kwargs)
 
