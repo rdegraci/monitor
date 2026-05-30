@@ -6,17 +6,27 @@ CONVERSATION_MAX_SIZE: 50  # Maximum number of messages retained per conversatio
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
 
 # Soft auto-compaction threshold as a fraction of the model's input window.
-# Defaults to 0.30 (30%). Uncomment and tune to trade cost vs. context-retention:
-# lower values compact more aggressively (cheaper, more risk of summary info loss);
-# higher values let history grow further (more cache benefit, higher per-turn cost).
-# 1.0 disables the soft trigger entirely (revert to compact-only-at-overflow).
-# AUTO_COMPACT_THRESHOLD_RATIO: 0.30
+# Set to 0.50 below for large-codebase workflows: let history climb to half
+# the input window before compacting, so cache amortization carries most of
+# the cost and the compaction-call/write-rate penalty fires less often.
+# Lower (0.20-0.30) compacts harder — better for small codebases or sessions
+# with frequent cache invalidations. Higher (up to 1.0) lets history grow
+# further; 1.0 disables the soft trigger and reverts to compact-only-at-overflow.
+AUTO_COMPACT_THRESHOLD_RATIO: 0.50
 
 # Number of recent "turns" (user-message-bounded segments) to keep verbatim
 # when auto-compaction fires. Older history is replaced with a single summary
-# message. Defaults to 6 (~last 3 user-assistant exchanges). Lower values
-# compact harder, higher values keep more recent context intact.
-# RECENT_TURNS_PRESERVED_ON_COMPACT: 6
+# message. 12 is tuned for cross-file reasoning on large codebases — preserves
+# enough context that the model can reference work from several turns back
+# without re-reading. Drop to 6 for small codebases or aggressive compression.
+RECENT_TURNS_PRESERVED_ON_COMPACT: 12
+
+# How many recent turns to keep tool bodies (results + bulky arguments)
+# verbatim. Older messages get tool content replaced with short sentinel
+# placeholders. 8 leaves a comfortable cross-referencing window before
+# demotion, then a 4-turn gap (8→12) where demoted-but-preserved bodies
+# live before summarization. Drop to 3 for tighter compression.
+OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000

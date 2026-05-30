@@ -24,6 +24,7 @@ __all__ = [
     'reset_conversation_with_summary'
 ]
 
+import json
 import logging
 import readline
 import time
@@ -1445,6 +1446,150 @@ def reset_conversation_with_partial_summary(
         config.TOTAL_TOKEN_COUNT = proposed_total_tokens
 
     log_negative_token_count(logger, config)
+
+
+# --- Tool-body demotion ------------------------------------------------------
+#
+# Once a tool result or bulky tool-call argument has aged past a few user
+# turns, the model rarely needs the raw bytes again. We rewrite those
+# bulky payloads in-place into short sentinel-marked placeholders so the
+# prompt cost drops on every subsequent turn. The sentinel acts as the
+# idempotency marker — already-demoted messages are skipped on later
+# passes, so the cached prompt prefix stabilizes after one transition
+# rather than churning every turn.
+
+DEMOTION_SENTINEL = "[demoted-tool-body]"
+MIN_BODY_SIZE_TO_DEMOTE = 200  # chars — below this, the savings aren't worth the placeholder noise
+
+
+def _is_already_demoted(content):
+    """Return True if ``content`` carries the demotion sentinel — used as
+    the idempotency marker so we don't rewrite the same message every turn."""
+    return isinstance(content, str) and content.startswith(DEMOTION_SENTINEL)
+
+
+def _demote_tool_result_content(msg):
+    """In-place demotion of a tool-role message's ``content``. Returns True
+    if the message was rewritten, False otherwise (already demoted, too
+    short, or content not a string)."""
+    content = msg.get("content")
+    if not isinstance(content, str):
+        return False
+    if _is_already_demoted(content):
+        return False
+    if len(content) < MIN_BODY_SIZE_TO_DEMOTE:
+        return False
+    original_size = len(content)
+    msg["content"] = (
+        f"{DEMOTION_SENTINEL} {original_size} chars from this tool result "
+        "were omitted to save context. Re-call the tool if you need the content again."
+    )
+    return True
+
+
+def _demote_assistant_tool_call_arguments(msg):
+    """In-place demotion of any bulky string values inside the ``tool_calls``
+    array on an assistant-role message. The ``function.arguments`` JSON
+    string is parsed, large string fields are replaced with short placeholders,
+    and the JSON is re-serialized. Returns True if anything was rewritten."""
+    tool_calls = msg.get("tool_calls")
+    if not isinstance(tool_calls, list) or not tool_calls:
+        return False
+
+    any_changed = False
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        fn = tc.get("function")
+        if not isinstance(fn, dict):
+            continue
+        args_str = fn.get("arguments")
+        if not isinstance(args_str, str):
+            continue
+        if _is_already_demoted(args_str):
+            continue
+        if len(args_str) < MIN_BODY_SIZE_TO_DEMOTE:
+            continue
+
+        try:
+            parsed = json.loads(args_str)
+        except (json.JSONDecodeError, ValueError):
+            # Malformed JSON — leave it alone so we don't silently corrupt
+            # the message. The model already sees garbage; we don't add to it.
+            continue
+        if not isinstance(parsed, dict):
+            continue
+
+        modified = False
+        for key, value in list(parsed.items()):
+            if isinstance(value, str) and len(value) >= MIN_BODY_SIZE_TO_DEMOTE:
+                parsed[key] = f"[demoted: {len(value)} chars omitted from `{key}`]"
+                modified = True
+
+        if modified:
+            try:
+                fn["arguments"] = json.dumps(parsed)
+                any_changed = True
+            except (TypeError, ValueError):
+                # Re-serialization failed somehow (shouldn't happen with dict
+                # of str/numbers, but defensively): leave the original args
+                # in place rather than risk producing invalid JSON.
+                continue
+
+    return any_changed
+
+
+def demote_old_tool_bodies(history, turns_threshold):
+    """Walk ``history`` and demote bulky tool-related content in messages
+    older than the last ``turns_threshold`` user-message-bounded turns.
+    Operates in-place. Returns the number of messages rewritten this pass.
+
+    "Older" is defined by the same user-message-boundary scheme used by
+    ``_find_compaction_split_index``: the boundary is the index of the
+    turns_threshold-th-to-last user message; everything before that index
+    is fair game for demotion.
+
+    Idempotency: each rewritten message gets a sentinel prefix on its
+    content, and subsequent passes skip already-marked messages. This
+    means the cached prompt prefix stabilizes after a one-time transition
+    when a message crosses the boundary — not on every turn.
+
+    Args:
+        history: The conversation history list. Mutated in place.
+        turns_threshold: How many recent user turns to leave untouched.
+
+    Returns:
+        int: Count of messages that were rewritten this pass.
+    """
+    if not history or turns_threshold <= 0:
+        return 0
+
+    user_indices = [
+        i for i, m in enumerate(history)
+        if isinstance(m, dict) and m.get("role") == "user"
+    ]
+
+    # If there aren't more user messages than the threshold, nothing has
+    # aged past the boundary yet.
+    if len(user_indices) <= turns_threshold:
+        return 0
+
+    boundary = user_indices[-turns_threshold]
+
+    demoted_count = 0
+    for i in range(boundary):
+        msg = history[i]
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        if role == "tool":
+            if _demote_tool_result_content(msg):
+                demoted_count += 1
+        elif role == "assistant":
+            if _demote_assistant_tool_call_arguments(msg):
+                demoted_count += 1
+
+    return demoted_count
 
 
 # End of history.py

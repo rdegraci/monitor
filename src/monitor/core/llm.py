@@ -20,6 +20,7 @@ from monitor.lib.preferences import PREFERENCE_PROMPT
 from monitor.lib.history import (
     append_to_history_with_count,
     _find_compaction_split_index,
+    demote_old_tool_bodies,
     generate_conversation_summary,
     reset_conversation_with_partial_summary,
     reset_conversation_with_summary,
@@ -307,6 +308,28 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
     logger.debug("Using conversations API for completion")
     try:
         summarization_attempted = False
+
+        # Demote bulky tool bodies (results + large tool-call argument strings)
+        # in messages that have aged past OLD_TOOL_BODY_TURNS_THRESHOLD user
+        # turns. Operates in-place on CONVERSATION_HISTORY before message
+        # assembly so the savings show up in token counts AND the cached
+        # prompt prefix on the next turn. Idempotent — already-demoted
+        # messages are skipped, so the cache only invalidates once per
+        # message-aging event, not every turn. Best-effort: failures log
+        # but don't block the LLM call.
+        try:
+            _demote_threshold = getattr(_cfg(), "OLD_TOOL_BODY_TURNS_THRESHOLD", 3)
+            _demoted_count = demote_old_tool_bodies(
+                _cfg().CONVERSATION_HISTORY, _demote_threshold
+            )
+            if _demoted_count:
+                logger.info(
+                    "Demoted %d tool body/bodies past %d-turn threshold to save context.",
+                    _demoted_count, _demote_threshold,
+                )
+        except Exception as de:
+            logger.error(f"Tool-body demotion failed (continuing): {de}", exc_info=True)
+
         # Build conversation messages
         messages = prepare_messages_with_cache_control(
             _cfg().CONVERSATION_HISTORY, _cfg().MODEL

@@ -531,6 +531,17 @@ AUTO_COMPACT_THRESHOLD_RATIO = 0.30
 # while keeping the soft-threshold trigger as a logging signal.
 RECENT_TURNS_PRESERVED_ON_COMPACT = 6
 
+# How many recent "turns" (user-message-bounded segments) to keep tool
+# bodies verbatim. Tool results and bulky tool-call argument strings in
+# messages older than this boundary are demoted to short placeholders
+# (sentinel-marked so we never re-demote on subsequent passes). Demotion
+# operates in-place on CONVERSATION_HISTORY before each LLM call, so the
+# savings show up in both token counts and the cached prefix on the next
+# turn. Default 3 tiers naturally with the compaction threshold (6):
+# turns 1-3 full content, turns 4-6 demoted bodies, turns 7+ subject to
+# full summarization. Set to a large number to effectively disable demotion.
+OLD_TOOL_BODY_TURNS_THRESHOLD = 3
+
 # Maximum consecutive LLM rounds that may return tool_calls within a single
 # user turn before handle_tool_call aborts the chain. Counts ROUNDS, not
 # individual tool calls — multiple tool calls in one model response count as
@@ -762,6 +773,27 @@ def configure_globals():
             logger.warning(
                 "RECENT_TURNS_PRESERVED_ON_COMPACT=%r is not an integer; keeping default %d",
                 _k_raw, RECENT_TURNS_PRESERVED_ON_COMPACT,
+            )
+
+    # Override OLD_TOOL_BODY_TURNS_THRESHOLD from YAML. Same clamp shape as
+    # the related thresholds — must be >= 1 (zero would demote everything,
+    # including the in-flight turn). Invalid values fall back to the default.
+    global OLD_TOOL_BODY_TURNS_THRESHOLD
+    _demote_raw = yaml_config.get("OLD_TOOL_BODY_TURNS_THRESHOLD")
+    if _demote_raw is not None:
+        try:
+            _demote_val = int(_demote_raw)
+            if _demote_val >= 1:
+                OLD_TOOL_BODY_TURNS_THRESHOLD = _demote_val
+            else:
+                logger.warning(
+                    "OLD_TOOL_BODY_TURNS_THRESHOLD=%r must be >= 1; keeping default %d",
+                    _demote_raw, OLD_TOOL_BODY_TURNS_THRESHOLD,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "OLD_TOOL_BODY_TURNS_THRESHOLD=%r is not an integer; keeping default %d",
+                _demote_raw, OLD_TOOL_BODY_TURNS_THRESHOLD,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")
