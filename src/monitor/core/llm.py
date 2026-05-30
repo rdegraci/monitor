@@ -19,7 +19,9 @@ from monitor.lib.message_utils import (
 from monitor.lib.preferences import PREFERENCE_PROMPT
 from monitor.lib.history import (
     append_to_history_with_count,
+    _find_compaction_split_index,
     generate_conversation_summary,
+    reset_conversation_with_partial_summary,
     reset_conversation_with_summary,
 )
 from monitor.lib.token_management import (
@@ -393,50 +395,58 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                     _compact_ratio * 100, input_window_limit,
                 )
                 try:
-                    summary_response = generate_conversation_summary(
-                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
-                        _cfg().CONVERSATION_HISTORY,
-                        _cfg().SUMMARIZATION_CONFIG,
-                        _cfg().MODEL,
-                        litellm.completion,
-                        count_message_tokens,
-                        rate_limiter.RATE_LIMITER,
-                        logger,
-                        _cfg(),
-                    )
-                    summary_content = None
-                    try:
-                        response_attr = dict_to_attr(summary_response)
-                        if (
-                            hasattr(response_attr, "choices")
-                            and response_attr.choices
-                            and len(response_attr.choices) > 0
-                            and hasattr(response_attr.choices[0], "message")
-                            and response_attr.choices[0].message
-                            and hasattr(response_attr.choices[0].message, "content")
-                        ):
-                            summary_content = (
-                                response_attr.choices[0].message.content
-                            )
-                    except Exception:
-                        pass
+                    # Partial-preserve compaction: only summarize the OLDER
+                    # portion of history, keeping the last K user turns
+                    # verbatim. The split index is the start of the K-th-to-last
+                    # user message (None when there aren't enough turns to
+                    # bother — in that case we skip compaction silently).
+                    _k = getattr(_cfg(), "RECENT_TURNS_PRESERVED_ON_COMPACT", 6)
+                    _split_idx = _find_compaction_split_index(_cfg().CONVERSATION_HISTORY, _k)
+                    if _split_idx is None:
+                        logger.info(
+                            "Skipping compaction: history has <= %d user turns; nothing old "
+                            "enough to summarize. Will fall through to hard-limit check.", _k,
+                        )
+                    else:
+                        _old_portion = list(_cfg().CONVERSATION_HISTORY[:_split_idx])
+                        _preserved = list(_cfg().CONVERSATION_HISTORY[_split_idx:])
+                        summary_response = generate_conversation_summary(
+                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            _old_portion,
+                            _cfg().SUMMARIZATION_CONFIG,
+                            _cfg().MODEL,
+                            litellm.completion,
+                            count_message_tokens,
+                            rate_limiter.RATE_LIMITER,
+                            logger,
+                            _cfg(),
+                        )
+                        summary_content = None
+                        try:
+                            response_attr = dict_to_attr(summary_response)
+                            if (
+                                hasattr(response_attr, "choices")
+                                and response_attr.choices
+                                and len(response_attr.choices) > 0
+                                and hasattr(response_attr.choices[0], "message")
+                                and response_attr.choices[0].message
+                                and hasattr(response_attr.choices[0].message, "content")
+                            ):
+                                summary_content = (
+                                    response_attr.choices[0].message.content
+                                )
+                        except Exception:
+                            pass
 
-                    last_user_content = ""
-                    for m in reversed(_cfg().CONVERSATION_HISTORY):
-                        if m.get("role") == "user":
-                            last_user_content = m.get("content", "")
-                            break
-
-                    reset_conversation_with_summary(
-                        summary_content or "",
-                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
-                        last_user_content,
-                        _cfg().CONVERSATION_HISTORY,
-                        append_to_history_with_count,
-                        logger,
-                        _cfg(),
-                    )
-                    summarization_attempted = True
+                        reset_conversation_with_partial_summary(
+                            summary_content or "",
+                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            _preserved,
+                            _cfg().CONVERSATION_HISTORY,
+                            logger,
+                            _cfg(),
+                        )
+                        summarization_attempted = True
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL
@@ -509,50 +519,54 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                     "Attempting auto-summarization due to rate limit safety threshold..."
                 )
                 try:
-                    summary_response = generate_conversation_summary(
-                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
-                        _cfg().CONVERSATION_HISTORY,
-                        _cfg().SUMMARIZATION_CONFIG,
-                        _cfg().MODEL,
-                        litellm.completion,
-                        count_message_tokens,
-                        rate_limiter.RATE_LIMITER,
-                        logger,
-                        _cfg(),
-                    )
-                    summary_content = None
-                    try:
-                        response_attr = dict_to_attr(summary_response)
-                        if (
-                            hasattr(response_attr, "choices")
-                            and response_attr.choices
-                            and len(response_attr.choices) > 0
-                            and hasattr(response_attr.choices[0], "message")
-                            and response_attr.choices[0].message
-                            and hasattr(response_attr.choices[0].message, "content")
-                        ):
-                            summary_content = (
-                                response_attr.choices[0].message.content
-                            )
-                    except Exception:
-                        pass
+                    # Same partial-preserve compaction as the soft-trigger path.
+                    _k = getattr(_cfg(), "RECENT_TURNS_PRESERVED_ON_COMPACT", 6)
+                    _split_idx = _find_compaction_split_index(_cfg().CONVERSATION_HISTORY, _k)
+                    if _split_idx is None:
+                        logger.info(
+                            "Skipping compaction (rate-limit path): history has <= %d user "
+                            "turns. Will retry rate-limit wait without summarization.", _k,
+                        )
+                    else:
+                        _old_portion = list(_cfg().CONVERSATION_HISTORY[:_split_idx])
+                        _preserved = list(_cfg().CONVERSATION_HISTORY[_split_idx:])
+                        summary_response = generate_conversation_summary(
+                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            _old_portion,
+                            _cfg().SUMMARIZATION_CONFIG,
+                            _cfg().MODEL,
+                            litellm.completion,
+                            count_message_tokens,
+                            rate_limiter.RATE_LIMITER,
+                            logger,
+                            _cfg(),
+                        )
+                        summary_content = None
+                        try:
+                            response_attr = dict_to_attr(summary_response)
+                            if (
+                                hasattr(response_attr, "choices")
+                                and response_attr.choices
+                                and len(response_attr.choices) > 0
+                                and hasattr(response_attr.choices[0], "message")
+                                and response_attr.choices[0].message
+                                and hasattr(response_attr.choices[0].message, "content")
+                            ):
+                                summary_content = (
+                                    response_attr.choices[0].message.content
+                                )
+                        except Exception:
+                            pass
 
-                    last_user_content = ""
-                    for m in reversed(_cfg().CONVERSATION_HISTORY):
-                        if m.get("role") == "user":
-                            last_user_content = m.get("content", "")
-                            break
-
-                    reset_conversation_with_summary(
-                        summary_content or "",
-                        build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
-                        last_user_content,
-                        _cfg().CONVERSATION_HISTORY,
-                        append_to_history_with_count,
-                        logger,
-                        _cfg(),
-                    )
-                    summarization_attempted = True
+                        reset_conversation_with_partial_summary(
+                            summary_content or "",
+                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            _preserved,
+                            _cfg().CONVERSATION_HISTORY,
+                            logger,
+                            _cfg(),
+                        )
+                        summarization_attempted = True
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL

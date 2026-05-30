@@ -521,6 +521,16 @@ SESSION_COST_USD = 0.0
 # and revert to compact-only-at-overflow behavior.
 AUTO_COMPACT_THRESHOLD_RATIO = 0.30
 
+# How many recent "turns" (user-message-bounded segments) to preserve
+# verbatim when auto-compaction fires. Older history before this boundary is
+# replaced with a single summary message. Trade-off: higher values keep more
+# recent context intact (fewer re-reads, less detail loss) but compact less
+# aggressively; lower values compact harder but the model may need to
+# re-discover state. 6 is roughly the last ~3 user-assistant exchanges.
+# Set to a very large number (e.g. 9999) to effectively disable compaction
+# while keeping the soft-threshold trigger as a logging signal.
+RECENT_TURNS_PRESERVED_ON_COMPACT = 6
+
 # Maximum consecutive LLM rounds that may return tool_calls within a single
 # user turn before handle_tool_call aborts the chain. Counts ROUNDS, not
 # individual tool calls — multiple tool calls in one model response count as
@@ -731,6 +741,27 @@ def configure_globals():
             logger.warning(
                 "AUTO_COMPACT_THRESHOLD_RATIO=%r is not a number; keeping default %s",
                 _ratio_raw, AUTO_COMPACT_THRESHOLD_RATIO,
+            )
+
+    # Override RECENT_TURNS_PRESERVED_ON_COMPACT from YAML if provided. Clamp
+    # to >= 1 (zero would preserve nothing, defeating the purpose). Invalid
+    # values fall back to the module-level default.
+    global RECENT_TURNS_PRESERVED_ON_COMPACT
+    _k_raw = yaml_config.get("RECENT_TURNS_PRESERVED_ON_COMPACT")
+    if _k_raw is not None:
+        try:
+            _k_val = int(_k_raw)
+            if _k_val >= 1:
+                RECENT_TURNS_PRESERVED_ON_COMPACT = _k_val
+            else:
+                logger.warning(
+                    "RECENT_TURNS_PRESERVED_ON_COMPACT=%r must be >= 1; keeping default %d",
+                    _k_raw, RECENT_TURNS_PRESERVED_ON_COMPACT,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "RECENT_TURNS_PRESERVED_ON_COMPACT=%r is not an integer; keeping default %d",
+                _k_raw, RECENT_TURNS_PRESERVED_ON_COMPACT,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")

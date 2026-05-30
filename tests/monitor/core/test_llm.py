@@ -211,11 +211,18 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 5
         self.mock_config.MODEL_INPUT_WINDOW = 5
+        # Partial-preserve compaction requires more than K user turns in
+        # history to fire; set K=1 and provide 2 user messages.
+        self.mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 1
+        self.mock_config.CONVERSATION_HISTORY = [
+            {'role': 'user', 'content': 'older'},
+            {'role': 'user', 'content': 'latest'},
+        ]
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
              patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
-             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.reset_conversation_with_partial_summary') as mock_reset, \
              patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
             mock_prepare.side_effect = [
                 [{'role': 'user', 'content': f'm{i}'} for i in range(6)],
@@ -237,11 +244,16 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.MODEL = 'gpt-4o'
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 100
+        self.mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 1
+        self.mock_config.CONVERSATION_HISTORY = [
+            {'role': 'user', 'content': 'older'},
+            {'role': 'user', 'content': 'latest'},
+        ]
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
              patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
-             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.reset_conversation_with_partial_summary') as mock_reset, \
              patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
             mock_prepare.return_value = [{'role': 'user', 'content': 'hi'} for _ in range(5)]
             mock_count.side_effect = lambda msgs: len(msgs)
@@ -281,11 +293,16 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.MODEL = 'gpt-4o'
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 100
+        self.mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 1
+        self.mock_config.CONVERSATION_HISTORY = [
+            {'role': 'user', 'content': 'older'},
+            {'role': 'user', 'content': 'latest'},
+        ]
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
              patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
-             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.reset_conversation_with_partial_summary') as mock_reset, \
              patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
             mock_prepare.return_value = [{'role': 'user', 'content': 'hi'} for _ in range(5)]
             mock_count.side_effect = lambda msgs: len(msgs)
@@ -306,11 +323,16 @@ class TestLLMCore(unittest.TestCase):
         self.mock_config.ENABLE_AUTO_SUMMARIZE_ON_LIMIT = True
         self.mock_config.MODEL_MAX_TPM = 3
         self.mock_config.MODEL_INPUT_WINDOW = 3
+        self.mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 1
+        self.mock_config.CONVERSATION_HISTORY = [
+            {'role': 'user', 'content': 'older'},
+            {'role': 'user', 'content': 'latest'},
+        ]
         with patch('monitor.core.llm.prepare_messages_with_cache_control') as mock_prepare, \
              patch('monitor.core.llm.count_message_tokens') as mock_count, \
              patch('monitor.core.llm.call_litellm_completion') as mock_call, \
              patch('monitor.core.llm.generate_conversation_summary') as mock_gen, \
-             patch('monitor.core.llm.reset_conversation_with_summary') as mock_reset, \
+             patch('monitor.core.llm.reset_conversation_with_partial_summary') as mock_reset, \
              patch('monitor.core.llm.rate_limiter.RATE_LIMITER') as mock_rl:
             mock_prepare.side_effect = [
                 [{'role': 'user', 'content': f'm{i}'} for i in range(4)],

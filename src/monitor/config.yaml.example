@@ -12,6 +12,12 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 # 1.0 disables the soft trigger entirely (revert to compact-only-at-overflow).
 # AUTO_COMPACT_THRESHOLD_RATIO: 0.30
 
+# Number of recent "turns" (user-message-bounded segments) to keep verbatim
+# when auto-compaction fires. Older history is replaced with a single summary
+# message. Defaults to 6 (~last 3 user-assistant exchanges). Lower values
+# compact harder, higher values keep more recent context intact.
+# RECENT_TURNS_PRESERVED_ON_COMPACT: 6
+
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000
 

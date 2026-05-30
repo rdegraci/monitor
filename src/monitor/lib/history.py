@@ -1263,4 +1263,188 @@ def reset_conversation_with_summary(
         f"{len(conversation_history)} messages, total tokens: {proposed_total_tokens}"
     )
 
+def _find_compaction_split_index(history, recent_turns_k):
+    """Find the index in ``history`` at which to start preserving messages
+    verbatim during partial-preserve compaction. Everything BEFORE this
+    index gets summarized; everything FROM the index onward stays as-is.
+
+    A "turn" begins at a user message and ends at the next user message
+    (or end-of-history). To preserve the last ``recent_turns_k`` turns,
+    the split point is the index of the k-th-to-last user message.
+
+    The returned index is always a user-message boundary, which keeps
+    tool_call/tool_result chains intact: a chain is bounded by user
+    messages on both ends, so splitting at a user-message index never
+    lands in the middle of a chain.
+
+    Args:
+        history: The conversation history list (list of message dicts).
+        recent_turns_k: How many recent turns to preserve verbatim.
+
+    Returns:
+        int: Index of the split point (inclusive — preserve from this index).
+        None: When compaction should be skipped — either history is empty,
+            recent_turns_k <= 0, or there aren't more user messages than
+            recent_turns_k (nothing old enough to summarize).
+    """
+    if not history or recent_turns_k <= 0:
+        return None
+
+    user_indices = [i for i, m in enumerate(history) if isinstance(m, dict) and m.get("role") == "user"]
+
+    # Need strictly more user messages than K — otherwise everything is
+    # already "recent" and there is no old portion to summarize.
+    if len(user_indices) <= recent_turns_k:
+        return None
+
+    return user_indices[-recent_turns_k]
+
+
+def reset_conversation_with_partial_summary(
+    summary: str,
+    system_prompt: str,
+    preserved_messages: list,
+    conversation_history: list,
+    logger: object,
+    config: object,
+) -> None:
+    """Partial-preserve sibling of ``reset_conversation_with_summary``.
+
+    Builds the post-compaction history as::
+
+        [{system_prompt}, {assistant: summary}, *preserved_messages]
+
+    and atomically swaps it into ``conversation_history``. Uses the same
+    overflow-handling pattern as the full-reset variant: if the proposed
+    state exceeds ``config.MAX_TOKEN_COUNT``, the summary is truncated; if
+    even truncation can't fit, the reset is aborted and ``conversation_history``
+    is left untouched.
+
+    The caller is responsible for choosing ``preserved_messages`` so that
+    the resulting message sequence is valid (tool_call/tool_result pairing,
+    etc.) — see ``_find_compaction_split_index`` which guarantees a
+    user-message boundary.
+
+    Args:
+        summary: Generated summary text for the older portion of history.
+        system_prompt: Preserved system prompt string.
+        preserved_messages: Recent messages to keep verbatim — must start
+            at a user message and contain at least one entry.
+        conversation_history: Mutated in-place via atomic clear+extend on
+            successful validation.
+        logger: For diagnostics.
+        config: Live config object — read ``MAX_TOKEN_COUNT`` and update
+            ``TOTAL_TOKEN_COUNT`` post-swap.
+    """
+    if not preserved_messages:
+        logger.warning(
+            "[SUMMARIZATION] reset_conversation_with_partial_summary called with empty "
+            "preserved_messages; aborting to avoid wiping history. Caller should have "
+            "checked _find_compaction_split_index for None and skipped compaction."
+        )
+        return
+
+    new_messages = [
+        {"role": "system", "content": f"{system_prompt}"},
+        {"role": "assistant", "content": summary},
+        *preserved_messages,
+    ]
+
+    try:
+        proposed_total_tokens = count_message_tokens(new_messages)
+    except Exception as e:
+        logger.error(
+            f"[SUMMARIZATION] Could not count tokens for proposed partial-reset history; "
+            f"aborting without modifying conversation: {e}",
+            exc_info=True,
+        )
+        return
+
+    max_tokens = getattr(config, "MAX_TOKEN_COUNT", None)
+    truncation_applied = False
+    if isinstance(max_tokens, int) and max_tokens > 0 and proposed_total_tokens > max_tokens:
+        # The preserved-messages portion is fixed (we can't drop turns the user
+        # cares about); the summary is the only knob to turn. Use the same
+        # truncation helper the full-reset path uses, but pass a synthesized
+        # user_input string that captures the token weight of the preserved
+        # portion so the helper budgets correctly.
+        try:
+            preserved_tokens = count_message_tokens(preserved_messages)
+        except Exception as e:
+            logger.error(
+                f"[SUMMARIZATION] Could not count tokens for preserved messages during "
+                f"partial-reset truncation; aborting: {e}",
+                exc_info=True,
+            )
+            return
+
+        # Available budget for the summary itself, conservatively. Reserve
+        # tokens for system_prompt + preserved + a small overhead margin.
+        try:
+            system_tokens = count_message_tokens([{"role": "system", "content": system_prompt}])
+        except Exception:
+            system_tokens = 0
+        overhead_margin = 64
+        budget_for_summary = max_tokens - system_tokens - preserved_tokens - overhead_margin
+
+        if budget_for_summary <= 0:
+            logger.critical(
+                f"[SUMMARIZATION] Cannot fit partial-reset history within MAX_TOKEN_COUNT "
+                f"({max_tokens}): preserved messages ({preserved_tokens}) plus system prompt "
+                f"({system_tokens}) already exceed the budget. Aborting reset to preserve "
+                f"existing history."
+            )
+            return
+
+        # Truncate by character ratio — same approximate-tokens-per-char heuristic
+        # used elsewhere in this module. We over-shoot the budget by undershooting
+        # the summary length, then re-validate below.
+        approx_chars_per_token = 4
+        target_chars = max(0, budget_for_summary * approx_chars_per_token)
+        truncated_summary = summary[:target_chars]
+        new_messages = [
+            {"role": "system", "content": f"{system_prompt}"},
+            {"role": "assistant", "content": truncated_summary},
+            *preserved_messages,
+        ]
+        try:
+            proposed_total_tokens = count_message_tokens(new_messages)
+        except Exception as e:
+            logger.error(
+                f"[SUMMARIZATION] Could not count tokens for truncated partial-reset history; "
+                f"aborting: {e}",
+                exc_info=True,
+            )
+            return
+
+        if proposed_total_tokens > max_tokens:
+            logger.critical(
+                f"[SUMMARIZATION] Truncated partial-reset state still exceeds MAX_TOKEN_COUNT "
+                f"({proposed_total_tokens} > {max_tokens}). Aborting reset to preserve "
+                f"existing history."
+            )
+            return
+
+        truncation_applied = True
+        logger.warning(
+            f"[SUMMARIZATION] Summary was too large to fit; truncated to recover. "
+            f"Partial-reset state: {proposed_total_tokens}/{max_tokens} tokens."
+        )
+
+    # Validation passed — atomic swap.
+    prev_total_tokens = getattr(config, "TOTAL_TOKEN_COUNT", None)
+    conversation_history.clear()
+    conversation_history.extend(new_messages)
+
+    if hasattr(config, "TOTAL_TOKEN_COUNT"):
+        logger.info(
+            f"[SUMMARIZATION] Partial-reset complete (preserved {len(preserved_messages)} "
+            f"recent messages). Updating TOTAL_TOKEN_COUNT: old={prev_total_tokens}, "
+            f"new={proposed_total_tokens}, truncated_summary={truncation_applied}."
+        )
+        config.TOTAL_TOKEN_COUNT = proposed_total_tokens
+
+    log_negative_token_count(logger, config)
+
+
 # End of history.py
