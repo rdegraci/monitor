@@ -247,6 +247,22 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                 if isinstance(cost, (int, float)) and cost > 0:
                     current_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
                     config.SESSION_COST_USD = current_cost + float(cost)
+                    # Also add to the current turn's bucket so the U:
+                    # indicator can show recent-window and last-turn costs.
+                    # If TURN_COSTS_USD is empty (e.g., LLM call happened
+                    # before any user message somehow), seed an entry so the
+                    # spend isn't dropped on the floor. Defensive: cost
+                    # tracking must never block the LLM-call return path.
+                    try:
+                        turn_costs = getattr(config, "TURN_COSTS_USD", None)
+                        if not isinstance(turn_costs, list):
+                            turn_costs = []
+                        if not turn_costs:
+                            turn_costs.append(0.0)
+                        turn_costs[-1] = turn_costs[-1] + float(cost)
+                        config.TURN_COSTS_USD = turn_costs
+                    except Exception:
+                        logger.debug("Failed to accumulate per-turn cost", exc_info=True)
             except Exception:
                 logger.debug("Failed to compute completion cost via litellm", exc_info=True)
 

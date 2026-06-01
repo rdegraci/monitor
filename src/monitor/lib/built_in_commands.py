@@ -266,6 +266,8 @@ def reset_conversation_history_command(arg=None):
         # cumulative counters too so U and (~$N.NN) reset alongside.
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
+        config.SESSION_COMPACTION_COUNT = 0
+        config.TURN_COSTS_USD = []
         config.RESPONSE_ID = None
         print("Conversation history was reset to initial system prompt.")
     except Exception as e:

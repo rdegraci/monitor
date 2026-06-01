@@ -470,6 +470,16 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _cfg(),
                         )
                         summarization_attempted = True
+                        # Bump the session counter so the H:(N) <count>
+                        # indicator reflects how many compactions have fired
+                        # this session. Defensive try/except — if the config
+                        # global is somehow missing, don't break the LLM call.
+                        try:
+                            _cfg().SESSION_COMPACTION_COUNT = (
+                                getattr(_cfg(), "SESSION_COMPACTION_COUNT", 0) + 1
+                            )
+                        except Exception:
+                            pass
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL
@@ -590,6 +600,15 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _cfg(),
                         )
                         summarization_attempted = True
+                        # Same counter bump as the soft-trigger path so the
+                        # H:(N) indicator counts every successful compaction
+                        # regardless of which threshold drove it.
+                        try:
+                            _cfg().SESSION_COMPACTION_COUNT = (
+                                getattr(_cfg(), "SESSION_COMPACTION_COUNT", 0) + 1
+                            )
+                        except Exception:
+                            pass
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL

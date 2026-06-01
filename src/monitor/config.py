@@ -507,6 +507,24 @@ SHOW_COST_ESTIMATE = None
 # summarization call itself spends more.
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
+# Number of auto-compaction events that have fired in the current session.
+# Incremented after each successful partial-summary reset (soft-trigger and
+# rate-limit paths). Surfaced in the H: indicator as "H:(N) <count>" so the
+# user can see how aggressively compaction is firing. Resets alongside the
+# cumulative cost counters on set_model() and :reset_history.
+SESSION_COMPACTION_COUNT = 0
+# Per-turn cost ledger. Each entry is the accumulated USD cost for one
+# user-message-bounded turn. A new 0.0 is appended each time the harness
+# observes a fresh user message; all LLM calls between user messages
+# (including tool-call rounds) add into the LAST entry. Used by the U:
+# indicator to show "last 10 turns" and "last turn" alongside the
+# cumulative session total. Resets on set_model() and :reset_history.
+TURN_COSTS_USD = []
+# How many recent turns to roll up for the middle dollar value in the U:
+# indicator. 10 captures recent-trajectory context (was this a brief flurry
+# or sustained spend?) without leaking back so far that the number looks
+# like the cumulative total.
+RECENT_TURN_WINDOW = 10
 
 # Auto-compaction soft-trigger threshold, as a fraction of the active model's
 # input window. When the assembled prompt exceeds this fraction, the harness
@@ -1205,7 +1223,7 @@ def set_model(model_key: str) -> bool:
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
-    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
+    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1287,6 +1305,8 @@ def set_model(model_key: str) -> bool:
     # different rates. Both reset together to stay consistent.
     SESSION_TOTAL_TOKENS = 0
     SESSION_COST_USD = 0.0
+    SESSION_COMPACTION_COUNT = 0
+    TURN_COSTS_USD = []
 
     if isinstance(CONVERSATION_HISTORY, list):
         CONVERSATION_HISTORY.clear()

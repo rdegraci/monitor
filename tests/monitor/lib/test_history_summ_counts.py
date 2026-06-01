@@ -82,8 +82,11 @@ class TestPromptCountsAfterSummarization(unittest.TestCase):
             cwd="/fakepath",
             model=self.config.MODEL
         )
-        # Bug is surfaced here: displayed count is now stale, not reflecting summarization
-        self.assertIn(f"H:{original_count}", prompt_after)
+        # Bug is surfaced here: displayed count is now stale, not reflecting summarization.
+        # Format note: H indicator is "H: <count>" (with space) when no compactions
+        # have fired this session, "H:(N) <count>" once they have. This test doesn't
+        # drive SESSION_COMPACTION_COUNT, so we match the no-parens form.
+        self.assertIn(f"H: {original_count}", prompt_after)
         # Render the "truth" using the updated, live count after summarization
         live_count = len(self.history)
         true_prompt = format_prompt_display(
@@ -92,7 +95,7 @@ class TestPromptCountsAfterSummarization(unittest.TestCase):
             cwd="/fakepath",
             model=self.config.MODEL
         )
-        self.assertIn(f"H:{live_count}", true_prompt)
+        self.assertIn(f"H: {live_count}", true_prompt)
         # Assertion: after summarization, prompt_after (from stale data) and true_prompt (from live data) must differ
         self.assertNotEqual(
             prompt_after, true_prompt,

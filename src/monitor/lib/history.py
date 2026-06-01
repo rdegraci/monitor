@@ -107,6 +107,19 @@ def append_to_history_with_count(
         update_token_usage_func(tokens)
         logger.debug(f"Appended message with {tokens} tokens to conversation_history (len={len(conversation_history)+1})")
         conversation_history.append(message)
+        # When a user message lands, open a new bucket in the per-turn cost
+        # ledger. All LLM calls that happen between this user message and the
+        # next one will accumulate into this entry. Defensive: wrapped so a
+        # missing/odd TURN_COSTS_USD state never blocks the append itself.
+        try:
+            if isinstance(message, dict) and message.get("role") == "user":
+                turn_costs = getattr(config, "TURN_COSTS_USD", None)
+                if not isinstance(turn_costs, list):
+                    turn_costs = []
+                turn_costs.append(0.0)
+                config.TURN_COSTS_USD = turn_costs
+        except Exception:
+            logger.debug("Failed to open new turn cost bucket on user message", exc_info=True)
     except Exception as e:
         logger.error(f"Error appending to conversation history: {str(e)}", exc_info=True)
 

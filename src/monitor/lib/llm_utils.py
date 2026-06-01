@@ -262,6 +262,21 @@ def process_response_by_finish_reason(response):
             last_message = config.CONVERSATION_HISTORY[-1]
             if last_message.get('role') == 'user':
                 config.CONVERSATION_HISTORY.pop()
+                # Pop the matching per-turn cost bucket in lockstep. That
+                # bucket was opened when the user message landed in history
+                # (see append_to_history_with_count). With no LLM cost
+                # recorded for a refused call, leaving it would surface as
+                # a phantom $0.00 last-turn entry in the U: indicator that
+                # never goes away.
+                try:
+                    turn_costs = getattr(config, "TURN_COSTS_USD", None)
+                    if isinstance(turn_costs, list) and turn_costs:
+                        turn_costs.pop()
+                        config.TURN_COSTS_USD = turn_costs
+                except Exception:
+                    logger.debug(
+                        "Failed to pop TURN_COSTS_USD bucket on refusal", exc_info=True
+                    )
                 logger.debug("Removed user message that caused refusal from conversation history")
 
             # If there's an assistant message that was also added, remove it too

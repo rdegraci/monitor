@@ -15,6 +15,22 @@ from monitor.lib.colors import blue, red, reset, yellow
 
 logger = logging.getLogger(__name__)
 
+def _format_dollars(value, cumulative):
+    """Format a dollar amount for the U: indicator.
+
+    Cumulative slot (the leading "(~$total)"): 3 decimals below $1 (so
+    sub-dollar single-call costs like $0.012 stay legible), 2 decimals at
+    or above $1.
+
+    Per-turn slots: 4 decimals below $1 (per-turn spend is often pennies,
+    and 2 decimals would round $0.04 to $0.04 vs $0.0034 to "$0.00"), 2
+    decimals at or above $1.
+    """
+    if cumulative:
+        return f"{value:.3f}" if value < 1.0 else f"{value:.2f}"
+    return f"{value:.4f}" if value < 1.0 else f"{value:.2f}"
+
+
 def print_colored_error(message):
     print(f"{red}{message}{reset}", file=sys.stderr)
 
@@ -163,14 +179,40 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 if getattr(config, "SHOW_COST_ESTIMATE", True):
                     session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
                     if session_cost > 0:
-                        # Show 3 decimals for sub-dollar amounts (so single-
-                        # request costs like $0.012 stay visible) and switch
-                        # to 2 decimals once the cumulative cost reaches $1.
-                        if session_cost < 1.0:
-                            cost_str = f"{session_cost:.3f}"
-                        else:
-                            cost_str = f"{session_cost:.2f}"
-                        u_count = f"{u_count} (~${cost_str})"
+                        # The U cost annotation has three slots:
+                        #   (~$total $last-N-turns $last-turn)
+                        # Telling the cumulative apart from the recent window
+                        # and from a single just-finished turn gives the user
+                        # a quick read on whether spend is steady, ramping,
+                        # or spiked on this turn.
+                        cost_str = _format_dollars(session_cost, cumulative=True)
+
+                        # Per-turn slots are gated on > 0. A bucket can be
+                        # exactly zero because litellm couldn't price the
+                        # call (model not in its pricing table) or because
+                        # the cost rounded to floor. Either way, "$0.0000"
+                        # is misleading — it suggests the turn was free,
+                        # not unpriced. Better to omit than mislead.
+                        recent_str = ""
+                        last_str = ""
+                        try:
+                            turn_costs = getattr(config, "TURN_COSTS_USD", None) or []
+                            window = getattr(config, "RECENT_TURN_WINDOW", 10) or 10
+                            if turn_costs:
+                                recent_sum = sum(turn_costs[-window:])
+                                if recent_sum > 0:
+                                    recent_str = f" ${_format_dollars(recent_sum, cumulative=False)}"
+                                last_val = turn_costs[-1]
+                                if last_val > 0:
+                                    last_str = f" ${_format_dollars(last_val, cumulative=False)}"
+                        except Exception:
+                            # If anything goes sideways, fall back to the
+                            # cumulative-only annotation — never crash on
+                            # display formatting.
+                            recent_str = ""
+                            last_str = ""
+
+                        u_count = f"{u_count} (~${cost_str}{recent_str}{last_str})"
             except Exception:
                 # Cost annotation must never break the prompt display.
                 logger.debug("Failed to format SESSION_COST_USD", exc_info=True)
@@ -223,7 +265,13 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         parts.append(f"U:{u_count}")
     if l_count:
         parts.append(f"L:{l_count}")
-    parts.append(f"H:{tch_count}{extra_history_str}")
+    # H indicator: "H: <count>" by default; "H:(N) <count>" once at least one
+    # auto-compaction has fired this session. The (N) prefix lets the user
+    # see at a glance whether compaction has been triggering, without having
+    # to grep logs for the threshold messages.
+    _compaction_count = getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
+    _compaction_prefix = f"({_compaction_count})" if _compaction_count > 0 else ""
+    parts.append(f"H:{_compaction_prefix} {tch_count}{extra_history_str}")
 
     stats_str = " ".join(parts)
 
