@@ -53,7 +53,37 @@ PRIVATE_MACRO_VALUES = {
 # Useful macros, these are visible when dumping macros via the 'macros' built in command.
 PUBLIC_MACRO_VALUES = {
     "do_diff": "Examine the files that have been modified, using the perform_git_diff tool",
-    "create_git_entry": "Provide a git commit title, with a max of 50 characters and a body that describes the changes. The body should be broken up into paragraphs. If the changes are a bugfix, use \"Fix <bug description>\" as the title.  If the changes are adding a new feature, use \"Add <feature>\" as the title. If the changes are a refactor, use \"Refactor <component>\" as the title. Display this as plain text with no Markdown formatting. Do not prepend the title with Title: and do not prepend the body with Body: just provide the content. There should be one blank line after the title. The git commit body will be read by a tool to analyze Git commits within a branch and builds a contextual understanding of what is happening in the development process, therefore the body should provide comprehensive context",
+    "create_git_entry": """Provide a git commit title (max 50 characters) and a body that describes the changes.
+
+Title format by change type:
+- Bug fix: "Fix <bug description>"
+- New feature: "Add <feature>"
+- Refactor: "Refactor <component>"
+
+Output format: plain text, no Markdown. Do not prepend "Title:" or "Body:". One blank line between title and body. The body is read by a tool that builds contextual understanding of the development process, so
+it must provide comprehensive context.
+
+Body content by change type:
+
+Bug fix — explain:  
+- what was broken
+- what should happen instead
+- why the correction matters to users or the system
+- what changed from the user's perspective
+- why that behavior is desirable or necessary
+- any product or context motivation
+Implementation details are secondary unless they explain a non-obvious constraint or risk.
+
+New feature — explain:
+- what new capability exists for users
+- why it was added
+Keep implementation details out unless they matter for reviewers, rollout, or risk.
+
+Refactor — explain: 
+- what design or maintenance issue is being addressed
+- why the change helps
+- whether behavior is intentionally unchanged (usually it is)
+Avoid generic "cleanup" framing or listing moved methods unless that context matters.""",
     "rank_examine": "Rank what to examine next",
     "diff": "{{do_diff}} {{create_git_entry}}",
     "diff_previous": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
