@@ -32,9 +32,11 @@ def test_index_directory_non_recursive(mock_isfile, mock_listdir, mock_file_open
 @patch('monitor.lib.ecs.requests.post')
 @patch('monitor.lib.ecs.config')
 def test_send_to_embedding_service_success(mock_config, mock_post):
-    mock_config.ECS_HOST = 'localhost'
-    mock_config.ECS_PORT = '1234'
-    mock_config.ECS_TIMEOUT = 5
+    # Old config names CODE_LENS_*/ECS_* were consolidated into
+    # EMBEDCODESERV_* — the same Flask server, single set of knobs.
+    mock_config.EMBEDCODESERV_HOST = 'localhost'
+    mock_config.EMBEDCODESERV_PORT = '1234'
+    mock_config.EMBEDCODESERV_TIMEOUT = 5
     # Simulate accepted
     mock_post.return_value.status_code = 202
     file_path = '/src/a.py'
@@ -42,7 +44,7 @@ def test_send_to_embedding_service_success(mock_config, mock_post):
     ecs.send_to_embedding_service(file_path, source)
     mock_post.assert_called_once()
     args, kwargs = mock_post.call_args
-    assert mock_config.ECS_HOST in args[0]
+    assert mock_config.EMBEDCODESERV_HOST in args[0]
     assert kwargs['json']['file_name'] == file_path
     assert kwargs['json']['source_code'] == source
 

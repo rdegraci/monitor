@@ -289,35 +289,30 @@ NON_INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/non_interac
 INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/interactive_commands.json # Path to interactive commands JSON definition
 
 
-# Code Lens: optional external code-embedding/analysis service.
-# Endpoints used:
-#   POST http://CODE_LENS_HOST:CODE_LENS_PORT/embed_source  → indexes a file
-#   POST http://CODE_LENS_HOST:CODE_LENS_PORT/analyze       → analyzes source
-# Wired through lib/external_services.py. If you don't run such a service,
-# any calls will fail with connection errors logged at WARNING level —
-# non-fatal. The defaults here point at a private network address; either
-# set to a server you control or leave as-is and ignore the warnings.
-CODE_LENS_HOST: "192.168.0.250"
-CODE_LENS_PORT: 5010
+# embedcodeserv: the unified Flask service that backs the :embed, :index,
+# and :query commands. ONE service with three endpoints:
+#   POST /embed_source  → queue a file/chunk for embedding (returns 202)
+#   POST /query         → semantic search; returns ranked chunks with cosine
+#                          distance and optional LLM-commented top-K
+#   POST /analyze       → server-side RAG: retrieval + Ollama generation in
+#                          one round-trip (this is what :query uses)
+# See the ChromaDB project's README for setup. The harness checks GET / on
+# first use to learn which per-project DB (Swift or Python) is active, and
+# warns when the user tries to embed/query a file whose extension doesn't
+# match. Connection failures are non-fatal — calls log at WARNING and return
+# None. If you don't run embedcodeserv, leave defaults; warnings will show
+# but nothing crashes. Env vars EMBEDCODESERV_HOST / EMBEDCODESERV_PORT /
+# EMBEDCODESERV_TIMEOUT override these YAML values at startup.
+EMBEDCODESERV_HOST: "192.168.0.250"
+EMBEDCODESERV_PORT: 5010
+EMBEDCODESERV_TIMEOUT: 90  # seconds; bumped for /analyze calls which run Ollama server-side
 
-# ECS: another optional code-embedding service (separate from Code Lens),
-# used by lib/ecs.py for source-code indexing tasks. Same fail-quietly
-# semantics as Code Lens — leave defaults if you don't run such a service.
-# ECS_TIMEOUT (seconds) below caps request duration.
-ECS_HOST: "192.168.0.250"
-ECS_PORT: 5010
-
-# Ollama configuration for the local-LLM/RAG features in lib/rag.py.
-# Only used when the RAG path is invoked (e.g., a tool or command that
-# calls `ollama_client.chat` against this host). Routine coding sessions
-# do NOT use Ollama — the primary model (MODEL above) and litellm handle
-# all LLM traffic. Leave this section as-is if you don't use the RAG
-# integration; an unreachable Ollama host fails at the call site without
-# affecting the rest of the session. Override host at runtime via the
-# OLLAMA_HOST env var without editing this file.
-ollama:
-  host: "192.168.0.26:11434"  # Ollama server host:port
-  model: "llama3.1:latest"    # Ollama model name/tag to load
+# NOTE: The ``ollama`` block previously configured a local Ollama client
+# that lib/rag.py used for the :query command's RAG generation step. That
+# path has been removed — :query now calls embedcodeserv's /analyze
+# endpoint, which runs Ollama SERVER-SIDE in one round-trip. Local Ollama
+# is no longer touched by the harness. If you have ``ollama:`` in an older
+# config it'll be silently ignored.
 
 # Summarization configuration.
 #

@@ -453,7 +453,8 @@ MACRO_DELIMITER_ESCAPE = None
 MACRO_FILE_PATH = None
 SUMMARIZATION_CONFIG = None
 EXTERNAL_SERVICES = None
-OLLAMA_CONFIG = None
+# OLLAMA_CONFIG removed — local Ollama integration replaced by
+# embedcodeserv's /analyze endpoint (server-side RAG).
 TOTAL_TOKEN_COUNT = 0
 NON_INTERACTIVE_COMMANDS_PATH = None
 INTERACTIVE_COMMANDS_PATH = None
@@ -468,13 +469,16 @@ REASONING_EFFORT = None
 REASONING_MAX_COMPLETION_TOKENS = None
 LAST_INPUT_WAS_VOICE = False
 ARTIFACT_SERVER = None
-CODE_LENS_HOST = None
-CODE_LENS_PORT = None
 JOKES_FILE = None
 DIRECTIVES_DIR = None
-ECS_HOST = None
-ECS_PORT = None
-ECS_TIMEOUT = None
+# Single set of config knobs for the embedcodeserv Flask server (the unified
+# indexing + retrieval + RAG service that backs :embed, :index, and :query).
+# Previously this codebase had two parallel sets — CODE_LENS_HOST/PORT and
+# ECS_HOST/PORT/TIMEOUT — that pointed at the same Flask server through
+# different variable names; that historical split has been consolidated.
+EMBEDCODESERV_HOST = None
+EMBEDCODESERV_PORT = None
+EMBEDCODESERV_TIMEOUT = None
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT = None
 SESSION_ID = None
 SUMMARY_TWITCH = None
@@ -619,12 +623,12 @@ def configure_globals():
     global HISTORY_FILE, MAX_TOKEN_COUNT, OLD_MAX_TOKEN_COUNT
     global MACRO_DELIMITER_OPEN, MACRO_DELIMITER_CLOSE, MACRO_DELIMITER_ESCAPE, MACRO_FILE_PATH
     global SUMMARIZATION_CONFIG
-    global EXTERNAL_SERVICES, MEMORY_SERVICES, OLLAMA_CONFIG
+    global EXTERNAL_SERVICES, MEMORY_SERVICES
     global INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH
     global REDIS_HOST, PREFERENCE_PROMPT_FILE
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
-    global ARTIFACT_SERVER, CODE_LENS_HOST, CODE_LENS_PORT, JOKES_FILE, DIRECTIVES_DIR
-    global ECS_HOST, ECS_PORT, ECS_TIMEOUT, ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
+    global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
+    global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
@@ -729,18 +733,11 @@ def configure_globals():
     SUMMARY_TWITTER = yaml_config.get("SUMMARY_TWITTER", False)
 
     MEMORY_SERVICES = yaml_config.get("MEMORY_SERVICES", False)
-    default_ollama = {
-        "host": "http://localhost:11434/api/generate",
-        "model": "llama3.1:latest",
-    }
-    OLLAMA_CONFIG = yaml_config.get("ollama", default_ollama)
-    if not isinstance(OLLAMA_CONFIG, dict):
-        e = ValueError("Invalid 'ollama' configuration in YAML: expected a dict.")
-        logger.error(str(e), exc_info=True)
-        raise e
-    ollama_host_env = os.getenv("OLLAMA_HOST")
-    if ollama_host_env:
-        OLLAMA_CONFIG["host"] = ollama_host_env
+    # NOTE: Local Ollama config previously lived here and powered :query's
+    # client-side RAG path. That path has been replaced by embedcodeserv's
+    # /analyze endpoint (which runs Ollama server-side). The ``ollama``
+    # block in YAML is now ignored — the harness no longer touches Ollama
+    # directly.
 
     interactive_commands_path_cfg = yaml_config.get("INTERACTIVE_COMMANDS_PATH")
     INTERACTIVE_COMMANDS_PATH = _safe_expanduser(interactive_commands_path_cfg)
@@ -762,10 +759,6 @@ def configure_globals():
     ARTIFACT_SERVER = os.getenv(
         "ARTIFACT_SERVER", yaml_config.get("ARTIFACT_SERVER", "http://localhost:2323/")
     )
-    CODE_LENS_HOST = os.getenv(
-        "CODE_LENS_HOST", yaml_config.get("CODE_LENS_HOST", "localhost")
-    )
-    CODE_LENS_PORT = os.getenv("CODE_LENS_PORT", yaml_config.get("CODE_LENS_PORT", "5000"))
 
     # Global list to store jokes told previously
     JOKES_FILE = _safe_expanduser(yaml_config.get("JOKES_FILE"))
@@ -774,15 +767,22 @@ def configure_globals():
     if DIRECTIVES_DIR:
         os.environ["DIRECTIVES_DIR"] = DIRECTIVES_DIR
 
-    ECS_HOST = os.getenv("ECS_HOST", yaml_config.get("ECS_HOST", "localhost"))
-    ECS_PORT = os.getenv("ECS_PORT", yaml_config.get("ECS_PORT", "5000"))
-    # ECS timeout (seconds)
-    raw_timeout = os.getenv("ECS_TIMEOUT", yaml_config.get("ECS_TIMEOUT", 90))
+    # embedcodeserv (single set of knobs for the unified indexing/retrieval/RAG
+    # service that backs :embed, :index, :query). Env vars override YAML.
+    EMBEDCODESERV_HOST = os.getenv(
+        "EMBEDCODESERV_HOST", yaml_config.get("EMBEDCODESERV_HOST", "localhost")
+    )
+    EMBEDCODESERV_PORT = os.getenv(
+        "EMBEDCODESERV_PORT", yaml_config.get("EMBEDCODESERV_PORT", "5010")
+    )
+    raw_timeout = os.getenv(
+        "EMBEDCODESERV_TIMEOUT", yaml_config.get("EMBEDCODESERV_TIMEOUT", 90)
+    )
     try:
-        ECS_TIMEOUT = int(raw_timeout)
+        EMBEDCODESERV_TIMEOUT = int(raw_timeout)
     except Exception:
-        logger.warning("Invalid ECS_TIMEOUT value %r; defaulting to 90", raw_timeout)
-        ECS_TIMEOUT = 90
+        logger.warning("Invalid EMBEDCODESERV_TIMEOUT value %r; defaulting to 90", raw_timeout)
+        EMBEDCODESERV_TIMEOUT = 90
     ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get("ENABLE_AUTO_SUMMARIZE_ON_LIMIT")
 
     # Override the soft auto-compaction threshold from YAML if provided. Clamp
@@ -1247,8 +1247,6 @@ def configure_subsystems():
     try:
         configure_external_services(
             ARTIFACT_SERVER,
-            CODE_LENS_HOST,
-            CODE_LENS_PORT,
             JOKES_FILE,
             TWITTER_CLIENT_API,
             TWITCH_CLIENT_API,

@@ -26,7 +26,7 @@ def index_directory(directory_path, recursive=True):
                 if file.endswith(tuple(FILE_TYPE)):
                     file_path = os.path.join(root, file)
                     try:
-                        with open(file_path, "r") as f:
+                        with open(file_path, "r", encoding="utf-8") as f:
                             source_code = f.read()
                     except Exception as e:
                         logger.error("Error reading file %s: %s", file_path, e, exc_info=True)
@@ -39,7 +39,7 @@ def index_directory(directory_path, recursive=True):
                 file_path = os.path.join(directory_path, file)
                 if os.path.isfile(file_path) and file.endswith(tuple(FILE_TYPE)):
                     try:
-                        with open(file_path, "r") as f:
+                        with open(file_path, "r", encoding="utf-8") as f:
                             source_code = f.read()
                     except Exception as e:
                         logger.error("Error reading file %s: %s", file_path, e, exc_info=True)
@@ -63,7 +63,9 @@ def send_to_embedding_service(file_path, source_code):
         "source_code": source_code
     }
     try:
-        response = requests.post(f"http://{config.ECS_HOST}:{config.ECS_PORT}/embed_source", json=payload, timeout=config.ECS_TIMEOUT)
+        timeout = getattr(config, "EMBEDCODESERV_TIMEOUT", None) or 90
+        url = f"http://{config.EMBEDCODESERV_HOST}:{config.EMBEDCODESERV_PORT}/embed_source"
+        response = requests.post(url, json=payload, timeout=timeout)
         if response.status_code == 202:
             logger.info("Successfully queued embedding for file: %s", file_path)
         else:

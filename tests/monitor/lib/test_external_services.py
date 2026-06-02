@@ -4,6 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
+# Pre-import config to break a pre-existing import cycle in this test file:
+# external_services → config → tool_definitions → built_in_commands →
+# external_services (which is mid-load). Loading config first lets it
+# settle before external_services pulls on it.
+import monitor.config  # noqa: F401
+
 from monitor.lib import external_services as es
 from monitor import config
 
@@ -20,14 +26,21 @@ class DummyResponse:
 
 @pytest.fixture(autouse=True)
 def reset_globals(tmp_path, monkeypatch):
-    # Ensure external services module globals are in a predictable state per test
+    # Ensure external services module globals are in a predictable state per test.
+    # CODE_LENS_HOST/PORT was consolidated into config.EMBEDCODESERV_HOST/PORT;
+    # configure_external_services no longer accepts host/port args. Tests that
+    # exercise the embedcodeserv endpoints should monkeypatch the config globals
+    # directly (see the helper below).
     es.JOKES.clear()
     es.configure_external_services(
         artifact_server="http://artifact.local/ingest",
-        code_lens_host="localhost",
-        code_lens_port="5000",
         jokes_file=str(tmp_path / "jokes.txt"),
     )
+    # embedcodeserv config used by send_file_to_indexing_service,
+    # send_query_to_indexing_service, send_analyze_request_to_indexing_service.
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "localhost", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "5000", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_TIMEOUT", 30, raising=False)
     # Keep model simple for LLM-dependent calls
     monkeypatch.setattr(config, "MODEL", "test-model", raising=False)
     yield
@@ -128,8 +141,6 @@ def test_joke_for_twitch_generates_and_saves(tmp_path, monkeypatch, capsys):
     # Update module to use this jokes file
     es.configure_external_services(
         artifact_server="http://artifact.local/ingest",
-        code_lens_host="localhost",
-        code_lens_port="5000",
         jokes_file=str(jokes_path),
     )
 
@@ -160,10 +171,11 @@ def test_send_file_to_indexing_service_success(tmp_path, monkeypatch):
 
     es.configure_external_services(
         artifact_server="http://artifact.local/ingest",
-        code_lens_host="code.lens",
-        code_lens_port="8080",
         jokes_file=str(tmp_path / "jokes.txt"),
     )
+    # Override the embedcodeserv host for this test.
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "code.lens", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "8080", raising=False)
 
     expected = {"ok": True, "id": 123}
 
@@ -192,37 +204,36 @@ def test_send_file_to_indexing_service_failure_status(tmp_path, monkeypatch):
     assert data is None
 
 
-def test_send_analyze_request_to_indexing_service_success(monkeypatch, capsys):
+def test_send_analyze_request_to_indexing_service_success(monkeypatch):
+    """/analyze takes query_text + prompt (the server's documented contract)
+    and returns {results, analysis}. The signature changed from the legacy
+    single-`query` arg to the proper two-arg form."""
     es.configure_external_services(
         artifact_server="",
-        code_lens_host="lens",
-        code_lens_port="9090",
         jokes_file="",
     )
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "lens", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "9090", raising=False)
 
-    payload = {"metadatas": [[{"filename": "a.py", "summary": "sum"}]], "results": [1]}
+    payload = {"results": [], "analysis": "an answer"}
 
     def fake_post(url, json=None, timeout=None):
         assert url == "http://lens:9090/analyze"
-        assert json == {"query": "what?"}
+        assert json == {"query_text": "what?", "prompt": "Explain"}
         return DummyResponse(200, json_data=payload)
-
-    # Capture that print_all_metadata is invoked
-    called = {"data": None}
-    monkeypatch.setattr(es, "print_all_metadata", lambda d: called.update({"data": d}))
 
     monkeypatch.setattr(es.requests, "post", fake_post)
 
-    data = es.send_analyze_request_to_indexing_service("what?")
+    data = es.send_analyze_request_to_indexing_service("what?", "Explain")
     assert data == payload
-    assert called["data"] == payload
-    assert "Successful retrieval-augmented generation" in capsys.readouterr().out
 
 
 def test_send_query_to_indexing_service_success(monkeypatch):
-    es.configure_external_services("", "lens", "9091", "")
+    es.configure_external_services(artifact_server="", jokes_file="")
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "lens", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "9091", raising=False)
 
-    expected = {"answer": "42"}
+    expected = {"results": []}
 
     def fake_post(url, json=None, timeout=None):
         assert url == "http://lens:9091/query"
@@ -233,6 +244,55 @@ def test_send_query_to_indexing_service_success(monkeypatch):
 
     data = es.send_query_to_indexing_service("life?")
     assert data == expected
+
+
+def test_send_query_to_indexing_service_with_comment_top_k(monkeypatch):
+    """comment_top_k=0 disables LLM commenting (faster, cheaper queries).
+    Verify the param is forwarded when provided."""
+    es.configure_external_services(artifact_server="", jokes_file="")
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "lens", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "9091", raising=False)
+
+    def fake_post(url, json=None, timeout=None):
+        assert json == {"query": "fast", "comment_top_k": 0}
+        return DummyResponse(200, json_data={"results": []})
+
+    monkeypatch.setattr(es.requests, "post", fake_post)
+
+    es.send_query_to_indexing_service("fast", comment_top_k=0)
+
+
+def test_send_file_to_indexing_service_passes_optional_metadata(monkeypatch, tmp_path):
+    """When the caller supplies chunk_type / symbol_name / doc_comment, those
+    fields are forwarded to the server. Required fields (file_name,
+    source_code) still appear in every payload."""
+    src = tmp_path / "f.py"
+    src.write_text("def greet(): pass", encoding="utf-8")
+
+    es.configure_external_services(artifact_server="", jokes_file="")
+    monkeypatch.setattr(config, "EMBEDCODESERV_HOST", "h", raising=False)
+    monkeypatch.setattr(config, "EMBEDCODESERV_PORT", "9", raising=False)
+
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured.update(json)
+        return DummyResponse(202, json_data={"ok": True})
+
+    monkeypatch.setattr(es.requests, "post", fake_post)
+
+    es.send_file_to_indexing_service(
+        str(src),
+        chunk_type="function",
+        symbol_name="greet",
+        doc_comment="Says hi.",
+    )
+
+    assert captured["file_name"] == "f.py"
+    assert captured["source_code"] == "def greet(): pass"
+    assert captured["chunk_type"] == "function"
+    assert captured["symbol_name"] == "greet"
+    assert captured["doc_comment"] == "Says hi."
 
 
 def test_print_all_metadata_outputs(capsys):
