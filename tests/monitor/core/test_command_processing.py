@@ -227,7 +227,11 @@ def test_process_command_llm(
         assert not cp.process_command("some query", "dummy_history")
         mock_art.assert_called()
         mock_disp.assert_called()
-        mock_ctx.assert_called()
+        # Regression: execute_command must NOT call prepare_query_context
+        # again after query() has executed. query() already calls it once
+        # internally; a duplicate call appended each user message twice
+        # to history and produced phantom $0 per-turn cost buckets.
+        mock_ctx.assert_not_called()
 
 
 @patch("monitor.core.command_processing.signal.signal")

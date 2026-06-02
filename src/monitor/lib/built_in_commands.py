@@ -627,6 +627,88 @@ def max_tokens_command(arg: str = None) -> None:
     print_yellow(f"Output-token cap set to {new_cap} (non-reasoning model calls).")
 
 
+def cost_debug_command(arg: str = None) -> None:
+    """Dump cost-tracking state for diagnosing the U: indicator.
+
+    Prints SESSION_COST_USD, SESSION_TOTAL_TOKENS, the per-turn bucket
+    list, the user-message count in CONVERSATION_HISTORY, and flags two
+    invariants worth checking:
+
+    - bucket_count == user_message_count: one bucket per user message.
+      A mismatch means either bucket-open or bucket-pop is firing for the
+      wrong messages.
+    - sum(buckets) == cumulative: every cost that grew the cumulative also
+      grew a bucket. A drift means the bucket-update try/except in
+      token_management.py is silently swallowing exceptions on some calls.
+    """
+    del arg  # no arguments
+
+    session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
+    session_tokens = getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+    buckets = getattr(config, "TURN_COSTS_USD", None) or []
+    history = getattr(config, "CONVERSATION_HISTORY", None) or []
+    user_count = sum(
+        1 for m in history
+        if isinstance(m, dict) and m.get("role") == "user"
+    )
+    bucket_sum = sum(buckets)
+
+    print("=== Cost-tracking debug ===")
+    print(f"SESSION_COST_USD:    ${session_cost:.6f}")
+    print(f"SESSION_TOTAL_TOKENS: {session_tokens}")
+    print(f"User messages in history: {user_count}")
+    print(f"Per-turn buckets:    {len(buckets)} (sum: ${bucket_sum:.6f})")
+
+    if buckets:
+        # Pair each bucket with the corresponding user message preview, so
+        # we can spot duplicates, synthetic prefixes, or other anomalies.
+        # i-th user message in CONVERSATION_HISTORY pairs with bucket i.
+        user_msgs = [
+            m for m in history
+            if isinstance(m, dict) and m.get("role") == "user"
+        ]
+        print("Bucket contents (index: value  len=N  ...tail of user message):")
+        for i, val in enumerate(buckets):
+            marker = "  <-- ZERO" if val == 0 else ""
+            content = ""
+            if i < len(user_msgs):
+                raw = user_msgs[i].get("content", "")
+                if not isinstance(raw, str):
+                    raw = str(raw)
+                flat = raw.replace("\n", " ").strip()
+                length = len(flat)
+                # Most user messages here are prepended with a long shared
+                # prefix (MONITOR.md project instructions). Showing only
+                # the *tail* makes the per-message difference visible
+                # instead of getting eaten by the shared prefix.
+                tail = flat[-100:] if length > 100 else flat
+                content = f"  len={length}  ...{tail!r}"
+            print(f"  [{i:3d}]: ${val:.6f}{marker}{content}")
+    else:
+        print("Bucket list is empty.")
+
+    print()
+    print("--- Invariant checks ---")
+    if len(buckets) == user_count:
+        print(f"OK  bucket_count == user_message_count ({user_count})")
+    else:
+        print_colored_error(
+            f"MISMATCH bucket_count={len(buckets)} but user_message_count={user_count} "
+            "— bucket-open or bucket-pop is firing for the wrong messages."
+        )
+
+    drift = session_cost - bucket_sum
+    if abs(drift) < 1e-9:
+        print(f"OK  sum(buckets) == cumulative (${session_cost:.6f})")
+    else:
+        print_colored_error(
+            f"DRIFT sum(buckets)=${bucket_sum:.6f} vs cumulative=${session_cost:.6f} "
+            f"(delta=${drift:.6f}) — some cost grew the cumulative but missed the bucket. "
+            "Likely a silent exception in the bucket-update try/except at "
+            "token_management.py:255-264."
+        )
+
+
 def llm_command(arg: str = None) -> None:
     """
     Change the active LLM model at runtime.

@@ -238,11 +238,17 @@ def execute_command(command_result: CommandResult, original_command: str, histor
                     except Exception:
                         logger.exception("Failed to display query result.")
 
-                    # Prepare query context for future interactions
-                    try:
-                        prepare_query_context(original_command)
-                    except Exception:
-                        logger.exception("Failed to prepare query context.")
+                    # NOTE: Previously this branch called prepare_query_context
+                    # again after the query completed, on the (mistaken) belief
+                    # that it was "preparing context for future interactions."
+                    # In fact prepare_query_context appends the user message to
+                    # CONVERSATION_HISTORY and may trigger summarization — and
+                    # query() already calls it once at the start. The duplicate
+                    # call doubled every user message in history, opened a
+                    # phantom per-turn cost bucket per turn, and surfaced as the
+                    # alternating $0 last-turn pattern in the U: indicator.
+                    # The orphan bucket never received an LLM cost because no
+                    # call ran between this append and the next user input.
                 else:
                     # For non-string or empty outputs, skip side-effects silently to keep Ctrl-C behavior clean.
                     logger.debug("Query returned no displayable text; skipping side-effects without printing.")

@@ -27,6 +27,7 @@ from monitor.lib.built_in_commands import (
     edit_macros_command,
     reload_macros_command,
     llm_command,
+    cost_debug_command,
     max_tokens_command,
     reasoning_command,
     ttl_command,
@@ -357,6 +358,11 @@ def configure_built_ins() -> None:
                     "command": ":max_tokens",
                     "function": _make_callable(max_tokens_command),
                     "description": "Cap output tokens for non-reasoning model calls. Usage: :max_tokens <N> or :max_tokens for help.",
+                },
+                {
+                    "command": ":cost_debug",
+                    "function": _make_callable(cost_debug_command),
+                    "description": "Dump per-turn cost-tracking state and flag invariant violations.",
                 },
                 {
                     "command": ":macros",
