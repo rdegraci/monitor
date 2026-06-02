@@ -513,6 +513,14 @@ SESSION_COST_USD = 0.0
 # user can see how aggressively compaction is firing. Resets alongside the
 # cumulative cost counters on set_model() and :reset_history.
 SESSION_COMPACTION_COUNT = 0
+# Cached project-instructions content (MONITOR.md + MONITOR_CONVENTIONS.md)
+# loaded once and concatenated into the system prompt by build_system_prompt.
+# None until first read; populated by _project_instructions_content() in
+# lib/system_prompt.py. Cleared by configure_runtime_prompt_paths when paths
+# change and by test helpers that need a fresh load. NOT reset on set_model
+# or :reset_history — the project doesn't change with model swaps, and
+# re-reading the same files for every session reset is wasteful.
+PROJECT_INSTRUCTIONS_CONTENT = None
 # Per-turn cost ledger. Each entry is the accumulated USD cost for one
 # user-message-bounded turn. A new 0.0 is appended each time the harness
 # observes a fresh user message; all LLM calls between user messages

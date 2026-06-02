@@ -829,10 +829,34 @@ def prepend_memory_to_history() -> None:
                 "content": "Previous conversation context:\n"
                 + "\n\n".join(memory_entries),
             }
-            if not config.CONVERSATION_HISTORY:
-                config.CONVERSATION_HISTORY.insert(0, memory_dict)
+            # Find an existing memory-style system message and replace it in
+            # place (preventing growth on repeated calls). If none exists,
+            # insert AFTER the platform system prompt (index 0) so we never
+            # clobber it. Pre-fix: the else branch unconditionally did
+            # CONVERSATION_HISTORY[0] = memory_dict, silently overwriting
+            # the platform system prompt with a memory entry on every call.
+            MEMORY_MARKER = "Previous conversation context:"
+            memory_idx = next(
+                (
+                    i for i, msg in enumerate(config.CONVERSATION_HISTORY)
+                    if isinstance(msg, dict)
+                    and msg.get("role") == "system"
+                    and isinstance(msg.get("content"), str)
+                    and msg["content"].startswith(MEMORY_MARKER)
+                ),
+                None,
+            )
+            if memory_idx is not None:
+                config.CONVERSATION_HISTORY[memory_idx] = memory_dict
             else:
-                config.CONVERSATION_HISTORY[0] = memory_dict
+                # Default to position 0 only when history is empty; otherwise
+                # land after the platform system prompt (which is normally
+                # at index 0 once initialize_chat_history has run).
+                insert_at = 0
+                first = config.CONVERSATION_HISTORY[0] if config.CONVERSATION_HISTORY else None
+                if isinstance(first, dict) and first.get("role") == "system":
+                    insert_at = 1
+                config.CONVERSATION_HISTORY.insert(insert_at, memory_dict)
             logger.info(
                 "Prepended memory to history with %d memory entries",
                 len(memory_entries),

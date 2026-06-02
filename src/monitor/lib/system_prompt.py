@@ -140,6 +140,42 @@ def _read_runtime_file(runtime_path, packaged_path):
     return runtime_path.read_text(encoding="utf-8")
 
 
+def _project_instructions_content():
+    """Return the project-instructions text (MONITOR.md + MONITOR_CONVENTIONS.md
+    concatenated). Loaded once and cached in ``config.PROJECT_INSTRUCTIONS_CONTENT``
+    so build_system_prompt produces a deterministic string across the session
+    (essential for prompt-cache stability).
+
+    Prior design: this content was prepended to every user message via
+    build_user_prompt_prefix. That paid the prefix token cost on every new
+    user message at full input rate (the new bytes aren't yet in the cache),
+    and the bytes rode along forever in conversation history. Now the
+    content lives in the system message instead — one cached block at the
+    front of the prompt, paid once and amortized across the session.
+    """
+    from monitor import config as _config
+    cached = getattr(_config, "PROJECT_INSTRUCTIONS_CONTENT", None)
+    if isinstance(cached, str):
+        return cached
+    content = (
+        _load_runtime_instructions().rstrip("\n")
+        + "\n"
+        + _load_runtime_coding_conventions().rstrip("\n")
+        + "\n"
+    )
+    _config.PROJECT_INSTRUCTIONS_CONTENT = content
+    return content
+
+
+def clear_project_instructions_cache():
+    """Reset the cached project-instructions content so the next
+    build_system_prompt call re-reads MONITOR.md / MONITOR_CONVENTIONS.md.
+    Called by configure_runtime_prompt_paths when paths change, and by
+    tests that need a fresh load."""
+    from monitor import config as _config
+    _config.PROJECT_INSTRUCTIONS_CONTENT = None
+
+
 def configure_runtime_prompt_paths(startup_cwd):
     """Resolve per-project overrides for MONITOR.md and MONITOR_CONVENTIONS.md
     from ``startup_cwd``. Called once at app startup; the result is frozen for
@@ -177,6 +213,9 @@ def configure_runtime_prompt_paths(startup_cwd):
         cwd,
         ["MONITOR_CONVENTIONS.md", "build/MONITOR_CONVENTIONS.md"],
     )
+    # The resolved paths just changed; invalidate the cached content so the
+    # next build_system_prompt loads from the (possibly new) sources.
+    clear_project_instructions_cache()
 
 
 def _resolve_override(cwd, relative_candidates):
@@ -211,20 +250,38 @@ def _load_runtime_coding_conventions():
 
 
 def build_system_prompt(session_id=None):
-    """Return the static system prompt template, optionally with session guidance."""
-    if session_id is None:
-        return SYSTEM_PROMPT_TEMPLATE
-    return SYSTEM_PROMPT_TEMPLATE + f"\nSession ID: {session_id}\n"
+    """Return the assembled system prompt: platform invariants
+    (SYSTEM_PROMPT_TEMPLATE) followed by the project instructions
+    (MONITOR.md + MONITOR_CONVENTIONS.md) and an optional session-ID line.
+
+    SYSTEM_PROMPT_TEMPLATE stays platform-only in source (per the
+    'system-prompt scope' design rule); the project instructions are
+    concatenated here at build time so a single system message goes over
+    the wire. That message lands in the cached prefix and is paid for once
+    per session instead of being prepended to every user message.
+    """
+    project = _project_instructions_content()
+    parts = [SYSTEM_PROMPT_TEMPLATE]
+    if project and project.strip():
+        # Visual separator so the model can tell the platform rules from
+        # the project-specific instructions while still treating both as
+        # system-level guidance.
+        parts.append("\n--- Project instructions ---\n\n")
+        parts.append(project)
+    if session_id is not None:
+        parts.append(f"\nSession ID: {session_id}\n")
+    return "".join(parts)
 
 
 def build_user_prompt_prefix():
-    """Return the runtime instructions and coding conventions prefix for user messages."""
-    return (
-        _load_runtime_instructions().rstrip("\n")
-        + "\n"
-        + _load_runtime_coding_conventions().rstrip("\n")
-        + "\n"
-    )
+    """Returns the empty string. Kept as a callable for backward compatibility
+    with build_prefixed_user_text (which short-circuits on an empty prefix).
+    The MONITOR.md + MONITOR_CONVENTIONS.md content used to be prepended to
+    every user message here; it now lives in the system prompt instead so
+    the cost is paid once and cached, not paid per-user-message at full
+    input rate.
+    """
+    return ""
 
 
 # Backward-compat alias. Existing callers that import SYSTEM_PROMPT directly
