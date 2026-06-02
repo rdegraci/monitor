@@ -521,6 +521,23 @@ SESSION_COMPACTION_COUNT = 0
 # or :reset_history — the project doesn't change with model swaps, and
 # re-reading the same files for every session reset is wasteful.
 PROJECT_INSTRUCTIONS_CONTENT = None
+# Per-turn reasoning-effort override. The harness sets this in
+# prepare_query_context when the user's message matches complexity signals
+# (e.g., refactor/audit/design/...) and the configured default is below
+# "high". Read by call_litellm_completion as override-or-default. Cleared
+# at the next user turn (set or cleared in prepare_query_context). Also
+# cleared by set_model and :reset_history because it's turn-scoped state.
+CURRENT_TURN_REASONING_OVERRIDE = None
+# Cost-indicator color thresholds (USD). P (this turn) and W per-turn
+# average get colored when they exceed these values: green (uncolored,
+# default) → yellow → red. Defaults are calibrated for gpt-5.4 base /
+# sonnet-4-6; on mini / haiku the colors stay silent because those models
+# are cheap enough that typical turns don't approach these thresholds.
+# Opus users should multiply by ~5x (see YAML config for guidance).
+COST_P_YELLOW = 0.30
+COST_P_RED = 0.80
+COST_W_YELLOW = 0.30
+COST_W_RED = 0.60
 # Per-turn cost ledger. Each entry is the accumulated USD cost for one
 # user-message-bounded turn. A new 0.0 is appended each time the harness
 # observes a fresh user message; all LLM calls between user messages
@@ -832,6 +849,34 @@ def configure_globals():
             logger.warning(
                 "MAX_COMPLETION_TOKENS=%r is not an integer; keeping default %d",
                 _mct_raw, MAX_COMPLETION_TOKENS,
+            )
+
+    # Override the four cost-color thresholds from YAML. Each must be a
+    # positive number (USD); invalid values fall back to the module-level
+    # defaults so a typo never silently kills the color signal.
+    global COST_P_YELLOW, COST_P_RED, COST_W_YELLOW, COST_W_RED
+    for _key, _attr_name in (
+        ("COST_P_YELLOW", "COST_P_YELLOW"),
+        ("COST_P_RED", "COST_P_RED"),
+        ("COST_W_YELLOW", "COST_W_YELLOW"),
+        ("COST_W_RED", "COST_W_RED"),
+    ):
+        _raw = yaml_config.get(_key)
+        if _raw is None:
+            continue
+        try:
+            _val = float(_raw)
+            if _val > 0:
+                globals()[_attr_name] = _val
+            else:
+                logger.warning(
+                    "%s=%r must be > 0; keeping default %s",
+                    _key, _raw, globals()[_attr_name],
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "%s=%r is not a number; keeping default %s",
+                _key, _raw, globals()[_attr_name],
             )
 
     global OLD_TOOL_BODY_TURNS_THRESHOLD
@@ -1231,7 +1276,7 @@ def set_model(model_key: str) -> bool:
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
-    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD
+    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1315,6 +1360,7 @@ def set_model(model_key: str) -> bool:
     SESSION_COST_USD = 0.0
     SESSION_COMPACTION_COUNT = 0
     TURN_COSTS_USD = []
+    CURRENT_TURN_REASONING_OVERRIDE = None
 
     if isinstance(CONVERSATION_HISTORY, list):
         CONVERSATION_HISTORY.clear()

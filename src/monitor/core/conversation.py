@@ -856,6 +856,28 @@ def prepare_query_context(user_prompt):
             except Exception:
                 pass
     logger.debug("Preparing query context...")
+
+    # Per-turn reasoning auto-bump. Always clear the prior turn's override
+    # first (so a previous bump doesn't leak forward), then detect signals
+    # in the new message and set the override if warranted. The override
+    # is read by call_litellm_completion as override-or-default and lasts
+    # for every LLM call within this user turn (including tool-chain
+    # follow-ups).
+    try:
+        from monitor.lib.reasoning_heuristic import detect_reasoning_bump
+        config.CURRENT_TURN_REASONING_OVERRIDE = None
+        bump = detect_reasoning_bump(
+            user_prompt, getattr(config, "REASONING_EFFORT", None)
+        )
+        if bump:
+            config.CURRENT_TURN_REASONING_OVERRIDE = bump
+            logger.info(
+                "Auto-bumped reasoning effort to %s for this turn (matched complexity signals).",
+                bump,
+            )
+    except Exception:
+        logger.exception("Reasoning auto-bump heuristic failed; continuing with default effort.")
+
     prepend_memory_to_history()
     append_conversation_history(
         build_prefixed_model_text(user_prompt),

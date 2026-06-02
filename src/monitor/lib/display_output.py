@@ -31,6 +31,43 @@ def _format_dollars(value, cumulative):
     return f"{value:.4f}" if value < 1.0 else f"{value:.2f}"
 
 
+def _context_color(remaining_tokens, remaining_percent):
+    """Pick the color for the C: indicator based on how much input window
+    is left. Tied to ``config.AUTO_COMPACT_THRESHOLD_RATIO`` so the color
+    thresholds auto-tune to the user's compaction policy:
+
+      - yellow fires when remaining_percent drops below the compaction
+        threshold (i.e., the harness is about to compact)
+      - red fires at half the yellow threshold (compaction may have failed
+        or we're close to the model's hard input-window ceiling)
+
+    Examples (with default ratio 0.30):
+      yellow_threshold = (1 - 0.30) * 100 = 70%
+      red_threshold    = 70% / 2          = 35%
+
+    Examples (user's appdir ratio 0.50):
+      yellow_threshold = (1 - 0.50) * 100 = 50%
+      red_threshold    = 50% / 2          = 25%
+
+    A literal zero remaining always renders red. The previous behavior
+    (blue when non-zero, red when zero) is preserved as the green/normal
+    case (anything above the yellow threshold stays blue)."""
+    if remaining_tokens == 0:
+        return red
+    try:
+        compact_ratio = getattr(config, "AUTO_COMPACT_THRESHOLD_RATIO", 0.30) or 0.30
+        yellow_threshold_pct = (1 - compact_ratio) * 100
+        red_threshold_pct = yellow_threshold_pct / 2
+        if remaining_percent < red_threshold_pct:
+            return red
+        if remaining_percent < yellow_threshold_pct:
+            return yellow
+    except Exception:
+        # If anything goes sideways, fall back to the historical blue.
+        pass
+    return blue
+
+
 def print_colored_error(message):
     print(f"{red}{message}{reset}", file=sys.stderr)
 
@@ -120,7 +157,7 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 budget = context_budget if isinstance(context_budget, int) and context_budget > 0 else getattr(config, 'MAX_TOKEN_COUNT', None)
                 if budget and budget > 0:
                     remaining_percent = (context_remaining / budget) * 100
-                    context_color = red if context_remaining == 0 else blue
+                    context_color = _context_color(context_remaining, remaining_percent)
                     c_count = f"{context_color}{context_remaining} ({remaining_percent:.0f}%){reset}"
                 else:
                     context_color = red if context_remaining == 0 else blue
@@ -179,12 +216,15 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 if getattr(config, "SHOW_COST_ESTIMATE", True):
                     session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
                     if session_cost > 0:
-                        # The U cost annotation has three slots:
-                        #   (~$total $last-N-turns $last-turn)
-                        # Telling the cumulative apart from the recent window
-                        # and from a single just-finished turn gives the user
-                        # a quick read on whether spend is steady, ramping,
-                        # or spiked on this turn.
+                        # The U cost annotation has three labeled slots:
+                        #   (~T:$total W:$last-N-turns P:$previous-turn)
+                        # T = Total (cumulative, ~ marks it as an estimate)
+                        # W = Window sum over the last RECENT_TURN_WINDOW turns
+                        # P = Previous turn (most recently completed)
+                        # Labels let slots collapse without making position
+                        # ambiguous — "(~T:$2.11 P:$0.24)" is unambiguous;
+                        # "(~$2.11 $0.24)" could mean total+window or
+                        # total+previous depending on which collapsed.
                         cost_str = _format_dollars(session_cost, cumulative=True)
 
                         # Per-turn slots are gated on > 0. A bucket can be
@@ -198,13 +238,47 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                         try:
                             turn_costs = getattr(config, "TURN_COSTS_USD", None) or []
                             window = getattr(config, "RECENT_TURN_WINDOW", 10) or 10
+                            # Color thresholds (USD). P uses single-turn cost;
+                            # W uses per-turn average over the window so a
+                            # single expensive turn doesn't immediately drive
+                            # W red — it has to be sustained.
+                            cost_p_yellow = getattr(config, "COST_P_YELLOW", 0.30) or 0.30
+                            cost_p_red = getattr(config, "COST_P_RED", 0.80) or 0.80
+                            cost_w_yellow = getattr(config, "COST_W_YELLOW", 0.30) or 0.30
+                            cost_w_red = getattr(config, "COST_W_RED", 0.60) or 0.60
                             if turn_costs:
-                                recent_sum = sum(turn_costs[-window:])
-                                if recent_sum > 0:
-                                    recent_str = f" ${_format_dollars(recent_sum, cumulative=False)}"
+                                recent_window = turn_costs[-window:]
+                                recent_sum = sum(recent_window)
+                                # Show the window slot only when it carries new
+                                # information vs the cumulative. Until enough
+                                # turns have accumulated that older buckets
+                                # actually fall outside the window, recent_sum
+                                # equals session_cost — repeating the same
+                                # number is visual noise. Epsilon (half a cent)
+                                # absorbs floating-point jitter and catches the
+                                # case where rounded display values would tie.
+                                if recent_sum > 0 and abs(recent_sum - session_cost) > 0.005:
+                                    w_per_turn = recent_sum / max(1, len(recent_window))
+                                    if w_per_turn >= cost_w_red:
+                                        w_color, w_reset = red, reset
+                                    elif w_per_turn >= cost_w_yellow:
+                                        w_color, w_reset = yellow, reset
+                                    else:
+                                        w_color, w_reset = "", ""
+                                    recent_str = (
+                                        f" {w_color}W:${_format_dollars(recent_sum, cumulative=False)}{w_reset}"
+                                    )
                                 last_val = turn_costs[-1]
                                 if last_val > 0:
-                                    last_str = f" ${_format_dollars(last_val, cumulative=False)}"
+                                    if last_val >= cost_p_red:
+                                        p_color, p_reset = red, reset
+                                    elif last_val >= cost_p_yellow:
+                                        p_color, p_reset = yellow, reset
+                                    else:
+                                        p_color, p_reset = "", ""
+                                    last_str = (
+                                        f" {p_color}P:${_format_dollars(last_val, cumulative=False)}{p_reset}"
+                                    )
                         except Exception:
                             # If anything goes sideways, fall back to the
                             # cumulative-only annotation — never crash on
@@ -212,7 +286,7 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                             recent_str = ""
                             last_str = ""
 
-                        u_count = f"{u_count} (~${cost_str}{recent_str}{last_str})"
+                        u_count = f"{u_count} (~T:${cost_str}{recent_str}{last_str})"
             except Exception:
                 # Cost annotation must never break the prompt display.
                 logger.debug("Failed to format SESSION_COST_USD", exc_info=True)

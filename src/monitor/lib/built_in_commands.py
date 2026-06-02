@@ -268,6 +268,7 @@ def reset_conversation_history_command(arg=None):
         config.SESSION_COST_USD = 0.0
         config.SESSION_COMPACTION_COUNT = 0
         config.TURN_COSTS_USD = []
+        config.CURRENT_TURN_REASONING_OVERRIDE = None
         config.RESPONSE_ID = None
         print("Conversation history was reset to initial system prompt.")
     except Exception as e:

@@ -232,6 +232,11 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
     config.REASONING_MODEL_PREFIX = 'openai/o3'
     config.REASONING_EFFORT = 2
     config.REASONING_MAX_COMPLETION_TOKENS = 50
+    # Defensive reset of the per-turn reasoning override. Otherwise a
+    # prior test that set it (e.g., the reasoning-heuristic tests) could
+    # leak through and cause call_litellm_completion to prefer the
+    # override over REASONING_EFFORT.
+    config.CURRENT_TURN_REASONING_OVERRIDE = None
     model = 'openai/o3-test'
     messages = [{'role': 'user', 'content': 'hi'}]
     res = llm_utils.call_litellm_completion(model, messages, tool_descriptions=[], gemini_tool_descriptions=[])

@@ -345,8 +345,17 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
             pattern = re.compile(re.escape(prefix), re.IGNORECASE)
             if pattern.search(model):
                 is_reasoning = True
+                # Per-turn override (set by the auto-bump heuristic in
+                # prepare_query_context) wins over the configured default
+                # for the duration of this user turn. The override is one-
+                # way (only bumps up to high), so reading it unconditionally
+                # never causes a surprise downgrade.
+                effective_effort = (
+                    getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+                    or config.REASONING_EFFORT
+                )
                 kwargs.update(
-                    reasoning_effort=config.REASONING_EFFORT,
+                    reasoning_effort=effective_effort,
                     max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
                     temperature=1,
                 )

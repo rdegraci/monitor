@@ -61,7 +61,7 @@ Title format by change type:
 - Refactor: "Refactor <component>"
 
 Output format: plain text, no Markdown. Do not prepend "Title:" or "Body:". One blank line between title and body. The body is read by a tool that builds contextual understanding of the development process, so
-it must provide comprehensive context.
+it must provide comprehensive context. Title must have max 50 characters and no trailing period. Hard-wrap every line, in the Body, at 72 characters. Exception: URLs may overflow.
 
 Body content by change type:
 

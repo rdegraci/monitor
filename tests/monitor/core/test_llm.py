@@ -193,14 +193,21 @@ class TestLLMCore(unittest.TestCase):
             mock_llm_config.REASONING_MODEL_PREFIX = 'openai/o3'
             mock_llm_config.REASONING_EFFORT = 2
             mock_llm_config.REASONING_MAX_COMPLETION_TOKENS = 32
-            
+            # Per-turn override is None by default. When `config` is a
+            # MagicMock, attribute access otherwise returns a Mock object
+            # that's truthy — which would override the configured effort
+            # in call_litellm_completion. Explicitly set None here to
+            # exercise the default-effort path.
+            mock_llm_config.CURRENT_TURN_REASONING_OVERRIDE = None
+
             result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}], tool_descriptions={}, gemini_tool_descriptions={})
             self.assertEqual(result, {'ok': True})
-            
+
             # Check reasoning_effort+max_completion_tokens prepends
             mock_llm_config.REASONING_MODEL_PREFIX = 'openai/o3'
             mock_llm_config.REASONING_EFFORT = 4
             mock_llm_config.REASONING_MAX_COMPLETION_TOKENS = 33
+            mock_llm_config.CURRENT_TURN_REASONING_OVERRIDE = None
             mock_funcdesc.return_value = []  # Reset mock for second call
             result = llm.call_litellm_completion("openai/o3-test", [{'role': 'user', 'content': 'hi'}], tool_descriptions={}, gemini_tool_descriptions={})
             self.assertEqual(mock_lite.call_args[1].get('reasoning_effort'), 4)

@@ -2,30 +2,93 @@ MODEL: openai/gpt-5-mini-2025-08-07  # Fully qualified primary LLM model (provid
 MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens)
 MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens)
 MODEL_INPUT_TIER: 4  # Input tier/plan selector for model usage limits (integer)
-CONVERSATION_MAX_SIZE: 50  # Maximum number of messages retained per conversation
+CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
 
-# Soft auto-compaction threshold as a fraction of the model's input window.
-# Set to 0.50 below for large-codebase workflows: let history climb to half
-# the input window before compacting, so cache amortization carries most of
-# the cost and the compaction-call/write-rate penalty fires less often.
-# Lower (0.20-0.30) compacts harder — better for small codebases or sessions
-# with frequent cache invalidations. Higher (up to 1.0) lets history grow
-# further; 1.0 disables the soft trigger and reverts to compact-only-at-overflow.
+# Soft auto-compaction threshold as a FRACTION of the active model's input
+# window. Compaction (summarize older history into one message, keep recent
+# turns verbatim) fires when the prompt size crosses this fraction.
+#
+# How it works
+# ------------
+# The value is a ratio, so it auto-scales per model:
+#   - gpt-5.4 base       (~1M window) at 0.50 → compaction at ~500K tokens
+#   - gpt-5.4-mini       (400K window) at 0.50 → compaction at ~200K tokens
+#   - sonnet-4-6/opus-4-7 (200K window) at 0.50 → compaction at ~100K tokens
+# Same ratio means roughly the same fractional behavior across models — you
+# don't need to retune when switching models.
+#
+# Also drives the C: indicator color thresholds in the prompt line:
+#   - yellow fires when remaining context < (1 - this ratio) × 100%
+#   - red fires at half that
+# So lowering this ratio also makes C: warnings appear earlier.
+#
+# Suggested values
+# ----------------
+#   0.50  Default. Balanced trade-off between compaction frequency and
+#         preserved context. Works well across all common models. Good
+#         starting point.
+#   0.30  More aggressive. Compaction fires earlier and more often. Each
+#         compaction is smaller (less to summarize, less context lost) but
+#         you pay the per-compaction cost more frequently. Choose this if
+#         long-running sessions tend to lose important context in the
+#         summary, or if you frequently invalidate the cache (model
+#         switches, tool catalog changes).
+#   0.15  Aggressive — typically only useful for gpt-5.4 base specifically,
+#         to keep prompts under OpenAI's ~128K long-context tier boundary
+#         (above 128K, input rates double). Not useful for Anthropic models
+#         which have flat pricing across prompt sizes.
+#   0.70  Lax. Compaction fires only when prompt is nearly full. More cache
+#         amortization between compactions (cheaper steady-state per turn),
+#         but each compaction event is larger and may lose more context.
+#   1.00  Disables the soft trigger entirely. Compaction only fires at the
+#         hard input-window ceiling (when the next request wouldn't fit).
+#         Treat as "emergency only" — you'll pay the worst-case curve.
 AUTO_COMPACT_THRESHOLD_RATIO: 0.50
 
 # Number of recent "turns" (user-message-bounded segments) to keep verbatim
 # when auto-compaction fires. Older history is replaced with a single summary
-# message. 12 is tuned for cross-file reasoning on large codebases — preserves
-# enough context that the model can reference work from several turns back
-# without re-reading. Drop to 6 for small codebases or aggressive compression.
+# message; the last N turns stay intact so the model retains immediate
+# working context.
+#
+# Suggested values:
+#   6   Aggressive compression. Best for small codebases where the model
+#       doesn't need much cross-turn context. Compaction strips more
+#       history → cheaper subsequent turns, but the model may lose detail
+#       from work it did 4-5 turns ago.
+#   12  RECOMMENDED for cross-file reasoning on large codebases. Keeps
+#       enough recent context that the model can reference work from
+#       several turns back without re-reading files.
+#   20  Conservative. Preserves a lot of context — useful for long
+#       multi-step audits or refactors where the recent dozen turns are
+#       all related. Compaction does less work; subsequent turns stay
+#       larger.
+# Interacts with OLD_TOOL_BODY_TURNS_THRESHOLD: tool bodies get demoted to
+# placeholders past that threshold, then the messages themselves get
+# summarized past this one. Keep this ≥ OLD_TOOL_BODY_TURNS_THRESHOLD so
+# the "demoted but preserved" tier has room to live (e.g., 8 → 12 gives a
+# 4-turn gap where bodies are demoted but messages remain intact).
 RECENT_TURNS_PRESERVED_ON_COMPACT: 12
 
 # How many recent turns to keep tool bodies (results + bulky arguments)
 # verbatim. Older messages get tool content replaced with short sentinel
-# placeholders. 8 leaves a comfortable cross-referencing window before
-# demotion, then a 4-turn gap (8→12) where demoted-but-preserved bodies
-# live before summarization. Drop to 3 for tighter compression.
+# placeholders to shrink the prompt while preserving the message structure
+# and the model's awareness that the tool call happened.
+#
+# Suggested values:
+#   3   Tight. Most file reads get demoted quickly. Significant savings
+#       on tool-heavy sessions but the model loses access to recent file
+#       contents and may re-read.
+#   8   RECOMMENDED. Comfortable cross-referencing window before demotion,
+#       with a 4-turn gap (8→12 = RECENT_TURNS_PRESERVED_ON_COMPACT)
+#       where bodies are demoted but the full messages still live in
+#       history. Net effect: deep recency for tool inspection, then a
+#       quiet "the tool ran but we don't need the bytes" tier before
+#       full summarization.
+#   15  Lax. Tool bodies stay intact for a long time. Useful if you
+#       frequently revisit earlier tool results, but eats context budget.
+# Must be ≤ RECENT_TURNS_PRESERVED_ON_COMPACT. Setting equal disables the
+# demoted-but-preserved tier (bodies go straight from verbatim to gone).
 OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 
 # Cap on output tokens for non-reasoning model calls. Sent as
@@ -36,15 +99,139 @@ OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 # REASONING_MAX_COMPLETION_TOKENS instead — this cap does not affect them.
 # MAX_COMPLETION_TOKENS: 8192
 
+# Cost-indicator color thresholds (USD). The U: cost annotation in the prompt
+# line — e.g. (~T:$2.35 W:$2.29 P:$0.30) — colors the P and W slots based on
+# whether their dollar value crosses these thresholds:
+#   - green / uncolored: cost is BELOW the YELLOW threshold
+#   - yellow:            cost is at or above YELLOW but below RED
+#   - red:               cost is at or above RED
+# T (total) is never colored; it's a session totalizer, not a leading signal.
+#
+# P_* thresholds compare against the previous turn's total cost (a single
+# spike). W_* thresholds compare against the W slot's per-turn AVERAGE over
+# the recent window, so red on W means "sustained expensive" — a single big
+# turn won't trip it.
+#
+# Defaults are calibrated for the typical mid-tier coding workflow:
+#   - gpt-5.4 base: TWO TIERS by prompt size.
+#       short context (< ~128K total prompt): $2.50/M input, $0.25/M cached,
+#                                              $15/M output
+#       long  context (>= ~128K):              $5/M input, $0.50/M cached,
+#                                              $22.50/M output  (2x input, 1.5x output)
+#       Note: prompts near or past 128K pay the long-context rate for ALL
+#       tokens in that call, including the cached portion. Compacting
+#       aggressively enough to stay under 128K is a real cost lever — see
+#       AUTO_COMPACT_THRESHOLD_RATIO. Setting it to ~0.12-0.15 (compact at
+#       ~120-150K) keeps most turns in the cheaper tier for sessions > 20
+#       turns; the savings exceed the extra compaction calls' cost.
+#   - claude-sonnet-4-6 (~$3/M base input, $15/M output; cache reads
+#     $0.30/M, 5m cache writes $3.75/M, 1hr cache writes $6/M).
+# Behavior across other models:
+#   - gpt-5.4 base, claude-sonnet-4-6: colors fire as designed. Typical turns
+#     ~$0.20-0.30 stay green; tool-storms hit yellow/red appropriately.
+#   - gpt-5.4-mini, claude-haiku-4-5:  colors stay silent (typical turns
+#     under $0.05). This is correct — those models are cheap enough that
+#     colors don't need to speak. Only exceptional tool storms color.
+#   - claude-opus-4-7 (~$5/M base input, ~$25/M output; cache reads ~$0.50/M;
+#     5m cache writes $6.25/M; 1hr cache writes $10/M): roughly 2x the cost
+#     of gpt-5.4 base, NOT 5x as older Opus generations were. Defaults would
+#     fire yellow/red too aggressively. Multiply all four values by ~2x:
+#       COST_P_YELLOW: 0.60
+#       COST_P_RED:    1.60
+#       COST_W_YELLOW: 0.60
+#       COST_W_RED:    1.20
+COST_P_YELLOW: 0.30
+COST_P_RED: 0.80
+COST_W_YELLOW: 0.30
+COST_W_RED: 0.60
+
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000
 
-REASONING_MODEL_PREFIX: openai/gpt-5  # Prefix/family for selecting reasoning-capable models
-REASONING_EFFORT: high  # Reasoning effort level (low|medium|high) affecting cost/latency
-REASONING_MAX_COMPLETION_TOKENS: 25000  # Cap on tokens for reasoning completions (tokens)
-RESPONSES_API: True  # If True + MODEL matches REASONING_MODEL_PREFIX, use OpenAI Responses API (responses.create) semantics.
+# Substring used to identify reasoning-capable models. ANY model whose name
+# CONTAINS this string is treated as a reasoning model and receives:
+#   - reasoning_effort = REASONING_EFFORT (below)
+#   - max_completion_tokens = REASONING_MAX_COMPLETION_TOKENS (below)
+#   - temperature = 1 (fixed; reasoning models reject other values)
+# The match is case-insensitive substring (re.search after re.escape), not a
+# strict prefix despite the name. Examples:
+#   - "openai/gpt-5"  matches gpt-5, gpt-5-mini, gpt-5.4, gpt-5.4-mini, ...
+#   - "openai/o3"     matches o3-2025-04-16, o3-mini, ...
+# Set this to the family root you actually use. Most users don't need to
+# change it from openai/gpt-5 unless they're switching providers entirely.
+REASONING_MODEL_PREFIX: openai/gpt-5
 
-TOOL_OUTPUT_TOKEN_LIMIT: 16384 # Truncate tool output to this many tokens
+# How much internal "thinking" the model does before responding. Reasoning
+# tokens count as OUTPUT tokens at the output rate, so this is one of the
+# bigger cost levers on reasoning-capable models.
+#
+# Valid values: minimal | low | medium | high
+#   minimal  Almost no thinking. Fastest, cheapest. Good for trivial Q&A
+#            or string-manipulation tasks where reasoning adds no value.
+#   low      Light thinking. Fast responses; OK for routine code edits
+#            and simple refactors.
+#   medium   Balanced — RECOMMENDED DEFAULT. Combines well with the
+#            harness's auto-bump heuristic, which detects complexity
+#            signals (refactor / audit / design / analyze / debug /
+#            architecture / cross-file / migrate / align / why / "review
+#            for", or messages > 500 chars / 3+ lines) and TEMPORARILY
+#            promotes the next turn to "high" — so you get medium cost
+#            on routine work and high quality on the hard turns.
+#   high     Deep thinking. Best quality but 2-3x more reasoning tokens
+#            than medium. Use only when you've manually set it for a
+#            session with genuinely hard work (architectural reasoning,
+#            full-codebase audits). The auto-bump above does this
+#            per-turn so leaving the default at medium is usually right.
+# Runtime override: `:reasoning <level>` swaps the active value mid-session
+# without editing this file.
+REASONING_EFFORT: medium
+
+# Cap on output tokens (including reasoning tokens) for reasoning-model
+# calls. Set higher than the non-reasoning MAX_COMPLETION_TOKENS (8192)
+# because reasoning tokens count against the output budget — high effort
+# can burn 10-20K reasoning tokens BEFORE producing the visible answer.
+# Suggested values:
+#   8000-15000    Tight. Risk of truncation mid-thought on hard tasks.
+#                 Suitable only if cost discipline outweighs reliability.
+#   25000         RECOMMENDED DEFAULT. Comfortable for almost all coding
+#                 tasks even at high reasoning effort.
+#   50000-100000  Generous. For exploratory or long-form work where you
+#                 want the model to produce extensive analysis.
+# If you see truncated reasoning outputs ("...") in responses, bump this.
+REASONING_MAX_COMPLETION_TOKENS: 25000
+
+# When True AND the active model matches REASONING_MODEL_PREFIX, the harness
+# uses OpenAI's Responses API (responses.create) instead of the older Chat
+# Completions API. Differences:
+#   - Responses API supports `previous_response_id` for cheaper multi-turn
+#     calls (server-side state retention).
+#   - Tool-call follow-ups can use a different shape.
+#   - Caching behaves slightly differently.
+# Disable (False) if you hit Responses-API-specific bugs or you're routing
+# reasoning-prefixed calls to a non-OpenAI provider (e.g., Azure-hosted
+# variants that don't implement Responses).
+RESPONSES_API: True
+
+# Per-tool output truncation limit (in tokens). When a single tool call's
+# output exceeds this, the harness truncates the serialized payload before
+# sending the follow-up LLM call. Prevents one bloated tool result — a giant
+# file view, a wide ripgrep dump, a verbose stack trace — from dominating
+# the prompt and eating cache.
+#
+# Currently applied ONLY in the Responses API path (reasoning models). The
+# standard Chat Completions path doesn't truncate per-tool output.
+#
+# Suggested values:
+#   4096   Tight. Will truncate most file reads > 250 lines. Risks losing
+#          context the model needs for cross-file reasoning.
+#   16384  RECOMMENDED DEFAULT. Fits most file reads under 1000 lines and
+#          typical ripgrep/git output, while still capping pathological
+#          outputs.
+#   32768  Roomy. Rarely truncates. Suitable for sessions that involve
+#          reviewing large files in full.
+#   65536  Effectively unlimited for normal coding work. Lets large diff
+#          reviews through but increases prompt size proportionally.
+TOOL_OUTPUT_TOKEN_LIMIT: 16384
 
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 
@@ -62,7 +249,15 @@ logging:
   console_logging_enabled: true  # Echo logs to console/stdout
   encoding: utf-8  # Log file encoding
 
-ARTIFACT_SERVER: http://192.168.0.250:2323/  # Base URL for artifact storage/service
+# Optional HTTP endpoint that receives query results via POST. The harness
+# fires-and-forgets `{"text": <result>}` to this URL after each LLM response
+# (see lib/external_services.py:send_artifact). Use it if you run a small
+# collector service for analytics, logging, or downstream pipelines.
+# If the URL is unreachable, the failure is logged at WARNING and the
+# session continues — non-fatal. Leave the default if you don't run such
+# a service; the post just fails quietly each turn.
+ARTIFACT_SERVER: http://192.168.0.250:2323/
+
 JOKES_FILE: ~/Library/Application Support/monitor/jokes.txt  # Path to jokes corpus file
 
 # Master flag to activate/deactivate summaries to third parties
@@ -71,34 +266,105 @@ SUMMARY_TWITCH: False  # Enable Twitch summaries (requires EXTERNAL_SERVICES=Tru
 SUMMARY_LINKEDIN: False  # Enable LinkedIn summaries (requires EXTERNAL_SERVICES=True)
 SUMMARY_TWITTER: False  # Enable Twitter/X summaries (requires EXTERNAL_SERVICES=True)
 
-REDIS_HOST: localhost  # Host/IP for Redis backing the memory/cache
-MEMORY_SERVICES: False  # Enable Redis-backed memory services
+# Persistent cross-session memory via Redis. When MEMORY_SERVICES is True,
+# the harness fetches a short summary of past conversations from Redis on
+# every user turn (via prepend_memory_to_history) and injects it as a
+# system message in the conversation history. The model gets context like
+# "Previous conversation context: ..." every time you start a session.
+#
+# Behavior when enabled:
+#   - Redis stores user_input + response pairs across sessions.
+#   - Prepended memory consumes input tokens on every turn (priced as
+#     cached after the first request, but writes still cost something).
+#   - Disabling at runtime is sticky-clean: no carryover until re-enabled.
+#
+# Set MEMORY_SERVICES to True only when you have a Redis instance reachable
+# at REDIS_HOST and you actually want cross-session context. For one-off
+# sessions or when you don't have Redis, leave False (the prepend step
+# short-circuits cleanly and adds no cost or risk).
+REDIS_HOST: localhost
+MEMORY_SERVICES: False
 
 NON_INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/non_interactive_commands.json  # Path to non-interactive commands JSON definition
 INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/interactive_commands.json # Path to interactive commands JSON definition
 
 
-CODE_LENS_HOST: "192.168.0.250"  # Host/IP for Code Lens service
-CODE_LENS_PORT: 5010  # Port for Code Lens service
+# Code Lens: optional external code-embedding/analysis service.
+# Endpoints used:
+#   POST http://CODE_LENS_HOST:CODE_LENS_PORT/embed_source  → indexes a file
+#   POST http://CODE_LENS_HOST:CODE_LENS_PORT/analyze       → analyzes source
+# Wired through lib/external_services.py. If you don't run such a service,
+# any calls will fail with connection errors logged at WARNING level —
+# non-fatal. The defaults here point at a private network address; either
+# set to a server you control or leave as-is and ignore the warnings.
+CODE_LENS_HOST: "192.168.0.250"
+CODE_LENS_PORT: 5010
 
-ECS_HOST: "192.168.0.250"  # Host/IP for ECS service
-ECS_PORT: 5010  # Port for ECS service
+# ECS: another optional code-embedding service (separate from Code Lens),
+# used by lib/ecs.py for source-code indexing tasks. Same fail-quietly
+# semantics as Code Lens — leave defaults if you don't run such a service.
+# ECS_TIMEOUT (seconds) below caps request duration.
+ECS_HOST: "192.168.0.250"
+ECS_PORT: 5010
 
+# Ollama configuration for the local-LLM/RAG features in lib/rag.py.
+# Only used when the RAG path is invoked (e.g., a tool or command that
+# calls `ollama_client.chat` against this host). Routine coding sessions
+# do NOT use Ollama — the primary model (MODEL above) and litellm handle
+# all LLM traffic. Leave this section as-is if you don't use the RAG
+# integration; an unreachable Ollama host fails at the call site without
+# affecting the rest of the session. Override host at runtime via the
+# OLLAMA_HOST env var without editing this file.
 ollama:
   host: "192.168.0.26:11434"  # Ollama server host:port
-  model: "llama3.1:latest"  # Ollama model name/tag to load
+  model: "llama3.1:latest"    # Ollama model name/tag to load
 
-# Summarization configuration
+# Summarization configuration.
+#
+# This block was the ORIGINAL compaction control before the newer
+# AUTO_COMPACT_THRESHOLD_RATIO + RECENT_TURNS_PRESERVED_ON_COMPACT pair
+# was introduced. The newer settings drive WHEN compaction fires; this
+# block still controls HOW MUCH content the summary itself can use.
+#
+# triggers:
+#   token_threshold       Legacy "fire summarization when message-history
+#                         tokens cross this fraction of MAX_TOKEN_COUNT."
+#                         Largely superseded — auto-compaction now uses
+#                         AUTO_COMPACT_THRESHOLD_RATIO instead. Kept
+#                         here for the older check_limits path.
+#   memory_limit_mb       Soft memory hint (rarely meaningful in practice).
+#   time_limit_seconds    Maximum time between summaries (72h default) —
+#                         secondary trigger; only counts when token use
+#                         is also above 50% of the limit.
+#   token_reduction_factor  Used by generate_conversation_summary to size
+#                         the summary's max_tokens budget:
+#                         max_summary_tokens = max_token_count
+#                                               × token_reduction_factor
+#                                               × summary_token_ratio
+#                         Default 0.7 → summary is allowed up to 70% × ratio
+#                         of MAX_TOKEN_COUNT before hitting the cap.
+#   summary_token_ratio   See above. 0.03 = the summary itself uses 3% of
+#                         the budget. Smaller value → tighter, denser
+#                         summaries. Bump if your summaries feel lossy.
+#   maximum_summary_tokens  Hard ceiling on summary length, regardless of
+#                         the ratio math above. 4096 is the floor for
+#                         meaningful summaries; 16384 if you want richer
+#                         context preservation on big sessions.
+# prompt.template         Sent to the summarization LLM. {messages} is
+#                         replaced with the conversation to summarize.
+#                         The "always use file paths" framing helps the
+#                         summary preserve concrete references the model
+#                         can act on later.
 summarization:
   triggers:
-    token_threshold: 0.6  # Percentage of max tokens (currently 60%)
-    memory_limit_mb: 100  # Memory limit in MB
-    time_limit_seconds: 259200  # Time between summaries in seconds (currently 72 hours)
-    token_reduction_factor: 0.7  # Factor to reduce tokens by when limit reached (currently 70%)
-    summary_token_ratio: 0.03  # Ratio of context allocated to the summary (0-1)
-    maximum_summary_tokens: 4096  # Hard cap on tokens used to generate a single summary (tokens)
+    token_threshold: 0.6
+    memory_limit_mb: 100
+    time_limit_seconds: 259200
+    token_reduction_factor: 0.7
+    summary_token_ratio: 0.03
+    maximum_summary_tokens: 4096
   prompt:
-    template: "Summarize the following conversation concisely, always using file paths when capturing the main points and context: {messages}"  # Prompt template for summaries; {messages} is replaced with the conversation
+    template: "Summarize the following conversation concisely, always using file paths when capturing the main points and context: {messages}"
 
 MACRO_FILE: ~/Library/Application Support/monitor/macros.json  # Path to macros configuration JSON
 
@@ -114,9 +380,31 @@ macro_delimiters:
 # User instruction preferences file
 PREFERENCE_PROMPT_FILE: ~/Library/Application Support/monitor/preferences.prompt  # Path to the preferences prompt file
 
+# Rate limiting against the active provider's TPM (tokens-per-minute) limit.
+# The harness tracks recent token consumption inside a rolling window and
+# refuses to send a request that would push usage past safety_factor × the
+# provider's stated limit, waiting until the window clears instead.
+#
+# safety_factor (0–1): How much headroom to leave under the provider limit.
+#   0.50  Very conservative. Lots of headroom; you'll never bump into the
+#         provider's hard limit but you'll wait more often.
+#   0.80  RECOMMENDED DEFAULT. Strong protection against overage with
+#         minimal wait events on most sessions.
+#   0.95  Aggressive. Maximizes throughput; risks transient 429s from the
+#         provider if estimation is slightly off.
+#   1.00  Disables the safety margin entirely. The harness will send up
+#         to the exact provider limit — only useful for testing or for
+#         providers you trust to handle the boundary cleanly.
+# window_seconds: The rolling window over which token usage is measured.
+#   60 matches OpenAI/Anthropic's TPM accounting convention. Don't change
+#   unless you have a documented reason — different windows desync the
+#   harness's accounting from the provider's.
+# When the limit is approached, the harness logs and either waits
+# (interactive sessions) or attempts auto-summarization to shrink the next
+# request (when ENABLE_AUTO_SUMMARIZE_ON_LIMIT is True).
 rate_limiting:
-  safety_factor: 0.8  # Safety multiplier applied to provider limits (0-1)
-  window_seconds: 60  # Time window for rate limiting (seconds)
+  safety_factor: 0.8
+  window_seconds: 60
 
 # Contains files that give context and direct an LLM to build source code
 DIRECTIVES_DIR: ~/Library/Application Support/monitor/directives
