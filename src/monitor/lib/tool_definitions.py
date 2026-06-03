@@ -439,27 +439,38 @@ TOOL_DESCRIPTIONS = [
         "function": {
                 "name": "create_file",
                 "description": (
-                    "Creates a new file with the provided content at the specified path. "
-                    "If a file already exists at the path, this operation will NOT modify, overwrite, "
-                    "or truncate the existing file. It is a safe way to create new files only. "
-                    "For replacing or updating an existing file, use the 'modify_source_code' tool."
+                    "Creates a file with the provided content at the specified path. "
+                    "Behavior depends on `overwrite`: with `overwrite=false` (DEFAULT, SAFE) "
+                    "the call refuses with an error when a file already exists at the path; "
+                    "with `overwrite=true` the existing contents are REPLACED. "
+                    "Use `overwrite=false` for genuinely new files. "
+                    "Use `overwrite=true` ONLY when you have first viewed the existing file "
+                    "(via text_file_or_directory_view) and explicitly intend a full replacement — "
+                    "data loss is unrecoverable. For partial edits to an existing file, prefer "
+                    "`text_file_str_replace_in_file` (deterministic, reviewable). "
+                    "For fuzzy edits where exact text doesn't apply, use `modify_source_code`."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "contents": {
-                            "description": "The content to write to the newly created file.",
+                            "description": "The content to write to the file.",
                             "type": "string"
                         },
-                    "path": {
-                        "description": "The path (including filename) at which to create the new file.",
-                        "type": "string"
-                    }
+                        "path": {
+                            "description": "The path (including filename) at which to create or replace the file.",
+                            "type": "string"
+                        },
+                        "overwrite": {
+                            "description": (
+                                "When false (default), refuse with an error if a file already exists. "
+                                "When true, replace the existing file's contents. Only pass true when you "
+                                "have already inspected the existing file and intend full replacement."
+                            ),
+                            "type": "boolean",
+                            "default": False,
+                        },
                 },
-                "notes": (
-                    "Attempting to create a file at an existing path will result in a NO-OP: "
-                    "the existing file will not be modified."
-                ),
                 "required": ["path", "contents"]
               }
         }
@@ -817,16 +828,29 @@ GEMINI_TOOL_DESCRIPTIONS = [
   },
   {
     "name": "create_file",
-    "description": "Creates a new file with the provided content, but does not modify or overwrite existing files. Use this function only when you need to create a file that does not already exist.",
+    "description": (
+        "Creates a file with the provided content. With overwrite=false (default, safe) "
+        "refuses if the file already exists; with overwrite=true replaces the existing "
+        "contents. Use overwrite=true ONLY after viewing the existing file (data loss "
+        "is unrecoverable). For partial edits, prefer text_file_str_replace_in_file."
+    ),
     "parameters": {
       "properties": {
         "contents": {
-          "description": "The content to write to the newly created file.",
+          "description": "The content to write to the file.",
           "type": "string"
         },
         "path": {
-          "description": "The path to the file to be created. If the file already exists, no action will be taken.",
+          "description": "The path (including filename) at which to create or replace the file.",
           "type": "string"
+        },
+        "overwrite": {
+          "description": (
+              "When false (default), refuse if a file already exists. When true, replace "
+              "the existing file's contents. Only pass true when you intend full replacement."
+          ),
+          "type": "boolean",
+          "default": False
         }
       },
       "required": ["path", "contents"],

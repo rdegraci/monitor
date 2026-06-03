@@ -603,25 +603,34 @@ def create_patch_for_file(path: str, contents: str):
         logger.error("Error in patch creation process: %s", str(e), exc_info=True)
         return json.dumps({"error": f"Error in patch creation process: {str(e)}"})
 
-def create_file(path, contents):
+def create_file(path, contents, overwrite=False):
     """
-    Create a new file with the given content, creating parent directories first if needed.
+    Create a file with the given content, creating parent directories as needed.
 
-    - Expands '~' in the path.
-    - Automatically creates parent directories (mkdir -p behavior) before file creation.
-    - If the path already exists as a file, do NOT overwrite; return an error JSON.
-    - If the path exists and is a directory, return an error JSON.
-    - Uses the underlying fileio_create_file() to write the file; if it returns False,
-      return an error JSON.
-    - On success, returns a JSON string with a 'result' message.
+    Default behavior is safe (refuse to overwrite). Set ``overwrite=True``
+    when the caller has already inspected the existing file and explicitly
+    intends to replace its contents — see the tool schema for guidance on
+    when each form is appropriate. The directory-collision check is
+    unaffected by ``overwrite``: a path that exists as a directory is
+    always rejected.
 
-    :param path: The file path to create.
-    :param contents: The contents to write in the new file.
+    Args:
+        path (str): The file path to create. ``~`` is expanded.
+        contents (str): The content to write.
+        overwrite (bool): When False (default), refuses with an error if a
+            file already exists at ``path``. When True, replaces the existing
+            file's contents.
 
-    :return: str: JSON-encoded result dict.
+    Returns:
+        str: JSON-encoded result dict with ``result`` on success or ``error``
+        on failure. On success, includes ``overwritten: True/False`` so callers
+        can confirm whether a pre-existing file was replaced.
     """
     path = os.path.expanduser(path)
-    logger.debug("Entering create_file function with path=%s", path)
+    logger.debug(
+        "Entering create_file function with path=%s, overwrite=%s",
+        path, overwrite,
+    )
 
     # Ensure parent directory exists before attempting creation
     parent_dir = os.path.dirname(path)
@@ -634,18 +643,41 @@ def create_file(path, contents):
             print_red(f"Error creating parent directories for {path}: {str(e)}")
             return json.dumps({"error": f"Error creating parent directories for {path}: {str(e)}"})
 
-    # Validate path state
+    # Validate path state. The directory check is non-negotiable — writing a
+    # file at a directory path is never sensible.
     if os.path.isdir(path):
         logger.error("Path exists and is a directory: %s", path)
         print_red(f"Path exists and is a directory: {path}")
         return json.dumps({"error": f"Path exists and is a directory: {path}"})
-    if file_exists(path):
-        logger.warning("File already exists at %s; will not overwrite", path)
-        return json.dumps({"error": f"File already exists at {path}; not overwritten."})
 
-    # Attempt file creation using underlying IO helper
+    pre_existing = file_exists(path)
+    if pre_existing and not overwrite:
+        # Demoted from WARNING to INFO: this is an expected branch the caller
+        # can recover from (set overwrite=True after inspecting the file, or
+        # use a targeted-edit tool). It's not an error condition.
+        logger.info("File already exists at %s; refusing to overwrite (overwrite=False)", path)
+        return json.dumps({
+            "error": (
+                f"File already exists at {path}; not overwritten. "
+                "Pass overwrite=True to replace it, or use "
+                "text_file_str_replace_in_file for a targeted edit instead."
+            )
+        })
+
+    # Attempt file creation/overwrite using the underlying IO helper. The
+    # helper handles overwrite at the syscall level (open with "w" mode).
     try:
-        creation_ok = fileio_create_file(path, contents)
+        creation_ok = fileio_create_file(path, contents, overwrite=overwrite)
+    except TypeError:
+        # Backward-compat: fileio_create_file may not accept the kwarg in
+        # older builds. Fall back to the param-less call, which only works
+        # for the create-new branch.
+        try:
+            creation_ok = fileio_create_file(path, contents)
+        except Exception as e:
+            logger.error("Exception during file creation at %s: %s", path, str(e), exc_info=True)
+            print_red(f"Error creating file at {path}: {str(e)}")
+            return json.dumps({"error": f"Error creating file at {path}: {str(e)}"})
     except Exception as e:
         logger.error("Exception during file creation at %s: %s", path, str(e), exc_info=True)
         print_red(f"Error creating file at {path}: {str(e)}")
@@ -656,9 +688,13 @@ def create_file(path, contents):
         print_red(f"Failed to create file at {path}.")
         return json.dumps({"error": f"Failed to create file at {path}."})
 
-    logger.info("Created new file at %s", path)
-    print_yellow(f"Created new file at {path}.")
-    return json.dumps({"result": f"Created new file at {path}."})
+    action = "Replaced" if pre_existing else "Created"
+    logger.info("%s file at %s", action, path)
+    print_yellow(f"{action} file at {path}.")
+    return json.dumps({
+        "result": f"{action} file at {path}.",
+        "overwritten": pre_existing,
+    })
 
 def make_directory(path: str):
     """

@@ -116,17 +116,22 @@ def write_file(path: str, contents: str, overwrite: bool = True) -> bool:
         logger.error(f"Error writing file {path}: {e}")
         return False
 
-def create_file(path: str, contents: str) -> bool:
-    """Creates a file only if it does not exist. Writes contents.
+def create_file(path: str, contents: str, overwrite: bool = False) -> bool:
+    """Creates a file. When ``overwrite=False`` (default), refuses to write
+    if the path already holds a file; with ``overwrite=True`` the existing
+    contents are replaced.
 
     Args:
-        path (str): Path for the new file.
+        path (str): Path for the file.
         contents (str): Content to write.
+        overwrite (bool): When True, replace existing contents. Default False
+            preserves the historical safe-by-default behavior.
+
     Returns:
-        bool: True if file created, False otherwise.
+        bool: True on success, False otherwise.
     """
     path = os.path.expanduser(path)
-    return write_file(path, contents, overwrite=False)
+    return write_file(path, contents, overwrite=overwrite)
 
 def delete_file(path: str) -> bool:
     """Deletes a file at the specified path.
