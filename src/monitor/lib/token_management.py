@@ -155,6 +155,50 @@ def get_last_request_token_usage() -> tuple[int | None, bool]:
         return None, False
 
 
+def update_history_token_count(tokens_to_add) -> int:
+    """Increment ONLY ``config.TOTAL_TOKEN_COUNT`` — the live history-size
+    counter used by the compaction soft-trigger and the C: indicator math.
+
+    Use this from local message-append paths (e.g.,
+    ``append_to_history_with_count``). Do NOT use it from LLM-call return
+    paths — those should call ``update_token_usage(...)`` so the cost,
+    ``SESSION_TOTAL_TOKENS``, ``LAST_REQUEST_TOKEN_COUNT``, and per-turn
+    bucket all get updated together.
+
+    The separation fixes a long-standing bug where appending a message to
+    history was treated as an LLM call:
+      - ``SESSION_TOTAL_TOKENS`` got inflated on every append, including
+        the startup system message (so U: was non-zero at H:0).
+      - ``LAST_REQUEST_TOKEN_COUNT`` was set to the message size even when
+        no actual API request had been made yet (so L: at startup showed
+        the system message size).
+      - The same tokens then got counted AGAIN when the LLM call returned
+        with the real ``usage.total_tokens`` — double counting on every
+        turn that drifted U: 30-80% above actual API consumption.
+
+    Args:
+        tokens_to_add: Token count for the message just appended. ``None`` or
+            non-numeric values are coerced to 0 with a warning.
+
+    Returns:
+        The updated value of ``config.TOTAL_TOKEN_COUNT``.
+    """
+    try:
+        from monitor import config  # safe circular-import guard
+        if not hasattr(config, "TOTAL_TOKEN_COUNT") or config.TOTAL_TOKEN_COUNT is None:
+            config.TOTAL_TOKEN_COUNT = 0
+        try:
+            delta = int(tokens_to_add or 0)
+        except (TypeError, ValueError):
+            logger.warning("update_history_token_count: non-numeric input %r; using 0", tokens_to_add)
+            delta = 0
+        config.TOTAL_TOKEN_COUNT += delta
+        return config.TOTAL_TOKEN_COUNT
+    except Exception as e:
+        logger.error(f"update_history_token_count failed: {e}", exc_info=True)
+        return 0
+
+
 def update_token_usage(tokens_or_response, *, used_estimate: bool = False, response=None):
     """
     Canonical function to update the total token count in config.TOTAL_TOKEN_COUNT.

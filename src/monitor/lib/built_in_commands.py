@@ -2,6 +2,7 @@ import copy
 import logging
 import os
 import subprocess
+import time
 
 from typing import Any, Dict
 
@@ -30,7 +31,7 @@ from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
-from monitor.lib.system_prompt import build_system_prompt
+from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 from monitor.lib.tool_loading import list_tools
 
 logger = logging.getLogger(__name__)
@@ -258,7 +259,27 @@ def monitor_model_performance_command(args: Dict[str, Any]) -> Any:
 
 
 def reset_conversation_history_command(arg=None):
+    """Restore conversation state to the equivalent of a freshly-started app:
+    single system message (with the latest MONITOR.md content), no user/
+    assistant history, all per-session counters zeroed, and the time-based
+    summarization clock restarted.
+
+    Two specific touches that bring this in line with startup:
+      - clear_project_instructions_cache() forces build_system_prompt to
+        re-read MONITOR.md / MONITOR_CONVENTIONS.md / AGENTS.md from disk.
+        Lets you edit those files mid-session and have :reset_history
+        pick up the new content without restarting the app. The cwd-frozen
+        path resolution is preserved — only the cached content is dropped.
+      - config.last_summary_time = time.time() restarts the time-based
+        secondary trigger in check_limits, so it doesn't think the "last
+        summary" happened ages ago (which would spuriously favor an early
+        summarization on the next turn).
+    """
     try:
+        # Drop cached MONITOR.md content so the rebuilt system prompt picks
+        # up any edits made since startup.
+        clear_project_instructions_cache()
+
         config.CONVERSATION_HISTORY.clear()
         config.CONVERSATION_HISTORY.append({"role": "system", "content": build_system_prompt(session_id=getattr(config, "SESSION_ID", None))})
         config.TOTAL_TOKEN_COUNT = 0
@@ -270,6 +291,10 @@ def reset_conversation_history_command(arg=None):
         config.TURN_COSTS_USD = []
         config.CURRENT_TURN_REASONING_OVERRIDE = None
         config.RESPONSE_ID = None
+        # Restart the time-based summarization clock so it matches startup
+        # behavior (otherwise the "time since last summary" check fires
+        # too eagerly on the first post-reset turn).
+        config.last_summary_time = time.time()
         print("Conversation history was reset to initial system prompt.")
     except Exception as e:
         logger.error(f"Failed to reset conversation history: {e}", exc_info=True)

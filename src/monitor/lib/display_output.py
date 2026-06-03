@@ -125,7 +125,13 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         str: The formatted prompt display string.
     """
     try:
-        tch_count = f"{yellow}{conversation_count}{reset}"
+        # H: renders in the default terminal color. Yellow elsewhere in the
+        # indicator means "noteworthy" (cost over threshold, context low);
+        # a permanently-yellow message count was decoration that read as a
+        # warning. If something about H: is actually noteworthy — e.g.,
+        # compactions have fired — the "(N)" prefix below carries that
+        # signal explicitly.
+        tch_count = str(conversation_count)
     except Exception as e:
         tch_count = "Error in calculating conversation history count"
         logger.error(f"Error: {e}", exc_info=True)
@@ -206,7 +212,13 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 total_used = None
 
         if total_used is not None:
-            used_color = red if total_used == 0 else blue
+            # U: is the cumulative-tokens-consumed counter. 0 is the
+            # normal startup state, not an alarm — render in the same
+            # blue as every other value. (Previously this was red on 0,
+            # back when local appends inflated SESSION_TOTAL_TOKENS so
+            # 0 meant "something broke during startup." That bug is
+            # fixed; the red-on-zero rule outlived its reason.)
+            used_color = blue
             u_count = f"{used_color}{total_used}{reset}"
             # Optional cost estimate after U. Controlled by config.SHOW_COST_ESTIMATE
             # (default True if unset in YAML). The tilde signals "estimate" —

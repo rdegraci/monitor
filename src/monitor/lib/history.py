@@ -40,6 +40,7 @@ from monitor.lib.colors import red, blue, yellow, reset
 # (see append_conversation_history's system_prompt arg, etc.).
 from monitor.lib import rate_limiter
 from monitor.lib.token_management import count_message_tokens as count_message_tokens
+from monitor.lib.token_management import update_history_token_count as update_history_token_count
 from monitor.lib.token_management import update_token_usage as update_token_usage
 
 logger = logging.getLogger(__name__)  # Standardized to __name__
@@ -92,19 +93,32 @@ def append_to_history_with_count(
     """
     Append a message to a conversation history and update token count.
 
-    All token counting and updates use canonical helpers from monitor.lib/token_management.py.
+    Token bookkeeping splits two ways:
+      - TOTAL_TOKEN_COUNT (live history-size counter, used by compaction
+        triggers and the C: indicator) — incremented by every append via
+        update_history_token_count.
+      - SESSION_TOTAL_TOKENS + LAST_REQUEST_TOKEN_COUNT + cost — touched
+        ONLY by the LLM-call return path (update_token_usage with the
+        real provider usage). Local appends never credit these. This is
+        the fix for a long-standing bug where adding a message to history
+        was treated as an LLM event, inflating U: at startup and double-
+        counting on every turn.
 
-    Allows dependency injection for testability/storage flexibility.
+    ``update_token_usage_func`` is preserved in the signature for
+    backward compatibility with existing call sites but is no longer
+    invoked here — it remains the canonical hook for LLM-call accounting.
 
     Args:
         message (dict): Message to append (role, content).
         conversation_history (list): The chat history in-place.
         count_message_tokens_func (callable): Counts tokens in the message.
-        update_token_usage_func (callable): Updates tracked usage (side effect).
+        update_token_usage_func (callable): Retained for API compatibility;
+            no longer invoked from this function.
     """
+    del update_token_usage_func  # intentionally unused — see docstring above
     try:
         tokens = count_message_tokens_func(message)
-        update_token_usage_func(tokens)
+        update_history_token_count(tokens)
         logger.debug(f"Appended message with {tokens} tokens to conversation_history (len={len(conversation_history)+1})")
         conversation_history.append(message)
         # When a user message lands, open a new bucket in the per-turn cost
