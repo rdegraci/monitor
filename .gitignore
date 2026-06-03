@@ -11,4 +11,6 @@ __pycache__/
 .coverage
 dist/
 build/
+.mypy_cache
+.ptest_cache
 
