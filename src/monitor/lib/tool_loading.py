@@ -337,7 +337,7 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "read_from_memory",
-                "description": "Recall a previously remembered fact by its key. Use to look up something stored earlier in this session via update_memory (or save_to_memory) — e.g. a user-stated preference, a project fact, or context from an earlier turn. The 'conversation:' namespace prefix is handled automatically.",
+                "description": "Recall a previously remembered fact by its key. Keys are visible in the 'Previous conversation context:' system message that's prepended to every user turn — each stored entry there is rendered as 'Key: conversation:<timestamp>\\nUser: ...\\nResponse: ...' so you can copy the Key value directly. If you need to enumerate keys without reading content, use fetch_memory_keys_as_json. The 'conversation:' namespace prefix is handled automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {

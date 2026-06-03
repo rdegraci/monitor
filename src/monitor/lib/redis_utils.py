@@ -642,7 +642,11 @@ def read_from_memory(key: str) -> Union[str, None]:
         value = client.get(search_key) if exists else None
 
         if value is None:
-            logger.warning(
+            # Cache miss — the key either expired (TTL elapsed) or was
+            # never stored. The LLM gets None back and handles it. Logged
+            # at INFO (not WARNING) because this is an expected branch,
+            # not a problem the operator needs to act on.
+            logger.info(
                 "No value found in memory for search_key: %s", search_key
             )
             return None
@@ -813,15 +817,25 @@ def prepend_memory_to_history() -> None:
                             and "user_input" in data
                             and "response" in data
                         ):
+                            # Include the Redis key in the rendered entry so
+                            # the LLM can pass it to read_from_memory /
+                            # delete_from_memory directly. Without this, the
+                            # model sees the content (User/Response) but has
+                            # no way to discover the opaque timestamp keys
+                            # update_memory auto-generates — leading to
+                            # cache-miss warnings when the model fabricates
+                            # or guesses keys instead of looking them up.
                             entry = (
-                                f"User: {data['user_input']}\nResponse: {data['response']}"
+                                f"Key: {key}\n"
+                                f"User: {data['user_input']}\n"
+                                f"Response: {data['response']}"
                             )
                             memory_entries.append(entry)
                     except (json.JSONDecodeError, TypeError) as e:
                         logger.warning(
                             "Failed to decode JSON for key %s: %s", key, e
                         )
-                        memory_entries.append(str(value))
+                        memory_entries.append(f"Key: {key}\n{value}")
 
         if memory_entries:
             memory_dict = {

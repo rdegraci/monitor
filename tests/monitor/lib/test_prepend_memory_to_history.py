@@ -158,3 +158,30 @@ def test_memory_content_updates_replace_in_place(monkeypatch):
     assert "input-k2" in new_memory
     assert "input-k1" not in new_memory  # replaced, not appended
     assert len(config.CONVERSATION_HISTORY) == 2  # length unchanged
+
+
+def test_prepended_memory_includes_keys(monkeypatch):
+    """The rendered memory context must include each entry's Redis key on
+    its own line. Without this, the LLM sees stored content but has no way
+    to learn the opaque timestamp keys, so read_from_memory / delete_from_memory
+    calls fall back to guessing — producing 'No value found in memory'
+    cache misses. Surfacing keys closes that gap.
+
+    Expected format per entry:
+        Key: <key>
+        User: input-<key>
+        Response: resp-<key>
+    """
+    from monitor.lib.redis_utils import prepend_memory_to_history
+
+    config.CONVERSATION_HISTORY[:] = [_system("PLATFORM")]
+    _patch_redis_for_memory(monkeypatch, ["k1", "k2"])
+
+    prepend_memory_to_history()
+
+    rendered = config.CONVERSATION_HISTORY[1]["content"]
+    assert "Key: k1" in rendered
+    assert "Key: k2" in rendered
+    # Existing User/Response rendering is preserved.
+    assert "User: input-k1" in rendered
+    assert "Response: resp-k1" in rendered
