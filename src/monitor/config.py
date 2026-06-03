@@ -542,6 +542,12 @@ COST_P_YELLOW = 0.30
 COST_P_RED = 0.80
 COST_W_YELLOW = 0.30
 COST_W_RED = 0.60
+# Per-model pricing overrides for the cost-fallback path. Used by
+# lib/model_pricing.estimate_cost_from_usage when litellm.completion_cost
+# returns 0 for an unknown model. Populated from the YAML ``model_pricing:``
+# block at startup; keyed by full model name; values are per-token rate dicts.
+# See lib/model_pricing.py for the lookup precedence (override > shipped).
+MODEL_PRICING_OVERRIDES = {}
 # Per-turn cost ledger. Each entry is the accumulated USD cost for one
 # user-message-bounded turn. A new 0.0 is appended each time the harness
 # observes a fresh user message; all LLM calls between user messages
@@ -878,6 +884,44 @@ def configure_globals():
                 "%s=%r is not a number; keeping default %s",
                 _key, _raw, globals()[_attr_name],
             )
+
+    # YAML ``model_pricing:`` block → MODEL_PRICING_OVERRIDES. YAML uses the
+    # user-friendly per-million-tokens form; we convert to per-token here so
+    # the lookup site can multiply directly without recomputing rates.
+    # Format:
+    #   model_pricing:
+    #     "xai/grok-build-0.1":
+    #       input_per_million_tokens:        1.00
+    #       cached_input_per_million_tokens: 0.20
+    #       output_per_million_tokens:       2.00
+    global MODEL_PRICING_OVERRIDES
+    _raw_pricing = yaml_config.get("model_pricing")
+    if isinstance(_raw_pricing, dict):
+        _overrides = {}
+        for _model_name, _rates in _raw_pricing.items():
+            if not isinstance(_model_name, str) or not isinstance(_rates, dict):
+                logger.warning(
+                    "model_pricing entry %r is malformed (must be dict of rates); skipping",
+                    _model_name,
+                )
+                continue
+            _per_token = {}
+            for _src, _dst in (
+                ("input_per_million_tokens", "input_per_token"),
+                ("cached_input_per_million_tokens", "cached_input_per_token"),
+                ("output_per_million_tokens", "output_per_token"),
+            ):
+                _val = _rates.get(_src)
+                if isinstance(_val, (int, float)) and _val >= 0:
+                    _per_token[_dst] = float(_val) / 1_000_000
+                elif _val is not None:
+                    logger.warning(
+                        "model_pricing[%r].%s=%r is not a non-negative number; ignoring",
+                        _model_name, _src, _val,
+                    )
+            if _per_token:
+                _overrides[_model_name] = _per_token
+        MODEL_PRICING_OVERRIDES = _overrides
 
     global OLD_TOOL_BODY_TURNS_THRESHOLD
     _demote_raw = yaml_config.get("OLD_TOOL_BODY_TURNS_THRESHOLD")

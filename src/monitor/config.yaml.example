@@ -145,6 +145,31 @@ COST_P_RED: 0.80
 COST_W_YELLOW: 0.30
 COST_W_RED: 0.60
 
+# Per-model pricing overrides for the cost-fallback path. litellm provides
+# pricing for most public models out of the box; this block is for the
+# cases litellm doesn't know about — custom or private deployments, brand-
+# new releases, internal/staging model names. When litellm returns $0 for
+# a response (because the model isn't in its table), the harness falls
+# back to this list (plus the shipped defaults in lib/model_pricing.py).
+#
+# Rates are per MILLION tokens (the form providers publish). The harness
+# converts to per-token internally. Add entries for any custom model you
+# use whose prices you know; entries you omit fall through to the shipped
+# defaults, and models present in neither remain silent ($0 displayed).
+#
+# Schema per entry:
+#   "<provider>/<model-name>":
+#     input_per_million_tokens:        <number>
+#     cached_input_per_million_tokens: <number>
+#     output_per_million_tokens:       <number>
+#
+# Example (uncomment to enable; replace with your custom model + actual rates):
+# model_pricing:
+#   "xai/grok-build-0.1":
+#     input_per_million_tokens:        1.00
+#     cached_input_per_million_tokens: 0.20
+#     output_per_million_tokens:       2.00
+
 # Uncomment this to override MODEL_INPUT_TIER
 # MODEL_MAX_TPM: 2000000
 

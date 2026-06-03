@@ -287,7 +287,24 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
         if cost_response is not None:
             try:
                 import litellm
-                cost = litellm.completion_cost(completion_response=cost_response)
+                try:
+                    cost = litellm.completion_cost(completion_response=cost_response)
+                except Exception:
+                    cost = 0
+                # Fallback: when litellm doesn't know the model (returns 0
+                # or raises), use our local pricing table. The same
+                # tokens-times-rates math, just sourced from
+                # config.MODEL_PRICING_OVERRIDES (YAML-supplied) or
+                # SHIPPED_MODEL_PRICING. Keeps the U: cost annotation
+                # honest on custom/private/new-release models.
+                if not (isinstance(cost, (int, float)) and cost > 0):
+                    try:
+                        from monitor.lib.model_pricing import estimate_cost_from_usage
+                        model_name = getattr(config, "MODEL", "") or ""
+                        cost = estimate_cost_from_usage(cost_response, model_name)
+                    except Exception:
+                        logger.debug("Local pricing fallback failed", exc_info=True)
+                        cost = 0
                 if isinstance(cost, (int, float)) and cost > 0:
                     current_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
                     config.SESSION_COST_USD = current_cost + float(cost)
