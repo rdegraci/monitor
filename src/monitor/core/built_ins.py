@@ -30,7 +30,9 @@ from monitor.lib.built_in_commands import (
     cost_debug_command,
     dump_history_command,
     dump_metrics_command,
+    less_command,
     max_tokens_command,
+    save_response_command,
     reasoning_command,
     ttl_command,
     trim_history_command,
@@ -375,6 +377,16 @@ def configure_built_ins() -> None:
                     "command": ":dump_history",
                     "function": _make_callable(dump_history_command),
                     "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
+                },
+                {
+                    "command": ":less",
+                    "function": _make_callable(less_command),
+                    "description": "Re-display the last assistant response paged through less.",
+                },
+                {
+                    "command": ":save_response",
+                    "function": _make_callable(save_response_command),
+                    "description": "Save the last assistant response to a file. Usage: :save_response [path]. No arg → cwd/response-<ts>.md.",
                 },
                 {
                     "command": ":macros",

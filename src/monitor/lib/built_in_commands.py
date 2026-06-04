@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 
 from typing import Any, Dict
@@ -873,6 +874,156 @@ def dump_history_command(arg: str = None) -> None:
         return
 
     print(f"Wrote conversation history ({len(history_copy)} messages) to {expanded}")
+
+
+def _last_assistant_response() -> "str | None":
+    """Return the text content of the most recent assistant message in
+    CONVERSATION_HISTORY, or None if there isn't one.
+
+    Skips assistant messages whose content is empty/None (those are
+    tool_calls-only rounds, where the model dispatched tools without
+    producing user-facing text). Caller distinguishes "no response yet"
+    from "response was empty" by the None return.
+    """
+    history = getattr(config, "CONVERSATION_HISTORY", None) or []
+    for msg in reversed(history):
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+    return None
+
+
+def less_command(arg: str = None) -> None:
+    """Re-display the most recent assistant response, rendered as markdown
+    through a pager.
+
+    Usage:
+        :less
+
+    Uses ``rich.Console().pager()`` + ``rich.markdown.Markdown`` so the
+    response renders properly: headers as headers, code blocks
+    syntax-highlighted (rich detects the language hint after the opening
+    fence), bold/italic styled, lists indented. Compare to the raw
+    response in CONVERSATION_HISTORY, which is just the model's markdown
+    *source* — readable but ugly.
+
+    Width: rich auto-detects terminal columns and wraps to fit. At 120+
+    cols this is rarely visible; very narrow terminals or pasted log
+    lines >120 chars will wrap. Override via Console(width=...) if that
+    becomes a problem.
+
+    Behavior in non-interactive environments (--script mode, stdout
+    redirected to a file/pipe): silently falls back to plain print.
+    Spawning a blocking pager when nobody is at the keyboard would hang
+    the bench runner indefinitely. ``Console`` would also misdetect
+    width and color support in a piped context.
+
+    No-op (with an info message) if there's no assistant response yet.
+    """
+    del arg  # this command takes no arguments
+    text = _last_assistant_response()
+    if text is None:
+        print("No assistant response to page yet.")
+        return
+
+    # TTY check: --script mode and piped output both fail isatty(). In
+    # those cases just print the raw markdown source — preserves the
+    # response in stdout / log files. rich would otherwise either block
+    # in the pager or strip styling without our consent.
+    if not sys.stdout.isatty():
+        print(text)
+        return
+
+    # Lazy import: rich is a hard dep in pyproject.toml, but a runtime
+    # ImportError would crash the whole built-in instead of degrading.
+    # Falling back to plain print on ImportError keeps :less usable in
+    # any partially-broken environment (e.g., a dev who installed from
+    # source without rich pinned).
+    try:
+        from rich.console import Console
+        from rich.markdown import Markdown
+    except ImportError:
+        logger.warning("rich not available; printing response inline.")
+        print(text)
+        return
+
+    try:
+        # styles=True keeps colors when the pager (less) is invoked —
+        # the rich equivalent of our previous ``less -R`` flag. Without
+        # it, the pager would receive plain text and the syntax
+        # highlighting would be lost.
+        console = Console()
+        with console.pager(styles=True):
+            console.print(Markdown(text))
+    except BrokenPipeError:
+        # User quit the pager before output finished streaming — benign.
+        pass
+    except Exception as e:
+        # rich rendering or pager subprocess died for some reason
+        # (missing less binary on the system, weird terminal, etc.).
+        # Degrade to plain print rather than crash the REPL.
+        logger.warning("Pager render failed (%s); printing response inline.", e)
+        print(text)
+
+
+def save_response_command(arg: str = None) -> None:
+    """Write the most recent assistant response to a file.
+
+    Usage:
+        :save_response                 → cwd / response-<unix_ts>.md
+        :save_response <directory>     → <directory> / response-<unix_ts>.md
+        :save_response <filepath>      → <filepath> exactly
+
+    The default filename pattern (``response-<unix_ts>.md``) matches the
+    bench runner's ``run-<unix_ts>.json`` shape: sortable, collision-free
+    across rapid saves, and ``.md`` because LLM responses are typically
+    markdown.
+
+    Parent directory must already exist (same rule as :dump_metrics /
+    :dump_history) — the harness doesn't auto-mkdir into unexpected
+    places. Existing files are overwritten.
+    """
+    text = _last_assistant_response()
+    if text is None:
+        print_colored_error("No assistant response to save yet.")
+        return
+
+    raw = (arg or "").strip()
+    default_filename = f"response-{int(time.time())}.md"
+
+    if not raw:
+        target = os.path.join(os.getcwd(), default_filename)
+    else:
+        expanded = os.path.abspath(os.path.expanduser(raw))
+        # Treat existing directories as "save into here with default
+        # filename". A bare new filepath (not yet existing) is taken
+        # as the literal target.
+        if os.path.isdir(expanded):
+            target = os.path.join(expanded, default_filename)
+        else:
+            target = expanded
+
+    parent = os.path.dirname(target) or "."
+    if not os.path.isdir(parent):
+        print_colored_error(
+            f"Parent directory does not exist: {parent}. Create it first."
+        )
+        return
+
+    try:
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            if not text.endswith("\n"):
+                fh.write("\n")
+    except OSError as e:
+        print_colored_error(f"Failed to write response to {target}: {e}")
+        return
+
+    print(f"Wrote assistant response ({len(text)} chars) to {target}")
 
 
 def llm_command(arg: str = None) -> None:
