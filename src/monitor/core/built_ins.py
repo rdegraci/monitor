@@ -32,6 +32,7 @@ from monitor.lib.built_in_commands import (
     dump_history_command,
     dump_metrics_command,
     less_command,
+    load_history_command,
     max_tokens_command,
     save_response_command,
     reasoning_command,
@@ -378,6 +379,11 @@ def configure_built_ins() -> None:
                     "command": ":dump_history",
                     "function": _make_callable(dump_history_command),
                     "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
+                },
+                {
+                    "command": ":load_history",
+                    "function": _make_callable(load_history_command),
+                    "description": "Replace current conversation with a saved JSON transcript. Usage: :load_history <path>.",
                 },
                 {
                     "command": ":less",

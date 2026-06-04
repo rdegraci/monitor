@@ -876,6 +876,146 @@ def dump_history_command(arg: str = None) -> None:
     print(f"Wrote conversation history ({len(history_copy)} messages) to {expanded}")
 
 
+def _format_elapsed(seconds: float) -> str:
+    """Render a positive elapsed-time delta as a short human string.
+
+    Used by :load_history to surface how stale a saved session is.
+    Buckets: 'Ns', 'Nm', 'Nh', 'Nd'. Anything 7+ days old still rounds
+    to 'Nd' — beyond that the precision doesn't help the user.
+    """
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+def load_history_command(arg: str = None) -> None:
+    """Replace CONVERSATION_HISTORY with a previously saved transcript.
+
+    Usage:
+        :load_history <path>
+
+    Counterpart to :dump_history — reads the JSON envelope written by
+    that command and substitutes its ``conversation`` array for the
+    current in-memory history. Per-session counters (cost, tokens,
+    tool-call count, loop trips, compactions) are reset to 0 because
+    the loaded session's metrics aren't ours to claim.
+
+    Caveats the user should know about:
+
+      - **Tool results may be stale.** A saved history contains
+        ``cat_file``, ``ls``, ``ripgrep`` results from when the
+        session was recorded. If files have moved or been edited
+        since, the model may trust the stale results until it
+        re-reads. The harness can't detect this; the print-on-load
+        message flags the elapsed duration as a warning.
+      - **Working directory is NOT restored.** The original session
+        may have been in a different repo or commit. ``cd`` yourself
+        first if needed.
+      - **Active conversation is discarded.** This command does not
+        prompt for confirmation — the model name suggests a load,
+        and load means replace. Save first via :dump_history if you
+        wanted both.
+
+    Validation: the file must be valid JSON, have ``schema_version: 1``,
+    and contain a list under ``conversation``. Anything else returns an
+    error without mutating state.
+    """
+    path = (arg or "").strip()
+    if not path:
+        print_colored_error("Usage: :load_history <path>  — load a saved conversation JSON.")
+        return
+
+    expanded = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isfile(expanded):
+        print_colored_error(f"File not found: {expanded}")
+        return
+
+    # Read + parse + validate up front. If anything fails, we abort
+    # WITHOUT mutating config — partial loads would leave the session
+    # in a half-replaced state that's worse than either extreme.
+    try:
+        with open(expanded, "r", encoding="utf-8") as fh:
+            envelope = json.load(fh)
+    except json.JSONDecodeError as e:
+        print_colored_error(f"Failed to parse {expanded} as JSON: {e}")
+        return
+    except OSError as e:
+        print_colored_error(f"Failed to read {expanded}: {e}")
+        return
+
+    if not isinstance(envelope, dict):
+        print_colored_error(
+            f"{expanded}: expected a JSON object envelope, got {type(envelope).__name__}. "
+            "Was this file written by :dump_history?"
+        )
+        return
+
+    schema = envelope.get("schema_version")
+    if schema != 1:
+        print_colored_error(
+            f"{expanded}: schema_version={schema!r}, expected 1. "
+            "This file may have been written by a future version of monitor."
+        )
+        return
+
+    conversation = envelope.get("conversation")
+    if not isinstance(conversation, list):
+        print_colored_error(
+            f"{expanded}: 'conversation' must be a list, got "
+            f"{type(conversation).__name__}."
+        )
+        return
+
+    # All validation passed — now mutate. Pattern mirrors
+    # reset_conversation_history_command: explicit clear of the live
+    # list (so any other module holding a reference sees the change),
+    # then re-populate. Reset of per-session counters keeps :cost_debug,
+    # the U:/C: indicators, and :dump_metrics honest about *this*
+    # session, not whatever the loaded session spent.
+    prior_count = len(getattr(config, "CONVERSATION_HISTORY", []) or [])
+    config.CONVERSATION_HISTORY.clear()
+    config.CONVERSATION_HISTORY.extend(conversation)
+    config.TOTAL_TOKEN_COUNT = 0
+    config.SESSION_TOTAL_TOKENS = 0
+    config.SESSION_COST_USD = 0.0
+    config.SESSION_COMPACTION_COUNT = 0
+    config.SESSION_TOOL_CALL_COUNT = 0
+    config.SESSION_LOOP_DETECTOR_TRIPS = 0
+    config.TURN_COSTS_USD = []
+    config.CURRENT_TURN_REASONING_OVERRIDE = None
+    config.RESPONSE_ID = None
+    # Restart the time-based summarization clock so it doesn't think
+    # the "last summary" was at the loaded session's time-of-write.
+    config.last_summary_time = time.time()
+
+    # Staleness message — load-bearing UX. The user needs to see
+    # "this was saved 3 days ago, tool results may be stale" before
+    # they ask the model to act on the loaded context.
+    written_at = envelope.get("written_at")
+    if isinstance(written_at, (int, float)) and written_at > 0:
+        elapsed = time.time() - written_at
+        elapsed_str = _format_elapsed(elapsed)
+        stale_warning = (
+            f" Saved {elapsed_str} — tool results (file contents, listings) "
+            "may be stale relative to current filesystem state."
+        )
+    else:
+        stale_warning = ""
+
+    src_session = envelope.get("session_id") or "(unknown)"
+    src_model = envelope.get("model") or "(unknown)"
+    print(
+        f"Loaded {len(conversation)} messages from {expanded} "
+        f"(replaced {prior_count} in current history).{stale_warning} "
+        f"Source session_id={src_session!r}, original model={src_model!r}."
+    )
+
+
 def _last_assistant_response() -> "str | None":
     """Return the text content of the most recent assistant message in
     CONVERSATION_HISTORY, or None if there isn't one.
