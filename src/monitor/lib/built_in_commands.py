@@ -951,11 +951,25 @@ def less_command(arg: str = None) -> None:
         print(text)
         return
 
+    # styles=True tells rich to include ANSI styling in the bytes piped
+    # to the pager — but that only matters if the pager *interprets*
+    # those bytes as control codes. less's default is to show them as
+    # literal "ESC[...m" text; the -R flag tells less to pass ANSI color
+    # escapes through to the terminal. less reads the LESS env var on
+    # startup and treats it as default flags, so setting LESS=-R is the
+    # cleanest way to get -R without taking over rich's pager-builder.
+    #
+    # The sentinel-object pattern distinguishes "LESS was unset" from
+    # "LESS was set to empty string" — different visible states for any
+    # subprocess spawned later. Without this, the finally block would
+    # convert one into the other.
+    _UNSET = object()
+    prev_less = os.environ.get("LESS", _UNSET)
+    os.environ["LESS"] = "-R"
     try:
-        # styles=True keeps colors when the pager (less) is invoked —
-        # the rich equivalent of our previous ``less -R`` flag. Without
-        # it, the pager would receive plain text and the syntax
-        # highlighting would be lost.
+        # styles=True keeps colors in the output. Without it, rich would
+        # strip styling before sending to the pager — defeating the
+        # whole point of the rich rendering.
         console = Console()
         with console.pager(styles=True):
             console.print(Markdown(text))
@@ -968,6 +982,15 @@ def less_command(arg: str = None) -> None:
         # Degrade to plain print rather than crash the REPL.
         logger.warning("Pager render failed (%s); printing response inline.", e)
         print(text)
+    finally:
+        # Restore LESS to its pre-:less state. The finally block runs on
+        # both the happy path and any exception above, so an exception
+        # inside the pager can't leak LESS=-R into the rest of the
+        # session.
+        if prev_less is _UNSET:
+            os.environ.pop("LESS", None)
+        else:
+            os.environ["LESS"] = prev_less
 
 
 def _extract_fenced_code_blocks(text: str) -> "list[tuple[str, str]]":

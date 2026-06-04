@@ -211,6 +211,122 @@ def test_less_with_no_response_prints_message(monkeypatch, capsys):
     assert "No assistant response" in captured.out
 
 
+def test_less_sets_LESS_R_inside_pager_and_restores_after(monkeypatch):
+    """LESS=-R must be live while the pager runs (so less interprets
+    ANSI codes instead of showing them as literal ESC[...m text) and
+    restored to its prior value after — never leaking into the rest of
+    the session.
+
+    This test pins both halves: capture LESS inside pager(), then verify
+    the post-:less env matches the pre-:less env exactly.
+    """
+    monkeypatch.setattr(config, "CONVERSATION_HISTORY", [
+        {"role": "assistant", "content": "x"}
+    ], raising=False)
+    monkeypatch.setattr(built_in_commands.sys.stdout, "isatty", lambda: True)
+
+    # User had LESS set to something specific before invoking :less.
+    # The expected post-state is exactly this — neither cleared nor
+    # changed to -R.
+    monkeypatch.setenv("LESS", "user-custom-value")
+
+    seen = {"LESS_during": None}
+
+    import contextlib
+    import rich.console as rich_console
+
+    class _ProbeConsole:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @contextlib.contextmanager
+        def pager(self, **kwargs):
+            seen["LESS_during"] = os.environ.get("LESS")
+            yield
+
+        def print(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(rich_console, "Console", _ProbeConsole)
+
+    built_in_commands.less_command()
+
+    # Inside the pager: LESS was -R (so less interprets color escapes).
+    assert seen["LESS_during"] == "-R"
+    # After: LESS is restored to the user's pre-:less value.
+    assert os.environ.get("LESS") == "user-custom-value"
+
+
+def test_less_unsets_LESS_after_if_it_was_unset_before(monkeypatch):
+    """The sentinel-pattern guarantee: if LESS wasn't set going in, it
+    must NOT exist coming out — not even as an empty string. The
+    distinction matters: any subprocess inspecting LESS would see
+    different behavior depending on whether the var is absent vs set
+    to empty."""
+    monkeypatch.setattr(config, "CONVERSATION_HISTORY", [
+        {"role": "assistant", "content": "x"}
+    ], raising=False)
+    monkeypatch.setattr(built_in_commands.sys.stdout, "isatty", lambda: True)
+    monkeypatch.delenv("LESS", raising=False)
+
+    import contextlib
+    import rich.console as rich_console
+
+    class _NoopConsole:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @contextlib.contextmanager
+        def pager(self, **kwargs):
+            yield
+
+        def print(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(rich_console, "Console", _NoopConsole)
+
+    built_in_commands.less_command()
+
+    # The key invariant: LESS is GONE, not just set to "".
+    assert "LESS" not in os.environ
+
+
+def test_less_restores_LESS_even_when_pager_raises(monkeypatch):
+    """The finally block is load-bearing: if the pager throws (broken
+    pipe, missing less binary, rich render bug, anything), LESS=-R must
+    NOT leak into the rest of the session. Without the finally guard,
+    every subsequent subprocess in the same monitor3 process would
+    inherit LESS=-R for the lifetime of the REPL."""
+    monkeypatch.setattr(config, "CONVERSATION_HISTORY", [
+        {"role": "assistant", "content": "x"}
+    ], raising=False)
+    monkeypatch.setattr(built_in_commands.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("LESS", "prior-value")
+
+    import contextlib
+    import rich.console as rich_console
+
+    class _ExplodingConsole:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @contextlib.contextmanager
+        def pager(self, **kwargs):
+            raise RuntimeError("boom")
+            yield
+
+        def print(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(rich_console, "Console", _ExplodingConsole)
+
+    # Must not raise — the exception is caught and degraded to print.
+    built_in_commands.less_command()
+
+    # And LESS must be restored despite the explosion.
+    assert os.environ.get("LESS") == "prior-value"
+
+
 # ---------------------------------------------------------------------------
 # :save_response
 # ---------------------------------------------------------------------------
