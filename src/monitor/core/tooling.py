@@ -238,12 +238,24 @@ def handle_tool_call(response, _depth=0):
                 except Exception:
                     loop_args = fn_block.get("arguments")
 
+        # Bump the session-wide tool-call counter for every call seen here,
+        # whether it ultimately executes, errors, or is rejected by the loop
+        # detector. Surfaced via :dump_metrics for eval grading.
+        try:
+            config.SESSION_TOOL_CALL_COUNT = getattr(config, "SESSION_TOOL_CALL_COUNT", 0) + 1
+        except Exception:
+            logger.debug("Failed to increment SESSION_TOOL_CALL_COUNT", exc_info=True)
+
         if loop_name and _check_repeated_call(loop_name, loop_args):
             max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
             logger.warning(
                 "handle_tool_call: refusing repeated call to %s (>=%d times in a row this turn)",
                 loop_name, max_reps,
             )
+            try:
+                config.SESSION_LOOP_DETECTOR_TRIPS = getattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0) + 1
+            except Exception:
+                logger.debug("Failed to increment SESSION_LOOP_DETECTOR_TRIPS", exc_info=True)
             result = None
             error = (
                 f"Loop detected: you called {loop_name} with these exact arguments "

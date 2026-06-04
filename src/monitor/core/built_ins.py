@@ -28,6 +28,7 @@ from monitor.lib.built_in_commands import (
     reload_macros_command,
     llm_command,
     cost_debug_command,
+    dump_metrics_command,
     max_tokens_command,
     reasoning_command,
     ttl_command,
@@ -363,6 +364,11 @@ def configure_built_ins() -> None:
                     "command": ":cost_debug",
                     "function": _make_callable(cost_debug_command),
                     "description": "Dump per-turn cost-tracking state and flag invariant violations.",
+                },
+                {
+                    "command": ":dump_metrics",
+                    "function": _make_callable(dump_metrics_command),
+                    "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: :dump_metrics <path>.",
                 },
                 {
                     "command": ":macros",

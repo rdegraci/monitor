@@ -1,4 +1,5 @@
 import copy
+import json
 import logging
 import os
 import subprocess
@@ -288,6 +289,8 @@ def reset_conversation_history_command(arg=None):
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
         config.SESSION_COMPACTION_COUNT = 0
+        config.SESSION_TOOL_CALL_COUNT = 0
+        config.SESSION_LOOP_DETECTOR_TRIPS = 0
         config.TURN_COSTS_USD = []
         config.CURRENT_TURN_REASONING_OVERRIDE = None
         config.RESPONSE_ID = None
@@ -733,6 +736,77 @@ def cost_debug_command(arg: str = None) -> None:
             "Likely a silent exception in the bucket-update try/except at "
             "token_management.py:255-264."
         )
+
+
+def dump_metrics_command(arg: str = None) -> None:
+    """Write session metrics as JSON to a path. Built for eval harnesses
+    that run monitor3 via --script and need a machine-readable result.
+
+    Usage:
+        :dump_metrics <path>
+
+    The output is a flat JSON object with cumulative session counters at
+    the moment the command runs — typically the last line of an eval
+    script, after the model has finished its work. Keys are stable; new
+    fields may be added but existing ones won't be renamed or removed.
+
+    Path is expanded for ~ and made absolute. The parent directory must
+    exist; the command does not create it. Existing files are overwritten.
+    """
+    path = (arg or "").strip()
+    if not path:
+        print_colored_error(
+            "Usage: :dump_metrics <path>  — writes session metrics as JSON to <path>."
+        )
+        return
+
+    expanded = os.path.abspath(os.path.expanduser(path))
+    parent = os.path.dirname(expanded) or "."
+    if not os.path.isdir(parent):
+        print_colored_error(
+            f"Parent directory does not exist: {parent}. Create it first."
+        )
+        return
+
+    history = getattr(config, "CONVERSATION_HISTORY", None) or []
+    user_msg_count = sum(
+        1 for m in history
+        if isinstance(m, dict) and m.get("role") == "user"
+    )
+
+    payload = {
+        "schema_version": 1,
+        "written_at": time.time(),
+        "session_id": getattr(config, "SESSION_ID", None),
+        "model": getattr(config, "MODEL", None),
+        "startup_time": getattr(config, "STARTUP_TIME", None),
+        # Cost + tokens
+        "session_cost_usd": float(getattr(config, "SESSION_COST_USD", 0.0) or 0.0),
+        "session_total_tokens": int(getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0),
+        "total_token_count": int(getattr(config, "TOTAL_TOKEN_COUNT", 0) or 0),
+        "last_request_token_count": int(getattr(config, "LAST_REQUEST_TOKEN_COUNT", 0) or 0),
+        "turn_costs_usd": list(getattr(config, "TURN_COSTS_USD", []) or []),
+        # Behavioral counters — populated by core.tooling.handle_tool_call.
+        # tool_call_count counts every (tool_name, args) dispatched this
+        # session; loop_detector_trips counts how many of those were
+        # rejected by the per-turn loop detector.
+        "session_tool_call_count": int(getattr(config, "SESSION_TOOL_CALL_COUNT", 0) or 0),
+        "session_loop_detector_trips": int(getattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0) or 0),
+        "session_compaction_count": int(getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0),
+        # Conversation shape
+        "conversation_length": len(history),
+        "user_message_count": user_msg_count,
+    }
+
+    try:
+        with open(expanded, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+    except OSError as e:
+        print_colored_error(f"Failed to write metrics to {expanded}: {e}")
+        return
+
+    print(f"Wrote metrics to {expanded}")
 
 
 def llm_command(arg: str = None) -> None:

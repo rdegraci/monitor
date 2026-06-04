@@ -517,6 +517,17 @@ SESSION_COST_USD = 0.0
 # user can see how aggressively compaction is firing. Resets alongside the
 # cumulative cost counters on set_model() and :reset_history.
 SESSION_COMPACTION_COUNT = 0
+# Cumulative count of tool calls dispatched this session — incremented in
+# handle_tool_call for each tool call seen (whether it executed, errored,
+# or was rejected by the loop detector). Surfaced via :dump_metrics so
+# eval harnesses can grade efficiency without log-scraping. Resets on
+# set_model() and :reset_history alongside the cost counters.
+SESSION_TOOL_CALL_COUNT = 0
+# Number of times the per-turn loop detector has refused a repeated tool
+# call this session. Zero means the model never spun in a tight loop;
+# any positive value is worth investigating in the eval transcript.
+# Resets on set_model() and :reset_history.
+SESSION_LOOP_DETECTOR_TRIPS = 0
 # Cached project-instructions content (MONITOR.md + MONITOR_CONVENTIONS.md)
 # loaded once and concatenated into the system prompt by build_system_prompt.
 # None until first read; populated by _project_instructions_content() in
@@ -1328,6 +1339,7 @@ def set_model(model_key: str) -> bool:
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
+    global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1410,6 +1422,8 @@ def set_model(model_key: str) -> bool:
     SESSION_TOTAL_TOKENS = 0
     SESSION_COST_USD = 0.0
     SESSION_COMPACTION_COUNT = 0
+    SESSION_TOOL_CALL_COUNT = 0
+    SESSION_LOOP_DETECTOR_TRIPS = 0
     TURN_COSTS_USD = []
     CURRENT_TURN_REASONING_OVERRIDE = None
 
