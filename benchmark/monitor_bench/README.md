@@ -1,9 +1,9 @@
 # monitor_bench
 
-Internal regression benchmark for monitor3. Each task launches monitor3
+Internal regression benchmark for Monitor. Each task launches Monitor
 as a subprocess with a fixed prompt, then grades the resulting workspace
 state, `:dump_metrics` JSON, and `:dump_history` JSON. Designed for "did
-my change make monitor3 better or worse?" — not for publishing
+my change make Monitor better or worse?" — not for publishing
 comparison scores.
 
 ## How it works
@@ -14,8 +14,8 @@ Each task lives at `tasks/<task_name>/task.py` and exports:
 |---|---|
 | `NAME` | display name |
 | `TAGS` | list of strings for filtering and per-tag rollup (e.g. `["memory", "todo"]`) |
-| `PROMPT` | the line fed to `monitor3 --script` |
-| `setup(workspace)` | optional — seed fixture files in the per-task tempdir before monitor3 launches |
+| `PROMPT` | the line fed to `monitor --script` |
+| `setup(workspace)` | optional — seed fixture files in the per-task tempdir before Monitor launches |
 | `grade(workspace, metrics, stdout, stderr, exit_code, history=None)` | return `(passed: bool, detail: str)` |
 
 The runner generates a three-line script per (task, sample):
@@ -64,7 +64,7 @@ uses and only passes `history` when you opt in.
 ## Running
 
 ```bash
-# All tasks, 3 samples each, monitor3's default model:
+# All tasks, 3 samples each, Monitor's default model:
 python -m benchmark.monitor_bench.runner
 
 # A specific task or tag substring:
@@ -158,7 +158,7 @@ enough — no LLM needed. For harder questions, hand the full
   is unusually high or `session_loop_detector_trips > 0`. For each, scan
   the transcript for patterns of redundant tool calls."
 
-You can run monitor3 itself as the analyst (it has Read access and can
+You can run Monitor itself as the analyst (it has Read access and can
 ingest the JSON directly), or use a separate LLM. Either works.
 
 ## Adding a task
@@ -218,7 +218,7 @@ costs $0 to run and exercises only subprocess launch, `--script`
 dispatch, `:dump_metrics`, `:dump_history`, and the runner's JSON
 ingestion. If this fails, the rest of the bench is broken; if it
 passes, the failure of another task is genuinely about that task or
-about monitor3.
+about Monitor.
 
 ```bash
 python -m benchmark.monitor_bench.runner --tasks smoke

@@ -28,7 +28,7 @@ PROMPT = ":macros"
 
 
 def grade(workspace, metrics, stdout, stderr, exit_code, history=None):
-    """Pass if monitor3 exited cleanly and both dump JSONs landed.
+    """Pass if Monitor exited cleanly and both dump JSONs landed.
 
     We deliberately do NOT check token / cost values — they are zero on
     a no-LLM run, and we don't want the smoke test to fail if a future

@@ -1,7 +1,7 @@
 """Unit tests for benchmark.monitor_bench.runner.
 
 The runner shells out to ``python -m monitor --script ...`` — these tests
-mock subprocess.run so they don't actually invoke monitor3. The behavior
+mock subprocess.run so they don't actually invoke monitor. The behavior
 we care about: task discovery, script generation, metrics-JSON ingestion,
 grader error handling, and the sample-loop arithmetic.
 
@@ -156,7 +156,7 @@ def test_run_one_sample_writes_metrics_and_passes(monkeypatch):
     def fake_subprocess_run(cmd, *, cwd, env, capture_output, text, timeout, check):
         captured["cmd"] = cmd
         captured["cwd"] = Path(cwd)
-        # Simulate monitor3 writing :dump_metrics and :dump_history.
+        # Simulate monitor writing :dump_metrics and :dump_history.
         (Path(cwd) / runner.METRICS_FILENAME).write_text(
             json.dumps({"schema_version": 1, "session_cost_usd": 0.0})
         )
@@ -390,7 +390,7 @@ def test_run_one_sample_catches_grader_exception(monkeypatch):
 
 def test_run_one_sample_runs_setup_in_workspace(monkeypatch):
     """A task's setup() callback must receive the per-task tempdir so it
-    can seed fixture files before monitor3 launches."""
+    can seed fixture files before monitor launches."""
     setup_args = {}
 
     def my_setup(workspace):
@@ -416,7 +416,7 @@ def test_run_one_sample_handles_setup_exception(monkeypatch):
         raise OSError("fixture missing")
 
     # No subprocess should run if setup fails — guard against accidentally
-    # launching monitor3 on an unseeded workspace.
+    # launching monitor on an unseeded workspace.
     def fake_run(*a, **kw):
         raise AssertionError("subprocess should not have launched")
 

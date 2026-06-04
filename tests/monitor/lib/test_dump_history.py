@@ -5,7 +5,7 @@ JSON envelope. The eval harness uses this when LLM-driven failure
 analysis needs to see the whole transcript, not just aggregate counters.
 
 Schema is pinned: tests assert key names and types so a downstream
-analyzer (or run-diff tool) can rely on the shape across monitor3
+analyzer (or run-diff tool) can rely on the shape across monitor
 revisions.
 """
 
