@@ -809,6 +809,72 @@ def dump_metrics_command(arg: str = None) -> None:
     print(f"Wrote metrics to {expanded}")
 
 
+def dump_history_command(arg: str = None) -> None:
+    """Write the full conversation history as JSON to a path. Companion
+    to :dump_metrics for eval harnesses that need to inspect *what
+    happened* (model said X, called tool Y, got result Z), not just the
+    aggregate counters.
+
+    Usage:
+        :dump_history <path>
+
+    The output is a dict envelope with a stable schema:
+        schema_version: 1
+        written_at: float (unix time)
+        session_id: str
+        model: str
+        conversation: list of message dicts (role/content/tool_calls/...)
+
+    The ``conversation`` list is a deep copy of config.CONVERSATION_HISTORY
+    at write time. Existing files are overwritten; parent directory must
+    exist. JSON serialization uses default=str so any non-serializable
+    objects in tool-call payloads become their str() repr rather than
+    crashing the dump.
+    """
+    path = (arg or "").strip()
+    if not path:
+        print_colored_error(
+            "Usage: :dump_history <path>  — writes conversation history as JSON to <path>."
+        )
+        return
+
+    expanded = os.path.abspath(os.path.expanduser(path))
+    parent = os.path.dirname(expanded) or "."
+    if not os.path.isdir(parent):
+        print_colored_error(
+            f"Parent directory does not exist: {parent}. Create it first."
+        )
+        return
+
+    history = getattr(config, "CONVERSATION_HISTORY", None) or []
+    # copy.deepcopy guards against mutations between dump and write — the
+    # history list is the live config state and could in principle change
+    # during JSON encoding (it's a sync codebase so this is belt-and-
+    # suspenders, but cheap).
+    history_copy = copy.deepcopy(list(history))
+
+    payload = {
+        "schema_version": 1,
+        "written_at": time.time(),
+        "session_id": getattr(config, "SESSION_ID", None),
+        "model": getattr(config, "MODEL", None),
+        "conversation": history_copy,
+    }
+
+    try:
+        with open(expanded, "w", encoding="utf-8") as fh:
+            # default=str handles any odd non-JSON-serializable objects
+            # (e.g., Anthropic SDK message blocks) — they degrade to repr
+            # rather than crashing the dump and losing the whole history.
+            json.dump(payload, fh, indent=2, default=str)
+            fh.write("\n")
+    except OSError as e:
+        print_colored_error(f"Failed to write history to {expanded}: {e}")
+        return
+
+    print(f"Wrote conversation history ({len(history_copy)} messages) to {expanded}")
+
+
 def llm_command(arg: str = None) -> None:
     """
     Change the active LLM model at runtime.

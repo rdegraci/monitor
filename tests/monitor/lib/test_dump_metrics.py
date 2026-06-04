@@ -2,7 +2,7 @@
 
 dump_metrics_command writes a flat JSON snapshot of the session's
 cost/token/behavioral counters to a path, for use by eval harnesses that
-run monitor3 via --script. The fields are stable; tests pin both their
+run monitor via --script. The fields are stable; tests pin both their
 presence and their types so a downstream Aider-bench adapter (or similar)
 can rely on the schema.
 """
@@ -72,7 +72,7 @@ def test_dump_metrics_writes_expected_fields(tmp_path):
 
 def test_dump_metrics_expands_user_home(monkeypatch, tmp_path):
     """~ in the path must be expanded; the eval harness can't rely on
-    the cwd of the launched monitor3 process."""
+    the cwd of the launched monitor process."""
     monkeypatch.setenv("HOME", str(tmp_path))
     target = "~/metrics.json"
     built_in_commands.dump_metrics_command(target)

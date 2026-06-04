@@ -28,6 +28,7 @@ from monitor.lib.built_in_commands import (
     reload_macros_command,
     llm_command,
     cost_debug_command,
+    dump_history_command,
     dump_metrics_command,
     max_tokens_command,
     reasoning_command,
@@ -369,6 +370,11 @@ def configure_built_ins() -> None:
                     "command": ":dump_metrics",
                     "function": _make_callable(dump_metrics_command),
                     "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: :dump_metrics <path>.",
+                },
+                {
+                    "command": ":dump_history",
+                    "function": _make_callable(dump_history_command),
+                    "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
                 },
                 {
                     "command": ":macros",

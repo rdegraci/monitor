@@ -73,5 +73,5 @@ monitor = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/monitor", "tests/monitor_oop"]
+testpaths = ["tests/monitor", "tests/monitor_oop", "tests/benchmark"]
 pythonpath = ["src"]
