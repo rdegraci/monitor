@@ -171,17 +171,23 @@ def ripgrep_search_tool(
     exclude_extensions: list[str] | None = None,
     exclude_globs: list[str] | None = None,
     use_default_excludes: bool = True,
+    regex: bool = False,
 ) -> str:
     """Run a ripgrep search as a tool-friendly wrapper.
 
     Args:
-        term: The search term as literal text (not a regex).
+        term: The search term. Treated as literal text by default; pass
+            regex=True to treat as a ripgrep regex pattern instead.
         filetype: A file extension or language type (e.g., "py", "js").
         word: If True, restrict matches to word boundaries.
         exclude_extensions: List of file extensions to exclude (e.g., ["pyc", ".log"]).
         exclude_globs: List of globs to exclude (e.g., ["node_modules/**", "!*.min.js"]).
         use_default_excludes: If True, always apply DEFAULT_EXCLUDE_EXTENSIONS and
             DEFAULT_EXCLUDE_GLOBS in addition to any user-provided excludes.
+        regex: When False (default), the term is searched as a literal string
+            (ripgrep -F). When True, the term is interpreted as a regex
+            (no -F). Use regex=True when you need anchors (``^``, ``$``),
+            character classes, or alternation.
 
     Returns:
         The raw search output (possibly truncated).
@@ -194,6 +200,7 @@ def ripgrep_search_tool(
         exclude_extensions=exclude_extensions,
         exclude_globs=exclude_globs,
         use_default_excludes=use_default_excludes,
+        regex=regex,
     )
     print(result)
     return result
@@ -207,13 +214,17 @@ def ripgrep_search(
     exclude_extensions: list[str] | None = None,
     exclude_globs: list[str] | None = None,
     use_default_excludes: bool = True,
+    regex: bool = False,
 ) -> str:
-    """Search for a literal term using ripgrep ("rg") with fixed-string matching.
+    """Search a directory using ripgrep ("rg").
 
-    This performs a literal search: the pattern is not treated as a regular expression.
+    By default (``regex=False``) the search is literal — ripgrep is invoked
+    with ``-F`` so the pattern is treated as fixed text. When ``regex=True``
+    the ``-F`` flag is dropped and ripgrep interprets the pattern as a
+    regular expression (anchors, character classes, alternation all work).
 
     Behavior:
-        - Uses fixed-string matching (-F).
+        - Fixed-string matching (-F) by default; regex when regex=True.
         - Uses "--context=6".
         - Adds exclude patterns via "-g" using negated globs.
         - Returns a friendlier error for unknown ripgrep filetype.
@@ -221,7 +232,8 @@ def ripgrep_search(
         - Safely truncates very large output.
 
     Args:
-        term: The search term as literal text (not a regex).
+        term: The search pattern. Literal text by default; ripgrep regex
+            when regex=True.
         filetype: A file extension or language type (e.g., "py", "js").
         directory: Directory to search.
         word: If True, restrict matches to word boundaries (passes "-w").
@@ -229,6 +241,8 @@ def ripgrep_search(
         exclude_globs: List of globs to exclude (e.g., ["node_modules/**", "!*.min.js"]).
         use_default_excludes: If True, always apply DEFAULT_EXCLUDE_EXTENSIONS and
             DEFAULT_EXCLUDE_GLOBS in addition to any user-provided excludes.
+        regex: When False (default), the term is searched as a literal
+            string (-F). When True, treated as a ripgrep regex.
 
     Returns:
         The raw ripgrep output (possibly truncated) or a friendly no-matches message.
@@ -238,7 +252,12 @@ def ripgrep_search(
         subprocess.CalledProcessError: Not raised (subprocess.run check=False). Included
             for API compatibility expectations.
     """
-    cmd = ["rg", "-F", "--pretty", "--context=6"]
+    # The -F flag forces fixed-string matching; dropping it lets ripgrep
+    # interpret `term` as a regex. Anchors, character classes, alternation
+    # all become meaningful.
+    cmd = ["rg", "--pretty", "--context=6"]
+    if not regex:
+        cmd.insert(1, "-F")
     if filetype:
         cmd.extend(["-t", filetype])
     if word:
@@ -452,12 +471,18 @@ def build_usage_text() -> str:
         "    Otherwise, if the first non-option token is quoted, it is the entire pattern and the next token (if "
         "any) is the filetype.\n"
         "\n"
+        "  - Use -e or --regex to interpret the pattern as a regex (anchors, "
+        "character classes, alternation). Without this, the pattern is searched "
+        "as fixed text.\n"
+        "\n"
         "Examples:\n"
         "  :rg -w foo py\n"
         '  :rg "foo bar" py\n'
         "  :rg --exclude-ext pyc,log foo\n"
         "  :rg --exclude-glob node_modules/** --exclude-glob '*.min.js' foo js\n"
         "  :rg --no-default-excludes foo\n"
+        "  :rg --regex '^def test_' py\n"
+        "  :rg -e 'TODO|FIXME' py\n"
         '  :rg -- "--word-regexp"\n'
         '  :rg -- "-w" "a b"\n'
         '  :rg -- "foo bar baz"\n'
@@ -531,6 +556,7 @@ def grep_command(args: str) -> str | None:
     use_default_excludes = True
     exclude_extensions: list[str] = []
     exclude_globs: list[str] = []
+    regex = False
     remaining_pre: list[str] = []
 
     i = 0
@@ -539,6 +565,14 @@ def grep_command(args: str) -> str | None:
 
         if not is_quoted(t) and t in ("-w", "--word-regexp"):
             word = True
+            i += 1
+            continue
+
+        if not is_quoted(t) and t in ("-e", "--regex"):
+            # Drops the -F flag downstream, letting ripgrep interpret the
+            # pattern as a regex. Use for anchors (^/$), character classes,
+            # alternation. Without this, the pattern is searched literally.
+            regex = True
             i += 1
             continue
 
@@ -598,5 +632,6 @@ def grep_command(args: str) -> str | None:
         exclude_extensions=exclude_extensions or None,
         exclude_globs=exclude_globs or None,
         use_default_excludes=use_default_excludes,
+        regex=regex,
     )
     return output

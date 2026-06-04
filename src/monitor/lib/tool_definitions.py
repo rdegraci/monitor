@@ -479,13 +479,13 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "ripgrep_search_tool",
-            "description": "Searches for a term across files within the repository using ripgrep. Useful for quickly locating occurrences of a string or pattern in code or text files.",
+            "description": "Searches for a pattern across files in the repository using ripgrep. By default, the pattern is treated as literal text (fixed-string search). Set regex=True when you need anchors (^/$), character classes, or alternation.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "term": {
                         "type": "string",
-                        "description": "The search term to look for. Note: this is a string search, do not treat it as a Regex. (e.g. 'SomeStruct' or '\"struct SomeStruct\"' or '\"def function_name()\"')"
+                        "description": "The search pattern. Literal text by default; ripgrep regex when regex=True (e.g. '^def test_', 'TODO|FIXME')."
                     },
                     "filetype": {
                         "type": "string",
@@ -494,6 +494,11 @@ TOOL_DESCRIPTIONS = [
                     "word": {
                         "type": "boolean",
                         "description": "Match whole words only (passes -w to ripgrep).",
+                        "default": False
+                    },
+                    "regex": {
+                        "type": "boolean",
+                        "description": "When False (default), treat `term` as literal text. When True, interpret `term` as a ripgrep regex pattern (drops the -F flag). Use True for anchors, character classes, or alternation.",
                         "default": False
                     }
                 },
@@ -996,14 +1001,14 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Searches for a term across files within the repository using ripgrep. Useful for quickly locating occurrences of a string or pattern in code or text files.",
+    "description": "Searches for a pattern across files in the repository using ripgrep. Literal text by default; set regex=True for anchors, character classes, or alternation.",
     "name": "ripgrep_search_tool",
     "parameters": {
       "type": "object",
       "properties": {
         "term": {
           "type": "string",
-          "description": "The search term to look for. Note: this is a string search, do not treat it as a Regex. (e.g. 'SomeStruct' or '\"struct SomeStruct\"' or '\"def function_name()\"')"
+          "description": "The search pattern. Literal text by default; ripgrep regex when regex=True."
         },
         "filetype": {
           "type": "string",
@@ -1012,6 +1017,11 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "word": {
           "type": "boolean",
           "description": "Match whole words only (passes -w to ripgrep).",
+          "default": False
+        },
+        "regex": {
+          "type": "boolean",
+          "description": "When False (default), treat `term` as literal text. When True, interpret as ripgrep regex (drops -F).",
           "default": False
         }
       },

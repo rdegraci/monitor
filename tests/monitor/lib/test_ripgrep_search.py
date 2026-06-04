@@ -88,6 +88,7 @@ def test_grep_command_simple(mock_ripgrep_search):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -103,6 +104,7 @@ def test_grep_command_filetype_end_token(mock_ripgrep_search):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -119,6 +121,7 @@ def test_grep_command_multiword_quoted(mock_ripgrep_search):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -144,6 +147,7 @@ def test_grep_command_word_flag_sets_word_true(mock_ripgrep_search, flag):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -168,6 +172,7 @@ def test_grep_command_quoted_flag_like_is_literal(mock_ripgrep_search):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -184,6 +189,7 @@ def test_grep_command_end_of_options_treats_tokens_literally(mock_ripgrep_search
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -199,6 +205,7 @@ def test_grep_command_exclude_ext_parsing_sets_exclude_extensions(mock_ripgrep_s
         exclude_extensions=["pyc", "log"],
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -214,6 +221,7 @@ def test_grep_command_repeated_exclude_ext_merges_lists(mock_ripgrep_search):
         exclude_extensions=["pyc", "log"],
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -231,6 +239,7 @@ def test_grep_command_exclude_glob_parsing_collects_multiple_globs(mock_ripgrep_
         exclude_extensions=None,
         exclude_globs=["node_modules/**", "*.min.js"],
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -247,6 +256,7 @@ def test_grep_command_quoted_exclude_ext_is_literal_pattern(mock_ripgrep_search)
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
@@ -265,6 +275,7 @@ def test_grep_command_no_default_excludes_flag_sets_use_default_excludes_false(
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=False,
+        regex=False,
     )
 
 
@@ -282,6 +293,7 @@ def test_ripgrep_search_tool_passes_through(mock_ripgrep_search):
         exclude_extensions=None,
         exclude_globs=None,
         use_default_excludes=True,
+        regex=False,
     )
 
 
