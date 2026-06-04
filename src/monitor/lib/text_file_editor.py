@@ -236,6 +236,13 @@ def text_file_create(command: str, path: str, content: str) -> Dict[str, Any]:
     """
     logger.debug("Creating file: %s", path)
 
+    # Blast-radius cap: reject oversized writes before any disk work.
+    from monitor.lib.safety import check_write_size
+    ok, err = check_write_size(content, "text_file_create")
+    if not ok:
+        logger.warning("text_file_create: %s", err)
+        return {"ok": False, "path": path, "error": err}
+
     if is_file(path):
         msg = f"File already exists: {path}"
         print_red(msg)
@@ -274,6 +281,14 @@ def text_file_str_replace_in_file(command: str, path: str, old_str: str, new_str
         zero-match or multi-match.
     """
     logger.debug("String replace in file: %s", path)
+
+    # Blast-radius cap on new_str (the payload that gets written). old_str
+    # is just a search needle; it doesn't grow the file.
+    from monitor.lib.safety import check_write_size
+    ok, err = check_write_size(new_str, "text_file_str_replace_in_file")
+    if not ok:
+        logger.warning("text_file_str_replace_in_file: %s", err)
+        return {"ok": False, "path": path, "error": err}
 
     if not is_file(path):
         msg = f"File not found or not a file: {path}"
@@ -335,6 +350,14 @@ def text_file_insert_text_at_line(command: str, path: str, insert_line: int, new
         {"ok": False, "path", "error"} on failure.
     """
     logger.debug("Inserting new_str at line %d in file: %s", insert_line, path)
+
+    # Blast-radius cap on the inserted payload. Even insert-at-line could
+    # accept a hallucinated multi-MB string; check before disk work.
+    from monitor.lib.safety import check_write_size
+    ok, err = check_write_size(new_str, "text_file_insert_text_at_line")
+    if not ok:
+        logger.warning("text_file_insert_text_at_line: %s", err)
+        return {"ok": False, "path": path, "error": err}
 
     if not is_file(path):
         msg = f"File not found or not a file: {path}"

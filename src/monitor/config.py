@@ -634,6 +634,20 @@ MAX_TOOL_CALL_DEPTH = 128
 # starts the next turn (_depth=0 entry). Set to 0 to disable entirely.
 MAX_REPEATED_TOOL_CALLS = 3
 
+# Blast-radius cap on the byte length of content the model can write in a
+# single file-write tool call. UTF-8 encoded length of the payload
+# parameter (contents / content / new_str) is compared against this
+# value; over-cap calls are rejected with an error returned to the
+# model. Read-side protection lives in LARGE_FILE_TOKEN_THRESHOLD; this
+# is the symmetric write-side guard.
+#
+# Default 1 MiB (1_048_576 bytes) — large enough for legitimate writes
+# (vendored license, generated migration, lockfile up to ~1 MB), tight
+# enough to catch hallucinated runaway writes before they fill disk or
+# blow context budget on the next read. Set to 0 to disable entirely.
+# Override via YAML key MAX_FILE_WRITE_BYTES.
+MAX_FILE_WRITE_BYTES = 1_048_576
+
 # Anthropic prompt-cache TTL for the system + tools breakpoints. Must be one
 # of "5m" or "1h" (Anthropic's only supported values). Default is "1h": writes
 # cost 2x base input (vs 1.25x for 5m) but cache survives 12x longer, which
@@ -959,6 +973,27 @@ def configure_globals():
             logger.warning(
                 "OLD_TOOL_BODY_TURNS_THRESHOLD=%r is not an integer; keeping default %d",
                 _demote_raw, OLD_TOOL_BODY_TURNS_THRESHOLD,
+            )
+
+    # Blast-radius cap for write tools. YAML override goes through the
+    # same shape as OLD_TOOL_BODY_TURNS_THRESHOLD: int parse, range check,
+    # warn-and-keep-default on bad input. 0 is allowed (disables the cap).
+    global MAX_FILE_WRITE_BYTES
+    _write_cap_raw = yaml_config.get("MAX_FILE_WRITE_BYTES")
+    if _write_cap_raw is not None:
+        try:
+            _write_cap_val = int(_write_cap_raw)
+            if _write_cap_val >= 0:
+                MAX_FILE_WRITE_BYTES = _write_cap_val
+            else:
+                logger.warning(
+                    "MAX_FILE_WRITE_BYTES=%r must be >= 0; keeping default %d",
+                    _write_cap_raw, MAX_FILE_WRITE_BYTES,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "MAX_FILE_WRITE_BYTES=%r is not an integer; keeping default %d",
+                _write_cap_raw, MAX_FILE_WRITE_BYTES,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")

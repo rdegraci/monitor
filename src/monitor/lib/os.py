@@ -632,6 +632,15 @@ def create_file(path, contents, overwrite=False):
         path, overwrite,
     )
 
+    # Blast-radius cap: reject oversized writes before doing any disk work.
+    # Checked at call time (not import time) so MAX_FILE_WRITE_BYTES can be
+    # monkeypatched in tests and reloaded at runtime via YAML.
+    from monitor.lib.safety import check_write_size
+    ok, err = check_write_size(contents, "create_file")
+    if not ok:
+        logger.warning("create_file: %s", err)
+        return json.dumps({"error": err})
+
     # Ensure parent directory exists before attempting creation
     parent_dir = os.path.dirname(path)
     if parent_dir and not os.path.exists(parent_dir):

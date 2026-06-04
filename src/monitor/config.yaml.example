@@ -99,6 +99,32 @@ OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 # REASONING_MAX_COMPLETION_TOKENS instead — this cap does not affect them.
 # MAX_COMPLETION_TOKENS: 8192
 
+# Blast-radius cap on file-write tool calls (bytes). Rejects oversized
+# writes from create_file, text_file_create, text_file_str_replace_in_file,
+# and text_file_insert_text_at_line BEFORE any disk operation, with a
+# clear error returned to the model so it can change strategy. The cap is
+# UTF-8-encoded byte length of the content payload — not character count.
+#
+# Default 1048576 (1 MiB) — large enough for legitimate big writes
+# (vendored license, generated migration, lockfile up to ~1 MB), tight
+# enough to catch hallucinated runaway writes before they fill disk or
+# blow context budget on the next read.
+#
+# Suggested values
+# ----------------
+#   1048576   Default. 1 MiB. Handles essentially all hand-written code
+#             and most generated files (lockfiles, migrations).
+#    524288   Tighter. 512 KiB. Catches more borderline cases — good
+#             choice if your codebase has no legitimate single-file
+#             writes above ~500 KB.
+#   5242880   Looser. 5 MiB. Use if you have legitimate workflows that
+#             write large test fixtures, vendored data files, or
+#             generated assets in a single tool call.
+#         0   Disabled. Restores pre-cap behavior — model can write
+#             unbounded content. Not recommended for unattended/bench
+#             runs but useful as an emergency escape hatch.
+# MAX_FILE_WRITE_BYTES: 1048576
+
 # Cost-indicator color thresholds (USD). The U: cost annotation in the prompt
 # line — e.g. (~T:$2.35 W:$2.29 P:$0.30) — colors the P and W slots based on
 # whether their dollar value crosses these thresholds:
