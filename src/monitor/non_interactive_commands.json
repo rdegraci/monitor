@@ -228,5 +228,10 @@
     "command": "file",
     "expansion": "function _file() { file \"$@\"; }; _file",
     "description": "determine file type - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "pytest",
+    "expansion": "function _pytest() { pytest \"$@\"; }; _pytest",
+    "description": "Run pytest - forwards all positional parameters ($@)"
   }
 ]
