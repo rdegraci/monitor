@@ -27,6 +27,7 @@ from monitor.lib.built_in_commands import (
     edit_macros_command,
     reload_macros_command,
     llm_command,
+    copy_code_command,
     cost_debug_command,
     dump_history_command,
     dump_metrics_command,
@@ -387,6 +388,16 @@ def configure_built_ins() -> None:
                     "command": ":save_response",
                     "function": _make_callable(save_response_command),
                     "description": "Save the last assistant response to a file. Usage: :save_response [path]. No arg → cwd/response-<ts>.md.",
+                },
+                {
+                    "command": ":copy_code",
+                    "function": _make_callable(copy_code_command),
+                    "description": "Copy a code block from the last response to the clipboard. Usage: :copy_code [N | all]. No arg → first block.",
+                },
+                {
+                    "command": ":cc",
+                    "function": _make_callable(copy_code_command),
+                    "description": "Alias for :copy_code. Usage: :cc [N | all].",
                 },
                 {
                     "command": ":macros",

@@ -42,6 +42,7 @@ dependencies = [
     "joblib==1.4.2",
     "mypy==2.1.0",
     "boto3==1.43.20",
+    "pyperclip==1.11.0",
     # Platform-specific libmagic bindings to enable seamless file type detection:
     # - python-magic for non-Windows platforms
     # - python-magic-bin for Windows platforms

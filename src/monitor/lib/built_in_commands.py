@@ -970,6 +970,123 @@ def less_command(arg: str = None) -> None:
         print(text)
 
 
+def _extract_fenced_code_blocks(text: str) -> "list[tuple[str, str]]":
+    """Return a list of (language, code) pairs for each ``\\`\\`\\`...``\\`\\`\\`
+    fenced block in ``text``.
+
+    - Language is the optional hint after the opening fence (``\\`\\`\\`python``);
+      empty string when omitted.
+    - Code is the block contents without surrounding fences and without the
+      leading/trailing newline that separates the fence from the content
+      (markdown convention).
+    - Non-greedy match: nested or adjacent blocks are returned as separate
+      entries. The outer DOTALL flag lets ``.`` match newlines.
+    - Inline code (single backticks) and 4-space indented blocks are
+      intentionally ignored — too short to be useful, and almost never
+      what the user means by "the code block."
+    """
+    import re
+    # Fence: opening ``` optionally followed by language word chars and
+    # required newline; then any chars (non-greedy); then closing ``` on
+    # its own line or end of string.
+    pattern = re.compile(r"```([A-Za-z0-9_+\-.]*)\n(.*?)\n?```", re.DOTALL)
+    return [(m.group(1), m.group(2)) for m in pattern.finditer(text)]
+
+
+def copy_code_command(arg: str = None) -> None:
+    """Copy a fenced code block from the most recent assistant response
+    to the system clipboard.
+
+    Usage:
+        :copy_code           → first block (default)
+        :copy_code N         → Nth block (1-indexed)
+        :copy_code all       → all blocks, joined with a blank line
+        :cc                  → alias; identical behavior, same argument shape
+
+    Extraction is regex-based on triple-backtick fences. The language hint
+    after the opening fence (``\\`\\`\\`python``) is dropped — only the code
+    content is copied. Inline backticks and indented blocks are ignored;
+    if the model only used inline code or no code at all, this command
+    reports "no code block found" and does not touch the clipboard.
+
+    Failure modes (graceful, never crash the REPL):
+      - No assistant response yet → error message, no-op.
+      - No code block in the response → error message, no-op.
+      - Index out of range → error message naming the available count.
+      - pyperclip unavailable / no clipboard service (headless Linux,
+        Docker without X11, SSH without forwarding) → prints the
+        extracted code to stdout with a notice so the user can still
+        hand-copy from the terminal.
+    """
+    text = _last_assistant_response()
+    if text is None:
+        print_colored_error("No assistant response to copy from yet.")
+        return
+
+    blocks = _extract_fenced_code_blocks(text)
+    if not blocks:
+        print_colored_error(
+            "No code block found in the last response. "
+            "Only ``` fenced blocks are recognized; inline `code` is ignored."
+        )
+        return
+
+    # Parse the argument. Three valid forms: empty/None (default to 1),
+    # "all" (case-insensitive), or a positive integer.
+    raw = (arg or "").strip()
+    if not raw:
+        selected = [blocks[0][1]]
+        label = f"first of {len(blocks)} block{'s' if len(blocks) != 1 else ''}"
+    elif raw.lower() == "all":
+        selected = [code for _lang, code in blocks]
+        label = f"all {len(blocks)} block{'s' if len(blocks) != 1 else ''}"
+    else:
+        try:
+            n = int(raw)
+        except ValueError:
+            print_colored_error(
+                f"Invalid argument: {raw!r}. Usage: :copy_code [N | all]. "
+                f"The last response has {len(blocks)} block{'s' if len(blocks) != 1 else ''}."
+            )
+            return
+        if n < 1 or n > len(blocks):
+            print_colored_error(
+                f"Block index {n} out of range — last response has "
+                f"{len(blocks)} block{'s' if len(blocks) != 1 else ''} (1-indexed)."
+            )
+            return
+        selected = [blocks[n - 1][1]]
+        label = f"block {n} of {len(blocks)}"
+
+    # Join multiple blocks with a blank line so they remain readable as
+    # separate units when pasted (e.g., two related Python snippets).
+    payload = "\n\n".join(selected)
+
+    # Lazy import — pyperclip *is* a hard dep in pyproject.toml, but the
+    # runtime failure isn't usually ImportError. It's a PyperclipException
+    # raised when no clipboard service is reachable (headless Docker,
+    # SSH without X11 forwarding, CI sandbox). Both paths fall through
+    # to the same graceful-print degradation.
+    try:
+        import pyperclip
+        pyperclip.copy(payload)
+    except ImportError:
+        logger.warning("pyperclip not installed; printing code inline.")
+        print(payload)
+        print(f"[clipboard unavailable: pyperclip not installed — copied above as plain text]")
+        return
+    except Exception as e:
+        # pyperclip.PyperclipException is the documented failure type but
+        # we catch broadly: any clipboard backend issue is the same UX
+        # ("we can't reach the clipboard, here's the text").
+        logger.warning("Clipboard copy failed (%s); printing code inline.", e)
+        print(payload)
+        print(f"[clipboard unavailable: {e} — copied above as plain text]")
+        return
+
+    print(f"Copied {label} to clipboard ({len(payload)} chars).")
+
+
 def save_response_command(arg: str = None) -> None:
     """Write the most recent assistant response to a file.
 
