@@ -614,6 +614,15 @@ MAX_COMPLETION_TOKENS = 8192
 # 2 to surface long autonomous chains before the hard abort.
 MAX_TOOL_CALL_DEPTH = 128
 
+# Per-turn loop detector: when the same (tool_name, sorted_args) signature
+# fires this many times consecutively within one user turn, handle_tool_call
+# rejects the call with an error message routed back to the model instead of
+# executing it. 3 catches the common "re-read same file range" / "update_todo
+# with no-op narration" pattern while still leaving headroom for legitimate
+# repeats (e.g. polling a file). Counter resets when a new user message
+# starts the next turn (_depth=0 entry). Set to 0 to disable entirely.
+MAX_REPEATED_TOOL_CALLS = 3
+
 # Anthropic prompt-cache TTL for the system + tools breakpoints. Must be one
 # of "5m" or "1h" (Anthropic's only supported values). Default is "1h": writes
 # cost 2x base input (vs 1.25x for 5m) but cache survives 12x longer, which

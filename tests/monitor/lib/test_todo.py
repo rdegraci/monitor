@@ -214,6 +214,55 @@ def test_update_todo_non_list_returns_decode_error():
     assert resp["error"] == "decode_error"
 
 
+def test_update_todo_rejects_no_op_status():
+    """Setting status to the value it already has is a no-op — the call
+    must fail so the model gets a clear signal instead of spinning on
+    redundant updates."""
+    new_id = _add("Task A")
+    # Item is added with status='pending' by default.
+    resp = json.loads(todo.update_todo(id=new_id, status="pending"))
+    assert resp["ok"] is False
+    assert resp["error"] == "no_effective_change"
+    assert "reason" in resp
+
+
+def test_update_todo_rejects_no_op_notes():
+    new_id = _add("Task A", notes="same notes")
+    resp = json.loads(todo.update_todo(id=new_id, notes="same notes"))
+    assert resp["ok"] is False
+    assert resp["error"] == "no_effective_change"
+
+
+def test_update_todo_rejects_no_op_priority():
+    new_id = _add("Task A", priority=3)
+    resp = json.loads(todo.update_todo(id=new_id, priority=3))
+    assert resp["ok"] is False
+    assert resp["error"] == "no_effective_change"
+
+
+def test_update_todo_partial_change_still_succeeds():
+    """If at least one field actually changes, the call is fine even when
+    other fields happen to match."""
+    new_id = _add("Task A", notes="orig", priority=2)
+    # status changes, notes/priority unchanged — must succeed.
+    resp = json.loads(
+        todo.update_todo(id=new_id, status="done", notes="orig", priority=2)
+    )
+    assert resp["ok"] is True
+    assert resp["item"]["status"] == "done"
+
+
+def test_update_todo_no_op_does_not_mutate_or_persist():
+    """No-op rejection must leave the stored todo untouched — no silent
+    side-effects."""
+    new_id = _add("Task A", notes="keep")
+    before = next(t for t in _stored() if t["id"] == new_id)
+    resp = json.loads(todo.update_todo(id=new_id, notes="keep"))
+    assert resp["ok"] is False
+    after = next(t for t in _stored() if t["id"] == new_id)
+    assert before == after
+
+
 # --- delete_todo ------------------------------------------------------------
 
 

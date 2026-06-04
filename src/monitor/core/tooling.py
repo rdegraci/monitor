@@ -24,6 +24,43 @@ SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 # value lives in config.MAX_TOOL_CALL_DEPTH so it's tunable at runtime
 # without an import-time freeze.
 
+# TC-3: per-turn loop detector. Records (tool_name, canonical_args) for each
+# tool call dispatched this turn. When the same signature has appeared the
+# last config.MAX_REPEATED_TOOL_CALLS times in a row, handle_tool_call
+# rejects the call without executing it — the model gets an error string
+# routed back as the tool result so it can change strategy. Cleared when a
+# new user turn enters handle_tool_call at _depth=0.
+_RECENT_TOOL_CALLS: list[str] = []
+
+
+def _tool_call_signature(name, args):
+    """Stable hash of a tool call: 'name:<sorted-json-of-args>'.
+
+    Sorted keys + default=str makes two calls with the same intent compare
+    equal even if the model reorders kwargs or passes a non-string-keyed
+    value. Falls back to repr() so a non-serializable arg never crashes
+    the detector — at worst the signature becomes opaque, which is fine.
+    """
+    try:
+        canonical = json.dumps(args, sort_keys=True, default=str) if args else "{}"
+    except Exception:
+        canonical = repr(args)
+    return f"{name}:{canonical}"
+
+
+def _check_repeated_call(name, args):
+    """Append a signature; return True if the last N entries all match.
+
+    N = config.MAX_REPEATED_TOOL_CALLS. Returns False (and still records)
+    when the knob is 0 or negative — used as a kill switch.
+    """
+    max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
+    sig = _tool_call_signature(name, args)
+    _RECENT_TOOL_CALLS.append(sig)
+    if max_reps <= 0 or len(_RECENT_TOOL_CALLS) < max_reps:
+        return False
+    return all(s == sig for s in _RECENT_TOOL_CALLS[-max_reps:])
+
 
 def parse_function_args(function_args):
     """Parse function arguments from string to dictionary"""
@@ -133,6 +170,11 @@ def handle_tool_call(response, _depth=0):
     instead of stack-overflowing.
     """
 
+    # Start of a new user turn — clear the per-turn loop-detector ledger so
+    # the previous turn's signatures don't bleed forward.
+    if _depth == 0:
+        _RECENT_TOOL_CALLS.clear()
+
     max_depth = config.MAX_TOOL_CALL_DEPTH
     if _depth >= max_depth:
         logger.error(
@@ -181,11 +223,39 @@ def handle_tool_call(response, _depth=0):
         else:
             tool_call_id = getattr(tool_call, "id", None)
 
-        try:
-            result, error = execute_tool_call(tool_call)
-        except Exception as e:
-            logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
-            result, error = None, f"Tool execution raised: {e}"
+        # TC-3: loop detector. Inspect the call BEFORE executing — if the same
+        # (name, args) has fired MAX_REPEATED_TOOL_CALLS times in a row this
+        # turn, the result obviously isn't going to change. Return an error
+        # string to the model so it can change strategy or ask the user.
+        loop_name = None
+        loop_args = None
+        if isinstance(tool_call, dict):
+            fn_block = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
+            if fn_block:
+                loop_name = fn_block.get("name")
+                try:
+                    loop_args = parse_function_args(fn_block.get("arguments", ""))
+                except Exception:
+                    loop_args = fn_block.get("arguments")
+
+        if loop_name and _check_repeated_call(loop_name, loop_args):
+            max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
+            logger.warning(
+                "handle_tool_call: refusing repeated call to %s (>=%d times in a row this turn)",
+                loop_name, max_reps,
+            )
+            result = None
+            error = (
+                f"Loop detected: you called {loop_name} with these exact arguments "
+                f"{max_reps} times in a row. The result isn't going to change. "
+                "Change your approach, try different arguments, or ask the user for guidance."
+            )
+        else:
+            try:
+                result, error = execute_tool_call(tool_call)
+            except Exception as e:
+                logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
+                result, error = None, f"Tool execution raised: {e}"
 
         # Create and append result message. create_tool_result_message handles
         # None / non-string tool_call_id by coercing to empty string — that

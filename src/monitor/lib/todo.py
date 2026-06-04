@@ -256,6 +256,37 @@ def update_todo(
     # changed (e.g. "status: pending -> done") rather than just what was set.
     before = dict(todos[index])
 
+    # Compute the diff up-front so a no-op update fails fast — no mutation,
+    # no persistence, and the model gets a clear signal that it's spinning
+    # on update_todo without actually advancing the work.
+    changes = []
+    if status is not None and before.get("status") != status:
+        changes.append(f"status: {before.get('status')} -> {status}")
+    if item and before.get("item") != item:
+        changes.append(f"item: {item!r}")
+    if notes and before.get("notes") != notes:
+        changes.append(f"notes: {notes!r}")
+    if priority is not None and before.get("priority") != priority:
+        changes.append(f"priority: {before.get('priority')} -> {priority}")
+
+    if not changes:
+        logger.info("update_todo session=%s id=%s: no-op (no fields changed)", session_id, id)
+        _print_todo_action("~", f"{id} (no-op rejected)")
+        return json.dumps(
+            {
+                "ok": False,
+                "action": "update_todo",
+                "error": "no_effective_change",
+                "reason": (
+                    "All provided fields already match current values. "
+                    "Either change at least one field or move on — don't retry "
+                    "the same update_todo."
+                ),
+                "session_id": session_id,
+                "id": id,
+            }
+        )
+
     if status is not None:
         todos[index]["status"] = status
     if item:
@@ -273,16 +304,7 @@ def update_todo(
         status,
         priority,
     )
-    changes = []
-    if status is not None and before.get("status") != status:
-        changes.append(f"status: {before.get('status')} -> {status}")
-    if item and before.get("item") != item:
-        changes.append(f"item: {item!r}")
-    if notes and before.get("notes") != notes:
-        changes.append(f"notes: {notes!r}")
-    if priority is not None and before.get("priority") != priority:
-        changes.append(f"priority: {before.get('priority')} -> {priority}")
-    detail = "; ".join(changes) if changes else "(no effective change)"
+    detail = "; ".join(changes)
     _print_todo_action("~", f"{id} {detail}")
     return json.dumps(
         {
