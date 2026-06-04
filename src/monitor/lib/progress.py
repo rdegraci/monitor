@@ -1,72 +1,149 @@
+"""Progress indicator for long-running blocking calls (mainly LLM completions).
+
+Renders an animated single-line spinner with an elapsed-seconds counter:
+
+    [Processing ⠋ 12s]
+
+The line is repainted in place via ``\\r``, so it occupies one terminal line
+regardless of how long the operation runs (compare to the previous
+dot-accumulator, which grew unbounded). In non-TTY contexts (--script mode,
+piped stderr, CI logs) the indicator is a silent no-op — see the rationale
+in the function docstring.
+
+The function name ``progress_dots`` is preserved across the dots→spinner
+rewrite so the existing call sites in monitor.core.llm,
+monitor.core.llm_responses_adapter, and monitor.lib.protocol_engine don't
+need to change. Same applies to the existing test patches that mock
+``progress_dots`` by name.
+"""
+
 from contextlib import contextmanager
 import os
 import sys
 import threading
+import time
 from typing import Iterator, Optional
 
 
-@contextmanager
-def progress_dots(message: Optional[str] = None, interval: float = 0.50) -> Iterator[None]:
-    """Show periodic dots to indicate progress only on a TTY (or when forced).
+# Braille-dot spinner. Ten frames, each one byte of visual rotation —
+# wider terminal support than full-block spinners and reads as smooth
+# animation at 100ms/frame. Used by every modern CLI tool (yaspin, halo,
+# ora, etc.) because the glyphs are unambiguous and consistent across
+# common monospace fonts. ASCII fallback isn't included here: TTY mode
+# in 2026 can safely assume unicode terminal output.
+_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    The function prints a `message` (if provided) and then prints a dot every
-    `interval` seconds from a daemon thread until the context exits. By default,
-    this indicator runs only when stderr is a TTY. To force progress output even
-    when not a TTY, set the environment variable MONITOR_FORCE_PROGRESS to a
-    non-empty value (e.g., "1").
+# Initial delay before the spinner becomes visible. Operations that
+# complete in under this window never paint anything — keeps fast
+# turns flicker-free instead of "spinner appears then immediately
+# vanishes."
+_INITIAL_DELAY_SECONDS = 0.3
+
+# ANSI escape: \r returns cursor to column 0, \033[2K erases the entire
+# line. Together they wipe the repainted indicator cleanly so the next
+# output starts on a fresh line. \r alone would leave the rendered
+# indicator visible (next text overwrites only its prefix).
+_ERASE_LINE = "\r\033[2K"
+
+
+@contextmanager
+def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Iterator[None]:
+    """Animated spinner + elapsed-seconds indicator while a blocking
+    operation runs. Single-line, in-place repaint, stderr only.
+
+    Output shape::
+
+        [Processing ⠋ 12s]
+
+    The spinner cycles at ``interval`` seconds per frame (default 0.1s =
+    10fps, conventional for spinner libraries) and the elapsed counter
+    ticks every second. After a brief startup grace window
+    (_INITIAL_DELAY_SECONDS) the indicator appears; on context exit it's
+    erased so subsequent output is unaffected.
+
+    TTY gate
+    --------
+    The indicator is suppressed in non-TTY contexts: ``--script`` mode,
+    piped stderr, CI logs, the bench runner. Reason: repainted ANSI
+    output (`\\r` + erase-line) renders as ugly noise in captured logs
+    and breaks the bench's stderr-tail parsing. Set
+    ``MONITOR_FORCE_PROGRESS=1`` to override the gate (useful for
+    debugging the indicator in non-TTY tests).
+
+    This is a deliberate behavior change from the prior dot-accumulator
+    implementation, which printed the message + newline once even on
+    non-TTY. Callers that relied on the non-TTY message echo should
+    use ``logging.info(message)`` directly.
 
     Args:
-        message: Optional text printed once before starting dots.
-        interval: Seconds between dots (default 0.50).
+        message: Label shown in the indicator, defaults to "Processing".
+                 Whitespace is trimmed; embedded ``]`` chars are kept
+                 (the indicator's closing bracket is appended literally).
+        interval: Spinner frame interval in seconds (default 0.1).
 
     Yields:
-        None. Use in a with-statement to bound the progress indicator.
+        None. Use in a with-statement to bound the indicator's lifetime.
 
-    Example:
-        with progress_dots(\"Sending request\"):
-            do_blocking_call()
+    Example::
+
+        with progress_dots("Sending request"):
+            blocking_llm_call()
     """
-    # Prefer stderr for progress (so stdout can remain machine-friendly).
     force = bool(os.getenv("MONITOR_FORCE_PROGRESS"))
     is_terminal = sys.stderr.isatty()
 
-    # If not a terminal and not forced, yield without starting thread.
+    # Non-TTY fallback: truly silent. The wrapped operation still runs;
+    # we just don't paint anything.
     if not is_terminal and not force:
-        if message:
-            # Print message and newline so output stays neat in non-interactive logs.
-            sys.stderr.write(f"{message}\n")
-            sys.stderr.flush()
         yield
         return
 
+    label = (message or "Processing").strip() or "Processing"
     stop_event = threading.Event()
-    printed_any = {"value": False}
+    started = time.monotonic()
 
-    def _run() -> None:
-        # Slight initial delay to avoid printing a dot for very short operations.
-        if not stop_event.wait(interval):
-            if not stop_event.is_set():
-                sys.stderr.write(".")
+    # Tracks whether the spinner ever painted, so the erase-line on
+    # exit is skipped for the "operation completed before the initial
+    # delay elapsed" case. Without this guard, a sub-300ms operation
+    # would emit an erase-line escape into terminals that never saw
+    # any spinner — harmless on most terminals, ugly on some.
+    painted = {"value": False}
+
+    def _animate() -> None:
+        # stop_event.wait returns True if signaled, False on timeout.
+        # If the context exits during the initial delay, bail out
+        # without painting anything.
+        if stop_event.wait(_INITIAL_DELAY_SECONDS):
+            return
+        frame_idx = 0
+        while not stop_event.is_set():
+            elapsed_s = int(time.monotonic() - started)
+            ch = _SPINNER_FRAMES[frame_idx % len(_SPINNER_FRAMES)]
+            try:
+                sys.stderr.write(f"\r[{label} {ch} {elapsed_s}s]")
                 sys.stderr.flush()
-                printed_any["value"] = True
-        while not stop_event.wait(interval):
-            sys.stderr.write(".")
-            sys.stderr.flush()
-            printed_any["value"] = True
+            except (BrokenPipeError, OSError):
+                # stderr closed (parent process died, redirect broke).
+                # Exit the loop rather than spin forever throwing.
+                return
+            painted["value"] = True
+            frame_idx += 1
+            if stop_event.wait(interval):
+                break
 
-    thread: Optional[threading.Thread] = None
+    thread = threading.Thread(target=_animate, daemon=True)
+    thread.start()
     try:
-        if message:
-            sys.stderr.write(f"{message}")
-            sys.stderr.flush()
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
         yield
     finally:
         stop_event.set()
-        if thread is not None:
-            thread.join(timeout=2.0)
-        # If we printed anything, finish the line.
-        if printed_any["value"]:
-            sys.stderr.write("\n")
-            sys.stderr.flush()
+        # 2.0s join cap matches the prior implementation — generous
+        # enough that a stuck animate thread (shouldn't happen, but
+        # defensive) doesn't hang the REPL on every exit.
+        thread.join(timeout=2.0)
+        if painted["value"]:
+            try:
+                sys.stderr.write(_ERASE_LINE)
+                sys.stderr.flush()
+            except (BrokenPipeError, OSError):
+                pass
