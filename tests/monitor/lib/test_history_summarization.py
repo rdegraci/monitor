@@ -534,9 +534,9 @@ def test_prompt_count_stale_after_summarization(logger, config, monkeypatch):
         "Prompt display is stale if the old length is reused after summarization; must use the up-to-date length"
     )
     # Commentary for bug explanation in assertion
-    # Format changed: when no compactions have fired this session, the H
-    # indicator is "H: <count>" (with space). After at least one compaction,
-    # it becomes "H:(N) <count>". These tests don't drive the counter, so
-    # we match the no-parens form here.
-    assert f"H: {old_count}" in display_with_stale_count, "Display must show the old conversation count before summarization"
-    assert f"H: {new_count}" in display_with_live_count, "Display must show the new conversation count after summarization"
+    # Format note: when no compactions have fired this session, the H
+    # indicator is "H:<count>" (no space, tight). After at least one
+    # compaction, it becomes "H:<count> (N)" with the count suffixed.
+    # These tests don't drive the counter, so we match the no-suffix form.
+    assert f"H:{old_count}" in display_with_stale_count, "Display must show the old conversation count before summarization"
+    assert f"H:{new_count}" in display_with_live_count, "Display must show the new conversation count after summarization"

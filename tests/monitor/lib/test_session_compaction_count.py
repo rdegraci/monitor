@@ -2,8 +2,8 @@
 
 Covers:
 - Default counter value is 0.
-- H: format with 0 compactions: "H: <count>" (no parens, space after colon).
-- H: format with N>0 compactions: "H:(N) <count>".
+- H: format with 0 compactions: "H:<count>" (tight, no space).
+- H: format with N>0 compactions: "H:<count> (N)" — suffix follows the count.
 - :reset_history clears the counter.
 """
 
@@ -39,13 +39,14 @@ def test_h_indicator_no_parens_when_zero(monkeypatch):
         model="openai/gpt-5.4-mini",
     )
 
-    assert "H: 124" in output
+    assert "H:124" in output
     assert "H:(" not in output  # explicitly no parens
+    assert "H: " not in output  # explicitly no space after colon
 
 
 def test_h_indicator_includes_parens_when_nonzero(monkeypatch):
     """Once at least one compaction has fired this session, the H: indicator
-    should display 'H:(N) <count>'."""
+    should display 'H:<count> (N)'."""
     from monitor.lib.display_output import format_prompt_display
 
     monkeypatch.setattr(config, "SESSION_COMPACTION_COUNT", 2, raising=False)
@@ -57,7 +58,7 @@ def test_h_indicator_includes_parens_when_nonzero(monkeypatch):
         model="openai/gpt-5.4-mini",
     )
 
-    assert "H:(2) 124" in output
+    assert "H:124 (2)" in output
 
 
 def test_reset_history_clears_compaction_count(monkeypatch):
@@ -83,7 +84,7 @@ def test_reset_history_clears_compaction_count(monkeypatch):
 
 def test_h_indicator_does_not_show_parens_for_negative(monkeypatch):
     """Defensive: a negative count (shouldn't happen, but if it did) must
-    not produce 'H:(-1) 124'. Treat <=0 as no compactions."""
+    not produce 'H:124 (-1)'. Treat <=0 as no compactions."""
     from monitor.lib.display_output import format_prompt_display
 
     monkeypatch.setattr(config, "SESSION_COMPACTION_COUNT", -1, raising=False)
@@ -95,5 +96,5 @@ def test_h_indicator_does_not_show_parens_for_negative(monkeypatch):
         model="openai/gpt-5.4-mini",
     )
 
-    assert "H: 124" in output
-    assert "H:(-" not in output
+    assert "H:124" in output
+    assert "(-" not in output

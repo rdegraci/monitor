@@ -351,13 +351,14 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         parts.append(f"U:{u_count}")
     if l_count:
         parts.append(f"L:{l_count}")
-    # H indicator: "H: <count>" by default; "H:(N) <count>" once at least one
-    # auto-compaction has fired this session. The (N) prefix lets the user
-    # see at a glance whether compaction has been triggering, without having
-    # to grep logs for the threshold messages.
+    # H indicator: "H:<count>" by default (tight — no space after colon to
+    # match the rest of the prompt indicators like C:/R:/U:/L:). When one
+    # or more auto-compactions have fired this session, a "(N)" suffix
+    # follows: "H:<count> (N)". The suffix lets the user see at a glance
+    # whether compaction has been triggering, without having to grep logs.
     _compaction_count = getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
-    _compaction_prefix = f"({_compaction_count})" if _compaction_count > 0 else ""
-    parts.append(f"H:{_compaction_prefix} {tch_count}{extra_history_str}")
+    _compaction_suffix = f" ({_compaction_count})" if _compaction_count > 0 else ""
+    parts.append(f"H:{tch_count}{_compaction_suffix}{extra_history_str}")
 
     stats_str = " ".join(parts)
 
