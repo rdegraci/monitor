@@ -85,7 +85,6 @@ from monitor.lib.summarizers import (
 )
 from monitor.lib.colors import blue, red, yellow, reset
 from monitor.lib.redis_utils import prepend_memory_to_history
-from monitor.lib import status as status_module
 import monitor.lib.subagent_logging as subagent_logging
 
 logger = logging.getLogger(__name__)
@@ -532,12 +531,6 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, se
             raise ValueError("A PromptSession 'session' must be provided to get_input().")
 
         # Use the provided prompt_toolkit session
-        # Mark idle before prompting for user input
-        try:
-            status_module.set_status("idle")
-        except Exception:
-            pass
-
         first_line = _prompt_with_agent_bridge(session, ANSI(prompt))
         logger.debug(f"First line received: {first_line}")
 
@@ -575,12 +568,6 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, se
     except Exception as e:
         logger.error(f"Unexpected error in input processing: {str(e)}", exc_info=True)
         return ""
-    finally:
-        # Ensure status is idle when exiting the input function, regardless of outcome.
-        try:
-            status_module.set_status("idle")
-        except Exception:
-            pass
 
 
 def flush_logs_and_conversation():
@@ -837,13 +824,7 @@ def chat():
             )
             user_input = get_input(prompt, session=session)
 
-            # Mark status as working immediately before processing the input
-            try:
-                status_module.set_status("working")
-            except Exception:
-                pass
-
-            # Process input and ensure status is reset to idle after flush regardless of errors
+            # Process input; always flush logs afterward regardless of errors
             exit_flag = False
             try:
                 exit_flag = process_input(user_input, history_file, session)
@@ -855,11 +836,6 @@ def chat():
                     flush_logs_and_conversation()
                 except Exception:
                     logger.exception("Failed while flushing logs and conversation.")
-                # Explicitly set idle after processing and flushing logs
-                try:
-                    status_module.set_status("idle")
-                except Exception:
-                    pass
                 # PLAN 8b: if running as a spawned sub-agent, report this turn's
                 # assistant response to the orchestrator as a result frame.
                 try:
@@ -874,10 +850,6 @@ def chat():
 
         except Exception as e:
             logger.error(f"Error in chat loop: {str(e)}", exc_info=True)
-            try:
-                status_module.set_status("idle")
-            except Exception:
-                pass
             continue
 
 

@@ -97,16 +97,6 @@ class _LazyScreen:
 
 _SCREEN_HANDLER = _LazyScreen()
 
-# Registry of active orchestrator pollers keyed by session name.
-# Each entry is a dict with keys:
-#   - 'poller': the poller object
-#   - 'queue': the Queue instance used by the poller
-# This registry is managed at runtime; entries are added when a subagent with a
-# status_socket is created and removed when the corresponding session is killed.
-# Note: The in-memory registry is managed via helper functions in terminal_commands_util
-# (register_orchestrator_entry/remove_orchestrator_entries_by_target) rather than
-# local module-level structures.
-
 def _resolve_index_to_session_name(token):
     """Resolve a numeric session index to the actual session name via ScreenHandler.
 

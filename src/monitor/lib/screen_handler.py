@@ -353,9 +353,11 @@ class ScreenHandler:
         # Start detached screen with monitor
         # Use a small wrapper so Monitor runs in the pty; we do not redirect output here
         # so interactive attach will show it. We'll also write a metadata file.
-        # Prepend an env wrapper to enable status reporting via a UNIX socket.
+        # Prepend an env wrapper. MONITOR_STATUS_SOCKET is the per-session socket
+        # path key that subagent_logging uses to locate this session's metadata;
+        # it is NOT a live status server (the legacy child-served status server
+        # was removed — the frame-protocol orchestrator replaces it).
         env_vars = [
-            "MONITOR_ENABLE_STATUS=1",
             f"MONITOR_STATUS_SOCKET={str(socket_path)}",
             "MONITOR_AGENT=1",
             f"MONITOR_AGENT_DEPTH={curr_depth+1}",

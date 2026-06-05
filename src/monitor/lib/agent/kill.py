@@ -1,22 +1,20 @@
-"""`:agent kill <name|index>` — kill a screen session and clean up its orchestrator poller."""
+"""`:agent kill <name|index>` — kill a screen session."""
 
 import logging
 
-from monitor.lib.terminal_commands_util import user_feedback, remove_orchestrator_entries_by_target
+from monitor.lib.terminal_commands_util import user_feedback
 
 logger = logging.getLogger(__name__)
 
 
 def agent_kill(tokens):
-    """Kill a session via _SCREEN_HANDLER.kill_session, then ask the
-    orchestrator registry to remove and stop any pollers tied to the
-    same session key.
+    """Kill a session via _SCREEN_HANDLER.kill_session.
 
-    The orchestrator cleanup trusts the documented return shape of
-    ``remove_orchestrator_entries_by_target`` (``Dict[str, List[entry_dict]]``)
-    and lets the helper do the stop()/join() work internally — see the
-    historical note in terminal_commands_util.py for why the prior
-    140-line defensive maze was removed.
+    Killing the screen session terminates the sub-agent process; its socket to
+    the orchestrator listener then closes, which the listener records as a
+    (dirty) disconnect — so no explicit orchestrator-side cleanup is needed
+    here. (The legacy poller registry this used to clean up was removed with
+    the inverted status-socket model.)
     """
     from monitor.lib.terminal_commands import _SCREEN_HANDLER, _resolve_index_to_session_name
 
@@ -37,30 +35,8 @@ def agent_kill(tokens):
             user_feedback(f"Failed to kill screen session '{target_session}'. See logs for details.")
             logger.error(f"kill_session returned falsy for session '{target_session}'.")
             return
-
         user_feedback(f"Successfully killed screen session '{target_session}'.")
         logger.info(f"Killed screen session '{target_session}'.")
-
-        # Orchestrator cleanup — helper handles stop()+join() internally.
-        try:
-            removed = remove_orchestrator_entries_by_target(target_session)
-            removed_entries = removed.get(target_session, []) if isinstance(removed, dict) else []
-            if removed_entries:
-                logger.info(
-                    "Stopped %d orchestrator poller(s) for session '%s'.",
-                    len(removed_entries), target_session,
-                )
-                user_feedback(f"Stopped orchestrator poller for session '{target_session}'.")
-            else:
-                logger.info(
-                    "No orchestrator poller entries found for session '%s'.",
-                    target_session,
-                )
-        except Exception as e:
-            logger.error(
-                "Exception while cleaning up orchestrator poller for session '%s': %s",
-                target_session, e, exc_info=True,
-            )
         return
     except Exception as e:
         logger.error(f"Error killing screen session '{target_session}': {e}", exc_info=True)

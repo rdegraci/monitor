@@ -31,7 +31,6 @@ from monitor.lib.lexer import create_prompt_session  # Import PromptSession fact
 from monitor.lib.macros import configure_macros
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
-from monitor.lib.status import start_status_server  # Import start_status_server for optional status UDS server.
 from monitor.lib.system_prompt import configure_runtime_prompt_paths
 
 logger = logging.getLogger(__name__)
@@ -357,14 +356,6 @@ def main():
             logger.exception("Failed to set config.AGENT via --agent flag.")
 
     configure_subsystems()
-
-    # Try to start the status UDS server if enabled via environment variable.
-    if os.environ.get("MONITOR_ENABLE_STATUS") == "1":
-        try:
-            socket_path = start_status_server(os.environ.get('MONITOR_STATUS_SOCKET'))
-            logger.info("Status UDS server started at: %s", socket_path)
-        except Exception:
-            logger.exception("Failed to start status UDS server")
 
     # PLAN Phase 0.5: when spawned as a sub-agent (MONITOR_AGENT_SOCKET set by
     # the orchestrator), connect back and report over the frame protocol.
