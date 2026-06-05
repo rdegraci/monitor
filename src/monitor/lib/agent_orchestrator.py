@@ -314,11 +314,17 @@ def note_spawn(agent_id: str) -> None:
 
 # --- bridge: terminal display (Phase 3) -------------------------------------
 
-def drain_pending_output() -> List[str]:
-    """Return and clear buffered output blocks (stdout/result) for display."""
+def drain_pending_output(limit: Optional[int] = None) -> List[str]:
+    """Return buffered output blocks (stdout/result) for display, clearing what
+    is returned. With ``limit`` set, return at most that many (oldest first) and
+    leave the rest — backpressure so a chatty agent can't dump everything in one
+    tick of the live flusher."""
     with _registry_lock:
-        out = list(_pending_output)
-        _pending_output.clear()
+        if limit is None or limit >= len(_pending_output):
+            out = list(_pending_output)
+            _pending_output.clear()
+        else:
+            out = [_pending_output.popleft() for _ in range(limit)]
         return out
 
 

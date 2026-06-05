@@ -478,13 +478,39 @@ def _prompt_with_agent_bridge(session, prompt_text):
         except Exception:
             return ""
 
+    # Agents are running: stream their output live ABOVE the prompt via a
+    # background flusher (PLAN Phase 4 / 8h). Under patch_stdout() a plain
+    # print() from another thread renders safely above the live input line
+    # without disturbing what the user is typing. The per-tick limit keeps a
+    # chatty agent from flooding the prompt.
+    import threading
+    stop = threading.Event()
+
+    def _flush_loop():
+        while not stop.wait(0.3):
+            # Best-effort UI nicety: swallow everything (incl. a closed stdout
+            # during shutdown) so this thread never dies noisily. Do NOT log in
+            # the except — logging can itself hit a closed stream at teardown.
+            try:
+                for line in orch.drain_pending_output(limit=100):
+                    print(line)
+            except Exception:
+                pass
+
+    flusher = threading.Thread(target=_flush_loop, name="agent-live-flush", daemon=True)
     try:
         from prompt_toolkit.patch_stdout import patch_stdout
         with patch_stdout():
-            return session.prompt(prompt_text, bottom_toolbar=_toolbar, refresh_interval=0.5)
-    except TypeError:
-        # Older prompt_toolkit may reject these kwargs — fall back gracefully.
-        return session.prompt(prompt_text)
+            flusher.start()
+            try:
+                return session.prompt(prompt_text, bottom_toolbar=_toolbar, refresh_interval=0.5)
+            except TypeError:
+                # Older prompt_toolkit may reject these kwargs — fall back.
+                return session.prompt(prompt_text)
+    finally:
+        stop.set()
+        if flusher.is_alive():
+            flusher.join(timeout=1.0)
 
 
 def _fold_agent_injections_into_prefixes():

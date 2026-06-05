@@ -179,8 +179,9 @@ as completed. Items are ordered so each builds on verified prior work.
       ENDS after `agent_create`; the human keeps working.
 - [ ] (Optional) non-blocking `agent_poll(ids?)` tool — returns terminal-so-far
       results on demand; never blocks.
-- [ ] Live-flush-during-prompt so the human SEES background progress (see §5 /
-      Phase 4 — re-elevated).
+- [x] Live-flush-during-prompt: a background flusher streams agent output above
+      the live prompt under `patch_stdout()` (gated to agent-active sessions;
+      per-tick limit for chatty agents). `conversation._prompt_with_agent_bridge`.
 
 ### 11b. Structured summaries (context-budget protection)
 - [x] Sub-agents emit their per-turn assistant response as a `result` frame
@@ -233,6 +234,6 @@ as completed. Items are ordered so each builds on verified prior work.
       the next turn (and a failed one surfaces as FAILED), deduped.
 - [ ] `agent_poll` returns terminal-so-far without blocking (if built).
 - [ ] Breadth/total caps enforced (over-spawn rejected) — done (§11c tests).
-- [ ] Live-flush: background output streams above the prompt without corrupting
-      the input line; chatty agent is coalesced/capped.
+- [x] Live-flush: output emitted mid-prompt is streamed by the flusher (not
+      stuck until next prompt); per-tick drain limit caps a chatty agent. Tested.
 - [ ] Follow-up via `agent_send` reaches a live subagent and updates its state.

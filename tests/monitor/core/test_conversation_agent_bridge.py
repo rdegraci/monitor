@@ -68,6 +68,28 @@ def test_active_agent_adds_toolbar(capsys):
     r.close()
 
 
+def test_live_flush_streams_output_emitted_during_prompt(capsys):
+    """Output that arrives AFTER the pre-prompt drain (i.e. mid-prompt) must be
+    streamed by the background flusher, not stuck until the next prompt."""
+    path = orch.ensure_started()
+    r = AgentReporter(path, "live"); r.connect(); r.status("working")
+    assert _wait(lambda: orch.has_active_agents())
+
+    class SlowSession:
+        def prompt(self, text, **kwargs):
+            # Emit AFTER the bridge's pre-prompt drain → only the flusher can
+            # pick this up while the prompt is "open".
+            r.emit_stdout("streamed mid-prompt")
+            time.sleep(0.7)  # ~2 flusher ticks (0.3s each)
+            return "done"
+
+    out = conversation._prompt_with_agent_bridge(SlowSession(), "PROMPT>")
+    assert out == "done"
+    # The flusher consumed the mid-prompt output (nothing left buffered).
+    assert orch.drain_pending_output() == []
+    r.close()
+
+
 def test_pending_output_flushed_above_prompt(capsys):
     path = orch.ensure_started()
     r = AgentReporter(path, "ag2")

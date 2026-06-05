@@ -95,6 +95,28 @@ def test_pending_output_drains_stdout_and_result():
     r.close()
 
 
+def test_drain_pending_output_respects_limit():
+    # Seed pending output directly via a reporter's stdout frames.
+    path = orch.ensure_started()
+    r = AgentReporter(path, "many"); r.connect()
+    for i in range(10):
+        r.emit_stdout(f"line {i}")
+    assert _wait(lambda: _buffered_count() >= 10)
+    first = orch.drain_pending_output(limit=4)
+    assert len(first) == 4
+    rest = orch.drain_pending_output()  # no limit → the remaining 6
+    assert len(rest) == 6
+    assert orch.drain_pending_output() == []
+    r.close()
+
+
+def _buffered_count():
+    # Count without draining (test helper).
+    import monitor.lib.agent_orchestrator as _o
+    with _o._registry_lock:
+        return len(_o._pending_output)
+
+
 def test_render_toolbar_active_then_empty():
     path = orch.ensure_started()
     assert orch.render_toolbar() == ""  # no agents
