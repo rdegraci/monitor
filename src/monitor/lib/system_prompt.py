@@ -249,6 +249,26 @@ def _load_runtime_coding_conventions():
     return _read_runtime_file(_runtime_coding_conventions_path(), packaged_path)
 
 
+# Orchestration guidance (PLAN 8g). Included ONLY when orchestration is enabled,
+# so a default session pays no tokens for a disabled feature. Teaches the
+# async fire-and-continue pattern, not blocking gather.
+_ORCHESTRATOR_GUIDANCE = """
+--- Sub-agent orchestration ---
+You can delegate independent work to background sub-agents (each is another instance of this app):
+- Spawn one with agent_create(prompt). It returns IMMEDIATELY with a session_name and runs in the background — do NOT wait. Keep helping the user; the sub-agent's result is delivered to you automatically on a later turn (as a "background sub-agent finished/FAILED" notice).
+- Use sub-agents only for genuinely independent, parallelizable subtasks, broad multi-file research, or work needing an isolated context — never for sequential or single-step work you can just do yourself.
+- Do NOT call agent_gather unless you truly cannot proceed without the result right now: it BLOCKS and freezes the user's session. Default to fire-and-continue.
+- You are the sole writer of files. Treat sub-agents as researchers: apply any file changes yourself based on what they report back.
+- Sub-agents cannot spawn their own sub-agents, and only a limited number run at once. If agent_create is refused (cap reached), wait for the running one to finish.
+"""
+
+# Sub-agent self-guidance (PLAN 8b). Included ONLY when running in --agent mode.
+_SUBAGENT_GUIDANCE = """
+--- You are a sub-agent ---
+You were spawned by an orchestrator to do ONE focused task. Your final assistant response is harvested as your RESULT and read by the orchestrator — make it a tight, structured summary of the findings/outcome, not a transcript or play-by-play. Do not spawn further sub-agents. Prefer reporting findings for the orchestrator to act on rather than modifying files yourself, unless explicitly told to.
+"""
+
+
 def build_system_prompt(session_id=None):
     """Return the assembled system prompt: platform invariants
     (SYSTEM_PROMPT_TEMPLATE) followed by the project instructions
@@ -259,6 +279,11 @@ def build_system_prompt(session_id=None):
     concatenated here at build time so a single system message goes over
     the wire. That message lands in the cached prefix and is paid for once
     per session instead of being prepended to every user message.
+
+    Orchestration guidance is appended conditionally: a sub-agent (--agent
+    mode) gets the "you are a sub-agent" block; an orchestrator with the
+    feature enabled gets the "how to delegate" block. A normal session gets
+    neither (no tokens for a disabled feature).
     """
     project = _project_instructions_content()
     parts = [SYSTEM_PROMPT_TEMPLATE]
@@ -268,6 +293,13 @@ def build_system_prompt(session_id=None):
         # system-level guidance.
         parts.append("\n--- Project instructions ---\n\n")
         parts.append(project)
+
+    from monitor import config as _config
+    if getattr(_config, "AGENT", False):
+        parts.append(_SUBAGENT_GUIDANCE)
+    elif getattr(_config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", False):
+        parts.append(_ORCHESTRATOR_GUIDANCE)
+
     if session_id is not None:
         parts.append(f"\nSession ID: {session_id}\n")
     return "".join(parts)
