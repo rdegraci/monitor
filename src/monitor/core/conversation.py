@@ -445,6 +445,49 @@ def process_input(user_input, history_file, session):
     return should_exit
 
 
+def _prompt_with_agent_bridge(session, prompt_text):
+    """Prompt while surfacing sub-agent activity (PLAN Phase 3 bridge).
+
+    Flushes buffered agent output blocks above the prompt, and — ONLY when
+    sub-agents are active — shows their live status in a bottom toolbar with a
+    periodic refresh. When no agents are active this is byte-identical to a
+    plain ``session.prompt(...)``, so ordinary usage is unaffected. Any failure
+    degrades to a plain prompt.
+    """
+    try:
+        from monitor.lib import agent_orchestrator as orch
+    except Exception:
+        return session.prompt(prompt_text)
+
+    # Flush streamed/completed agent output above the prompt line.
+    try:
+        for line in orch.drain_pending_output():
+            print(line)
+    except Exception:
+        logger.debug("agent bridge: drain failed", exc_info=True)
+
+    try:
+        active = orch.has_active_agents()
+    except Exception:
+        active = False
+    if not active:
+        return session.prompt(prompt_text)
+
+    def _toolbar():
+        try:
+            return orch.render_toolbar()
+        except Exception:
+            return ""
+
+    try:
+        from prompt_toolkit.patch_stdout import patch_stdout
+        with patch_stdout():
+            return session.prompt(prompt_text, bottom_toolbar=_toolbar, refresh_interval=0.5)
+    except TypeError:
+        # Older prompt_toolkit may reject these kwargs — fall back gracefully.
+        return session.prompt(prompt_text)
+
+
 def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, session=None):
     """
     Capture and process user input using prompt_toolkit with custom lexer for red highlighting after 120 characters.
@@ -470,7 +513,7 @@ def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, se
         except Exception:
             pass
 
-        first_line = session.prompt(ANSI(prompt))
+        first_line = _prompt_with_agent_bridge(session, ANSI(prompt))
         logger.debug(f"First line received: {first_line}")
 
         # Reset terminal colors before printing colored output.

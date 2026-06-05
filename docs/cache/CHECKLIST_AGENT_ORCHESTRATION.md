@@ -24,12 +24,22 @@ as completed. Items are ordered so each builds on verified prior work.
 > `MONITOR_AGENT_SOCKET` (orchestrator listener) + `MONITOR_AGENT_ID`; `app.py`
 > startup calls `agent_reporter.from_env()` (heartbeat + status + atexit exit).
 > **Verified with a real subprocess**: a spawned `monitor --agent` connected and
-> emitted hello → status → exit. Full suite 1332 passed / 1 skipped.
+> emitted hello → status → exit.
 >
-> NOT yet done: Phase 3 (bridge into the live prompt_toolkit loop), Phase 4 (UI),
-> Phase 5 (rollback), Phase 6 (index/depth at `hello`), Phase 7 (hardening),
-> Phase 8 (LLM `agent_gather` layer). The legacy child-served status-socket +
-> poller path was left intact (additive); cleanup deferred.
+> **Phase 3 + most of Phase 4 also done.** `agent_orchestrator` gained a bounded
+> pending-output buffer + `drain_pending_output`/`render_toolbar`/
+> `has_active_agents`; `conversation.py` `get_input` now routes through
+> `_prompt_with_agent_bridge`, which flushes agent output above the prompt and
+> shows a live `bottom_toolbar` — ONLY when agents are active (byte-identical to
+> a plain prompt otherwise; degrades on any error). Full suite 1337 passed / 1
+> skipped.
+>
+> NOT yet done: Phase 4 live-flush DURING a prompt (currently flushes between
+> prompts; toolbar refreshes live), Phase 5 (dirty-disconnect → history
+> rollback; detection exists, firing the rollback is unwired), Phase 6 (depth
+> ceiling at `hello`, direct-children-only toolbar), Phase 7 (hardening), Phase 8
+> (LLM `agent_gather` layer). The legacy child-served status-socket + poller path
+> was left intact (additive); cleanup deferred.
 
 ## 0. Pre-flight
 - [x] `MONITOR_ENABLE_AGENT_ORCHESTRATION`, `MONITOR_AGENT_DEPTH`,

@@ -75,6 +75,39 @@ def test_dirty_disconnect_recorded():
     assert rec["terminal"] is False
 
 
+def test_pending_output_drains_stdout_and_result():
+    path = orch.ensure_started()
+    r = AgentReporter(path, "outA")
+    r.connect()
+    r.emit_stdout("line one\nline two")
+    r.result(ok=True, summary="all good")
+    # Wait until the (terminal) result frame is recorded, then drain once.
+    assert _wait(lambda: (orch.agent_record("outA") or {}).get("terminal"))
+    drained = orch.drain_pending_output()
+    text = "\n".join(drained)
+    assert "line one" in text and "line two" in text
+    assert "✓ all good" in text
+    # Drain is destructive — a second drain is empty.
+    assert orch.drain_pending_output() == []
+    r.close()
+
+
+def test_render_toolbar_active_then_empty():
+    path = orch.ensure_started()
+    assert orch.render_toolbar() == ""  # no agents
+    r = AgentReporter(path, "tb1")
+    r.connect()
+    r.status("scanning")
+    assert _wait(lambda: orch.has_active_agents())
+    bar = orch.render_toolbar()
+    assert "tb1" in bar and "scanning" in bar
+    # After a terminal frame the agent is no longer active → toolbar empties.
+    r.result(ok=True, summary="done")
+    r.close()
+    assert _wait(lambda: not orch.has_active_agents())
+    assert orch.render_toolbar() == ""
+
+
 def test_clean_exit_not_dirty():
     path = orch.ensure_started()
     r = AgentReporter(path, "tidy")

@@ -19,11 +19,12 @@ import-cycle-safe and can be imported from screen_handler at spawn time.
 
 from __future__ import annotations
 
+import collections
 import logging
 import os
 import tempfile
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 from monitor.lib import agent_protocol as ap
 from monitor.lib.agent_listener import AgentListener
@@ -34,9 +35,16 @@ _lock = threading.Lock()
 _listener: Optional[AgentListener] = None
 
 # agent_id -> record. Guarded by _registry_lock — this is the lock-guarded
-# shared state Phase 3's bridge and Phase 8's gather tool will read.
+# shared state Phase 3's bridge and Phase 8's gather tool read.
 _registry: Dict[str, Dict[str, Any]] = {}
 _registry_lock = threading.Lock()
+
+# Bounded buffer of formatted output blocks (stdout/result) awaiting display
+# above the next prompt (Phase 3 bridge). Bounded so a chatty agent can't grow
+# memory without limit; under overflow the oldest stdout lines drop (results are
+# short and rarely lost). Guarded by _registry_lock.
+_MAX_PENDING_OUTPUT = 2000
+_pending_output: Deque[str] = collections.deque(maxlen=_MAX_PENDING_OUTPUT)
 
 
 def _default_socket_path() -> str:
@@ -71,12 +79,22 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
         rec["frames"].append(frame)
         if ftype == ap.STATUS:
             rec["status"] = frame["body"].get("label")
+        elif ftype == ap.STDOUT:
+            chunk = frame["body"].get("chunk", "")
+            for line in str(chunk).splitlines() or [""]:
+                _pending_output.append(f"[{agent_id}] {line}")
         elif ftype == ap.RESULT:
             rec["results"].append(frame["body"])
             rec["terminal"] = True
+            ok = frame["body"].get("ok", True)
+            summary = frame["body"].get("summary", "")
+            _pending_output.append(f"[{agent_id}] {'✓' if ok else '✗'} {summary}")
         elif ftype == ap.ERROR:
             rec["error"] = frame["body"]
             rec["terminal"] = True
+            _pending_output.append(
+                f"[{agent_id}] ✗ error: {frame['body'].get('message', '')}"
+            )
         elif ftype == ap.EXIT:
             rec["terminal"] = True
 
@@ -142,6 +160,38 @@ def all_agent_ids() -> List[str]:
         return list(_registry.keys())
 
 
+# --- bridge: terminal display (Phase 3) -------------------------------------
+
+def drain_pending_output() -> List[str]:
+    """Return and clear buffered output blocks (stdout/result) for display."""
+    with _registry_lock:
+        out = list(_pending_output)
+        _pending_output.clear()
+        return out
+
+
+def has_active_agents() -> bool:
+    """True if any agent is still running (non-terminal). Gates the toolbar so
+    normal (no-agent) prompting is byte-identical."""
+    with _registry_lock:
+        return any(not rec["terminal"] for rec in _registry.values())
+
+
+def render_toolbar() -> str:
+    """One-line live status of active agents for the prompt_toolkit toolbar.
+
+    Returns "" when no agents are active so the toolbar is hidden in normal use.
+    """
+    with _registry_lock:
+        active = [
+            (aid, rec["status"]) for aid, rec in _registry.items() if not rec["terminal"]
+        ]
+    if not active:
+        return ""
+    parts = [f"{aid}: {status or '…'}" for aid, status in active]
+    return "agents — " + "  ".join(parts)
+
+
 # --- lifecycle / tests ------------------------------------------------------
 
 def stop() -> None:
@@ -158,3 +208,4 @@ def reset_for_test() -> None:
     stop()
     with _registry_lock:
         _registry.clear()
+        _pending_output.clear()
