@@ -216,7 +216,7 @@ def agent_list(full: bool = False) -> Dict[str, Any]:
         return {"status": "error", "correlation_id": cid, "message": str(exc)}
 
 
-def agent_create(prompt: str) -> Dict[str, Any]:
+def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
     """Create an interactive subagent (screen) session.
 
     This wrapper requests the ScreenHandler to create an interactive subagent
@@ -228,6 +228,9 @@ def agent_create(prompt: str) -> Dict[str, Any]:
 
     Args:
         prompt: The prompt to use when creating the interactive subagent.
+        persistent: If False (default), the sub-agent is ONE-SHOT — it exits
+            after reporting its result, reaping itself. If True, it stays alive
+            for agent_send follow-ups and must be agent_kill-ed when done.
 
     Returns:
         Dict[str, Any]: A dictionary containing status, correlation_id, and on
@@ -268,7 +271,7 @@ def agent_create(prompt: str) -> Dict[str, Any]:
     try:
         # Request creation from the handler, handling the blocked case explicitly.
         try:
-            info = _SCREEN.create_interactive_subagent(prompt)
+            info = _SCREEN.create_interactive_subagent(prompt, persistent=persistent)
         except Exception as exc:
             # Import SubagentCreationBlocked lazily; handle the blocked case if available.
             try:

@@ -5,13 +5,23 @@ import monitor.config as config
 
 from monitor.core.agent_tools import agent_create
 from monitor.lib.screen_handler import SubagentCreationBlocked
+from monitor.lib import agent_orchestrator as _orch
+
+
+@pytest.fixture(autouse=True)
+def _reset_orch():
+    # Reset spawn counters so the default breadth/total cap (1) doesn't bleed
+    # across these single-create tests.
+    _orch.reset_for_test()
+    yield
+    _orch.reset_for_test()
 
 
 @patch("monitor.core.agent_tools._SCREEN")
 def test_agent_create_blocked(mock_screen, monkeypatch):
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
     # Simulate handler raising SubagentCreationBlocked
-    def raise_block(prompt):
+    def raise_block(prompt, persistent=False):
         raise SubagentCreationBlocked("Sub-agent creation disabled: MONITOR_AGENT_MAX_DEPTH reached (depth=1, max=1).")
     mock_screen.create_interactive_subagent.side_effect = raise_block
 

@@ -280,6 +280,7 @@ class ScreenHandler:
         *,
         max_retries: int = 30,
         retry_delay: float = 0.2,
+        persistent: bool = False,
     ) -> Dict[str, Any]:
         """Create a detached screen session running interactive Monitor and inject prompt.
 
@@ -364,6 +365,12 @@ class ScreenHandler:
         ]
         if max_depth is not None:
             env_vars.append(f"MONITOR_AGENT_MAX_DEPTH={max_depth}")
+
+        # PLAN 8f lifecycle: one-shot by default (the child exits after its first
+        # completed task turn, so it reaps itself). persistent=True omits the
+        # flag so the child stays alive for agent_send follow-ups.
+        if not persistent:
+            env_vars.append("MONITOR_AGENT_ONE_SHOT=1")
 
         # PLAN Phase 0.5: hand the child the orchestrator's frame-protocol
         # listener socket + a stable agent id. The child's agent_reporter

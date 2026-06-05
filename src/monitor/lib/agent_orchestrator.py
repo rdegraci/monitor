@@ -63,6 +63,24 @@ def _hb_timeout() -> float:
     except (TypeError, ValueError):
         return 45.0
 
+def _idle_timeout() -> float:
+    """Seconds a PERSISTENT sub-agent may sit idle (alive but doing no work,
+    only heartbeating) after reporting a result before the idle-reaper kills it
+    (PLAN 8f safety net). env overrides config; both fall back to the default."""
+    val = os.environ.get("MONITOR_AGENT_IDLE_TIMEOUT")
+    if val is None:
+        try:
+            from monitor import config
+            val = getattr(config, "MONITOR_AGENT_IDLE_TIMEOUT", None)
+        except Exception:
+            val = None
+    if val is None:
+        return 300.0
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 300.0
+
 _hb_thread: Optional[threading.Thread] = None
 _hb_stop = threading.Event()
 
@@ -104,8 +122,10 @@ def _blank_record(conn_id: Optional[int] = None) -> Dict[str, Any]:
         "dirty": False,
         "conn_id": conn_id,
         "last_frame": time.monotonic(),
+        "last_activity": time.monotonic(),  # last NON-heartbeat frame (real work)
         "_resolved_counted": False,
         "_injected": False,
+        "_reaped": False,
     }
 
 
@@ -139,6 +159,10 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
             _registry[agent_id] = rec
         rec["conn_id"] = conn_id
         rec["last_frame"] = time.monotonic()
+        # last_activity tracks real work (everything except heartbeats), so the
+        # idle-reaper can tell an idle-but-alive agent from a busy one.
+        if ftype != ap.HEARTBEAT:
+            rec["last_activity"] = rec["last_frame"]
         rec["frames"].append(frame)
         if ftype == ap.STATUS:
             rec["status"] = frame["body"].get("label")
@@ -195,6 +219,17 @@ def _on_disconnect(conn_id: int, agent_id: Optional[str], dirty: bool) -> None:
             _count_resolved(rec)
 
 
+def _kill_session(agent_id: str) -> None:
+    """Best-effort kill of a sub-agent's screen session (agent_id == session
+    name). Lazy import keeps agent_orchestrator free of a screen_handler import
+    at module load; failures are swallowed (best-effort reaping)."""
+    try:
+        from monitor.lib.screen_handler import get_global_screen_handler
+        get_global_screen_handler().kill_session(agent_id)
+    except Exception:
+        logger.debug("idle-reap: could not kill session %s", agent_id, exc_info=True)
+
+
 def _heartbeat_monitor() -> None:
     """Mark non-terminal agents dirty once their last frame is older than the
     heartbeat timeout (hung, or spawned-but-never-connected). Releases the
@@ -202,22 +237,42 @@ def _heartbeat_monitor() -> None:
     while not _hb_stop.wait(max(1.0, _hb_timeout() / 3.0)):
         now = time.monotonic()
         timeout = _hb_timeout()
+        idle_timeout = _idle_timeout()
+        to_reap = []  # (agent_id) of idle persistent agents to kill (outside lock)
         with _registry_lock:
             for aid, rec in _registry.items():
-                if rec["terminal"] or rec["dirty"]:
+                # Crash/hang detection: a non-terminal agent gone silent.
+                if not rec["terminal"] and not rec["dirty"]:
+                    if now - rec.get("last_frame", now) > timeout:
+                        rec["dirty"] = True
+                        _count_resolved(rec)
+                        _queue_injection(
+                            aid, rec,
+                            f"Background sub-agent '{aid}' FAILED: stopped responding "
+                            f"(heartbeat lapsed).",
+                        )
+                        logger.warning(
+                            "agent %s heartbeat lapsed (%.0fs > %.0fs) — marked dirty",
+                            aid, now - rec["last_frame"], timeout,
+                        )
                     continue
-                if now - rec.get("last_frame", now) > timeout:
-                    rec["dirty"] = True
-                    _count_resolved(rec)
-                    _queue_injection(
-                        aid, rec,
-                        f"Background sub-agent '{aid}' FAILED: stopped responding "
-                        f"(heartbeat lapsed).",
-                    )
-                    logger.warning(
-                        "agent %s heartbeat lapsed (%.0fs > %.0fs) — marked dirty",
-                        aid, now - rec["last_frame"], timeout,
-                    )
+                # Idle-reap (PLAN 8f): a PERSISTENT agent that reported a result
+                # (terminal) but is still ALIVE (heartbeating → last_frame fresh)
+                # and has done no real work for idle_timeout. One-shot agents
+                # exit themselves, so they go silent (stale last_frame) and are
+                # NOT matched here.
+                if (
+                    rec["terminal"]
+                    and not rec["dirty"]
+                    and not rec["_reaped"]
+                    and (now - rec.get("last_frame", now)) < timeout      # still alive
+                    and (now - rec.get("last_activity", now)) > idle_timeout  # idle
+                ):
+                    rec["_reaped"] = True
+                    to_reap.append(aid)
+        for aid in to_reap:
+            logger.info("Idle-reaping persistent sub-agent %s (idle > %.0fs)", aid, idle_timeout)
+            _kill_session(aid)
 
 
 def ensure_started() -> str:

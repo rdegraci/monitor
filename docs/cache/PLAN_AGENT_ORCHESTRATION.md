@@ -330,11 +330,31 @@ an accurate picture of what finished, crashed, or is still running.
   writes serially** as the single writer of record. This sidesteps concurrent-
   write conflicts without per-agent worktree isolation.
 
-### Caps & lifecycle (referenced, detailed in roadmap Phase 8)
-- Breadth/sibling cap + total-agent / token budget (depth alone is insufficient);
-  child token-costs aggregate up to the orchestrator.
-- `agent_send` follow-ups make subagents stateful; define queue-vs-interrupt
-  semantics and idle-reaping.
+### Sub-agent lifecycle: one-shot (default) vs persistent
+A spawned sub-agent is an interactive instance — without a lifecycle policy it
+answers its injected prompt, emits its result, and then **lingers as an idle
+process forever**. Two modes fix this; the orchestrator chooses per spawn:
+
+- **one-shot (DEFAULT)** — exits after its first completed input turn (prompt →
+  response → `result` frame), so its screen session reaps itself. The leak-free
+  researcher model; the common fire-and-continue case.
+- **persistent** — opt in via `agent_create(prompt, persistent=True)`. Stays
+  alive so the orchestrator can `agent_send` follow-ups; the orchestrator is
+  responsible for `agent_kill`-ing it when done.
+
+The choice is an `agent_create` parameter (the orchestrator LLM decides); the
+spawner translates it into the child's mode (a flag/env). Default = one-shot so
+the leak-free path is the default and persistence is deliberate.
+
+Safety net for persistent agents (the heartbeat reaper only catches *crashed*
+agents, not idle-alive ones):
+- an **idle-reaper** kills a persistent agent idle longer than a timeout, and
+- the orchestrator system prompt (8g) instructs "kill persistent sub-agents when
+  you're done with them."
+
+### Caps & token cost (referenced, detailed in roadmap Phase 8)
+- Breadth/sibling cap + total-agent cap (depth alone is insufficient); child
+  token-costs aggregate up to the orchestrator (deferred — see 8c).
 
 ---
 

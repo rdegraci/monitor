@@ -681,13 +681,18 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "agent_create",
-            "description": "Create a new agent session initialized with the provided prompt. Use this function to start or instantiate an agent that can be interacted with afterwards.",
+            "description": "Spawn a background sub-agent initialized with the given prompt. Returns immediately with a session_name; the sub-agent runs in the background and its result is delivered to you on a later turn. By default the sub-agent is ONE-SHOT — it does the task, reports, and exits (use this for researchers / fan-out). Set persistent=true ONLY if you intend to send it follow-ups with agent_send; you must then agent_kill it when done.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "The initial prompt or instruction for the new agent."
+                        "description": "The initial prompt or instruction for the new sub-agent."
+                    },
+                    "persistent": {
+                        "type": "boolean",
+                        "description": "False (default) = one-shot: exits after reporting its result (self-reaping). True = stays alive for agent_send follow-ups; you must agent_kill it when finished.",
+                        "default": False
                     }
                 },
                 "required": ["prompt"]

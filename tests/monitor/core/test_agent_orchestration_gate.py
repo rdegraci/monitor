@@ -6,8 +6,20 @@ succeed when enabled (with ScreenHandler mocked to avoid spawning real
 subagents).
 """
 
+import pytest
+
 from monitor.core import agent_tools
 from monitor import config
+from monitor.lib import agent_orchestrator as _orch
+
+
+@pytest.fixture(autouse=True)
+def _reset_orch():
+    # Reset spawn counters so the default breadth/total cap (1) doesn't bleed
+    # across these single-create delegation tests.
+    _orch.reset_for_test()
+    yield
+    _orch.reset_for_test()
 
 
 def test_agent_create_disabled(monkeypatch):
@@ -50,7 +62,7 @@ def test_agent_create_enabled(monkeypatch):
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
 
     class DummyScreen:
-        def create_interactive_subagent(self, prompt):
+        def create_interactive_subagent(self, prompt, persistent=False):
             return {"session_name": "sess-123", "meta_path": "/tmp/meta", "log_path": "/tmp/log"}
 
     # Patch the module-level _SCREEN proxy to return our dummy screen

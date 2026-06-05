@@ -215,9 +215,15 @@ as completed. Items are ordered so each builds on verified prior work.
       proposed changes.
 - [ ] Primary orchestrator applies all writes serially (single writer of record).
 
-### 11f. Follow-up prompts & lifecycle
-- [ ] `agent_send` follow-up semantics defined (queue vs interrupt while busy).
-- [ ] Idle-reaping policy so subagents don't pile up.
+### 11f. Sub-agent lifecycle: one-shot vs persistent
+- [ ] `agent_create` gains a `persistent` param (default False = one-shot).
+- [ ] **one-shot (default):** the `--agent` child exits after its first
+      completed turn (prompt → response → `result`), so it reaps itself
+      (clean exit → screen teardown). Spawner passes the mode via flag/env.
+- [ ] **persistent:** stays alive for `agent_send` follow-ups; orchestrator
+      `agent_kill`s it when done.
+- [ ] **Idle-reaper** backstop: kill a persistent agent idle past a timeout
+      (heartbeat reaper only catches crashed agents, not idle-alive ones).
 
 ### 11g. System-prompt orchestration guidance
 - [ ] Replace "create subagents as necessary" with explicit when-to-fan-out
@@ -226,6 +232,8 @@ as completed. Items are ordered so each builds on verified prior work.
 - [ ] Teach the **fire-and-continue** pattern: spawn and KEEP GOING; the result
       arrives on a later turn. Do NOT block on `agent_gather` unless you truly
       cannot proceed without the result. Remain the sole file writer.
+- [ ] Sub-agents are one-shot by default; spawn `persistent=True` only for
+      follow-ups and `agent_kill` it when done.
 
 ### 11h. Tests
 - [x] `agent_gather` aggregates results / buckets partial failures (9 tests) —

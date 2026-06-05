@@ -136,6 +136,26 @@ def test_from_env_builds_connected_reporter(wired, monkeypatch):
     r.close()
 
 
+def test_from_env_one_shot_flag(wired, monkeypatch):
+    sock_path, _frames, _dc, _lock = wired
+    monkeypatch.setenv("MONITOR_AGENT_SOCKET", sock_path)
+    monkeypatch.setenv("MONITOR_AGENT_ID", "os1")
+    monkeypatch.setenv("MONITOR_AGENT_ONE_SHOT", "1")
+    r = from_env()
+    assert r is not None and r.one_shot is True
+    r.close()
+
+
+def test_from_env_persistent_is_default(wired, monkeypatch):
+    sock_path, _frames, _dc, _lock = wired
+    monkeypatch.setenv("MONITOR_AGENT_SOCKET", sock_path)
+    monkeypatch.setenv("MONITOR_AGENT_ID", "p1")
+    monkeypatch.delenv("MONITOR_AGENT_ONE_SHOT", raising=False)
+    r = from_env()
+    assert r is not None and r.one_shot is False
+    r.close()
+
+
 def test_report_error_frame(wired):
     sock_path, frames, _dc, lock = wired
     r = AgentReporter(sock_path, "ag6")

@@ -39,11 +39,15 @@ _DEFAULT_HEARTBEAT_SECONDS = 15.0
 class AgentReporter:
     """Best-effort frame emitter from a sub-agent to its orchestrator."""
 
-    def __init__(self, socket_path: str, agent_id: str, *, name: str = "", depth: int = 0):
+    def __init__(self, socket_path: str, agent_id: str, *, name: str = "", depth: int = 0,
+                 one_shot: bool = False):
         self.socket_path = socket_path
         self.agent_id = agent_id
         self.name = name or agent_id
         self.depth = depth
+        # one_shot: this sub-agent exits after its first completed task turn
+        # (PLAN 8f). The main loop checks this after reporting a result.
+        self.one_shot = one_shot
 
         self._sock: Optional[socket.socket] = None
         self._seq = 0
@@ -186,7 +190,8 @@ def from_env() -> Optional[AgentReporter]:
         depth = int(os.environ.get("MONITOR_AGENT_DEPTH", "0"))
     except (TypeError, ValueError):
         depth = 0
-    reporter = AgentReporter(sock_path, agent_id, name=agent_id, depth=depth)
+    one_shot = os.environ.get("MONITOR_AGENT_ONE_SHOT") == "1"
+    reporter = AgentReporter(sock_path, agent_id, name=agent_id, depth=depth, one_shot=one_shot)
     if not reporter.connect():
         return None
     return reporter

@@ -497,5 +497,6 @@ MONITOR_AGENT_MAX_DEPTH: 1                  # Max recursion depth. 1 = sub-agent
 MONITOR_AGENT_MAX_BREADTH: 1               # Max sub-agents running concurrently (0 disables the cap).
 MONITOR_AGENT_MAX_TOTAL: 1                 # Max sub-agents spawned per session (0 disables the cap).
 MONITOR_AGENT_HEARTBEAT_TIMEOUT: 45        # Seconds before a silent sub-agent is treated as crashed/hung.
+MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may sit idle (post-result) before it's reaped.
 
 # End Config.yaml

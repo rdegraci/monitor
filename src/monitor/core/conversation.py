@@ -529,27 +529,39 @@ def _fold_agent_injections_into_prefixes():
 
 def _maybe_report_agent_result(user_input):
     """If this monitor is a spawned sub-agent, emit the turn's assistant response
-    as a `result` frame so the orchestrator's `agent_gather` can collect it
-    (PLAN Phase 8b). No-op for a normal (non-agent) instance or empty input.
+    as a `result` frame so the orchestrator can collect it (PLAN Phase 8b).
+    Returns True if a result was reported (used to decide one-shot exit), False
+    otherwise. No-op for a normal (non-agent) instance or empty input.
     """
     if not user_input or not str(user_input).strip():
-        return
+        return False
     try:
         from monitor.lib import agent_reporter
     except Exception:
-        return
+        return False
     rep = agent_reporter.active()
     if rep is None or not rep.connected:
-        return
+        return False
     try:
         from monitor.lib.built_in_commands import _last_assistant_response
         summary = _last_assistant_response()
     except Exception:
         summary = None
     if not summary:
-        return
+        return False
     rep.result(ok=True, summary=summary)
     rep.status("idle")
+    return True
+
+
+def _agent_is_one_shot():
+    """True if this process is a one-shot sub-agent (exits after one task)."""
+    try:
+        from monitor.lib import agent_reporter
+        rep = agent_reporter.active()
+        return rep is not None and getattr(rep, "one_shot", False)
+    except Exception:
+        return False
 
 
 def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, session=None):
@@ -878,10 +890,17 @@ def chat():
                     logger.exception("Failed while flushing logs and conversation.")
                 # PLAN 8b: if running as a spawned sub-agent, report this turn's
                 # assistant response to the orchestrator as a result frame.
+                _agent_reported = False
                 try:
-                    _maybe_report_agent_result(user_input)
+                    _agent_reported = _maybe_report_agent_result(user_input)
                 except Exception:
                     logger.debug("agent result report failed", exc_info=True)
+
+            # PLAN 8f: a one-shot sub-agent exits after its first completed task
+            # turn (it has reported its result) so it reaps itself.
+            if _agent_reported and _agent_is_one_shot():
+                logger.info("One-shot sub-agent completed its task; exiting.")
+                break
 
             if not exit_flag:
                 continue

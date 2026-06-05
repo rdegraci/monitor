@@ -260,6 +260,7 @@ You can delegate independent work to background sub-agents (each is another inst
 - Do NOT call agent_gather unless you truly cannot proceed without the result right now: it BLOCKS and freezes the user's session. Default to fire-and-continue.
 - You are the sole writer of files. Treat sub-agents as researchers: apply any file changes yourself based on what they report back.
 - Sub-agents cannot spawn their own sub-agents, and only a limited number run at once. If agent_create is refused (cap reached), wait for the running one to finish.
+- Sub-agents are ONE-SHOT by default (they exit after reporting). Pass persistent=true to agent_create ONLY when you'll send the same sub-agent follow-ups with agent_send — and agent_kill it when you're done so it doesn't linger.
 """
 
 # Sub-agent self-guidance (PLAN 8b). Included ONLY when running in --agent mode.

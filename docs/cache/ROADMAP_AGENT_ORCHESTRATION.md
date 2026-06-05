@@ -159,11 +159,19 @@ later. A blocking gather is explicitly NOT the default (it freezes the REPL).
 - Only if/when parallel writers are truly needed do we revisit per-agent
   worktree isolation (still out of scope below).
 
-### 8f. Follow-up prompts & subagent lifecycle
-- `agent_send` makes subagents stateful, conversational sessions (they are full
-  monitor instances with history).
-- Define **queue-vs-interrupt** semantics for a follow-up sent while a subagent
-  is mid-task, and an **idle-reaping** policy so subagents don't pile up.
+### 8f. Sub-agent lifecycle: one-shot vs persistent
+A spawned sub-agent is interactive — without a lifecycle policy it answers its
+prompt, reports, and then lingers idle forever (a process/screen-session leak).
+Two modes, chosen per-spawn by the orchestrator:
+- **one-shot (DEFAULT)** — exits after its first completed turn (prompt →
+  response → `result`); reaps itself. The leak-free researcher / fire-and-
+  continue case.
+- **persistent** — `agent_create(prompt, persistent=True)`: stays alive for
+  `agent_send` follow-ups; the orchestrator must `agent_kill` it when done.
+- Safety net: an **idle-reaper** kills a persistent agent idle past a timeout,
+  and 8g tells the orchestrator to kill persistent agents when finished.
+- `agent_create` gains a `persistent` param; the spawner sets the child's mode
+  (flag/env). One-shot exit = a `break` after the first turn in agent mode.
 
 ### 8g. System-prompt orchestration guidance
 - Replace open-ended "create subagents as necessary" with explicit
@@ -172,6 +180,9 @@ later. A blocking gather is explicitly NOT the default (it freezes the REPL).
 - Teach the **fire-and-continue** pattern: spawn a researcher and CONTINUE the
   conversation; its result arrives automatically on a later turn. Do NOT block
   on `agent_gather` unless you genuinely cannot proceed without the result.
+- Default sub-agents are **one-shot** (they exit after reporting). Spawn a
+  **persistent** one (`persistent=True`) only when you'll send follow-ups, and
+  **`agent_kill` it when done** so it doesn't linger.
 - Make the model cost/latency-aware; crisp tool descriptions; remain sole writer.
 
 ### 8h. Live-flush human UI (re-elevated — see Phase 4)
