@@ -384,372 +384,193 @@ def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
         return {"status": "error", "correlation_id": cid, "message": str(exc)}
 
 
-def agent_logfile(index: int) -> Dict[str, Any]:
-    """Locate the logfile for a given agent (screen) session by numeric index.
+def _normalize_session_name(resolved) -> Optional[str]:
+    """Extract a session_name string from a get_session_by_index result, which
+    may be a str / dict / list / object."""
+    if isinstance(resolved, str):
+        return resolved or None
+    if isinstance(resolved, dict):
+        for key in ("session_name", "name", "session", "id", "title"):
+            v = resolved.get(key)
+            if isinstance(v, str) and v:
+                return v
+        for v in resolved.values():
+            if isinstance(v, str) and v:
+                return v
+        return None
+    if isinstance(resolved, (list, tuple)):
+        return _normalize_session_name(resolved[0]) if resolved else None
+    for attr in ("session_name", "name", "session", "id", "title"):
+        v = getattr(resolved, attr, None)
+        if isinstance(v, str) and v:
+            return v
+    return str(resolved) if resolved is not None else None
 
-    This function accepts a numeric index and resolves it to a session name using
-    ScreenHandler.get_session_by_index. The resolved value may be a string,
-    dict, tuple, or object; this function attempts to extract a meaningful
-    session name robustly from those types. It then uses
-    monitor.lib.subagent_logging.find_logfile_for_session_name to locate the
-    associated logfile.
+
+def _resolve_agent_ref(ref) -> Optional[str]:
+    """Resolve an agent reference to a session_name.
+
+    ``ref`` is normally the ``session_name`` returned by ``agent_create`` (the
+    only identifier the orchestrator LLM actually has); a 1-based list index
+    (as shown by ``:agent list``) is also accepted. Returns None if it can't be
+    resolved to a known session.
+    """
+    s = str(ref).strip()
+    if not s:
+        return None
+    # Primary path: a known session_name (what agent_create hands the model).
+    try:
+        for entry in _SCREEN.load_sessions_index():
+            if entry.get("session_name") == s:
+                return s
+    except Exception:
+        pass
+    # Fallback: a 1-based index into the sessions list.
+    if s.isdigit():
+        try:
+            return _normalize_session_name(_SCREEN.get_session_by_index(int(s)))
+        except Exception:
+            return None
+    return None
+
+
+def agent_logfile(session) -> Dict[str, Any]:
+    """Locate the logfile for an agent (screen) session.
 
     Args:
-        index: The numeric index referencing a session.
+        session: the ``session_name`` returned by ``agent_create`` (a 1-based
+            index from ``:agent list`` is also accepted).
 
     Returns:
-        Dict[str, Any]: A dictionary containing status, correlation_id, the
-            provided index, the resolved session name and the logfile path
-            (or an error message on failure).
+        Dict[str, Any]: status, correlation_id, the resolved session name and
+            the logfile path (or an error message on failure).
     """
     cid = _new_correlation_id()
-
-    # Input validation: require an int index
-    if not isinstance(index, int):
-        msg = "index must be an int"
-        logger.error("agent_logfile validation failed: cid=%s, index=%r, msg=%s", cid, index, msg)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
+    if not isinstance(session, (str, int)) or (isinstance(session, str) and not session.strip()):
+        msg = "session must be a session_name string (or a 1-based index)"
+        logger.error("agent_logfile validation failed: cid=%s, session=%r", cid, session)
+        return {"status": "error", "correlation_id": cid, "session": session, "message": msg}
 
     try:
-        # Resolve index to session using the handler
-        try:
-            resolved = _SCREEN.get_session_by_index(index)
-        except AttributeError:
-            # Handler does not support index lookup; surface a clear error.
-            raise RuntimeError("ScreenHandler.get_session_by_index is not available")
-        except Exception:
-            # Any other error during resolution should be raised to the outer handler.
-            raise
-
-        # Robustly extract a session name from various possible return types.
-        session_name: Optional[str] = None
-
-        # If it's a simple string, use it directly.
-        if isinstance(resolved, str):
-            session_name = resolved
-        # If it's a dict, try common keys then any string value.
-        elif isinstance(resolved, dict):
-            for key in ("name", "session", "session_name", "id", "title"):
-                if key in resolved and isinstance(resolved[key], str) and resolved[key]:
-                    session_name = resolved[key]
-                    break
-            if not session_name:
-                for v in resolved.values():
-                    if isinstance(v, str) and v:
-                        session_name = v
-                        break
-        # If it's a list/tuple, inspect the first element.
-        elif isinstance(resolved, (list, tuple)):
-            if resolved:
-                first = resolved[0]
-                if isinstance(first, str):
-                    session_name = first
-                elif isinstance(first, dict):
-                    for key in ("name", "session", "session_name", "id", "title"):
-                        if key in first and isinstance(first[key], str) and first[key]:
-                            session_name = first[key]
-                            break
-                else:
-                    session_name = str(first) if first is not None else ""
-        # Otherwise, try common attributes on objects or fall back to str().
-        else:
-            for attr in ("name", "session", "session_name", "id", "title"):
-                if hasattr(resolved, attr):
-                    val = getattr(resolved, attr)
-                    if isinstance(val, str) and val:
-                        session_name = val
-                        break
-            if not session_name:
-                # As a last resort use the string representation.
-                session_name = str(resolved) if resolved is not None else ""
-
+        session_name = _resolve_agent_ref(session)
         if not session_name:
-            raise RuntimeError("Could not resolve session name from get_session_by_index result")
-
-        # Use the subagent_logging helper to find the logfile for the resolved session name.
+            return {"status": "error", "correlation_id": cid, "session": session,
+                    "message": f"No such agent session: {session!r}"}
         try:
             logfile = subagent_logging.find_logfile_for_session_name(session_name)
         except AttributeError:
-            # subagent_logging does not expose the helper we expect.
             raise RuntimeError("subagent_logging.find_logfile_for_session_name is not available")
-        except Exception:
-            # Re-raise any other exception to be handled uniformly below.
-            raise
 
         result = {
             "status": "ok",
             "correlation_id": cid,
-            "index": index,
             "session": session_name,
             "logfile": logfile,
         }
-        logger.info(
-            "agent_logfile success: cid=%s, index=%s, session=%s, logfile=%s",
-            cid,
-            index,
-            session_name,
-            logfile,
-        )
+        logger.info("agent_logfile success: cid=%s, session=%s, logfile=%s", cid, session_name, logfile)
         return result
     except Exception as exc:
         logger.exception("agent_logfile failed: %s", exc)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": str(exc)}
+        return {"status": "error", "correlation_id": cid, "session": session, "message": str(exc)}
 
 
-def agent_kill(index: int) -> Dict[str, Any]:
-    """Kill an agent (screen) session identified by numeric index.
-
-    This function validates that the provided index is an int, resolves it to a
-    session name via ScreenHandler.get_session_by_index, and then requests the
-    handler to kill the resolved session by calling ScreenHandler.kill_session.
-    The function returns a structured dictionary suitable for LLM consumption
-    with a correlation id for auditing.
+def agent_kill(session) -> Dict[str, Any]:
+    """Kill an agent (screen) session.
 
     Args:
-        index: The numeric index referencing a session to kill.
+        session: the ``session_name`` returned by ``agent_create`` (a 1-based
+            index from ``:agent list`` is also accepted).
 
     Returns:
-        Dict[str, Any]: A dictionary containing status, correlation_id, the
-            provided index, the resolved session name, and a 'killed' boolean
-            indicating whether the kill operation reported success. On error,
-            returns an error message instead.
+        Dict[str, Any]: status, correlation_id, resolved session name, and a
+            'killed' boolean (or an error message on failure).
     """
     cid = _new_correlation_id()
-
-    # Input validation: require an int index
-    if not isinstance(index, int):
-        msg = "index must be an int"
-        logger.error("agent_kill validation failed: cid=%s, index=%r, msg=%s", cid, index, msg)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
+    if not isinstance(session, (str, int)) or (isinstance(session, str) and not session.strip()):
+        msg = "session must be a session_name string (or a 1-based index)"
+        logger.error("agent_kill validation failed: cid=%s, session=%r", cid, session)
+        return {"status": "error", "correlation_id": cid, "session": session, "message": msg}
 
     try:
-        # Resolve index to session using the handler
-        try:
-            resolved = _SCREEN.get_session_by_index(index)
-        except AttributeError:
-            # Handler does not support index lookup; surface a clear error.
-            raise RuntimeError("ScreenHandler.get_session_by_index is not available")
-        except Exception:
-            # Any other error during resolution should be raised to the outer handler.
-            raise
-
-        # Robustly extract a session name from various possible return types.
-        session_name: Optional[str] = None
-
-        # If it's a simple string, use it directly.
-        if isinstance(resolved, str):
-            session_name = resolved
-        # If it's a dict, try common keys then any string value.
-        elif isinstance(resolved, dict):
-            for key in ("name", "session", "session_name", "id", "title"):
-                if key in resolved and isinstance(resolved[key], str) and resolved[key]:
-                    session_name = resolved[key]
-                    break
-            if not session_name:
-                for v in resolved.values():
-                    if isinstance(v, str) and v:
-                        session_name = v
-                        break
-        # If it's a list/tuple, inspect the first element.
-        elif isinstance(resolved, (list, tuple)):
-            if resolved:
-                first = resolved[0]
-                if isinstance(first, str):
-                    session_name = first
-                elif isinstance(first, dict):
-                    for key in ("name", "session", "session_name", "id", "title"):
-                        if key in first and isinstance(first[key], str) and first[key]:
-                            session_name = first[key]
-                            break
-                else:
-                    session_name = str(first) if first is not None else ""
-        # Otherwise, try common attributes on objects or fall back to str().
-        else:
-            for attr in ("name", "session", "session_name", "id", "title"):
-                if hasattr(resolved, attr):
-                    val = getattr(resolved, attr)
-                    if isinstance(val, str) and val:
-                        session_name = val
-                        break
-            if not session_name:
-                # As a last resort use the string representation.
-                session_name = str(resolved) if resolved is not None else ""
-
+        session_name = _resolve_agent_ref(session)
         if not session_name:
-            raise RuntimeError("Could not resolve session name from get_session_by_index result")
-
-        # Request the handler to kill the session.
+            return {"status": "error", "correlation_id": cid, "session": session,
+                    "message": f"No such agent session: {session!r}"}
         try:
-            try:
-                killed = _SCREEN.kill_session(session_name)
-            except AttributeError:
-                # Handler does not expose a kill method we expect.
-                raise RuntimeError("ScreenHandler.kill_session is not available")
-            except Exception:
-                # Re-raise to be handled uniformly below.
-                raise
-        except Exception:
-            # Ensure killed is set for the result in case of unexpected flows.
-            raise
+            killed = _SCREEN.kill_session(session_name)
+        except AttributeError:
+            raise RuntimeError("ScreenHandler.kill_session is not available")
 
-        # Normalize killed to a boolean for structured return.
         killed_bool = bool(killed)
-
         result = {
             "status": "ok",
             "correlation_id": cid,
-            "index": index,
             "session": session_name,
             "killed": killed_bool,
         }
-        logger.info(
-            "agent_kill success: cid=%s, index=%s, session=%s, killed=%s",
-            cid,
-            index,
-            session_name,
-            killed_bool,
-        )
+        logger.info("agent_kill success: cid=%s, session=%s, killed=%s", cid, session_name, killed_bool)
         return result
     except Exception as exc:
         logger.exception("agent_kill failed: %s", exc)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": str(exc)}
+        return {"status": "error", "correlation_id": cid, "session": session, "message": str(exc)}
 
 
-def agent_send(index: int, text: str) -> Dict[str, Any]:
-    """Send text to an agent (screen) session identified by numeric index.
-
-    This function validates the provided index and text, resolves the index to
-    a session name via ScreenHandler.get_session_by_index, and then requests the
-    handler to send the provided text to the resolved session by calling
-    ScreenHandler.send_to_session. The function returns a structured dictionary
-    suitable for LLM consumption with a correlation id for auditing. The
-    returned 'text_preview' contains the first 200 characters of the sent text.
+def agent_send(session, text: str) -> Dict[str, Any]:
+    """Send text to a (persistent) agent session — a follow-up prompt.
 
     Args:
-        index: The numeric index referencing a session to send text to.
-        text: The text to send to the session.
+        session: the ``session_name`` returned by ``agent_create`` (a 1-based
+            index from ``:agent list`` is also accepted).
+        text: the text to send to the session.
 
     Returns:
-        Dict[str, Any]: A dictionary containing status, correlation_id, the
-            provided index, the resolved session name, a 'sent' boolean
-            indicating whether the send operation reported success, and a
-            'text_preview' with the first 200 characters of the provided text.
-            On error, returns an error message instead.
+        Dict[str, Any]: status, correlation_id, resolved session name, a 'sent'
+            boolean, and a 'text_preview' (first 200 chars). Error on failure.
     """
     cid = _new_correlation_id()
 
     # Orchestration gating: refuse to send to sub-agents unless explicitly enabled.
     if not _orchestration_enabled():
         msg = "Agent orchestration is disabled. Set MONITOR_ENABLE_AGENT_ORCHESTRATION=1 to enable."
-        logger.warning("agent_send orchestration disabled: cid=%s, index=%r", cid, index)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
+        logger.warning("agent_send orchestration disabled: cid=%s, session=%r", cid, session)
+        return {"status": "error", "correlation_id": cid, "session": session, "message": msg}
 
-    # Input validation: require an int index and str text
-    if not isinstance(index, int):
-        msg = "index must be an int"
-        logger.error("agent_send validation failed: cid=%s, index=%r, msg=%s", cid, index, msg)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
+    if not isinstance(session, (str, int)) or (isinstance(session, str) and not session.strip()):
+        msg = "session must be a session_name string (or a 1-based index)"
+        logger.error("agent_send validation failed: cid=%s, session=%r", cid, session)
+        return {"status": "error", "correlation_id": cid, "session": session, "message": msg}
     if not isinstance(text, str):
         msg = "text must be a str"
-        logger.error("agent_send validation failed: cid=%s, index=%r, msg=%s", cid, index, msg)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": msg}
+        logger.error("agent_send validation failed: cid=%s, session=%r, msg=%s", cid, session, msg)
+        return {"status": "error", "correlation_id": cid, "session": session, "message": msg}
 
     try:
-        # Resolve index to session using the handler
-        try:
-            resolved = _SCREEN.get_session_by_index(index)
-        except AttributeError:
-            # Handler does not support index lookup; surface a clear error.
-            raise RuntimeError("ScreenHandler.get_session_by_index is not available")
-        except Exception:
-            # Any other error during resolution should be raised to the outer handler.
-            raise
-
-        # Robustly extract a session name from various possible return types.
-        session_name: Optional[str] = None
-
-        # If it's a simple string, use it directly.
-        if isinstance(resolved, str):
-            session_name = resolved
-        # If it's a dict, try common keys then any string value.
-        elif isinstance(resolved, dict):
-            for key in ("name", "session", "session_name", "id", "title"):
-                if key in resolved and isinstance(resolved[key], str) and resolved[key]:
-                    session_name = resolved[key]
-                    break
-            if not session_name:
-                for v in resolved.values():
-                    if isinstance(v, str) and v:
-                        session_name = v
-                        break
-        # If it's a list/tuple, inspect the first element.
-        elif isinstance(resolved, (list, tuple)):
-            if resolved:
-                first = resolved[0]
-                if isinstance(first, str):
-                    session_name = first
-                elif isinstance(first, dict):
-                    for key in ("name", "session", "session_name", "id", "title"):
-                        if key in first and isinstance(first[key], str) and first[key]:
-                            session_name = first[key]
-                            break
-                else:
-                    session_name = str(first) if first is not None else ""
-        # Otherwise, try common attributes on objects or fall back to str().
-        else:
-            for attr in ("name", "session", "session_name", "id", "title"):
-                if hasattr(resolved, attr):
-                    val = getattr(resolved, attr)
-                    if isinstance(val, str) and val:
-                        session_name = val
-                        break
-            if not session_name:
-                # As a last resort use the string representation.
-                session_name = str(resolved) if resolved is not None else ""
-
+        session_name = _resolve_agent_ref(session)
         if not session_name:
-            raise RuntimeError("Could not resolve session name from get_session_by_index result")
-
-        # Request the handler to send the text to the session.
+            return {"status": "error", "correlation_id": cid, "session": session,
+                    "message": f"No such agent session: {session!r}"}
         try:
-            try:
-                sent = _SCREEN.send_to_session(session_name, text)
-            except AttributeError:
-                # Handler does not expose a send method we expect.
-                raise RuntimeError("ScreenHandler.send_to_session is not available")
-            except Exception:
-                # Re-raise to be handled uniformly below.
-                raise
-        except Exception:
-            # Ensure sent is set for the result in case of unexpected flows.
-            raise
+            sent = _SCREEN.send_to_session(session_name, text)
+        except AttributeError:
+            raise RuntimeError("ScreenHandler.send_to_session is not available")
 
-        # Normalize sent to a boolean for structured return.
         sent_bool = bool(sent)
-
-        # Prepare a preview of the text for the structured response.
         text_preview = text[:200] if text is not None else ""
-
         result = {
             "status": "ok",
             "correlation_id": cid,
-            "index": index,
             "session": session_name,
             "sent": sent_bool,
             "text_preview": text_preview,
         }
         logger.info(
-            "agent_send success: cid=%s, index=%s, session=%s, sent=%s, preview_length=%d",
-            cid,
-            index,
-            session_name,
-            sent_bool,
-            len(text_preview),
+            "agent_send success: cid=%s, session=%s, sent=%s, preview_length=%d",
+            cid, session_name, sent_bool, len(text_preview),
         )
         return result
     except Exception as exc:
         logger.exception("agent_send failed: %s", exc)
-        return {"status": "error", "correlation_id": cid, "index": index, "message": str(exc)}
+        return {"status": "error", "correlation_id": cid, "session": session, "message": str(exc)}
 
 
 def agent_gather(agent_ids: Any, timeout: float = 120.0, poll_interval: float = 0.25) -> Dict[str, Any]:

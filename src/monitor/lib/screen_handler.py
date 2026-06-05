@@ -826,105 +826,67 @@ class ScreenHandler:
             logger.exception("Failed reading metadata for %s", session_name)
             return None
 
+    def _live_session_tokens(self) -> Optional[Dict[str, str]]:
+        """Map session_name -> best screen token for sessions live in
+        ``screen -ls``. Returns None if ``screen -ls`` could not be run (so
+        callers must NOT prune on that uncertainty)."""
+        from monitor.lib.screen_handler_utils import parse_screen_ls_tokens
+        try:
+            ls = subprocess.run([self.screen_cmd, "-ls"], capture_output=True, text=True)
+        except Exception:
+            return None
+        best: Dict[str, tuple] = {}
+        for token in parse_screen_ls_tokens(ls.stdout or ""):
+            if "." not in token:
+                continue
+            pid_part, name = token.split(".", 1)
+            try:
+                pid = int(pid_part)
+            except ValueError:
+                pid = -1
+            if name not in best or pid > best[name][0]:
+                best[name] = (pid, token)
+        return {name: tok for name, (pid, tok) in best.items()}
+
     def list_indexed_sessions(self, full: bool = False) -> List[Dict[str, Any]]:
-        """List sessions recorded in the per-instance sessions index.
+        """List sessions from the per-instance index, reconciled against live
+        ``screen -ls``.
 
-        Args:
-            full: If True, include meta_path in the returned dicts. If False, omit meta_path.
+        Entries whose screen session is gone (one-shot agent exited, was killed,
+        or crashed) are pruned from the index and omitted — so the list
+        self-heals instead of showing dead 'unknown' rows. If ``screen -ls``
+        can't be run, nothing is pruned (entries are returned with state
+        'unknown' rather than risking dropping a live session).
 
-        Returns:
-            A list of dicts with keys:
-                - index: 1-based index (1 is most recent)
-                - session_name: str
-                - token: resolved screen token or session_name fallback
-                - state: str (e.g., 'running', 'idle', 'unknown')
-                - created_at: str
-                - meta_path: str (only present if full=True and available)
+        State is 'running' for a live session. Finer idle/working state is no
+        longer reported — it came from the child-served status server, which was
+        removed; the frame-protocol orchestrator surfaces live status via the
+        toolbar instead.
         """
         entries = self.load_sessions_index()
+        live = self._live_session_tokens()  # dict, or None if screen -ls failed
         results: List[Dict[str, Any]] = []
-        for idx, entry in enumerate(entries, start=1):
+        dead: List[str] = []
+        live_idx = 0
+        for entry in entries:
             sess_name = entry.get("session_name")
             created_at = entry.get("created_at")
             meta_path = entry.get("meta_path")
-            token = sess_name
-            state = "unknown"
-            try:
-                resolved = resolve_screen_token(self.screen_cmd, sess_name)
-                if resolved:
-                    token = resolved
-                else:
-                    token = sess_name
-            except Exception:
-                token = sess_name
 
-            # Try to probe state via metadata socket if available
-            sock_path = None
-            # If meta_path was present, try to read it to get socket_path
-            if meta_path:
-                try:
-                    if os.path.exists(meta_path):
-                        with open(meta_path, "r", encoding="utf-8") as fh:
-                            m = json.load(fh)
-                        if isinstance(m, dict) and "socket_path" in m and m["socket_path"]:
-                            sock_path = m["socket_path"]
-                except Exception:
-                    logger.exception("Failed reading metadata %s for indexed session %s", str(meta_path), sess_name)
-                    sock_path = None
-            # If no socket from meta, try to read from base meta dir file
-            if not sock_path:
-                try:
-                    meta_local = self.session_metadata(sess_name)
-                    if meta_local and "socket_path" in meta_local and meta_local["socket_path"]:
-                        sock_path = meta_local["socket_path"]
-                except Exception:
-                    sock_path = None
+            if live is not None and sess_name not in live:
+                dead.append(sess_name)  # authoritatively gone → prune
+                continue
 
-            if sock_path:
-                try:
-                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                        s.settimeout(1.0)
-                        s.connect(sock_path)
-                        try:
-                            s.sendall(b'\n')
-                        except Exception:
-                            pass
-                        data = bytearray()
-                        try:
-                            first_byte_deadline = time.monotonic() + 2.0
-                            idle_timeout = 1.0
-                            while True:
-                                if not data:
-                                    time_left = first_byte_deadline - time.monotonic()
-                                    if time_left <= 0:
-                                        break
-                                    s.settimeout(time_left)
-                                else:
-                                    s.settimeout(idle_timeout)
-                                try:
-                                    chunk = s.recv(65536)
-                                except socket.timeout:
-                                    break
-                                if not chunk:
-                                    break
-                                data.extend(chunk)
-                        except Exception:
-                            pass
-                        if data:
-                            try:
-                                payload = json.loads(data.decode("utf-8", errors="replace"))
-                                if isinstance(payload, dict) and "state" in payload:
-                                    state = payload.get("state", "unknown")
-                                else:
-                                    if isinstance(payload, str):
-                                        state = payload
-                            except Exception:
-                                state = "unknown"
-                except Exception:
-                    state = "unknown"
+            if live is not None:
+                token = live.get(sess_name, sess_name)
+                state = "running"
+            else:
+                token = sess_name  # couldn't determine liveness
+                state = "unknown"
 
+            live_idx += 1
             item: Dict[str, Any] = {
-                "index": idx,
+                "index": live_idx,
                 "session_name": sess_name,
                 "token": token,
                 "state": state,
@@ -933,6 +895,12 @@ class ScreenHandler:
             if full and meta_path:
                 item["meta_path"] = meta_path
             results.append(item)
+
+        for name in dead:
+            try:
+                self.remove_session_from_index(name)
+            except Exception:
+                logger.debug("Failed pruning dead session %s from index", name, exc_info=True)
         return results
 
     def tail_log(self, session_name: str, lines: int = 200) -> str:

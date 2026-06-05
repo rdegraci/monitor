@@ -703,16 +703,16 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "agent_kill",
-            "description": "Terminate or stop the specified agent session. Use this function to stop an agent safely.",
+            "description": "Terminate a sub-agent session. Use this to stop a persistent sub-agent when you're done with it, or to cancel a runaway one.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "index": {
-                        "type": "integer",
-                        "description": "The index of the agent session to terminate."
+                    "session": {
+                        "type": ["string", "integer"],
+                        "description": "The session_name returned by agent_create (a 1-based index from the agent list also works)."
                     }
                 },
-                "required": ["index"]
+                "required": ["session"]
             }
         }
     },
@@ -736,16 +736,16 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "agent_logfile",
-            "description": "Retrieve or stream the logfile for the specified agent session. Use this to obtain logs produced by agents for debugging or auditing.",
+            "description": "Get the logfile path for a sub-agent session, to inspect its full transcript.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "index": {
-                        "type": "integer",
-                        "description": "The index of the agent logfile to retrieve."
+                    "session": {
+                        "type": ["string", "integer"],
+                        "description": "The session_name returned by agent_create (a 1-based index from the agent list also works)."
                     }
                 },
-                "required": ["index"]
+                "required": ["session"]
             }
         }
     },
@@ -753,20 +753,20 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "agent_send",
-            "description": "Send a text message to the specified agent session. Use this function to provide input or commands to an active agent.",
+            "description": "Send a follow-up message to a PERSISTENT sub-agent (one created with persistent=true). Use this to give it more work after its first result.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "index": {
-                        "type": "integer",
-                        "description": "The index of the agent session to send the message to."
+                    "session": {
+                        "type": ["string", "integer"],
+                        "description": "The session_name returned by agent_create (a 1-based index from the agent list also works)."
                     },
                     "text": {
                         "type": "string",
-                        "description": "The text message or command to send to the agent."
+                        "description": "The text message or follow-up prompt to send to the agent."
                     }
                 },
-                "required": ["index", "text"]
+                "required": ["session", "text"]
             }
         }
     },
@@ -1288,17 +1288,17 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Terminate or stop the specified agent session. Use this function to stop an agent safely.",
+    "description": "Terminate a sub-agent session (stop a persistent one when done, or cancel a runaway).",
     "name": "agent_kill",
     "parameters": {
       "properties": {
-        "index": {
-          "description": "The index of the agent session to terminate.",
-          "type": "integer"
+        "session": {
+          "description": "The session_name returned by agent_create (a 1-based list index also works).",
+          "type": "string"
         }
       },
       "required": [
-        "index"
+        "session"
       ],
       "type": "object"
     }
@@ -1317,37 +1317,37 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Retrieve or stream the logfile for the specified agent session. Use this to obtain logs produced by agents for debugging or auditing.",
+    "description": "Get the logfile path for a sub-agent session, to inspect its full transcript.",
     "name": "agent_logfile",
     "parameters": {
       "properties": {
-        "index": {
-          "description": "The index of the agent logfile to retrieve.",
-          "type": "integer"
+        "session": {
+          "description": "The session_name returned by agent_create (a 1-based list index also works).",
+          "type": "string"
         }
       },
       "required": [
-        "index"
+        "session"
       ],
       "type": "object"
     }
   },
   {
-    "description": "Send a text message to the specified agent session. Use this function to provide input or commands to an active agent.",
+    "description": "Send a follow-up message to a PERSISTENT sub-agent (created with persistent=true).",
     "name": "agent_send",
     "parameters": {
       "properties": {
-        "index": {
-          "description": "The index of the agent session to send the message to.",
-          "type": "integer"
+        "session": {
+          "description": "The session_name returned by agent_create (a 1-based list index also works).",
+          "type": "string"
         },
         "text": {
-          "description": "The text message or command to send to the agent.",
+          "description": "The text/follow-up prompt to send to the agent.",
           "type": "string"
         }
       },
       "required": [
-        "index",
+        "session",
         "text"
       ],
       "type": "object"
