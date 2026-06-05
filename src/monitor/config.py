@@ -499,6 +499,12 @@ AGENT = False
 MONITOR_AGENT_DEPTH = 0
 MONITOR_AGENT_MAX_DEPTH = 1
 MONITOR_ENABLE_AGENT_ORCHESTRATION = False
+# Agent orchestration spawn caps + liveness. Maximally conservative SAFE
+# defaults: at most ONE sub-agent ever, one at a time. Raise deliberately.
+# (0 disables a cap.) Read from config.yaml / env in the loader below.
+MONITOR_AGENT_MAX_BREADTH = 1
+MONITOR_AGENT_MAX_TOTAL = 1
+MONITOR_AGENT_HEARTBEAT_TIMEOUT = 45
 RESPONSES_API = None
 TWITTER_CLIENT_API = None
 TWITCH_CLIENT_API = None
@@ -682,6 +688,7 @@ def configure_globals():
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
     global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
+    global MONITOR_AGENT_MAX_BREADTH, MONITOR_AGENT_MAX_TOTAL, MONITOR_AGENT_HEARTBEAT_TIMEOUT
     global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE
 
     SESSION_ID = str(uuid.uuid4())
@@ -1071,6 +1078,31 @@ def configure_globals():
             MONITOR_AGENT_MAX_DEPTH = int(yaml_config.get("MONITOR_AGENT_MAX_DEPTH", 1))
         except Exception:
             MONITOR_AGENT_MAX_DEPTH = 1
+
+    # MONITOR_AGENT_MAX_BREADTH (int) - max concurrent sub-agents (0 disables).
+    # MONITOR_AGENT_MAX_TOTAL  (int) - max sub-agents per session (0 disables).
+    # MONITOR_AGENT_HEARTBEAT_TIMEOUT (number, seconds) - mark a silent sub-agent
+    # dirty (crashed/hung) after this long. env overrides config.yaml; both fall
+    # back to the safe code defaults (1, 1, 45). Same env-over-YAML pattern as
+    # the depth keys above.
+    def _agent_int(key, default):
+        try:
+            raw = os.getenv(key, yaml_config.get(key, default))
+            return int(raw)
+        except Exception:
+            logger.warning("Invalid %s value; defaulting to %r", key, default)
+            return default
+
+    MONITOR_AGENT_MAX_BREADTH = _agent_int("MONITOR_AGENT_MAX_BREADTH", 1)
+    MONITOR_AGENT_MAX_TOTAL = _agent_int("MONITOR_AGENT_MAX_TOTAL", 1)
+    try:
+        MONITOR_AGENT_HEARTBEAT_TIMEOUT = float(
+            os.getenv("MONITOR_AGENT_HEARTBEAT_TIMEOUT",
+                      yaml_config.get("MONITOR_AGENT_HEARTBEAT_TIMEOUT", 45))
+        )
+    except Exception:
+        logger.warning("Invalid MONITOR_AGENT_HEARTBEAT_TIMEOUT value; defaulting to 45")
+        MONITOR_AGENT_HEARTBEAT_TIMEOUT = 45.0
 
     TWITTER_CLIENT_API = os.getenv(
         "TWITTER_CLIENT_API",

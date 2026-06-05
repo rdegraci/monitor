@@ -481,4 +481,21 @@ DEFAULT_EXCLUDE_GLOBS: [
     "Pods/**"
   ]
 
+# ──────────────────────────────────────────────────────────────────────────
+# Agent orchestration (sub-agents)
+# ──────────────────────────────────────────────────────────────────────────
+# A sub-agent is an instance of this app launched in --agent mode that the
+# orchestrator spawns, drives, and aggregates via the agent_create/agent_gather
+# tools. Defaults below are MAXIMALLY CONSERVATIVE — orchestration is OFF, and
+# even when enabled at most ONE sub-agent is ever spawned, one level deep, never
+# recursive. Raise the limits deliberately once a workflow is trusted.
+# (Any of these may also be set via the matching environment variable, which
+#  takes precedence over this file.)
+
+MONITOR_ENABLE_AGENT_ORCHESTRATION: false  # Master switch. Sub-agent create/send/gather refuse unless true.
+MONITOR_AGENT_MAX_DEPTH: 1                  # Max recursion depth. 1 = sub-agents CANNOT spawn sub-agents.
+MONITOR_AGENT_MAX_BREADTH: 1               # Max sub-agents running concurrently (0 disables the cap).
+MONITOR_AGENT_MAX_TOTAL: 1                 # Max sub-agents spawned per session (0 disables the cap).
+MONITOR_AGENT_HEARTBEAT_TIMEOUT: 45        # Seconds before a silent sub-agent is treated as crashed/hung.
+
 # End Config.yaml

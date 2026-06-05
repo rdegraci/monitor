@@ -47,8 +47,19 @@ _total_resolved = 0
 # agent_gather reports it as failed instead of waiting forever. Reaping a stale
 # agent also releases its spawn reservation so the cap can't leak.
 def _hb_timeout() -> float:
+    # env overrides config.yaml (loaded into config.MONITOR_AGENT_HEARTBEAT_TIMEOUT);
+    # both fall back to the safe default. config imported lazily (no cycle).
+    val = os.environ.get("MONITOR_AGENT_HEARTBEAT_TIMEOUT")
+    if val is None:
+        try:
+            from monitor import config
+            val = getattr(config, "MONITOR_AGENT_HEARTBEAT_TIMEOUT", None)
+        except Exception:
+            val = None
+    if val is None:
+        return 45.0
     try:
-        return float(os.environ.get("MONITOR_AGENT_HEARTBEAT_TIMEOUT", "45"))
+        return float(val)
     except (TypeError, ValueError):
         return 45.0
 

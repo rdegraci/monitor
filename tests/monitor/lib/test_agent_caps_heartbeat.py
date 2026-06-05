@@ -58,6 +58,22 @@ def test_resolved_agent_frees_breadth():
     assert ok is True
 
 
+def test_default_caps_allow_only_one_agent(monkeypatch):
+    """Safeguard: by default at most ONE sub-agent is ever spawned per session
+    (breadth 1 AND total 1)."""
+    from monitor.core.agent_tools import _agent_caps
+    monkeypatch.delenv("MONITOR_AGENT_MAX_BREADTH", raising=False)
+    monkeypatch.delenv("MONITOR_AGENT_MAX_TOTAL", raising=False)
+    breadth, total = _agent_caps()
+    assert breadth == 1
+    assert total == 1
+    # After one spawn, BOTH caps block a second (total cap checked first).
+    orch.note_spawn("only")
+    ok, reason = orch.can_spawn(breadth, total)
+    assert ok is False
+    assert "total" in reason or "concurrent" in reason
+
+
 def test_zero_cap_disables():
     for i in range(5):
         orch.note_spawn(f"a{i}")

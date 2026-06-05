@@ -160,7 +160,11 @@ def _agent_caps() -> "tuple[int, int]":
 
     max_breadth = max concurrently-running sub-agents; max_total = max spawned
     per orchestrator session (runaway backstop). Env overrides config; both fall
-    back to conservative defaults. A value of 0 disables that cap.
+    back to **maximally conservative SAFE defaults** — breadth 1 AND total 1, so
+    at most ONE sub-agent is ever spawned per session until the user deliberately
+    raises the limits. A value of 0 disables that cap. Raise via
+    `MONITOR_AGENT_MAX_BREADTH` / `MONITOR_AGENT_MAX_TOTAL` (env or config) once
+    the workflow is trusted.
     """
     def _read(env_key: str, default: int) -> int:
         val = os.getenv(env_key)
@@ -177,7 +181,7 @@ def _agent_caps() -> "tuple[int, int]":
         except (TypeError, ValueError):
             return default
 
-    return _read("MONITOR_AGENT_MAX_BREADTH", 8), _read("MONITOR_AGENT_MAX_TOTAL", 50)
+    return _read("MONITOR_AGENT_MAX_BREADTH", 1), _read("MONITOR_AGENT_MAX_TOTAL", 1)
 
 
 def agent_list(full: bool = False) -> Dict[str, Any]:
