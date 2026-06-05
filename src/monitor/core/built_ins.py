@@ -318,29 +318,6 @@ def configure_built_ins() -> None:
                     "description": "Adjust max conversation history size.",
                 },
                 {
-                    "command": ":reset_history",
-                    "function": _make_callable(reset_conversation_history_command),
-                    "description": "Reset the conversation history.",
-                },
-                {
-                    "command": ":trim_history",
-                    "function": _make_callable(trim_history_command),
-                    "description": "Trim last N items from conversation history.",
-                },
-                {
-                    "command": ":compact_history",
-                    "function": lambda arg=None: (
-                        compact_history_command(
-                            arg,
-                            config,
-                            print,
-                            COLOR_WARNING_FUNCS,
-                            logger
-                        )
-                    ),
-                    "description": "Trim history and set the max to N messages (usage: :compact N)."
-                },
-                {
                     "command": ":llm",
                     "function": _make_callable(llm_command),
                     "description": "Change the active LLM model at runtime. Usage: :llm <model> or :llm help for available models.",
@@ -364,46 +341,6 @@ def configure_built_ins() -> None:
                     "command": ":max_tokens",
                     "function": _make_callable(max_tokens_command),
                     "description": "Cap output tokens for non-reasoning model calls. Usage: :max_tokens <N> or :max_tokens for help.",
-                },
-                {
-                    "command": ":cost_debug",
-                    "function": _make_callable(cost_debug_command),
-                    "description": "Dump per-turn cost-tracking state and flag invariant violations.",
-                },
-                {
-                    "command": ":dump_metrics",
-                    "function": _make_callable(dump_metrics_command),
-                    "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: :dump_metrics <path>.",
-                },
-                {
-                    "command": ":dump_history",
-                    "function": _make_callable(dump_history_command),
-                    "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
-                },
-                {
-                    "command": ":load_history",
-                    "function": _make_callable(load_history_command),
-                    "description": "Replace current conversation with a saved JSON transcript. Usage: :load_history <path>.",
-                },
-                {
-                    "command": ":less",
-                    "function": _make_callable(less_command),
-                    "description": "Re-display the last assistant response paged through less.",
-                },
-                {
-                    "command": ":save_response",
-                    "function": _make_callable(save_response_command),
-                    "description": "Save the last assistant response to a file. Usage: :save_response [path]. No arg → cwd/response-<ts>.md.",
-                },
-                {
-                    "command": ":copy_code",
-                    "function": _make_callable(copy_code_command),
-                    "description": "Copy a code block from the last response to the clipboard. Usage: :copy_code [N | all]. No arg → first block.",
-                },
-                {
-                    "command": ":cc",
-                    "function": _make_callable(copy_code_command),
-                    "description": "Alias for :copy_code. Usage: :cc [N | all].",
                 },
                 {
                     "command": ":macros",
@@ -449,6 +386,84 @@ def configure_built_ins() -> None:
                     "command": ":next_steps",
                     "function": _make_callable(next_steps_command),
                     "description": "Suggest next steps based on commit analysis.",
+                },
+            ],
+        },
+        {
+            "group_description": "Session persistence",
+            "commands": [
+                {
+                    "command": ":reset_history",
+                    "function": _make_callable(reset_conversation_history_command),
+                    "description": "Reset the conversation history.",
+                },
+                {
+                    "command": ":trim_history",
+                    "function": _make_callable(trim_history_command),
+                    "description": "Trim last N items from conversation history.",
+                },
+                {
+                    "command": ":compact_history",
+                    "function": lambda arg=None: (
+                        compact_history_command(
+                            arg,
+                            config,
+                            print,
+                            COLOR_WARNING_FUNCS,
+                            logger
+                        )
+                    ),
+                    "description": "Trim history and set the max to N messages (usage: :compact N).",
+                },
+                {
+                    "command": ":dump_history",
+                    "function": _make_callable(dump_history_command),
+                    "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
+                },
+                {
+                    "command": ":load_history",
+                    "function": _make_callable(load_history_command),
+                    "description": "Replace current conversation with a saved JSON transcript. Usage: :load_history <path>.",
+                },
+            ],
+        },
+        {
+            "group_description": "Diagnostics & metrics",
+            "commands": [
+                {
+                    "command": ":cost_debug",
+                    "function": _make_callable(cost_debug_command),
+                    "description": "Dump per-turn cost-tracking state and flag invariant violations.",
+                },
+                {
+                    "command": ":dump_metrics",
+                    "function": _make_callable(dump_metrics_command),
+                    "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: :dump_metrics <path>.",
+                },
+            ],
+        },
+        {
+            "group_description": "Response helpers",
+            "commands": [
+                {
+                    "command": ":less",
+                    "function": _make_callable(less_command),
+                    "description": "Re-display the last assistant response paged through less.",
+                },
+                {
+                    "command": ":save_response",
+                    "function": _make_callable(save_response_command),
+                    "description": "Save the last assistant response to a file. Usage: :save_response [path]. No arg → cwd/response-<ts>.md.",
+                },
+                {
+                    "command": ":copy_code",
+                    "function": _make_callable(copy_code_command),
+                    "description": "Copy a code block from the last response to the clipboard. Usage: :copy_code [N | all]. No arg → first block.",
+                },
+                {
+                    "command": ":cc",
+                    "function": _make_callable(copy_code_command),
+                    "description": "Alias for :copy_code. Usage: :cc [N | all].",
                 },
             ],
         },

@@ -13,12 +13,27 @@ def print_built_ins(arg: str = "") -> None:
     Print a list of available built-in commands grouped by their group description,
     with aligned descriptions.
 
+    Prepends a brief invocation hint (two lines) so new users see how to actually
+    run commands without having to dig through other docs.
+
     Args:
         arg: Additional arguments passed to the command (currently unused).
     """
     if not built_in_functions:
         print("No built-in commands have been registered.")
         return
+
+    # Two-line preamble: how to invoke + how arguments work. Deliberately
+    # short — the value is in being skimmable, not exhaustive. The
+    # detailed Usage notes already live in each command's description.
+    print(
+        "Type a command followed by Enter. Most start with ':' "
+        "(e.g. ':help', ':dump_metrics')."
+    )
+    print(
+        "Arguments follow the command name with a space "
+        "(e.g. ':dump_metrics /tmp/m.json', ':copy_code 2')."
+    )
 
     # Determine the maximum command length across all built-ins for padding
     longest_command_length: int = max(
