@@ -487,6 +487,20 @@ def _prompt_with_agent_bridge(session, prompt_text):
         return session.prompt(prompt_text)
 
 
+def _fold_agent_injections_into_prefixes():
+    """Main-thread (PLAN 8a): move completed/failed background sub-agent notices
+    from the orchestrator's injection queue into ``config.PENDING_LLM_PREFIXES``
+    so they ride the next LLM request. Keeping this on the main thread means
+    config's prefix list is never mutated from a reader thread. No-op / safe for
+    a non-orchestrating session."""
+    try:
+        from monitor.lib import agent_orchestrator
+        for notice in agent_orchestrator.drain_pending_injections():
+            config.enqueue_next_llm_prefix(notice)
+    except Exception:
+        logger.debug("agent injection fold failed", exc_info=True)
+
+
 def _maybe_report_agent_result(user_input):
     """If this monitor is a spawned sub-agent, emit the turn's assistant response
     as a `result` frame so the orchestrator's `agent_gather` can collect it
@@ -887,6 +901,12 @@ def prepare_query_context(user_prompt):
     Returns:
         None: This function mutates `config.CONVERSATION_HISTORY` and summary timing state.
     """
+    # PLAN 8a (async harvest): fold any completed/failed background sub-agent
+    # notices into the prefix queue (on the MAIN thread) before it is drained
+    # below — so a finished background agent reaches the orchestrator on this
+    # turn without anyone having blocked on it.
+    _fold_agent_injections_into_prefixes()
+
     pending_prefixes = getattr(config, "PENDING_LLM_PREFIXES", None)
     if pending_prefixes:
         notice = "\n".join(str(p) for p in pending_prefixes if p is not None)

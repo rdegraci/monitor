@@ -259,42 +259,53 @@ can't silently re-point a stale index.
 > into "an LLM that orchestrates." Implemented in roadmap Phase 8; specified
 > here so the design is whole.
 
-### The problem: async subagents vs. synchronous LLM turns
-An LLM turn is strictly request→response — it emits tool calls, receives tool
-*results*, and continues. But subagents run asynchronously for seconds-to-
-minutes and report over the socket. **Nothing re-invokes the LLM when a
-subagent finishes**, so the LLM cannot usefully poll; it would busy-wait. The
-findings must come back as a **tool result**, synchronously, inside the turn.
+### The model: ASYNC fire-and-continue (not blocking gather)
+
+> **Design decision (2026-06-04).** The interactive UX is **fire-and-forget
+> background agents**: spawning returns immediately and the human keeps working
+> / keeps instructing the orchestrator while agents run. A **blocking** gather
+> that waits inside the turn is explicitly NOT the default — it freezes the
+> REPL (you can't instruct the orchestrator meanwhile, and keystrokes typed
+> during the wait are buffered by the terminal and replayed into the next
+> prompt, causing surprise submissions). Blocking is demoted to an explicit
+> escape hatch.
+
+An LLM turn is request→response, but a subagent runs asynchronously for
+seconds-to-minutes. Rather than block the turn, **the spawn returns instantly
+and results flow back later** — into the human's view live, and into the
+orchestrator LLM's *next* turn.
 
 ### Two consumers, one frame stream
 The same `status`/`stdout`/`result`/`error`/`exit` frames feed two sinks:
 
 ```
-              ┌─► Part 2: human terminal (toolbar + output blocks)
+              ┌─► Part 2: human terminal (live-flush above prompt + toolbar)
 frames ───────┤
-              └─► Part 3: LLM context (gather tool → tool result)
+              └─► Part 3: LLM context (async inject into the NEXT turn)
 ```
 
-The reader threads already deposit frames into the lock-guarded shared state
-(Part 2). Part 3 adds a second reader of that state: a **blocking gather tool**.
+The reader threads deposit frames into the lock-guarded shared state (Part 2).
+Part 3 adds a second consumer of that state for the LLM.
 
-### The gather tool (the keystone)
-Prefer a blocking gather over LLM-driven polling:
+### Async result harvest (the keystone)
+- `agent_create(prompt) -> {agent_id}` — **fires and returns immediately; the
+  turn ENDS.** The human is back at a live prompt and can keep working; the
+  subagent runs in the background (its own screen session + reader thread).
+- When a subagent emits a terminal `result`/`error` frame, the orchestrator
+  **injects it into the orchestrator LLM's NEXT turn** — reusing the existing
+  `config.enqueue_next_llm_prefix(...)` queue to prepend a notice like
+  `[background agent <id> finished: <summary>]`. So completed work flows into
+  the conversation on the human's next message, **with no blocking** (and is
+  deduped — delivered once).
+- (Optional) a **non-blocking** `agent_poll(ids?)` tool the LLM can call to
+  harvest ready results on demand — returns whatever has reached a terminal
+  state, never waits.
+- `agent_gather(ids, timeout)` is **demoted to an explicit "wait for these
+  now" escape hatch** — used only when the model genuinely must have results
+  before continuing (and the human accepts the freeze). NOT the default path.
 
-- `agent_create(prompt) -> {agent_id}` — returns immediately (fire). The LLM
-  fires N.
-- `agent_gather(ids, timeout) -> {results[]}` — **blocks** the orchestrator
-  until all listed agents report a terminal frame (`result`/`error`/`exit`), or
-  quorum/timeout is hit, then returns the collected `result`-frame payloads as
-  **one tool result**.
-
-This maps cleanly onto the synchronous tool-call model and yields real
-parallelism (spawn N, then one wait). Blocking here is fine: the orchestrator
-genuinely has nothing to do until findings arrive.
-
-Note: `agent_logfile` returns a *path*, not content — useless for LLM
-aggregation. The result channel must return `result`-frame **payloads**
-directly.
+Note: `agent_logfile` returns a *path*, not content — useless for aggregation.
+The async harvest / poll return `result`-frame **payloads** directly.
 
 ### Structured summaries, not transcripts
 The `result` frame's `summary` field (Part 1) is the unit of aggregation.
@@ -304,11 +315,13 @@ prompt instructs: *"your final `result` is data for an orchestrator; return a
 tight, structured summary."*
 
 ### Partial-failure honesty
-`agent_gather` reports terminal state for **every** requested id — e.g.
-`{ok: [...], failed: [{id, reason: "dirty disconnect"}]}`. It never silently
-drops a crashed subagent. A crashed child's history rollback (Part 1 failure
-model) is local to that child; the orchestrator still receives a structured
-"failed/missing" entry so the LLM can act on an accurate picture.
+Both harvest paths surface failures, never silently drop them. A crashed
+subagent (dirty disconnect, or heartbeat-lapse — Part 1 failure model) is
+delivered to the LLM as a failure: the **async injection** says
+`[background agent <id> FAILED: <reason>]`, and `agent_poll`/`agent_gather`
+bucket every requested id as `ok` / `failed` / `pending` (e.g.
+`{failed: [{id, reason: "dirty disconnect"}]}`). The orchestrator always acts on
+an accurate picture of what finished, crashed, or is still running.
 
 ### Orchestrator as sole file writer
 - **Researcher** subagents are read-only and safe to fan out wide.
@@ -335,10 +348,14 @@ model) is local to that child; the orchestrator still receives a structured
   background output safe during a prompt; frames arriving between prompts buffer
   and flush before the next one. (Not the `run_async`/single-writer model from
   the original draft.)
-- **Two consumers of one frame stream**: the human terminal (Part 2) and the
-  orchestrator LLM's context via the blocking `agent_gather` tool (Part 3).
-  Subagents return structured `result` summaries; gather surfaces partial
-  failures; the orchestrator is the sole file writer.
+- **Two consumers of one frame stream**: the human terminal (Part 2, including
+  live-flush above the prompt) and the orchestrator LLM's context (Part 3).
+- **Async fire-and-continue is the default**: `agent_create` returns instantly
+  and the turn ends; results inject into the LLM's *next* turn (via
+  `enqueue_next_llm_prefix`) and stream to the human live. Blocking
+  `agent_gather` is a demoted, explicit "wait now" escape hatch — chosen because
+  blocking the turn freezes the REPL. Subagents return tight `result` summaries;
+  failures are surfaced (never dropped); the orchestrator is the sole writer.
 
 ## Preserved decisions (do not regress)
 - **Synchronous backend stays synchronous.** File tools, token-cost trackers,

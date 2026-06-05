@@ -161,20 +161,26 @@ as completed. Items are ordered so each builds on verified prior work.
 
 ## 11. LLM orchestration layer (roadmap Phase 8 — the capstone)
 > Turns the subsystem from "spawns processes" into "an LLM that orchestrates."
-> The frames already feed the human terminal (§4/§5); this routes them into the
-> orchestrator LLM's context as tool results. Maps to PLAN Part 3.
+> **Model = ASYNC fire-and-continue** (decision 2026-06-04): spawning returns
+> instantly, the human keeps working, results flow back later — into the LLM's
+> NEXT turn and to the human live. Blocking gather is a demoted escape hatch.
+> Maps to PLAN Part 3 (async-reframed).
 
-### 11a. Result-return-into-context channel (keystone)  — DONE
+### 11a. Async result harvest (keystone — NOT YET BUILT)
 - [x] `agent_create`/`agent_send`/`agent_list`/`agent_kill`/`agent_logfile`
-      registered as LLM-callable (`tool_definitions.py`).
-- [x] `agent_create(prompt)` returns immediately with `session_name` (the gather id).
-- [x] **Blocking** `agent_gather(agent_ids, timeout)` added
-      (`core/agent_tools.py`) — returns collected `result` payloads as ONE tool
-      result; registered in dispatch map + both schema lists. 9 tests.
-- [x] Gather blocks until every listed agent hits a terminal state
-      (result/error/clean-exit) or crashes, or until timeout.
-- [x] Result payloads returned directly by gather (no separate retrieval tool
-      needed — avoids bloat; `agent_logfile`'s path return is unaffected).
+      registered as LLM-callable; `agent_create` returns immediately with
+      `session_name`.
+- [x] `agent_gather(agent_ids, timeout)` built + 9 tests — **but now DEMOTED**
+      to the explicit "wait for these now" escape hatch, NOT the default path.
+- [ ] **Async injection (the keystone):** on a terminal `result`/`error` frame,
+      enqueue a notice into the orchestrator's NEXT turn via
+      `config.enqueue_next_llm_prefix(...)` (`[background agent <id> finished:
+      <summary>]` / `... FAILED: <reason>`), deduped/delivered-once. The turn
+      ENDS after `agent_create`; the human keeps working.
+- [ ] (Optional) non-blocking `agent_poll(ids?)` tool — returns terminal-so-far
+      results on demand; never blocks.
+- [ ] Live-flush-during-prompt so the human SEES background progress (see §5 /
+      Phase 4 — re-elevated).
 
 ### 11b. Structured summaries (context-budget protection)
 - [x] Sub-agents emit their per-turn assistant response as a `result` frame
@@ -186,10 +192,11 @@ as completed. Items are ordered so each builds on verified prior work.
 
 ### 11c. Breadth & cost caps (not just depth)
 - [x] Sibling/breadth cap on concurrent subagents (`MONITOR_AGENT_MAX_BREADTH`,
-      default 8) — `agent_create` refuses past it via `orch.can_spawn`.
-- [x] Total-agent cap per session (`MONITOR_AGENT_MAX_TOTAL`, default 50;
+      **safe default 1**) — `agent_create` refuses past it via `orch.can_spawn`.
+- [x] Total-agent cap per session (`MONITOR_AGENT_MAX_TOTAL`, **safe default 1**;
       0 disables). Counters are leak-proof: never-connected spawns are reaped by
-      the heartbeat monitor, releasing their reservation. 4 tests.
+      the heartbeat monitor, releasing their reservation. All caps follow
+      code-default → config.yaml → env precedence. 4 tests + config-override tests.
 - [ ] Aggregate child *token*-costs up to the orchestrator — deferred (the
       breadth/total caps bound runaway fan-out; token accounting is a separate
       cost-tracker extension).
@@ -215,12 +222,17 @@ as completed. Items are ordered so each builds on verified prior work.
 - [ ] Replace "create subagents as necessary" with explicit when-to-fan-out
       criteria (independent/parallelizable, broad search, isolation needed) vs.
       do-it-inline.
-- [ ] Model is cost/latency-aware; crisp tool descriptions; recommend
-      spawn-N-then-gather.
+- [ ] Teach the **fire-and-continue** pattern: spawn and KEEP GOING; the result
+      arrives on a later turn. Do NOT block on `agent_gather` unless you truly
+      cannot proceed without the result. Remain the sole file writer.
 
 ### 11h. Tests
-- [ ] `agent_gather` returns aggregated results in-context for N subagents.
-- [ ] Partial failure surfaced (kill one mid-run → reported, not dropped).
-- [ ] Breadth cap + token budget enforced (over-spawn rejected).
-- [ ] Sole-writer policy: worker proposals applied serially, no tree conflicts.
+- [x] `agent_gather` aggregates results / buckets partial failures (9 tests) —
+      still valid for the escape-hatch path.
+- [ ] **Async injection**: a completed background agent's result is enqueued to
+      the next turn (and a failed one surfaces as FAILED), deduped.
+- [ ] `agent_poll` returns terminal-so-far without blocking (if built).
+- [ ] Breadth/total caps enforced (over-spawn rejected) — done (§11c tests).
+- [ ] Live-flush: background output streams above the prompt without corrupting
+      the input line; chatty agent is coalesced/capped.
 - [ ] Follow-up via `agent_send` reaches a live subagent and updates its state.

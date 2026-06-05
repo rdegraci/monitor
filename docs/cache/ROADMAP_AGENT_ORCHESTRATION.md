@@ -60,14 +60,19 @@ races; `result`/`error`/`exit` never dropped under load.
 **Risk:** High. This is the correctness crux — concurrency.
 
 ## Phase 4 — Terminal UI
-**Goal:** Live status without display corruption.
-- `bottom_toolbar` reads the status map; `get_app().invalidate()` (guarded).
-- `run_in_terminal`/`patch_stdout` for blocks; wrap `session.prompt()` in
-  `patch_stdout()`.
+**Goal:** Live status + live background output without display corruption.
+- `bottom_toolbar` reads the status map; `get_app().invalidate()` (guarded). DONE.
+- `patch_stdout()` wraps the prompt; output flushes between prompts. DONE.
+- **live-flush-during-prompt** (RE-ELEVATED — required by the async model): a
+  background flusher streams agent `stdout`/`result` above the live prompt via
+  `run_in_terminal`, with **coalescing/verbosity caps** so a chatty agent
+  doesn't spam the input line. (Was deferred under the blocking-gather
+  assumption; now in scope because the human keeps working while agents run.)
 - Verify prompt input buffer is never touched by a reader thread.
-**Exit criteria:** Type at the prompt while agents stream output; no cursor
-corruption, toolbar updates live.
-**Risk:** Medium. prompt_toolkit is already in use, so this is additive.
+**Exit criteria:** Type at the prompt while a background agent streams output
+above it; no cursor corruption; toolbar updates live.
+**Risk:** Medium. Additive (prompt_toolkit already in use); the live-flush
+thread→app bridge is the fiddly part.
 
 ## Phase 5 — Lifecycle, failure & rollback
 **Goal:** Crash semantics are correct and honest.
@@ -104,19 +109,24 @@ existing LLM-callable tools (`tool_definitions.py:~682-749`) become genuinely
 useful and the system prompt teaches the model to use them.
 
 The crux this phase solves: a subagent runs **asynchronously**, but an LLM turn
-is strictly request→response. Phases 1–7 surface subagent output to the *human
-terminal*; this phase routes findings back into the *orchestrator LLM's token
-context* as tool results — a distinct channel that does not otherwise exist.
+is request→response. The UX decision (2026-06-04) is **async fire-and-continue**
+— spawning returns instantly, the human keeps working, and results flow back
+later. A blocking gather is explicitly NOT the default (it freezes the REPL).
 
-### 8a. Result-return-into-context channel (the keystone)
-- Add a **blocking gather tool** rather than relying on the LLM to poll
-  (nothing re-invokes the LLM when a subagent finishes, so polling busy-waits):
-  - `agent_create(prompt) → agent_id` returns immediately (fire).
-  - LLM fires N.
-  - `agent_gather([ids], timeout) → structured results` blocks until all report
-    (or quorum/timeout), returning the `result`-frame payloads as ONE tool result.
-- Note: `agent_logfile` returns a *path*, not content — add a result-retrieval
-  tool that returns `result`-frame payloads directly for LLM consumption.
+### 8a. Async result harvest (the keystone)
+- `agent_create(prompt) → agent_id` **fires and returns immediately; the turn
+  ENDS.** The human is back at a live prompt; the subagent runs in the
+  background.
+- On a terminal `result`/`error` frame, the orchestrator **injects the result
+  into the LLM's NEXT turn** via `config.enqueue_next_llm_prefix(...)`
+  (`[background agent <id> finished: <summary>]`), deduped/delivered-once — so
+  completed work reaches the model on the human's next message, no blocking.
+- (Optional) a **non-blocking** `agent_poll(ids?)` tool returns whatever is
+  terminal-so-far on demand; never waits.
+- `agent_gather([ids], timeout)` — already built — is **demoted to an explicit
+  "wait for these now" escape hatch**, not the default path.
+- Note: `agent_logfile` returns a *path*; the harvest/poll return `result`-frame
+  payloads directly.
 
 ### 8b. Structured summaries (context-budget protection)
 - Subagents return concise structured findings via the `result` frame `summary`
@@ -133,11 +143,12 @@ context* as tool results — a distinct channel that does not otherwise exist.
   becoming a cost incident.
 
 ### 8d. Partial-failure honesty
-- `agent_gather` must report partial outcomes explicitly — e.g. "4 of 5
-  succeeded; agent-3 crashed (dirty disconnect)". NEVER silently drop a failed
-  subagent; the LLM can only act correctly if it knows what's missing.
-- Ties into Phase 5: a crashed child's history rollback is local to that child;
-  the orchestrator still receives a structured "missing/failed" entry.
+- Both harvest paths surface failures. The **async injection** says
+  `[background agent <id> FAILED: <reason>]`; `agent_poll`/`agent_gather` bucket
+  every requested id as `ok` / `failed` / `pending`. NEVER silently drop a
+  crashed subagent.
+- A crash is detected via dirty disconnect OR heartbeat-lapse (Phase 5), so even
+  a hung agent eventually surfaces as failed rather than waited-on forever.
 
 ### 8e. Orchestrator as sole file writer (conflict prevention)
 - **Researcher subagents** = read-only; safe to fan out wide (the sweet spot).
@@ -158,15 +169,25 @@ context* as tool results — a distinct channel that does not otherwise exist.
 - Replace open-ended "create subagents as necessary" with explicit
   **when-to-fan-out** criteria: independent parallelizable subtasks, broad
   search, or isolation needed — vs. do-it-inline otherwise.
-- Make the model cost/latency-aware; crisp tool descriptions; recommend the
-  spawn-N-then-gather pattern.
+- Teach the **fire-and-continue** pattern: spawn a researcher and CONTINUE the
+  conversation; its result arrives automatically on a later turn. Do NOT block
+  on `agent_gather` unless you genuinely cannot proceed without the result.
+- Make the model cost/latency-aware; crisp tool descriptions; remain sole writer.
 
-**Exit criteria:** The orchestrator LLM can fan out N researcher subagents from
-a single user request, receive structured summaries back in-context via
-`agent_gather` (with any failures surfaced), aggregate them, and act — applying
-all file writes itself. Breadth/cost caps enforced; follow-ups work.
-**Risk:** Medium-High. 8a (result channel) and 8e (sole-writer policy) are the
-load-bearing pieces; 8c/8d are about not letting it run away or lie.
+### 8h. Live-flush human UI (re-elevated — see Phase 4)
+- Because the human now keeps working while agents run in the background,
+  **live-flush-during-prompt** (stream agent output above the prompt via
+  `run_in_terminal`, with coalescing for chatty agents) moves from deferred to
+  IN SCOPE — it's how the human sees background progress without blocking.
+
+**Exit criteria:** From one request the orchestrator can spawn a background
+researcher and the turn **ends immediately**; the human keeps instructing the
+orchestrator while it runs; the agent's result streams to the human live AND is
+injected into the orchestrator's next turn (failures surfaced); the orchestrator
+aggregates and acts as sole writer. Caps enforced. `agent_gather` works as the
+explicit-wait escape hatch.
+**Risk:** Medium-High. 8a (async harvest) and 8e (sole-writer) are load-bearing;
+8c/8d keep it from running away or lying.
 
 ---
 
@@ -188,9 +209,10 @@ P8 is the capstone: P0.5–P7 make subagents *observable to the human*; P8 makes
 them *usable by the orchestrator LLM*.
 
 ## Highest-risk items (watch these)
-1. **Phase 8a result channel** — getting async subagent findings back into the
-   synchronous LLM turn as tool results (the gather tool). Without it, "the LLM
-   orchestrates" does not happen.
+1. **Phase 8a async harvest** — injecting completed/failed background results
+   into the LLM's *next* turn (via `enqueue_next_llm_prefix`), deduped, without
+   blocking. This is what makes fire-and-continue real; blocking gather is the
+   demoted escape hatch.
 2. **Phase 5 rollback scope** — must stay honest: conversation-history only,
    NOT filesystem side effects. Touches the existing history mechanism.
 3. **Phase 8e sole-writer policy** — keeps "aggregate and act" from corrupting

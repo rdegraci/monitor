@@ -78,6 +78,15 @@ _registry_lock = threading.Lock()
 _MAX_PENDING_OUTPUT = 2000
 _pending_output: Deque[str] = collections.deque(maxlen=_MAX_PENDING_OUTPUT)
 
+# Async result harvest (Phase 8a): when a background sub-agent reaches a terminal
+# state, a one-line notice is queued here (guarded by _registry_lock, written
+# from reader/heartbeat threads). The MAIN thread drains it at query-prep time
+# and feeds it to config.enqueue_next_llm_prefix — so config's prefix list is
+# only ever mutated on the main thread (no cross-thread race with its iterate+
+# clear). Each agent is injected at most once (the record's "_injected" flag).
+_pending_injections: List[str] = []
+_INJECTION_SUMMARY_CAP = 4000  # truncate a huge subagent summary before injecting
+
 
 def _default_socket_path() -> str:
     # Short path under the runtime/temp dir (mind the ~104-byte sun_path limit).
@@ -96,6 +105,7 @@ def _blank_record(conn_id: Optional[int] = None) -> Dict[str, Any]:
         "conn_id": conn_id,
         "last_frame": time.monotonic(),
         "_resolved_counted": False,
+        "_injected": False,
     }
 
 
@@ -106,6 +116,15 @@ def _count_resolved(rec: Dict[str, Any]) -> None:
     if not rec.get("_resolved_counted"):
         rec["_resolved_counted"] = True
         _total_resolved += 1
+
+
+def _queue_injection(agent_id: str, rec: Dict[str, Any], text: str) -> None:
+    """Queue a one-line completion notice for the orchestrator's next turn,
+    at most once per agent. Must be called while holding _registry_lock."""
+    if rec.get("_injected"):
+        return
+    rec["_injected"] = True
+    _pending_injections.append(text)
 
 
 def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
@@ -134,12 +153,20 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
             ok = frame["body"].get("ok", True)
             summary = frame["body"].get("summary", "")
             _pending_output.append(f"[{agent_id}] {'✓' if ok else '✗'} {summary}")
+            verb = "finished" if ok else "FAILED"
+            _queue_injection(
+                agent_id, rec,
+                f"Background sub-agent '{agent_id}' {verb}: {summary[:_INJECTION_SUMMARY_CAP]}",
+            )
         elif ftype == ap.ERROR:
             rec["error"] = frame["body"]
             rec["terminal"] = True
             _count_resolved(rec)
-            _pending_output.append(
-                f"[{agent_id}] ✗ error: {frame['body'].get('message', '')}"
+            msg = frame["body"].get("message", "")
+            _pending_output.append(f"[{agent_id}] ✗ error: {msg}")
+            _queue_injection(
+                agent_id, rec,
+                f"Background sub-agent '{agent_id}' FAILED: {msg[:_INJECTION_SUMMARY_CAP]}",
             )
         elif ftype == ap.EXIT:
             rec["terminal"] = True
@@ -158,6 +185,11 @@ def _on_disconnect(conn_id: int, agent_id: Optional[str], dirty: bool) -> None:
         if bool(dirty) and not rec["terminal"]:
             rec["dirty"] = True
             _count_resolved(rec)
+            _queue_injection(
+                agent_id, rec,
+                f"Background sub-agent '{agent_id}' FAILED: crashed (disconnected "
+                f"before reporting a result).",
+            )
         elif rec["terminal"]:
             # Clean close after a terminal frame — already counted.
             _count_resolved(rec)
@@ -177,6 +209,11 @@ def _heartbeat_monitor() -> None:
                 if now - rec.get("last_frame", now) > timeout:
                     rec["dirty"] = True
                     _count_resolved(rec)
+                    _queue_injection(
+                        aid, rec,
+                        f"Background sub-agent '{aid}' FAILED: stopped responding "
+                        f"(heartbeat lapsed).",
+                    )
                     logger.warning(
                         "agent %s heartbeat lapsed (%.0fs > %.0fs) — marked dirty",
                         aid, now - rec["last_frame"], timeout,
@@ -285,6 +322,17 @@ def drain_pending_output() -> List[str]:
         return out
 
 
+def drain_pending_injections() -> List[str]:
+    """Return and clear queued completion notices for the orchestrator's next
+    LLM turn (Phase 8a async harvest). Call this on the MAIN thread at query-prep
+    time, then feed each notice to config.enqueue_next_llm_prefix — keeping
+    config's prefix list single-threaded."""
+    with _registry_lock:
+        out = list(_pending_injections)
+        _pending_injections.clear()
+        return out
+
+
 def has_active_agents() -> bool:
     """True if any agent is still running (not terminal and not crashed). Gates
     the toolbar so normal (no-agent) prompting is byte-identical."""
@@ -334,5 +382,6 @@ def reset_for_test() -> None:
     with _registry_lock:
         _registry.clear()
         _pending_output.clear()
+        _pending_injections.clear()
         _total_spawned = 0
         _total_resolved = 0
