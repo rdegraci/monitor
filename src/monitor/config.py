@@ -20,12 +20,21 @@ from dotenv import find_dotenv, load_dotenv
 
 from monitor.function_keys_loader import load_function_keys_config
 from monitor.lib.rate_limiter import configure_rate_limiter
-from monitor.core.tools import configure_tools
-from monitor.core.llm_responses_adapter import configure_responses_adapter
+# NOTE: configure_tools (monitor.core.tools) and configure_protocol_engine
+# (monitor.lib.protocol_engine) are imported LAZILY at their call sites below,
+# not here. Both modules import `config` back, and core.tools pulls in
+# tool_definitions → protocol_engine. A module-top import here makes `config`
+# un-importable whenever one of those leaf modules is imported before config
+# (e.g. `from monitor.lib import protocol_engine` in a test) — a partially
+# initialized-module circular import. config is low-level; it should not eagerly
+# import the higher-level modules it only invokes at runtime.
+# configure_responses_adapter (monitor.core.llm_responses_adapter) is imported
+# lazily at its call site too: it pulls core.tooling → tool_definitions →
+# protocol_engine, the same cycle as configure_tools (see NOTE above).
 from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
-from monitor.lib.protocol_engine import configure_protocol_engine
+# configure_protocol_engine is imported lazily at its call site (see NOTE above).
 from monitor.lib.logging import configure_logging
 from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.keyboard import configure_voice_to_text
@@ -1340,6 +1349,7 @@ def configure_subsystems():
     configure_redis_utils(
         REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_MAX_RETRIES, REDIS_RETRY_INTERVAL
     )
+    from monitor.core.tools import configure_tools  # lazy: see NOTE atop imports
     configure_tools()
 
     # configure_external_services can fail due to various non-fatal issues; log errors and continue.
@@ -1355,9 +1365,11 @@ def configure_subsystems():
         logger.error(f"Error configuring external services: {e}", exc_info=True)
         # Continue execution despite external services configuration failure.
 
+    from monitor.lib.protocol_engine import configure_protocol_engine  # lazy: see NOTE atop imports
     configure_protocol_engine()
     configure_consultant()
     configure_voice_to_text()
+    from monitor.core.llm_responses_adapter import configure_responses_adapter  # lazy: see NOTE atop imports
     configure_responses_adapter()
 
 
@@ -1486,6 +1498,7 @@ def set_model(model_key: str) -> bool:
     # switch between providers leaves the global TOOL_DESCRIPTIONS list with
     # the prior provider's tools.
     try:
+        from monitor.core.tools import configure_tools  # lazy: see NOTE atop imports
         configure_tools()
     except Exception:
         logger.warning("set_model: failed to refresh tool catalog", exc_info=True)
