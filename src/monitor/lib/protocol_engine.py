@@ -29,8 +29,36 @@ from monitor.lib.protocol_engine_utils import (
 )
 from monitor.lib.sound import ring_bell
 from monitor.lib.token_management import count_message_tokens
+from monitor.lib.edit_verification import verify_file_content
 
 logger = logging.getLogger(__name__)
+
+# Collateral-guard heuristic: warn (do NOT block) when a regenerated file
+# changes more than this fraction of the original's lines relative to the
+# original size. Whole-file regeneration's #1 failure is touching code it
+# shouldn't; this surfaces the "rewrote half the file" case.
+COLLATERAL_WARN_RATIO = 0.5
+COLLATERAL_WARN_MIN_LINES = 20  # don't cry wolf on tiny files
+
+# Module-level counter: how often the (risky, LLM-driven) tier-2 path runs.
+# Visibility into whether the model is over-reaching for modify_source_code
+# instead of the deterministic surgical / bulk-replace tools.
+_MODIFY_SOURCE_CODE_CALLS = 0
+
+
+class EditVerificationError(Exception):
+    """Raised inside the assembly path when a regenerated file fails its
+    pre-write verification gate. Carries enough context for the public
+    entrypoint to return an actionable message to the model. The target file is
+    never modified; the rejected content is saved to ``rejected_path``.
+    """
+
+    def __init__(self, source_file: str, tier: str, detail: str, rejected_path: str):
+        self.source_file = source_file
+        self.tier = tier
+        self.detail = detail
+        self.rejected_path = rejected_path
+        super().__init__(f"{tier} verification failed for {source_file}: {detail}")
 
 blue = fg("blue")
 red = fg("red")
@@ -122,22 +150,79 @@ class ProtocolEngine:
     def _make_chunk_plan(self, script_content: str):
         lines = script_content.splitlines()
         total_lines = len(lines)
-        # Simple plan: equally sized line buckets
-        expected = max(1, (total_lines + self.lines_per_chunk - 1) // self.lines_per_chunk)
 
+        # Build contiguous line buckets, but snap each non-final boundary EARLIER
+        # to a safe seam (blank line / top-level boundary at bracket depth zero)
+        # so a chunk boundary never lands inside a construct. lines_per_chunk
+        # stays the hard upper bound — we only ever cut sooner, never later.
+        line_ranges = []
+        start = 1  # 1-based inclusive
+        while start <= total_lines:
+            target_end = min(start + self.lines_per_chunk - 1, total_lines)
+            if target_end < total_lines:
+                end = self._safe_chunk_boundary(lines, start, target_end)
+            else:
+                end = target_end
+            line_ranges.append((start, end))
+            start = end + 1
+
+        if not line_ranges:  # degenerate empty/whitespace file
+            line_ranges = [(1, total_lines)]
+
+        expected = max(1, len(line_ranges))
         plan = {
             "total_lines": total_lines,
             "expected_chunks": expected,
-            "line_ranges": [
-                (i * self.lines_per_chunk + 1, min((i + 1) * self.lines_per_chunk, total_lines))
-                for i in range(expected)
-            ],
+            "line_ranges": line_ranges,
         }
 
         logger.info(f"Created chunk plan: {total_lines} lines, {expected} expected chunks")
         logger.info(f"Line ranges: {plan['line_ranges']}")
 
         return plan
+
+    def _safe_chunk_boundary(self, lines, start, target_end, lookback=None):
+        """Return a 1-based end line ``<= target_end`` that is a safe place to cut.
+
+        Snaps the boundary earlier (never later) to avoid splitting inside a
+        construct: prefers a blank line, else a line after which the next line
+        is dedented to column 0 (a top-level def/class/declaration boundary).
+        A candidate is only accepted at bracket depth zero (all (), [], {}
+        balanced from ``start``). Falls back to ``target_end`` if no safe seam
+        is found within the lookback window.
+
+        Bracket depth is a heuristic (it does not parse strings/comments), so
+        the blank-line preference is the primary safety mechanism; the depth
+        guard removes the obvious mid-bracket cuts.
+        """
+        if lookback is None:
+            lookback = max(10, self.lines_per_chunk // 4)
+        lo = max(start, target_end - lookback)
+
+        # Prefix bracket depth at the END of each line in [start, target_end].
+        depth_at = {}
+        depth = 0
+        for idx in range(start, target_end + 1):
+            for ch in lines[idx - 1]:
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth = max(0, depth - 1)
+            depth_at[idx] = depth
+
+        # 1) Prefer a blank line at depth 0 (cut AFTER it), scanning backward.
+        for end in range(target_end, lo - 1, -1):
+            if lines[end - 1].strip() == "" and depth_at.get(end, 1) == 0:
+                return end
+        # 2) Else a top-level boundary: the NEXT line starts at column 0
+        #    (non-blank, non-continuation), at depth 0.
+        for end in range(target_end, lo - 1, -1):
+            if end >= len(lines):
+                continue
+            nxt = lines[end]  # 0-based index `end` == the line after 1-based `end`
+            if nxt and not nxt[0].isspace() and depth_at.get(end, 1) == 0:
+                return end
+        return target_end
 
     def _non_compliance_message(self, chunk_index: int) -> str:
         return f"Non-compliant output at chunk {chunk_index} after all retries"
@@ -692,7 +777,14 @@ class ProtocolEngine:
         # Do not accept untagged code here; let validation handle non-compliance
         return chunks, is_last_chunk
 
-    def _assemble_and_save(self):
+    def _assemble_full_script(self) -> str:
+        """Join collected chunks into the final, normalized file content.
+
+        Shared by ``_assemble_and_save`` and ``_assemble_and_save_partial`` so
+        the two assembly paths cannot drift. Strips trailing blank lines from
+        non-final chunks, normalizes line endings to ``\\n``, and trims
+        leading/trailing blank lines to a single trailing newline.
+        """
         if not self.chunks:
             logger.debug(f"No content collected to save for file: {self.source_file}")
             raise ValueError("No content collected to save")
@@ -711,30 +803,82 @@ class ProtocolEngine:
         # Strip any number of blank / whitespace-only lines at the END
         #  and ensure the file ends with exactly one newline
         full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
+        return full_script
+
+    def _collateral_footprint(self, original: str, updated: str) -> dict:
+        """Cheap change footprint of ``updated`` vs ``original``.
+
+        Returns added/removed line counts, hunk count, and the changed-line
+        ratio relative to the original size. Used by the collateral guard.
+        """
+        diff = list(difflib.unified_diff(original.splitlines(), updated.splitlines(), n=0))
+        added = sum(1 for l in diff if l.startswith("+") and not l.startswith("+++"))
+        removed = sum(1 for l in diff if l.startswith("-") and not l.startswith("---"))
+        hunks = sum(1 for l in diff if l.startswith("@@"))
+        base = max(1, len(original.splitlines()))
+        return {"added": added, "removed": removed, "hunks": hunks, "ratio": (added + removed) / base}
+
+    def _guard_and_verify(self, full_script: str) -> dict:
+        """Collateral guard (log/warn, never block) + verification gate (blocks).
+
+        Returns the footprint dict on success. On verification failure: writes
+        the rejected content to a ``<source>.rejected`` sidecar, removes the
+        checkpoint (so an auto-resume won't re-emit the same broken output), and
+        raises :class:`EditVerificationError`. The target file is left untouched
+        because this runs BEFORE ``_atomic_write_text``.
+        """
+        original = self._modification_script_content or ""
+        fp = self._collateral_footprint(original, full_script)
+        logger.info(
+            "modify_source_code footprint for %s: +%d/-%d lines across %d hunk(s) (ratio=%.2f)",
+            self.source_file, fp["added"], fp["removed"], fp["hunks"], fp["ratio"],
+        )
+        if (
+            original
+            and len(original.splitlines()) >= COLLATERAL_WARN_MIN_LINES
+            and fp["ratio"] > COLLATERAL_WARN_RATIO
+        ):
+            logger.warning(
+                "Large collateral footprint for %s: %.0f%% of lines changed — verify the "
+                "regeneration did not rewrite unrelated code.",
+                self.source_file, fp["ratio"] * 100,
+            )
+
+        ok, detail, tier = verify_file_content(self.source_file, full_script)
+        if not ok:
+            rejected_path = f"{self.source_file}.rejected"
+            try:
+                _atomic_write_text(rejected_path, full_script)
+            except Exception as e:
+                logger.error("Could not write rejected sidecar %s: %s", rejected_path, e)
+                rejected_path = ""
+            # Drop the checkpoint so an automatic resume doesn't re-emit and
+            # re-reject the same broken chunks.
+            self._remove_checkpoint()
+            logger.error(
+                "Edit verification (%s) rejected regenerated %s: %s",
+                tier, self.source_file, detail,
+            )
+            raise EditVerificationError(self.source_file, tier, detail or "invalid", rejected_path)
+        return fp
+
+    def _assemble_and_save(self):
+        full_script = self._assemble_full_script()
+        # Collateral guard + verification gate run BEFORE the write. A rejected
+        # edit raises here, so the target file is never modified.
+        fp = self._guard_and_verify(full_script)
         _atomic_write_text(self.source_file, full_script)
         logger.info(f"Modified script saved to {self.source_file}")
         self.message_history = [{"role": "system", "content": self.system_prompt}]
-        return full_script + f"\n\nTask completed successfully. File {self.source_file} updated."
+        footprint_note = f" (changed +{fp['added']}/-{fp['removed']} lines across {fp['hunks']} hunk(s))"
+        return full_script + f"\n\nTask completed successfully. File {self.source_file} updated.{footprint_note}"
 
     def _assemble_and_save_partial(self):
-        if not self.chunks:
-            logger.debug(f"No content collected to save (partial) for file: {self.source_file}")
-            raise ValueError("No content collected to save")
-        full_lines = []
-        for i, chunk in enumerate(self.chunks):
-            lines = chunk.splitlines()
-            if i < len(self.chunks) - 1:
-                while lines and not lines[-1].strip():  # Remove trailing blank lines from non-final chunks
-                    lines.pop()
-            full_lines.extend(lines)
-        full_script = "\n".join(full_lines)
-        full_script = full_script.replace("\r\n", "\n").replace("\r", "\n")
-        full_script = full_script + "\n"
-        # Strip any number of blank / whitespace-only lines at the TOP
-        full_script = re.sub(r"\A(?:[ \t]*\n)+", "", full_script)
-        # Strip any number of blank / whitespace-only lines at the END
-        #  and ensure the file ends with exactly one newline
-        full_script = re.sub(r"(?:[ \t]*\n)+\Z", "\n", full_script)
+        # Partial saves are an explicit failure path: the content is incomplete
+        # and goes to a ``.partial`` sidecar, NOT the target file, so it does
+        # not run the verification gate (an incomplete file is expected to be
+        # invalid).
+        full_script = self._assemble_full_script()
         partial_file = f"{self.source_file}.partial"
         _atomic_write_text(partial_file, full_script)
         logger.info(f"Modified script saved to: {partial_file}")
@@ -1026,11 +1170,40 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
     """
     Modifies source code in place with global retry safeguard.
     """
+    # Part 6 instrumentation: count how often the (risky, LLM-driven) tier-2
+    # path runs, for visibility into whether the model is over-reaching for
+    # modify_source_code instead of the deterministic surgical / bulk-replace
+    # tools.
+    global _MODIFY_SOURCE_CODE_CALLS
+    _MODIFY_SOURCE_CODE_CALLS += 1
+    logger.info(
+        "modify_source_code invoked (count=%d) for %s — tier-2 LLM regeneration path.",
+        _MODIFY_SOURCE_CODE_CALLS, source_file,
+    )
     # H-pe2: serialize access to the shared ENGINE singleton for the full
     # duration of the modification. Concurrent invocations would otherwise
     # share chunks / message_history / source_file / checkpoint path.
     with _ENGINE_LOCK:
-        return _modify_source_code_locked(source_file, modification_request, print_func)
+        try:
+            return _modify_source_code_locked(source_file, modification_request, print_func)
+        except EditVerificationError as e:
+            # Agent-level reflection (Part 4): the regenerated file failed the
+            # pre-write gate, so the target was left untouched. Return an
+            # actionable message so the calling model can react — retry, switch
+            # to a surgical edit, or refine the request.
+            msg = (
+                f"Edit rejected: the regenerated {e.source_file} failed {e.tier} "
+                f"verification ({e.detail}). The original file was NOT modified"
+                + (
+                    f"; the rejected output was saved to {e.rejected_path} for inspection"
+                    if e.rejected_path
+                    else ""
+                )
+                + ". Consider a surgical edit (text_file_str_replace_in_file) or a more "
+                "specific modification_request."
+            )
+            logger.warning(msg)
+            return msg
 
 
 def _modify_source_code_locked(source_file: str, modification_request: str, print_func=print) -> str:
