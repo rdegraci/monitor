@@ -155,6 +155,31 @@ def _orchestration_enabled() -> bool:
         return False
 
 
+def _agent_caps() -> "tuple[int, int]":
+    """Return (max_breadth, max_total) spawn caps (Phase 8c).
+
+    max_breadth = max concurrently-running sub-agents; max_total = max spawned
+    per orchestrator session (runaway backstop). Env overrides config; both fall
+    back to conservative defaults. A value of 0 disables that cap.
+    """
+    def _read(env_key: str, default: int) -> int:
+        val = os.getenv(env_key)
+        if val is None:
+            try:
+                from monitor import config
+                val = getattr(config, env_key, None)
+            except Exception:
+                val = None
+        if val is None:
+            return default
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
+    return _read("MONITOR_AGENT_MAX_BREADTH", 8), _read("MONITOR_AGENT_MAX_TOTAL", 50)
+
+
 def agent_list(full: bool = False) -> Dict[str, Any]:
     """List active agent (screen) sessions.
 
@@ -218,6 +243,23 @@ def agent_create(prompt: str) -> Dict[str, Any]:
         msg = "prompt must be a str"
         logger.error("agent_create validation failed: cid=%s, prompt=%r, msg=%s", cid, prompt, msg)
         return {"status": "error", "correlation_id": cid, "message": msg}
+
+    # Breadth / total caps (Phase 8c): bound concurrent and lifetime fan-out so
+    # "create subagents as necessary" can't become a cost incident.
+    try:
+        from monitor.lib import agent_orchestrator
+        max_breadth, max_total = _agent_caps()
+        ok_spawn, reason = agent_orchestrator.can_spawn(max_breadth, max_total)
+        if not ok_spawn:
+            msg = (
+                f"Agent not created: {reason}. Wait for running agents to finish "
+                f"(use agent_gather), or raise MONITOR_AGENT_MAX_BREADTH / "
+                f"MONITOR_AGENT_MAX_TOTAL."
+            )
+            logger.warning("agent_create capped: cid=%s, reason=%s", cid, reason)
+            return {"status": "error", "correlation_id": cid, "message": msg}
+    except Exception:
+        logger.debug("agent_create: cap check unavailable; proceeding", exc_info=True)
 
     try:
         # Request creation from the handler, handling the blocked case explicitly.
@@ -306,6 +348,14 @@ def agent_create(prompt: str) -> Dict[str, Any]:
 
         if not session_name:
             raise RuntimeError("Could not resolve session name from create_interactive_subagent result")
+
+        # Record the spawn for the breadth/total caps (Phase 8c). session_name is
+        # the agent_id the child reports under (MONITOR_AGENT_ID), so this also
+        # pre-registers it for heartbeat-lapse reaping if it never connects.
+        try:
+            agent_orchestrator.note_spawn(session_name)
+        except Exception:
+            logger.debug("agent_create: note_spawn failed", exc_info=True)
 
         result = {
             "status": "ok",

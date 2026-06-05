@@ -55,7 +55,10 @@ def test_all_statuses_snapshot():
     path = orch.ensure_started()
     a = AgentReporter(path, "a1"); a.connect(); a.status("alpha")
     b = AgentReporter(path, "b2"); b.connect(); b.status("beta")
-    assert _wait(lambda: set(orch.all_statuses()) >= {"a1", "b2"})
+    # Wait for the status frames themselves to land (not just the agents to
+    # register on hello) — otherwise this races the status delivery.
+    assert _wait(lambda: orch.all_statuses().get("a1") == "alpha"
+                 and orch.all_statuses().get("b2") == "beta")
     statuses = orch.all_statuses()
     assert statuses["a1"] == "alpha"
     assert statuses["b2"] == "beta"
@@ -98,7 +101,8 @@ def test_render_toolbar_active_then_empty():
     r = AgentReporter(path, "tb1")
     r.connect()
     r.status("scanning")
-    assert _wait(lambda: orch.has_active_agents())
+    # Wait for the status frame to land (not just for the agent to register).
+    assert _wait(lambda: "scanning" in (orch.render_toolbar() or ""))
     bar = orch.render_toolbar()
     assert "tb1" in bar and "scanning" in bar
     # After a terminal frame the agent is no longer active → toolbar empties.

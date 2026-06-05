@@ -24,7 +24,8 @@ import logging
 import os
 import tempfile
 import threading
-from typing import Any, Deque, Dict, List, Optional
+import time
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from monitor.lib import agent_protocol as ap
 from monitor.lib.agent_listener import AgentListener
@@ -33,6 +34,26 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _listener: Optional[AgentListener] = None
+
+# Spawn accounting for breadth/total caps (Phase 8c). Guarded by _registry_lock.
+# active = _total_spawned - _total_resolved counts in-flight agents (spawned but
+# not yet finished/crashed) — including ones that haven't connected yet — so a
+# rapid fan-out is bounded, not just connected agents.
+_total_spawned = 0
+_total_resolved = 0
+
+# Heartbeat-lapse detection (Phase 5): an agent that stops sending frames for
+# longer than this (hung, or spawned-but-never-connected) is marked dirty so
+# agent_gather reports it as failed instead of waiting forever. Reaping a stale
+# agent also releases its spawn reservation so the cap can't leak.
+def _hb_timeout() -> float:
+    try:
+        return float(os.environ.get("MONITOR_AGENT_HEARTBEAT_TIMEOUT", "45"))
+    except (TypeError, ValueError):
+        return 45.0
+
+_hb_thread: Optional[threading.Thread] = None
+_hb_stop = threading.Event()
 
 # agent_id -> record. Guarded by _registry_lock — this is the lock-guarded
 # shared state Phase 3's bridge and Phase 8's gather tool read.
@@ -62,7 +83,18 @@ def _blank_record(conn_id: Optional[int] = None) -> Dict[str, Any]:
         "terminal": False,
         "dirty": False,
         "conn_id": conn_id,
+        "last_frame": time.monotonic(),
+        "_resolved_counted": False,
     }
+
+
+def _count_resolved(rec: Dict[str, Any]) -> None:
+    """Mark a record as resolved (finished/crashed) exactly once, for caps.
+    Must be called while holding _registry_lock."""
+    global _total_resolved
+    if not rec.get("_resolved_counted"):
+        rec["_resolved_counted"] = True
+        _total_resolved += 1
 
 
 def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
@@ -76,6 +108,7 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
             rec = _blank_record(conn_id)
             _registry[agent_id] = rec
         rec["conn_id"] = conn_id
+        rec["last_frame"] = time.monotonic()
         rec["frames"].append(frame)
         if ftype == ap.STATUS:
             rec["status"] = frame["body"].get("label")
@@ -86,17 +119,20 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
         elif ftype == ap.RESULT:
             rec["results"].append(frame["body"])
             rec["terminal"] = True
+            _count_resolved(rec)
             ok = frame["body"].get("ok", True)
             summary = frame["body"].get("summary", "")
             _pending_output.append(f"[{agent_id}] {'✓' if ok else '✗'} {summary}")
         elif ftype == ap.ERROR:
             rec["error"] = frame["body"]
             rec["terminal"] = True
+            _count_resolved(rec)
             _pending_output.append(
                 f"[{agent_id}] ✗ error: {frame['body'].get('message', '')}"
             )
         elif ftype == ap.EXIT:
             rec["terminal"] = True
+            _count_resolved(rec)
 
 
 def _on_disconnect(conn_id: int, agent_id: Optional[str], dirty: bool) -> None:
@@ -108,18 +144,48 @@ def _on_disconnect(conn_id: int, agent_id: Optional[str], dirty: bool) -> None:
             rec = _blank_record(conn_id)
             _registry[agent_id] = rec
         # Authoritative crash signal: closed without a terminal frame.
-        rec["dirty"] = bool(dirty) and not rec["terminal"]
+        if bool(dirty) and not rec["terminal"]:
+            rec["dirty"] = True
+            _count_resolved(rec)
+        elif rec["terminal"]:
+            # Clean close after a terminal frame — already counted.
+            _count_resolved(rec)
+
+
+def _heartbeat_monitor() -> None:
+    """Mark non-terminal agents dirty once their last frame is older than the
+    heartbeat timeout (hung, or spawned-but-never-connected). Releases the
+    spawn reservation via _count_resolved so the breadth cap can't leak."""
+    while not _hb_stop.wait(max(1.0, _hb_timeout() / 3.0)):
+        now = time.monotonic()
+        timeout = _hb_timeout()
+        with _registry_lock:
+            for aid, rec in _registry.items():
+                if rec["terminal"] or rec["dirty"]:
+                    continue
+                if now - rec.get("last_frame", now) > timeout:
+                    rec["dirty"] = True
+                    _count_resolved(rec)
+                    logger.warning(
+                        "agent %s heartbeat lapsed (%.0fs > %.0fs) — marked dirty",
+                        aid, now - rec["last_frame"], timeout,
+                    )
 
 
 def ensure_started() -> str:
-    """Start the listener if needed; return its socket path. Idempotent."""
-    global _listener
+    """Start the listener (and heartbeat monitor) if needed; return socket path."""
+    global _listener, _hb_thread
     with _lock:
         if _listener is None:
             path = _default_socket_path()
             lis = AgentListener(path, on_frame=_on_frame, on_disconnect=_on_disconnect)
             lis.start()
             _listener = lis
+            _hb_stop.clear()
+            _hb_thread = threading.Thread(
+                target=_heartbeat_monitor, name="agent-heartbeat-monitor", daemon=True
+            )
+            _hb_thread.start()
             logger.info("Agent orchestrator listener started at %s", path)
         return _listener.socket_path
 
@@ -160,6 +226,44 @@ def all_agent_ids() -> List[str]:
         return list(_registry.keys())
 
 
+# --- breadth / total caps (Phase 8c) ----------------------------------------
+
+def active_count() -> int:
+    """In-flight agents: spawned but not yet finished/crashed."""
+    with _registry_lock:
+        return max(0, _total_spawned - _total_resolved)
+
+
+def total_spawned() -> int:
+    with _registry_lock:
+        return _total_spawned
+
+
+def can_spawn(max_breadth: int, max_total: int) -> Tuple[bool, Optional[str]]:
+    """Check the spawn caps. Returns (ok, reason_if_blocked)."""
+    with _registry_lock:
+        active = max(0, _total_spawned - _total_resolved)
+        total = _total_spawned
+    if max_total and total >= max_total:
+        return False, f"total agent cap reached ({total}/{max_total} this session)"
+    if max_breadth and active >= max_breadth:
+        return False, f"concurrent agent cap reached ({active}/{max_breadth} running)"
+    return True, None
+
+
+def note_spawn(agent_id: str) -> None:
+    """Record that an agent was spawned (bumps the in-flight count) and
+    pre-register a placeholder so the heartbeat monitor can reap it if it never
+    connects. Call right after a successful spawn."""
+    global _total_spawned
+    with _registry_lock:
+        _total_spawned += 1
+        if agent_id and agent_id not in _registry:
+            rec = _blank_record()
+            rec["status"] = "spawning"
+            _registry[agent_id] = rec
+
+
 # --- bridge: terminal display (Phase 3) -------------------------------------
 
 def drain_pending_output() -> List[str]:
@@ -171,10 +275,12 @@ def drain_pending_output() -> List[str]:
 
 
 def has_active_agents() -> bool:
-    """True if any agent is still running (non-terminal). Gates the toolbar so
-    normal (no-agent) prompting is byte-identical."""
+    """True if any agent is still running (not terminal and not crashed). Gates
+    the toolbar so normal (no-agent) prompting is byte-identical."""
     with _registry_lock:
-        return any(not rec["terminal"] for rec in _registry.values())
+        return any(
+            not rec["terminal"] and not rec["dirty"] for rec in _registry.values()
+        )
 
 
 def render_toolbar() -> str:
@@ -184,7 +290,9 @@ def render_toolbar() -> str:
     """
     with _registry_lock:
         active = [
-            (aid, rec["status"]) for aid, rec in _registry.items() if not rec["terminal"]
+            (aid, rec["status"])
+            for aid, rec in _registry.items()
+            if not rec["terminal"] and not rec["dirty"]
         ]
     if not active:
         return ""
@@ -195,17 +303,25 @@ def render_toolbar() -> str:
 # --- lifecycle / tests ------------------------------------------------------
 
 def stop() -> None:
-    global _listener
+    global _listener, _hb_thread
+    _hb_stop.set()
     with _lock:
         lis = _listener
         _listener = None
+        hb = _hb_thread
+        _hb_thread = None
     if lis is not None:
         lis.stop()
+    if hb is not None:
+        hb.join(timeout=2.0)
 
 
 def reset_for_test() -> None:
-    """Stop the listener and clear the registry (test-only)."""
+    """Stop the listener + heartbeat monitor and clear all state (test-only)."""
+    global _total_spawned, _total_resolved
     stop()
     with _registry_lock:
         _registry.clear()
         _pending_output.clear()
+        _total_spawned = 0
+        _total_resolved = 0

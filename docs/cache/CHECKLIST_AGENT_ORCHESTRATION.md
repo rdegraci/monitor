@@ -116,10 +116,18 @@ as completed. Items are ordered so each builds on verified prior work.
 - [ ] Verify prompt input buffer is never touched by a reader thread.
 
 ## 6. Lifecycle & failure handling
-- [ ] Clean path: `result`/`error` → `exit` → close → record outcome, no rollback.
-- [ ] Dirty disconnect (close w/o `exit`, OR heartbeat lapse) → fire
-      conversation-history rollback for the agent's correlation id.
-- [ ] UI + docs state explicitly: rollback = conversation-history, NOT filesystem.
+- [x] Clean path: terminal frame (result/error/exit) → close → recorded as not
+      dirty (`AgentListener` + orchestrator registry).
+- [x] Dirty disconnect: close WITHOUT a terminal frame → `dirty` (listener), AND
+      **heartbeat-lapse** (Phase 5) — a hung or never-connected agent is marked
+      dirty by `_heartbeat_monitor` after `MONITOR_AGENT_HEARTBEAT_TIMEOUT`
+      (default 45s). Reaping also releases the spawn reservation. 3 tests.
+- [x] Failure surfaced to the LLM via `agent_gather`'s `failed` bucket (this is
+      how the orchestrator "rolls back" — it sees the failure as tool-result
+      data and reacts). A hidden auto-rollback of the orchestrator's own history
+      is unnecessary given gather's honesty, and was deliberately NOT added.
+- [ ] (If ever needed) per-turn history checkpoint/rollback on the *sub-agent*
+      side — deferred; a crashed sub-agent is gone, so this has no clear payoff.
 
 ## 7. Index & registry
 - [ ] Registry keyed by stable `agent_id`.
@@ -177,9 +185,14 @@ as completed. Items are ordered so each builds on verified prior work.
       summary" so the captured response stays concise (prompt-side, pending).
 
 ### 11c. Breadth & cost caps (not just depth)
-- [ ] Sibling/breadth cap on concurrent subagents.
-- [ ] Total-agent / token budget across the run.
-- [ ] Aggregate child token-costs up to the orchestrator (extend cost trackers).
+- [x] Sibling/breadth cap on concurrent subagents (`MONITOR_AGENT_MAX_BREADTH`,
+      default 8) — `agent_create` refuses past it via `orch.can_spawn`.
+- [x] Total-agent cap per session (`MONITOR_AGENT_MAX_TOTAL`, default 50;
+      0 disables). Counters are leak-proof: never-connected spawns are reaped by
+      the heartbeat monitor, releasing their reservation. 4 tests.
+- [ ] Aggregate child *token*-costs up to the orchestrator — deferred (the
+      breadth/total caps bound runaway fan-out; token accounting is a separate
+      cost-tracker extension).
 
 ### 11d. Partial-failure honesty  — DONE
 - [x] `agent_gather` buckets EVERY requested id into ok / failed / pending;
