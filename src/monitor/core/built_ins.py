@@ -563,7 +563,7 @@ def configure_built_ins() -> None:
                 {
                     "command": ":agent",
                     "function": _make_callable(run_command_in_screen),
-                    "description": "Run a shell command in a detached agent/screen session.",
+                    "description": "Manage detached agent (GNU screen) sessions: list / logs / logfile / attach / kill / send / spawn. Type :agent for subcommand help.",
                 },
             ],
         },

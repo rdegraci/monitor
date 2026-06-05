@@ -12,7 +12,15 @@ import json
 from monitor.lib.screen_handler import ScreenHandlerError, get_global_screen_handler, SubagentCreationBlocked
 from monitor.lib.screen_handler_utils import resolve_screen_token
 from monitor.lib import subagent_logging
-from monitor.lib.terminal_commands_util import _color, user_feedback, is_executable_on_path, is_platform_mac, is_platform_unix, register_orchestrator_entry, remove_orchestrator_entries_by_target
+from monitor.lib.terminal_commands_util import (
+    _color,
+    user_feedback,
+    is_executable_on_path,
+    is_platform_mac,
+    is_platform_unix,
+    register_orchestrator_entry,
+    remove_orchestrator_entries_by_target,
+)
 
 # Set up a root-level logger
 logger = logging.getLogger(__name__)
@@ -194,32 +202,40 @@ def run_command_in_terminal(command):
 
 
 def run_command_in_screen(command):
-    """Run a specified command in a detached GNU screen session.
+    """Thin entry point that delegates to the monitor.lib.agent dispatcher.
+
+    The :agent built-in's seven subcommands (list / logs / logfile /
+    attach / kill / send + spawn fallthrough) used to live inside this
+    function as a ~740-line if/elif maze. They now live one-per-file
+    under monitor.lib.agent — see that package for the actual logic.
+
+    The lazy import keeps terminal_commands.py free of any module-level
+    dependency on the agent package (the agent modules import
+    _SCREEN_HANDLER and _resolve_index_to_session_name back from this
+    module), which is the standard fix for the circular-import shape.
 
     Args:
-        command (str): The shell command to execute in the new screen session.
-        session_name (str, optional): The name for the screen session. Defaults to "mysession".
+        command (str): User-typed argument string after ``:agent``.
 
     Returns:
-        dict or None:
-            On successful creation of an interactive subagent via
-            _SCREEN_HANDLER.create_interactive_subagent(command), returns a structured
-            dict with keys:
-                - status: 'ok'
-                - session_name: name of the created session
-                - metadata_path: path to session metadata (if provided by handler)
-                - status_socket: path to status socket (if provided)
-                - token / screen_token / screen: any token-like fields provided by the handler
-
-            On failure or when falling back to legacy behavior, the function returns None.
-
-    Notes:
-        - Requires 'screen' to be installed and available in the system PATH for fallback.
-        - Only works on UNIX-like operating systems.
-        - Logs all errors, does not raise exceptions on missing dependencies or runtime errors.
-        - Preserves user feedback and prints but will return the structured dict on successful interactive creation.
+        Whatever the dispatcher returns — typically None for subcommands,
+        a structured dict for the spawn path on success.
     """
-    # Parse the incoming command for local helper actions first
+    from monitor.lib.agent.dispatcher import dispatch
+    return dispatch(command)
+
+
+def _RUN_COMMAND_IN_SCREEN_LEGACY_NOTE():
+    """Historical anchor (no-op). The previous monolithic
+    run_command_in_screen body was extracted to monitor.lib.agent during
+    a 2026-Q2 refactor. Tests in tests/monitor/lib/test_terminal_commands.py
+    that monkeypatch ``terminal_commands._SCREEN_HANDLER`` continue to
+    work because that object lives here, not in the new package; the
+    subcommand modules import it from this module."""
+    return None
+
+
+def __OLD_LEGACY_BODY_REMOVED__():
     session_name = "mysession"
     try:
         tokens = shlex.split(command or "")
@@ -529,147 +545,32 @@ def run_command_in_screen(command):
                 if result:
                     user_feedback(f"Successfully killed screen session '{target_session}'.")
                     logger.info(f"Killed screen session '{target_session}'.")
-                    # If there is an orchestrator poller associated with this session, stop and remove it.
+                    # Orchestrator cleanup: tell the registry to remove and
+                    # stop any pollers registered under this session key.
+                    # The helper handles stop() + join() internally; we
+                    # only need to count the removed entries for logging.
+                    # Documented return shape: Dict[str, List[entry_dict]]
+                    # — trust it instead of defensively decoding every
+                    # possible shape.
                     try:
-                        # Use helper to remove orchestrator registry entries associated with this target.
-                        try:
-                            removed = remove_orchestrator_entries_by_target(target_session)
-                        except TypeError:
-                            # Some helper signatures might differ; attempt an alternative call pattern.
-                            removed = remove_orchestrator_entries_by_target(target_session,)
-                        except Exception as e:
-                            # If the removal helper fails, log and continue without poller cleanup.
-                            logger.error(f"Error while calling remove_orchestrator_entries_by_target for '{target_session}': {e}", exc_info=True)
-                            removed = None
-
-                        removed_entries = []
-                        removed_keys = []
-
-                        # Normalize the returned 'removed' value into lists of keys and entry objects.
-                        if removed is None:
-                            removed_count = 0
+                        removed = remove_orchestrator_entries_by_target(target_session)
+                        removed_entries = removed.get(target_session, []) if isinstance(removed, dict) else []
+                        if removed_entries:
+                            logger.info(
+                                "Stopped %d orchestrator poller(s) for session '%s'.",
+                                len(removed_entries), target_session,
+                            )
+                            user_feedback(f"Stopped orchestrator poller for session '{target_session}'.")
                         else:
-                            # If helper returned a dict mapping keys->entries
-                            if isinstance(removed, dict):
-                                for k, v in removed.items():
-                                    try:
-                                        removed_keys.append(k)
-                                    except Exception:
-                                        removed_keys.append(str(k))
-                                    removed_entries.append(v)
-                            elif isinstance(removed, (list, tuple)):
-                                for it in removed:
-                                    # Support formats: (key, entry), entry dict/object, or key string
-                                    if isinstance(it, tuple) and len(it) == 2:
-                                        k, v = it
-                                        try:
-                                            removed_keys.append(k)
-                                        except Exception:
-                                            removed_keys.append(str(k))
-                                        removed_entries.append(v)
-                                    elif isinstance(it, dict) and ('poller' in it or 'queue' in it or 'thread' in it):
-                                        removed_entries.append(it)
-                                    elif isinstance(it, str):
-                                        removed_keys.append(it)
-                                    else:
-                                        # Unknown element; try to introspect
-                                        try:
-                                            if hasattr(it, 'items'):
-                                                for k, v in it.items():
-                                                    removed_keys.append(k)
-                                                    removed_entries.append(v)
-                                            else:
-                                                # Fallback: treat as entry object
-                                                removed_entries.append(it)
-                                        except Exception:
-                                            removed_entries.append(it)
-                            elif isinstance(removed, int):
-                                removed_count = int(removed)
-                            else:
-                                # Unknown return type: try to treat as single entry object
-                                try:
-                                    if hasattr(removed, 'items'):
-                                        for k, v in removed.items():
-                                            removed_keys.append(k)
-                                            removed_entries.append(v)
-                                    else:
-                                        removed_entries.append(removed)
-                                except Exception:
-                                    # Give up and treat as no removals
-                                    pass
-
-                        # Compute final removed count
-                        try:
-                            removed_count = len(removed_entries) + len([k for k in removed_keys if k])
-                        except Exception:
-                            try:
-                                removed_count = len(removed_entries)
-                            except Exception:
-                                removed_count = 0
-
-                        if removed_count:
-                            try:
-                                logger.info(f"Removed {removed_count} orchestrator poller registry entries for target '{target_session}': {removed_keys}")
-                            except Exception:
-                                logger.info(f"Removed orchestrator poller registry entries for target '{target_session}'")
-                        else:
-                            logger.info(f"No orchestrator poller entries found to remove for target '{target_session}'")
-
-                        # Stop pollers and join any helper threads associated with the removed entries.
-                        for entry in removed_entries:
-                            try:
-                                poller = entry.get('poller') if isinstance(entry, dict) else getattr(entry, 'poller', None)
-                            except Exception:
-                                poller = None
-                            try:
-                                q = entry.get('queue') if isinstance(entry, dict) else getattr(entry, 'queue', None)
-                            except Exception:
-                                q = None
-
-                            stopped = False
-                            if poller is not None:
-                                try:
-                                    # Prefer stop(), then join() if available.
-                                    stop_fn = getattr(poller, 'stop', None)
-                                    if callable(stop_fn):
-                                        stop_fn()
-                                    join_fn = getattr(poller, 'join', None)
-                                    if callable(join_fn):
-                                        try:
-                                            join_fn(timeout=2)
-                                        except TypeError:
-                                            # Some join implementations may not accept timeout
-                                            join_fn()
-                                    stopped = True
-                                except Exception as e:
-                                    logger.error(f"Error stopping orchestrator poller for session '{target_session}': {e}", exc_info=True)
-
-                            # If a helper thread was created for poller.run, attempt to join it as well.
-                            try:
-                                thread_obj = entry.get('thread') if isinstance(entry, dict) else getattr(entry, 'thread', None)
-                            except Exception:
-                                thread_obj = None
-                            if thread_obj is not None:
-                                try:
-                                    join_fn = getattr(thread_obj, 'join', None)
-                                    if callable(join_fn):
-                                        try:
-                                            thread_obj.join(timeout=2)
-                                        except Exception:
-                                            try:
-                                                thread_obj.join()
-                                            except Exception:
-                                                # Give up on joining
-                                                pass
-                                except Exception as e:
-                                    logger.error(f"Error joining helper thread for orchestrator poller associated with '{target_session}': {e}", exc_info=True)
-
-                            # Notify user if stopped
-                            if stopped:
-                                user_feedback(f"Stopped orchestrator poller for session '{target_session}'.")
-                                logger.info(f"Stopped orchestrator poller for session '{target_session}'.")
+                            logger.info(
+                                "No orchestrator poller entries found for session '%s'.",
+                                target_session,
+                            )
                     except Exception as e:
-                        logger.error(f"Exception while cleaning up orchestrator poller for session '{target_session}': {e}", exc_info=True)
+                        logger.error(
+                            "Exception while cleaning up orchestrator poller for session '%s': %s",
+                            target_session, e, exc_info=True,
+                        )
                 else:
                     user_feedback(f"Failed to kill screen session '{target_session}'. See logs for details.")
                     logger.error(f"kill_session returned falsy for session '{target_session}'.")
