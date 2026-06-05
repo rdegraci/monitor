@@ -1,0 +1,89 @@
+"""Tests for the orchestrator-side singleton (PLAN_AGENT_ORCHESTRATION Phase 0.5).
+
+Drives the orchestrator listener + registry with a real AgentReporter over a
+loopback socket (no subprocess).
+"""
+
+import time
+
+import pytest
+
+from monitor.lib import agent_protocol as ap
+from monitor.lib import agent_orchestrator as orch
+from monitor.lib.agent_reporter import AgentReporter
+
+
+def _wait(predicate, timeout=2.0, interval=0.01):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
+
+
+@pytest.fixture(autouse=True)
+def _clean():
+    orch.reset_for_test()
+    yield
+    orch.reset_for_test()
+
+
+def test_ensure_started_idempotent_returns_path():
+    p1 = orch.ensure_started()
+    p2 = orch.ensure_started()
+    assert p1 == p2
+    assert orch.is_running()
+    assert orch.socket_path() == p1
+
+
+def test_records_status_and_result():
+    path = orch.ensure_started()
+    r = AgentReporter(path, "agA")
+    assert r.connect()
+    r.status("indexing")
+    r.result(ok=True, summary="found 3 things", data=[1, 2, 3])
+    assert _wait(lambda: (orch.agent_record("agA") or {}).get("results"))
+    rec = orch.agent_record("agA")
+    assert rec["status"] == "indexing"
+    assert rec["results"][0]["summary"] == "found 3 things"
+    assert rec["terminal"] is True
+    r.close()
+
+
+def test_all_statuses_snapshot():
+    path = orch.ensure_started()
+    a = AgentReporter(path, "a1"); a.connect(); a.status("alpha")
+    b = AgentReporter(path, "b2"); b.connect(); b.status("beta")
+    assert _wait(lambda: set(orch.all_statuses()) >= {"a1", "b2"})
+    statuses = orch.all_statuses()
+    assert statuses["a1"] == "alpha"
+    assert statuses["b2"] == "beta"
+    a.close(); b.close()
+
+
+def test_dirty_disconnect_recorded():
+    path = orch.ensure_started()
+    r = AgentReporter(path, "crashy")
+    r.connect()
+    r.status("mid-task")
+    # Hard-close the underlying socket WITHOUT sending exit (simulate crash).
+    r._sock.close()
+    assert _wait(lambda: (orch.agent_record("crashy") or {}).get("dirty") is True)
+    rec = orch.agent_record("crashy")
+    assert rec["dirty"] is True
+    assert rec["terminal"] is False
+
+
+def test_clean_exit_not_dirty():
+    path = orch.ensure_started()
+    r = AgentReporter(path, "tidy")
+    r.connect()
+    r.result(ok=True, summary="ok")
+    r.close(0)
+    assert _wait(lambda: (orch.agent_record("tidy") or {}).get("terminal"))
+    # Give the disconnect callback a moment.
+    _wait(lambda: orch.agent_record("tidy") is not None)
+    rec = orch.agent_record("tidy")
+    assert rec["terminal"] is True
+    assert rec["dirty"] is False

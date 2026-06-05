@@ -8,6 +8,29 @@ as completed. Items are ordered so each builds on verified prior work.
 > path (`:agent create` → `agent_create` → `create_interactive_subagent`) is
 > already ~90% wired; see §1b for the two concrete gaps that make it real.
 
+> **IMPLEMENTED (2026-06-04) — Phases 1, 2, 0.5 done, verified end-to-end.**
+> New modules (stdlib-only, no config dependency → import-cycle-safe):
+> - `lib/agent_protocol.py` — Phase 1 frame protocol (length-prefixed, versioned,
+>   typed; partial-read-tolerant `FrameDecoder`). 16 tests.
+> - `lib/agent_listener.py` — Phase 2 orchestrator AF_UNIX listener (accept/reader
+>   threads, pluggable `on_frame` sink, clean-vs-dirty disconnect, teardown). 7 tests.
+> - `lib/agent_reporter.py` — Phase 0.5 child reporting client (`hello/status/
+>   stdout/result/error/exit/heartbeat`, monotonic seq, heartbeat thread,
+>   degrades to no-op if no orchestrator). 8 tests.
+> - `lib/agent_orchestrator.py` — Phase 0.5 orchestrator singleton (listener +
+>   lock-guarded frame registry = seed of the Phase 3 shared state). 5 tests.
+>
+> Live wiring: `screen_handler.py` spawns `python -m monitor --agent` and passes
+> `MONITOR_AGENT_SOCKET` (orchestrator listener) + `MONITOR_AGENT_ID`; `app.py`
+> startup calls `agent_reporter.from_env()` (heartbeat + status + atexit exit).
+> **Verified with a real subprocess**: a spawned `monitor --agent` connected and
+> emitted hello → status → exit. Full suite 1332 passed / 1 skipped.
+>
+> NOT yet done: Phase 3 (bridge into the live prompt_toolkit loop), Phase 4 (UI),
+> Phase 5 (rollback), Phase 6 (index/depth at `hello`), Phase 7 (hardening),
+> Phase 8 (LLM `agent_gather` layer). The legacy child-served status-socket +
+> poller path was left intact (additive); cleanup deferred.
+
 ## 0. Pre-flight
 - [x] `MONITOR_ENABLE_AGENT_ORCHESTRATION`, `MONITOR_AGENT_DEPTH`,
       `MONITOR_AGENT_MAX_DEPTH` plumbing exists in `config.py` (env + YAML).

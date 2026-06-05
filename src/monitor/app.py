@@ -366,6 +366,22 @@ def main():
         except Exception:
             logger.exception("Failed to start status UDS server")
 
+    # PLAN Phase 0.5: when spawned as a sub-agent (MONITOR_AGENT_SOCKET set by
+    # the orchestrator), connect back and report over the frame protocol.
+    # from_env() returns None for a normal (non-spawned) instance and degrades
+    # to a no-op on connection failure, so this never breaks a plain launch.
+    try:
+        import atexit
+        from monitor.lib import agent_reporter
+        reporter = agent_reporter.from_env()
+        if reporter is not None:
+            reporter.start_heartbeat()
+            reporter.status("agent ready")
+            atexit.register(lambda: reporter.close(0))
+            logger.info("Agent reporter active (agent_id=%s)", reporter.agent_id)
+    except Exception:
+        logger.exception("Failed to start agent reporter")
+
     # Snapshot the startup cwd to resolve any per-project prompt overrides
     # (MONITOR.md / MONITOR_CONVENTIONS.md in the cwd). Frozen for the rest
     # of the session — :cd later does NOT re-resolve.

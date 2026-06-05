@@ -72,7 +72,9 @@ class ScreenHandler:
         base_meta_dir: Optional[str] = None,
     ) -> None:
         self.screen_cmd = screen_cmd
-        self.monitor_cmd = monitor_cmd or ["python", "-m", "monitor"]
+        # Default spawn runs the app in --agent mode so the child reports back
+        # to the orchestrator over the frame protocol (PLAN Phase 0.5).
+        self.monitor_cmd = monitor_cmd or ["python", "-m", "monitor", "--agent"]
         self.base_log_dir = (
             Path(base_log_dir)
             if base_log_dir
@@ -360,6 +362,18 @@ class ScreenHandler:
         ]
         if max_depth is not None:
             env_vars.append(f"MONITOR_AGENT_MAX_DEPTH={max_depth}")
+
+        # PLAN Phase 0.5: hand the child the orchestrator's frame-protocol
+        # listener socket + a stable agent id. The child's agent_reporter
+        # connects here and streams hello/status/result frames. Best-effort —
+        # if the listener can't start, the child still runs (reporter no-ops).
+        try:
+            from monitor.lib import agent_orchestrator
+            orch_socket = agent_orchestrator.ensure_started()
+            env_vars.append(f"MONITOR_AGENT_SOCKET={orch_socket}")
+            env_vars.append(f"MONITOR_AGENT_ID={session_name}")
+        except Exception:
+            logger.exception("Could not start agent orchestrator listener; child will run unreported")
 
         cmd = [self.screen_cmd, "-S", session_name, "-dm", "env"] + env_vars + self.monitor_cmd
         cp = self._run(cmd, check=False, capture_output=True, text=True)
