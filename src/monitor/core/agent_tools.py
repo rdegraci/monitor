@@ -693,3 +693,105 @@ def agent_send(index: int, text: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.exception("agent_send failed: %s", exc)
         return {"status": "error", "correlation_id": cid, "index": index, "message": str(exc)}
+
+
+def agent_gather(agent_ids: Any, timeout: float = 120.0, poll_interval: float = 0.25) -> Dict[str, Any]:
+    """Block until the listed sub-agents finish, then return their results.
+
+    The orchestration primitive that lets an LLM fan out work and aggregate it
+    *in-context* (PLAN Phase 8a): fire N ``agent_create`` calls, then pass their
+    returned ``session_name`` values here. This blocks until every listed agent
+    reaches a terminal state (reported a result/error or exited cleanly) or
+    crashes (dirty disconnect), or until ``timeout`` seconds elapse.
+
+    Partial-failure honesty (8d): every requested id lands in exactly one of
+    ``ok`` / ``failed`` / ``pending`` — a crashed, errored, or never-connected
+    agent is reported, never silently dropped.
+
+    Args:
+        agent_ids: a session_name (str) or list of them (as returned by
+            ``agent_create``).
+        timeout: maximum seconds to wait for all agents to finish.
+        poll_interval: how often to poll the orchestrator registry.
+
+    Returns:
+        Dict with status, correlation_id, requested count, and the buckets
+        ``ok`` ([{id, result}]), ``failed`` ([{id, reason}]), ``pending``
+        ([id...]), plus ``timed_out`` (bool).
+    """
+    cid = _new_correlation_id()
+
+    # Orchestration gating: same master switch as agent_create/agent_send.
+    if not _orchestration_enabled():
+        msg = "Agent orchestration is disabled. Set MONITOR_ENABLE_AGENT_ORCHESTRATION=1 to enable."
+        logger.warning("agent_gather orchestration disabled: cid=%s", cid)
+        return {"status": "error", "correlation_id": cid, "message": msg}
+
+    # Normalize agent_ids to a list of strings.
+    if isinstance(agent_ids, str):
+        ids = [agent_ids]
+    elif isinstance(agent_ids, (list, tuple)):
+        ids = [str(a) for a in agent_ids]
+    else:
+        return {"status": "error", "correlation_id": cid,
+                "message": "agent_ids must be a string or a list of strings"}
+    if not ids:
+        return {"status": "error", "correlation_id": cid, "message": "agent_ids is empty"}
+
+    try:
+        timeout = max(0.0, float(timeout))
+    except (TypeError, ValueError):
+        timeout = 120.0
+
+    import time
+    from monitor.lib import agent_orchestrator as orch
+
+    def _resolved(aid: str) -> bool:
+        rec = orch.agent_record(aid)
+        if rec is None:
+            return False  # hasn't connected yet
+        return bool(rec.get("terminal") or rec.get("dirty"))
+
+    deadline = time.monotonic() + timeout
+    while True:
+        if all(_resolved(a) for a in ids):
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(poll_interval)
+
+    ok, failed, pending = [], [], []
+    for aid in ids:
+        rec = orch.agent_record(aid)
+        if rec is None:
+            failed.append({"id": aid, "reason": "no such agent (never connected to orchestrator)"})
+        elif rec.get("error"):
+            failed.append({"id": aid, "reason": rec["error"].get("message", "reported error")})
+        elif rec.get("dirty"):
+            failed.append({"id": aid, "reason": "dirty disconnect (agent crashed before reporting a result)"})
+        elif rec.get("results"):
+            ok.append({"id": aid, "result": rec["results"][-1]})
+        elif rec.get("terminal"):
+            # Exited cleanly but never sent a structured result frame.
+            ok.append({"id": aid, "result": {
+                "ok": True,
+                "summary": rec.get("status") or "completed (no result frame)",
+                "no_result_frame": True,
+            }})
+        else:
+            pending.append(aid)  # still running at timeout
+
+    result = {
+        "status": "ok",
+        "correlation_id": cid,
+        "requested": len(ids),
+        "ok": ok,
+        "failed": failed,
+        "pending": pending,
+        "timed_out": bool(pending),
+    }
+    logger.info(
+        "agent_gather: cid=%s requested=%d ok=%d failed=%d pending=%d",
+        cid, len(ids), len(ok), len(failed), len(pending),
+    )
+    return result

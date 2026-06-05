@@ -156,16 +156,17 @@ as completed. Items are ordered so each builds on verified prior work.
 > The frames already feed the human terminal (§4/§5); this routes them into the
 > orchestrator LLM's context as tool results. Maps to PLAN Part 3.
 
-### 11a. Result-return-into-context channel (keystone)
+### 11a. Result-return-into-context channel (keystone)  — DONE
 - [x] `agent_create`/`agent_send`/`agent_list`/`agent_kill`/`agent_logfile`
-      already registered as LLM-callable (`tool_definitions.py:~682-749`).
-- [ ] `agent_create(prompt)` returns an `agent_id` immediately (fire; no block).
-- [ ] Add **blocking** `agent_gather(ids, timeout)` → returns collected
-      `result`-frame payloads as ONE tool result (spawn-N-then-gather).
-- [ ] Gather blocks until all listed agents hit a terminal frame
-      (`result`/`error`/`exit`), or quorum/timeout.
-- [ ] Add a result-retrieval tool returning `result`-frame **payloads**
-      (current `agent_logfile` returns a path — useless for LLM aggregation).
+      registered as LLM-callable (`tool_definitions.py`).
+- [x] `agent_create(prompt)` returns immediately with `session_name` (the gather id).
+- [x] **Blocking** `agent_gather(agent_ids, timeout)` added
+      (`core/agent_tools.py`) — returns collected `result` payloads as ONE tool
+      result; registered in dispatch map + both schema lists. 9 tests.
+- [x] Gather blocks until every listed agent hits a terminal state
+      (result/error/clean-exit) or crashes, or until timeout.
+- [x] Result payloads returned directly by gather (no separate retrieval tool
+      needed — avoids bloat; `agent_logfile`'s path return is unaffected).
 
 ### 11b. Structured summaries (context-budget protection)
 - [ ] Subagents return concise structured findings via the `result` `summary`
@@ -178,11 +179,12 @@ as completed. Items are ordered so each builds on verified prior work.
 - [ ] Total-agent / token budget across the run.
 - [ ] Aggregate child token-costs up to the orchestrator (extend cost trackers).
 
-### 11d. Partial-failure honesty
-- [ ] `agent_gather` reports terminal state for EVERY requested id
-      (e.g. `{ok: [...], failed: [{id, reason}]}`); never silently drops.
-- [ ] A crashed child's rollback stays local; orchestrator still gets a
-      structured "failed/missing" entry.
+### 11d. Partial-failure honesty  — DONE
+- [x] `agent_gather` buckets EVERY requested id into ok / failed / pending;
+      never silently drops (crash → failed, error → failed, never-connected →
+      failed, timeout → pending). Tested.
+- [x] A crashed child surfaces as `failed` with a "dirty disconnect" reason
+      (history-rollback wiring itself is Phase 5).
 
 ### 11e. Orchestrator as sole file writer
 - [ ] Researcher subagents are read-only (safe to fan out wide).

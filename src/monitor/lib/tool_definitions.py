@@ -1,5 +1,5 @@
 from monitor import config
-from monitor.core.agent_tools import agent_create, agent_kill, agent_list, agent_logfile, agent_send
+from monitor.core.agent_tools import agent_create, agent_kill, agent_list, agent_logfile, agent_send, agent_gather
 
 from monitor.lib.redis_utils import (
     save_to_memory,
@@ -105,6 +105,7 @@ AVAILABLE_TOOLS = {
     "agent_list": agent_list,
     "agent_logfile": agent_logfile,
     "agent_send": agent_send,
+    "agent_gather": agent_gather,
     "make_directory": make_directory
 }
 
@@ -763,6 +764,40 @@ TOOL_DESCRIPTIONS = [
                 "required": ["index", "text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_gather",
+            "description": (
+                "Wait for one or more sub-agents to finish and return their results so you can "
+                "aggregate them. This is how you ORCHESTRATE: fan out independent work by calling "
+                "agent_create N times (each returns a session_name), then call agent_gather with "
+                "those session_names. It BLOCKS until every listed agent finishes (reports a "
+                "result, errors, or exits) or crashes, or until the timeout. "
+                "Returns three buckets so nothing is hidden: 'ok' (each with the agent's result "
+                "summary/data), 'failed' (each with a reason — e.g. a crash), and 'pending' (still "
+                "running at timeout). Use this for independent, parallelizable subtasks; for "
+                "sequential or single-step work, just do it yourself. You remain the sole writer of "
+                "files — treat sub-agents as researchers and apply any changes yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_ids": {
+                        "type": ["string", "array"],
+                        "items": {"type": "string"},
+                        "description": "A session_name (or list of them) as returned by agent_create."
+                    },
+                    "timeout": {
+                        "type": "number",
+                        "description": "Max seconds to wait for all agents to finish (default 120).",
+                        "default": 120
+                    }
+                },
+                "required": ["agent_ids"]
+            }
+        }
     }
 ]
 
@@ -1310,6 +1345,31 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "index",
         "text"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "description": (
+        "Wait for one or more sub-agents to finish and return their results so you can aggregate "
+        "them. Fan out independent work via agent_create (each returns a session_name), then call "
+        "agent_gather with those session_names. Blocks until every agent finishes or crashes, or "
+        "until timeout. Returns 'ok' (with each result), 'failed' (with reasons), and 'pending' "
+        "buckets — nothing is hidden. You remain the sole file writer; treat sub-agents as "
+        "researchers and apply changes yourself."
+    ),
+    "name": "agent_gather",
+    "parameters": {
+      "properties": {
+        "agent_ids": {
+          "description": "A session_name (or list of them) as returned by agent_create.",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Max seconds to wait for all agents to finish (default 120).",
+          "type": "number"
+        }
+      },
+      "required": ["agent_ids"],
       "type": "object"
     }
   }
