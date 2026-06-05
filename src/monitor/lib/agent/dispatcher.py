@@ -2,9 +2,10 @@
 
 The public entry point is ``dispatch(command)``, which parses the raw
 user-typed argument string via ``shlex.split`` and routes to one of the
-per-subcommand modules. When the first token doesn't match a known
-subcommand, the whole string is treated as a shell command to spawn in
-a new detached screen session (the legacy ``:agent <cmd>`` shape).
+per-subcommand modules. An unrecognized first token prints a usage error
+(it does NOT spawn anything — sub-agents are created only through the
+safeguarded ``agent_create`` LLM tool, which enforces the orchestration
+gate and breadth/total caps).
 """
 
 import logging
@@ -18,7 +19,6 @@ from monitor.lib.agent.list import agent_list
 from monitor.lib.agent.logfile import agent_logfile
 from monitor.lib.agent.logs import agent_logs
 from monitor.lib.agent.send import agent_send
-from monitor.lib.agent.spawn import agent_spawn
 from monitor.lib.agent.usage import agent_usage
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,7 @@ def dispatch(command):
             via shlex.split so quoted strings survive intact.
 
     Returns:
-        Whatever the routed handler returns (most return None; the spawn
-        path returns a structured dict on success).
+        Whatever the routed handler returns (handlers return None).
     """
     try:
         tokens = shlex.split(command or "")
@@ -65,6 +64,10 @@ def dispatch(command):
     if handler is not None:
         return handler(tokens)
 
-    # Not a recognized subcommand — treat the whole command as a shell
-    # command to spawn in a new detached screen session.
-    return agent_spawn(command)
+    # Unrecognized subcommand: report and show usage. We do NOT spawn here —
+    # the old `:agent <cmd>` fallthrough was removed because it bypassed the
+    # orchestration gate and the breadth/total caps, and turned typos (e.g.
+    # `:agent listt`) into stray sessions.
+    print(f"Unknown :agent subcommand: {first!r}\n")
+    user_feedback(f"Unknown :agent subcommand: {first!r}")
+    return agent_usage()

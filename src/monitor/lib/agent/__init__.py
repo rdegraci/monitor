@@ -1,6 +1,6 @@
 """Agent subcommand handlers — :agent subcommand multiplexer split across files.
 
-Each subcommand of :agent (list, logs, logfile, attach, kill, send, spawn)
+Each subcommand of :agent (list, logs, logfile, attach, kill, send)
 lives in its own module here. The dispatcher (``dispatcher.dispatch``)
 parses the user's argument string into tokens and routes to the right
 handler. Shared state (the lazy ScreenHandler proxy and the index
@@ -22,5 +22,8 @@ Layout:
     attach.py       agent_attach(tokens) — re-attach via screen -r.
     kill.py         agent_kill(tokens) — kill session + orchestrator cleanup.
     send.py         agent_send(tokens) — send text into a session.
-    spawn.py        agent_spawn(command) — fallthrough new-session creator.
+
+Note: there is no human-facing spawn command. Sub-agents are created only
+through the safeguarded ``agent_create`` LLM tool (orchestration gate +
+breadth/total caps). An unrecognized ``:agent`` subcommand prints usage.
 """
