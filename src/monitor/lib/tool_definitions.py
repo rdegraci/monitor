@@ -43,6 +43,7 @@ from monitor.lib.text_file_editor import (
 
 from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_text_file_editor_tools, get_first_segment, remove_openai_editor_tools
 from monitor.lib.protocol_engine import modify_source_code
+from monitor.lib.bulk_replace import bulk_replace_in_files
 from monitor.lib.find_files import find_files
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.type_checker import type_check_python
@@ -88,6 +89,7 @@ AVAILABLE_TOOLS = {
     "text_file_create": text_file_create,
     "text_file_str_replace_in_file": text_file_str_replace_in_file,
     "text_file_insert_text_at_line": text_file_insert_text_at_line,
+    "bulk_replace_in_files": bulk_replace_in_files,
     # Anthropic-native editor tool dispatcher (both names route through the
     # same dispatcher; the model emits one or the other depending on which
     # native gate matched at configure_tools time).
@@ -478,6 +480,66 @@ TOOL_DESCRIPTIONS = [
     {
         "type": "function",
         "function": {
+            "name": "bulk_replace_in_files",
+            "description": (
+                "Deterministically replace text across one or more files in a single pass — "
+                "the sanctioned tool for MECHANICAL multi-site edits (rename a symbol at every "
+                "call site, delete a marker everywhere, bulk substitution). No LLM is involved, "
+                "so it is exact and reproducible. "
+                "Choose the right edit tool: a single unique edit → text_file_str_replace_in_file; "
+                "a mechanical change repeated across many sites/files → THIS tool; a genuinely "
+                "fuzzy change ('make this idiomatic') → modify_source_code. "
+                "Match is LITERAL by default (set regex=False... i.e. literal=true); set literal=false "
+                "for a Python regex. Use word_boundary=true for safe identifier renames (so 'count' "
+                "does not match inside 'account'). The replacement text is literal — no regex "
+                "backreference expansion. "
+                "dry_run is TRUE by default: it returns the unified diff it WOULD make without writing. "
+                "Re-issue with dry_run=false to apply. Every changed file is syntax/structure-verified "
+                "before any write, and the batch is all-or-nothing."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "old": {
+                        "type": "string",
+                        "description": "The text (or, when literal=false, the Python regex) to find. Must be non-empty."
+                    },
+                    "new": {
+                        "type": "string",
+                        "description": "The replacement text. Always literal — regex backreferences are NOT expanded."
+                    },
+                    "paths": {
+                        "type": ["string", "array"],
+                        "items": {"type": "string"},
+                        "description": "A file path, a glob (e.g. 'src/**/*.py'), or a list of either. Globs support ** for recursion. Binary files and files outside the repo working tree are skipped."
+                    },
+                    "literal": {
+                        "type": "boolean",
+                        "description": "When true (default), 'old' is matched as literal text. When false, 'old' is a Python regular expression.",
+                        "default": True
+                    },
+                    "word_boundary": {
+                        "type": "boolean",
+                        "description": "When true, match only whole words/identifiers (wraps the match in \\b...\\b). Use for symbol renames so 'count' does not match inside 'account'.",
+                        "default": False
+                    },
+                    "expected_count": {
+                        "type": "integer",
+                        "description": "Optional safety latch: if provided, the operation aborts (writing nothing) unless exactly this many occurrences are found across all files."
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "When true (default), preview only — returns the diffs that WOULD be made and writes nothing. Set false to actually apply the change.",
+                        "default": True
+                    }
+                },
+                "required": ["old", "new", "paths"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "ripgrep_search_tool",
             "description": "Searches for a pattern across files in the repository using ripgrep. By default, the pattern is treated as literal text (fixed-string search). Set regex=True when you need anchors (^/$), character classes, or alternation.",
             "parameters": {
@@ -705,6 +767,53 @@ TOOL_DESCRIPTIONS = [
 ]
 
 GEMINI_TOOL_DESCRIPTIONS = [
+  {
+    "description": (
+        "Deterministically replace text across one or more files in a single pass — the "
+        "sanctioned tool for MECHANICAL multi-site edits (rename a symbol everywhere, bulk "
+        "substitution). No LLM involved, so it is exact and reproducible. Single unique edit "
+        "→ text_file_str_replace_in_file; mechanical repeat across many sites → THIS tool; "
+        "fuzzy change → modify_source_code. Literal by default; set literal=false for a Python "
+        "regex. Use word_boundary=true for safe identifier renames. Replacement text is literal. "
+        "dry_run is TRUE by default (preview diffs, no write); set dry_run=false to apply. Every "
+        "changed file is verified before writing and the batch is all-or-nothing."
+    ),
+    "name": "bulk_replace_in_files",
+    "parameters": {
+      "properties": {
+        "old": {
+          "description": "Text (or Python regex when literal=false) to find. Non-empty.",
+          "type": "string"
+        },
+        "new": {
+          "description": "Replacement text. Literal — no regex backreference expansion.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "A file path, a glob (e.g. 'src/**/*.py'), or a list of either. Binary and out-of-tree files are skipped.",
+          "type": "string"
+        },
+        "literal": {
+          "description": "True (default) matches 'old' literally; false treats it as a Python regex.",
+          "type": "boolean"
+        },
+        "word_boundary": {
+          "description": "True matches whole identifiers only (so 'count' does not match 'account').",
+          "type": "boolean"
+        },
+        "expected_count": {
+          "description": "Optional latch: abort writing nothing unless exactly this many matches are found.",
+          "type": "integer"
+        },
+        "dry_run": {
+          "description": "True (default) previews diffs without writing; false applies the change.",
+          "type": "boolean"
+        }
+      },
+      "required": ["old", "new", "paths"],
+      "type": "object"
+    }
+  },
   {
     "description": "Executes git status to get the current state of the repository, including staged, unstaged, and untracked files.",
     "name": "perform_git_status"
