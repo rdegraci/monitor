@@ -488,6 +488,31 @@ def _prompt_with_agent_bridge(session, prompt_text):
         return session.prompt(prompt_text)
 
 
+def _maybe_report_agent_result(user_input):
+    """If this monitor is a spawned sub-agent, emit the turn's assistant response
+    as a `result` frame so the orchestrator's `agent_gather` can collect it
+    (PLAN Phase 8b). No-op for a normal (non-agent) instance or empty input.
+    """
+    if not user_input or not str(user_input).strip():
+        return
+    try:
+        from monitor.lib import agent_reporter
+    except Exception:
+        return
+    rep = agent_reporter.active()
+    if rep is None or not rep.connected:
+        return
+    try:
+        from monitor.lib.built_in_commands import _last_assistant_response
+        summary = _last_assistant_response()
+    except Exception:
+        summary = None
+    if not summary:
+        return
+    rep.result(ok=True, summary=summary)
+    rep.status("idle")
+
+
 def get_input(prompt=DEFAULT_PROMPT, continuation_prompt=CONTINUATION_PROMPT, session=None):
     """
     Capture and process user input using prompt_toolkit with custom lexer for red highlighting after 120 characters.
@@ -835,6 +860,12 @@ def chat():
                     status_module.set_status("idle")
                 except Exception:
                     pass
+                # PLAN 8b: if running as a spawned sub-agent, report this turn's
+                # assistant response to the orchestrator as a result frame.
+                try:
+                    _maybe_report_agent_result(user_input)
+                except Exception:
+                    logger.debug("agent result report failed", exc_info=True)
 
             if not exit_flag:
                 continue

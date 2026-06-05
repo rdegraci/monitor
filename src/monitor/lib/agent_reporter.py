@@ -157,6 +157,21 @@ class AgentReporter:
                 return False
 
 
+# --- process-wide active reporter ------------------------------------------
+# A spawned sub-agent has exactly one reporter for its lifetime. The main
+# conversation loop reaches it through this singleton to emit per-turn results.
+_active: Optional[AgentReporter] = None
+
+
+def set_active(reporter: Optional[AgentReporter]) -> None:
+    global _active
+    _active = reporter
+
+
+def active() -> Optional[AgentReporter]:
+    return _active
+
+
 def from_env() -> Optional[AgentReporter]:
     """Build a connected reporter from the environment, or None if not applicable.
 

@@ -375,6 +375,7 @@ def main():
         from monitor.lib import agent_reporter
         reporter = agent_reporter.from_env()
         if reporter is not None:
+            agent_reporter.set_active(reporter)
             reporter.start_heartbeat()
             reporter.status("agent ready")
             atexit.register(lambda: reporter.close(0))

@@ -169,10 +169,12 @@ as completed. Items are ordered so each builds on verified prior work.
       needed — avoids bloat; `agent_logfile`'s path return is unaffected).
 
 ### 11b. Structured summaries (context-budget protection)
-- [ ] Subagents return concise structured findings via the `result` `summary`
-      field — never raw transcripts.
-- [ ] `--agent`-mode system prompt instructs: "your final `result` is data for
-      an orchestrator; return a tight, structured summary."
+- [x] Sub-agents emit their per-turn assistant response as a `result` frame
+      (`conversation._maybe_report_agent_result` → `agent_reporter.active()`),
+      reachable by `agent_gather`. Reporter singleton: `agent_reporter.set_active`/
+      `active`; wired in `app.py`. End-to-end tested (8b→8a). 6 tests.
+- [ ] `--agent`-mode system prompt instructs "return a tight, structured
+      summary" so the captured response stays concise (prompt-side, pending).
 
 ### 11c. Breadth & cost caps (not just depth)
 - [ ] Sibling/breadth cap on concurrent subagents.
