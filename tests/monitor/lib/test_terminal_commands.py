@@ -142,7 +142,11 @@ def test_attach_resolves_token(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
     # resolve_screen_token returns a resolved token
-    monkeypatch.setattr(terminal_commands, "resolve_screen_token", lambda screen_cmd, session_name: "37082.20260323_fih")
+    # resolve_screen_token now lives in monitor.lib.agent.attach (the
+    # attach handler imports it at module load); patch there so the
+    # bound name inside the handler is replaced.
+    from monitor.lib.agent import attach as _attach_mod
+    monkeypatch.setattr(_attach_mod, "resolve_screen_token", lambda screen_cmd, session_name: "37082.20260323_fih")
     mock_run = mock.Mock()
     mock_run.return_value = mock.Mock(returncode=0, stderr="", stdout="")
     monkeypatch.setattr("subprocess.run", mock_run)
@@ -160,7 +164,11 @@ def test_attach_fallback_no_resolution(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("shutil.which", lambda exe: "path/to/screen")
     # resolve_screen_token returns None, so fallback to provided token
-    monkeypatch.setattr(terminal_commands, "resolve_screen_token", lambda screen_cmd, session_name: None)
+    # resolve_screen_token now lives in monitor.lib.agent.attach — patch
+    # there so the bound name inside the handler returns None and we
+    # exercise the fallback-to-raw-token path.
+    from monitor.lib.agent import attach as _attach_mod
+    monkeypatch.setattr(_attach_mod, "resolve_screen_token", lambda screen_cmd, session_name: None)
     mock_run = mock.Mock()
     mock_run.return_value = mock.Mock(returncode=1, stderr="fail", stdout="")
     monkeypatch.setattr("subprocess.run", mock_run)

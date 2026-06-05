@@ -11,14 +11,31 @@ from monitor.lib.terminal_commands_util import _color, user_feedback
 logger = logging.getLogger(__name__)
 
 
+def _safe_getattr(obj, name):
+    """getattr that returns None for callable / bound-method results.
+
+    Why: a bare string like ``"sessname"`` has a built-in ``str.index``
+    method. Bare ``getattr(payload, 'index', None)`` on a string returns
+    that bound method, which is truthy. The downstream ``or`` chain
+    then short-circuits to the method object — and the table renderer
+    crashes trying to ``.ljust()`` a method. Same trap with ``tuple.index``,
+    ``list.index``, ``dict.get``, etc. Excluding callables forces those
+    paths to fall through to the next candidate or finally to None.
+    """
+    val = getattr(obj, name, None)
+    if callable(val):
+        return None
+    return val
+
+
 def _extract_info(item, full_idx=None):
     """Normalize a single item from list_indexed_sessions into a dict
     with the keys the table renderer expects.
 
-    Handles the three shapes the handler might return: ``(index, payload)``
-    tuples (where payload may be a dict or an object), bare dicts, and
-    bare objects. Missing keys become empty strings so the table layout
-    stays stable.
+    Handles the four shapes the handler might return: ``(index, payload)``
+    tuples (where payload may be a dict, an object, or a string),
+    bare dicts, bare objects, and bare strings. Missing keys become
+    empty strings so the table layout stays stable.
     """
     info = {}
     if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], (int, str)):
@@ -35,13 +52,20 @@ def _extract_info(item, full_idx=None):
         info['state'] = payload.get('state') or payload.get('status')
         info['created_at'] = payload.get('created_at') or payload.get('created') or payload.get('ctime')
         info['meta_path'] = payload.get('meta_path') or payload.get('metadata_path') or payload.get('metadata')
+    elif isinstance(payload, str):
+        # Bare-string payload: the string IS the session name. Other
+        # fields must default to empty — never try to introspect a
+        # string for 'index', 'token', etc. (that's how the
+        # bound-method trap used to bite this code).
+        info['index'] = idx
+        info['name'] = payload
     else:
-        info['index'] = idx if idx is not None else getattr(payload, 'index', None) or getattr(payload, 'idx', None)
-        info['name'] = getattr(payload, 'name', None) or getattr(payload, 'session_name', None) or (str(payload) if isinstance(payload, str) else None)
-        info['token'] = getattr(payload, 'token', None) or getattr(payload, 'screen_token', None)
-        info['state'] = getattr(payload, 'state', None) or getattr(payload, 'status', None)
-        info['created_at'] = getattr(payload, 'created_at', None) or getattr(payload, 'created', None)
-        info['meta_path'] = getattr(payload, 'meta_path', None) or getattr(payload, 'metadata_path', None) or getattr(payload, 'metadata', None)
+        info['index'] = idx if idx is not None else (_safe_getattr(payload, 'index') or _safe_getattr(payload, 'idx'))
+        info['name'] = _safe_getattr(payload, 'name') or _safe_getattr(payload, 'session_name') or _safe_getattr(payload, 'session')
+        info['token'] = _safe_getattr(payload, 'token') or _safe_getattr(payload, 'screen_token')
+        info['state'] = _safe_getattr(payload, 'state') or _safe_getattr(payload, 'status')
+        info['created_at'] = _safe_getattr(payload, 'created_at') or _safe_getattr(payload, 'created')
+        info['meta_path'] = _safe_getattr(payload, 'meta_path') or _safe_getattr(payload, 'metadata_path') or _safe_getattr(payload, 'metadata')
 
     # Normalize Nones to empty strings for stable column widths.
     for k in ['index', 'name', 'token', 'state', 'created_at', 'meta_path']:
