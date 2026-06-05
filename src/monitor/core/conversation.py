@@ -447,18 +447,22 @@ def process_input(user_input, history_file, session):
 def _prompt_with_agent_bridge(session, prompt_text):
     """Prompt while surfacing sub-agent activity (PLAN Phase 3 bridge).
 
-    Flushes buffered agent output blocks above the prompt, and — ONLY when
-    sub-agents are active — shows their live status in a bottom toolbar with a
-    periodic refresh. When no agents are active this is byte-identical to a
-    plain ``session.prompt(...)``, so ordinary usage is unaffected. Any failure
-    degrades to a plain prompt.
+    Flushes completed/streamed agent output ABOVE the prompt (between prompts),
+    and — ONLY when sub-agents are active — shows their live status in a bottom
+    toolbar. When no agents are active this is byte-identical to a plain
+    ``session.prompt(...)``. Any failure degrades to a plain prompt.
+
+    Note: output is flushed *between* prompts, not streamed live *during* one. A
+    background live-flush thread was tried but its concurrent printing corrupted
+    prompt_toolkit's prompt redraw (the prompt would vanish), so it was removed.
+    Agent results still reach you via the next-turn injection and `:agent logs`.
     """
     try:
         from monitor.lib import agent_orchestrator as orch
     except Exception:
         return session.prompt(prompt_text)
 
-    # Flush streamed/completed agent output above the prompt line.
+    # Flush completed/streamed agent output above the (next) prompt line.
     try:
         for line in orch.drain_pending_output():
             print(line)
@@ -472,45 +476,19 @@ def _prompt_with_agent_bridge(session, prompt_text):
     if not active:
         return session.prompt(prompt_text)
 
+    # Live status only — no concurrent printing during the prompt. Returning
+    # None when there's nothing to show avoids leaving a blank toolbar bar.
     def _toolbar():
         try:
-            return orch.render_toolbar()
+            return orch.render_toolbar() or None
         except Exception:
-            return ""
+            return None
 
-    # Agents are running: stream their output live ABOVE the prompt via a
-    # background flusher (PLAN Phase 4 / 8h). Under patch_stdout() a plain
-    # print() from another thread renders safely above the live input line
-    # without disturbing what the user is typing. The per-tick limit keeps a
-    # chatty agent from flooding the prompt.
-    import threading
-    stop = threading.Event()
-
-    def _flush_loop():
-        while not stop.wait(0.3):
-            # Best-effort UI nicety: swallow everything (incl. a closed stdout
-            # during shutdown) so this thread never dies noisily. Do NOT log in
-            # the except — logging can itself hit a closed stream at teardown.
-            try:
-                for line in orch.drain_pending_output(limit=100):
-                    print(line)
-            except Exception:
-                pass
-
-    flusher = threading.Thread(target=_flush_loop, name="agent-live-flush", daemon=True)
     try:
-        from prompt_toolkit.patch_stdout import patch_stdout
-        with patch_stdout():
-            flusher.start()
-            try:
-                return session.prompt(prompt_text, bottom_toolbar=_toolbar, refresh_interval=0.5)
-            except TypeError:
-                # Older prompt_toolkit may reject these kwargs — fall back.
-                return session.prompt(prompt_text)
-    finally:
-        stop.set()
-        if flusher.is_alive():
-            flusher.join(timeout=1.0)
+        return session.prompt(prompt_text, bottom_toolbar=_toolbar, refresh_interval=0.5)
+    except TypeError:
+        # Older prompt_toolkit may reject these kwargs — fall back gracefully.
+        return session.prompt(prompt_text)
 
 
 def _fold_agent_injections_into_prefixes():
