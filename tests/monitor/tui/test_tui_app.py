@@ -248,6 +248,82 @@ def test_input_gated_while_processing(stub_backend, monkeypatch):
     assert submitted == []         # but no turn dispatched while processing
 
 
+def test_ctrl_c_does_not_quit_mid_turn(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._exit_called = []
+    app.app.exit = lambda *a, **k: app._exit_called.append(True)
+    app.processing = True
+
+    app._ctrl_c_action()
+    assert app._exit_called == []                       # did NOT quit mid-turn
+    assert "can't cancel it yet" in "".join(app._chunks)
+
+
+def test_ctrl_c_clears_input_then_exits_when_idle(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._exit_called = []
+    app.app.exit = lambda *a, **k: app._exit_called.append(True)
+
+    # Non-empty input → first Ctrl-C clears it, does not exit.
+    app.input.buffer.text = "half-typed message"
+    app._ctrl_c_action()
+    assert app.input.buffer.text == ""
+    assert app._exit_called == []
+
+    # Empty input → Ctrl-C exits.
+    app._ctrl_c_action()
+    assert app._exit_called == [True]
+    assert app._stop.is_set()
+
+
+def test_model_switch_applied_after_turn(stub_backend, monkeypatch):
+    calls = []
+
+    def fake_switch(last_model):
+        calls.append(last_model)
+        return "new/model"   # simulate a :model switch having occurred
+
+    monkeypatch.setattr(tui_app, "process_input", lambda t, h, s: False)
+    monkeypatch.setattr(tui_app, "apply_model_switch_if_needed", fake_switch)
+    monkeypatch.setattr(tui_app, "flush_logs_and_conversation", lambda: None)
+    monkeypatch.setattr(tui_app, "_maybe_report_agent_result", lambda t: False)
+
+    app = tui_app.MonitorTUI()
+    _wire(app, _FakeLoop())
+    app._last_model = "old/model"
+
+    app._submit("switch the model")
+    deadline = time.time() + 3
+    while app.processing and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert calls == ["old/model"]            # switch handler ran with prior model
+    assert app._last_model == "new/model"    # tracked model updated
+
+
+def test_turn_error_renders_without_crashing(stub_backend, monkeypatch):
+    def boom(text, history_file, session):
+        raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(tui_app, "process_input", boom)
+    monkeypatch.setattr(tui_app, "flush_logs_and_conversation", lambda: None)
+    monkeypatch.setattr(tui_app, "_maybe_report_agent_result", lambda t: False)
+
+    app = tui_app.MonitorTUI()
+    _wire(app, _FakeLoop())
+
+    app._submit("trigger error")
+    deadline = time.time() + 3
+    while app.processing and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert app.processing is False                  # recovered, didn't hang
+    assert "[error] turn failed" in "".join(app._chunks)
+    assert not app._exit_called                     # error doesn't quit the app
+
+
 def test_exit_flag_exits_app(stub_backend, monkeypatch):
     monkeypatch.setattr(tui_app, "process_input", lambda t, h, s: True)  # :exit
     monkeypatch.setattr(tui_app, "flush_logs_and_conversation", lambda: None)

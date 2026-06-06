@@ -10,6 +10,14 @@ risking the daily driver.
 > working; `--tui` is an additive alternative front-end. No backend logic moves
 > into the TUI layer.
 
+> **✅ ALL PHASES COMPLETE (2026-06-05).** P0–P6 shipped. `monitor --tui` is a
+> viable daily-driver front-end: real backend on a worker thread (no freeze),
+> retro 3-region layout, auto-scrolling colored output, real status line + live
+> sub-agent feed, input parity (lexer/completer/history/f-keys), and hardening
+> (Ctrl-C safety, error recovery, model-switch adaptivity). The REPL is unchanged
+> and remains the default. 23 TUI tests; full suite 1434 green. Remaining items
+> are optional niceties (manual scrollback, native multi-line, rich-pager color).
+
 > **Spike complete (2026-06-05).** A throwaway `src/monitor/tui/spike.py`
 > (behind `--tui`) validated P0 + P1 + thin-P2 with a STUB backend, in a real
 > terminal: 3-region layout renders, the worker-thread boundary holds (no
@@ -102,12 +110,21 @@ is untouched (separate `drain_pending_injections` in the query path). Test:
 injection still works. (Live agent-spawn validation pending the user.)
 **Risk:** Medium — *retired.* The layout made it clean, as predicted.
 
-## Phase 6 — Hardening & polish
+## Phase 6 — Hardening & polish  — ✅ DONE (2026-06-05)
 **Goal:** Daily-driver quality.
-- Markdown/code rendering, scrollback, resize, Ctrl-C cancels the turn, clean
-  exit, REPL regression guard, plays with `--agent`/`--model`.
-**Exit:** `--tui` is a viable daily driver; REPL unchanged; full test matrix green.
-**Risk:** Medium.
+**Delivered:** Ctrl-C no longer quits mid-turn (shows a note; clears input /
+exits when idle; Ctrl-D/Ctrl-Q always exit); turn errors render `[error]` and
+recover (no crash); model-switch token-window adaptivity ported via the shared
+`apply_model_switch_if_needed` (extracted from `chat()`); markdown via pygments
+16-color; resize is automatic (prompt_toolkit). `--tui` confirmed with
+`--model`/`--agent`. REPL unchanged (delegates to the shared helpers). 23 TUI
+tests; full suite green (1434).
+**Exit:** ✅ `--tui` is a viable daily driver; REPL unchanged; suite green.
+**Deferred (future niceties):** manual scrollback (PgUp/PgDn — auto-follow
+covers the common case); native multi-line composition (replacing `|` pipeline /
+trailing-`\`, currently refused gracefully); forcing `color_system="standard"`
+on rich-Console `:command` features (markdown pager).
+**Risk:** Medium — *retired.*
 
 ---
 

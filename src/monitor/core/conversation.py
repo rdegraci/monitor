@@ -743,6 +743,103 @@ def compute_prompt_display():
     )
 
 
+def apply_model_switch_if_needed(last_model):
+    """React to a model switch (e.g. via ``:model``): update the live token
+    window (``MAX_TOKEN_COUNT``) to the new model's context window and, if the
+    existing history now exceeds it, proactively auto-summarize (or warn).
+
+    Shared by the REPL loop (``chat()``) and the ``--tui`` turn loop so both
+    front-ends adapt identically. Prints any summary/warning to stdout — callers
+    that redirect stdout (the TUI) should call this within that redirect so the
+    output lands in the right place. Returns the model to track as ``last_model``
+    on the next call (unchanged if no switch occurred).
+    """
+    if config.MODEL == last_model:
+        return last_model
+
+    # Model has changed - update MAX_TOKEN_COUNT to live window, and log this event.
+    old_max_token_count = config.MAX_TOKEN_COUNT
+    config.MAX_TOKEN_COUNT = config.MODEL_CONTEXT_WINDOW  # fetch latest window size
+    logger.info(
+        f"Model switched: new config.MODEL: {config.MODEL}, context_window: {config.MODEL_CONTEXT_WINDOW}, MAX_TOKEN_COUNT updated from {old_max_token_count} to {config.MAX_TOKEN_COUNT}"
+    )
+
+    # After switch, compute tokens_in_history using canonical counter and derive tokens_remaining.
+    tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
+    tokens_remaining = config.MAX_TOKEN_COUNT - tokens_in_history
+    logger.info(
+        f"Tokens in history after model switch: {tokens_in_history}; tokens remaining: {tokens_remaining}"
+    )
+
+    # If token count now exceeds window, auto-summarize or alert user. (this is proactive behavior)
+    if tokens_in_history > config.MAX_TOKEN_COUNT:
+        logger.warning(
+            f"tokens_in_history ({tokens_in_history}) exceeds new MAX_TOKEN_COUNT ({config.MAX_TOKEN_COUNT}) after model switch, triggering summarization or alert..."
+        )
+
+        # Use check_limits to determine whether summarization should occur
+        try:
+            limits = check_limits(
+                tokens_in_history,
+                config.MAX_TOKEN_COUNT,
+                config.CONVERSATION_MAX_SIZE,
+                config.CONVERSATION_HISTORY,
+                config.SUMMARIZATION_CONFIG,
+                logger,
+                config,
+                time_since_last_summary=0,
+            )
+        except Exception:
+            logger.error("check_limits failed during model switch handling", exc_info=True)
+            print(red + TOKEN_EXCEED_WARNING + reset)
+        else:
+            if limits and limits.get("should_summarize"):
+                try:
+                    response = generate_conversation_summary(
+                        build_system_prompt(config.SESSION_ID),
+                        config.CONVERSATION_HISTORY,
+                        config.SUMMARIZATION_CONFIG,
+                        config.MODEL,
+                        litellm.completion,
+                        count_message_tokens,
+                        rate_limiter.RATE_LIMITER,
+                        logger,
+                        config,
+                    )
+                    logger.debug("Received summary response for auto-summarization during model switch")
+                    summary_text = None
+                    if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(
+                        response.choices[0], "message"
+                    ):
+                        summary_text = response.choices[0].message.content
+                    if not isinstance(summary_text, str) or not summary_text.strip():
+                        logger.error(
+                            "generate_conversation_summary returned empty or invalid summary during model switch handling"
+                        )
+                        print(red + TOKEN_EXCEED_WARNING + reset)
+                    else:
+                        reset_conversation_with_summary(
+                            summary=summary_text,
+                            system_prompt=build_system_prompt(config.SESSION_ID),
+                            user_input="",
+                            conversation_history=config.CONVERSATION_HISTORY,
+                            append_func=append_to_history_with_count,
+                            logger=logger,
+                            config=config,
+                        )
+                        logger.info(
+                            "Conversation history reset (auto-summarized) to comply with context window after model switch."
+                        )
+                        print(yellow + MODEL_SWITCH_SUMMARY_MESSAGE + reset)
+                except Exception:
+                    logger.error("Failed to auto-summarize/reset after model switch", exc_info=True)
+                    print(red + TOKEN_EXCEED_WARNING + reset)
+            else:
+                print(red + TOKEN_EXCEED_WARNING + reset)
+
+    return config.MODEL
+
+
 def chat():
     """
     Main loop for interactive chatting with the system.
@@ -772,89 +869,8 @@ def chat():
         try:
             # Display prompt and get input
 
-            # Check for live model/context window update after a model switch:
-            if config.MODEL != last_model:
-                # Model has changed - update MAX_TOKEN_COUNT to live window, and log this event.
-                old_max_token_count = config.MAX_TOKEN_COUNT
-                config.MAX_TOKEN_COUNT = config.MODEL_CONTEXT_WINDOW  # fetch latest window size
-                logger.info(
-                    f"Model switched: new config.MODEL: {config.MODEL}, context_window: {config.MODEL_CONTEXT_WINDOW}, MAX_TOKEN_COUNT updated from {old_max_token_count} to {config.MAX_TOKEN_COUNT}"
-                )
-
-                # After switch, compute tokens_in_history using canonical counter and derive tokens_remaining.
-                tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
-                tokens_remaining = config.MAX_TOKEN_COUNT - tokens_in_history
-                logger.info(
-                    f"Tokens in history after model switch: {tokens_in_history}; tokens remaining: {tokens_remaining}"
-                )
-
-                # If token count now exceeds window, auto-summarize or alert user. (this is proactive behavior)
-                if tokens_in_history > config.MAX_TOKEN_COUNT:
-                    logger.warning(
-                        f"tokens_in_history ({tokens_in_history}) exceeds new MAX_TOKEN_COUNT ({config.MAX_TOKEN_COUNT}) after model switch, triggering summarization or alert..."
-                    )
-
-                    # Use check_limits to determine whether summarization should occur
-                    try:
-                        limits = check_limits(
-                            tokens_in_history,
-                            config.MAX_TOKEN_COUNT,
-                            config.CONVERSATION_MAX_SIZE,
-                            config.CONVERSATION_HISTORY,
-                            config.SUMMARIZATION_CONFIG,
-                            logger,
-                            config,
-                            time_since_last_summary=0,
-                        )
-                    except Exception as e:
-                        logger.error("check_limits failed during model switch handling", exc_info=True)
-                        print(red + TOKEN_EXCEED_WARNING + reset)
-                    else:
-                        if limits and limits.get("should_summarize"):
-                            try:
-                                response = generate_conversation_summary(
-                                    build_system_prompt(config.SESSION_ID),
-                                    config.CONVERSATION_HISTORY,
-                                    config.SUMMARIZATION_CONFIG,
-                                    config.MODEL,
-                                    litellm.completion,
-                                    count_message_tokens,
-                                    rate_limiter.RATE_LIMITER,
-                                    logger,
-                                    config,
-                                )
-                                logger.debug("Received summary response for auto-summarization during model switch")
-                                summary_text = None
-                                if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(
-                                    response.choices[0], "message"
-                                ):
-                                    summary_text = response.choices[0].message.content
-                                if not isinstance(summary_text, str) or not summary_text.strip():
-                                    logger.error(
-                                        "generate_conversation_summary returned empty or invalid summary during model switch handling"
-                                    )
-                                    print(red + TOKEN_EXCEED_WARNING + reset)
-                                else:
-                                    reset_conversation_with_summary(
-                                        summary=summary_text,
-                                        system_prompt=build_system_prompt(config.SESSION_ID),
-                                        user_input="",
-                                        conversation_history=config.CONVERSATION_HISTORY,
-                                        append_func=append_to_history_with_count,
-                                        logger=logger,
-                                        config=config,
-                                    )
-                                    logger.info(
-                                        f"Conversation history reset (auto-summarized) to comply with context window after model switch."
-                                    )
-                                    print(yellow + MODEL_SWITCH_SUMMARY_MESSAGE + reset)
-                            except Exception as e:
-                                logger.error("Failed to auto-summarize/reset after model switch", exc_info=True)
-                                print(red + TOKEN_EXCEED_WARNING + reset)
-                        else:
-                            print(red + TOKEN_EXCEED_WARNING + reset)
-                # Update last_model to reflect switch has been handled
-                last_model = config.MODEL
+            # React to a live model/context-window switch (shared with --tui).
+            last_model = apply_model_switch_if_needed(last_model)
 
             # Compute the status/prompt line (shared with the --tui info bar).
             prompt = compute_prompt_display()

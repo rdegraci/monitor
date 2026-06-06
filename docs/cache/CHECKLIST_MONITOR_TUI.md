@@ -111,25 +111,37 @@ default and fallback. Check items as completed.
       (`ColorDepth.DEPTH_8_BIT` + rich `color_system="standard"`, never
       truecolor), full-screen blocked regions + fixed `]]` prompt line,
       monospace/keyboard-first (no mouse chrome, no rounded widgets).
-- [ ] Markdown/code rendering in the output window (rich → ANSI bridge) routed
-      through `color_system="standard"` so it matches the bar's palette.
-- [ ] Scrollback (PgUp/PgDn), and terminal resize handling.
-- [ ] Cursor/focus management; clear visual separation of the three regions.
+- [x] Markdown/code rendering: the main response path is pygments
+      `TerminalFormatter` (16-color ANSI) → renders in the output window.
+- [x] Terminal resize handling — prompt_toolkit's full-screen app handles
+      SIGWINCH/re-layout automatically (no code needed).
+- [ ] (deferred) Manual scrollback (PgUp/PgDn): auto-follow-to-bottom covers the
+      common case; "stick unless scrolled up" needs care vs the SetCursorPosition
+      auto-follow — left as a future nicety.
+- [x] Cursor/focus management; clear visual separation of the three regions
+      (separate Windows + reverse bar; input focused; output cursor hidden).
 
-## 7. Hardening & compatibility
-- [ ] Ctrl-C cancels the current turn (not the whole app) where feasible; clean
-      app exit restores the terminal.
-- [ ] Errors in a turn render in the output window, not a crash.
-- [ ] REPL path confirmed unchanged (no regressions when `--tui` is absent).
-- [ ] `--tui` works alongside `--agent`/orchestration, `--model`, etc.
+## 7. Hardening & compatibility  — ✅ Phase 6
+- [x] Ctrl-C does NOT quit mid-turn (the sync backend turn can't be safely
+      killed; accidental quit is the worse hazard) — shows a note instead. When
+      idle, Ctrl-C clears a non-empty input line, else exits cleanly. Ctrl-D/
+      Ctrl-Q always exit. (True mid-turn cancel needs backend changes —
+      documented, not faked.)
+- [x] Errors in a turn render `[error] turn failed` in the output window and the
+      app recovers (processing resets) — does not crash or quit. Tested.
+- [x] REPL path unchanged: full suite green (1434); `chat()` now delegates to the
+      shared `prepare_chat_session` / `compute_prompt_display` /
+      `apply_model_switch_if_needed` (same behavior, one source of truth).
+- [x] `--tui` works with `--model` (applied before dispatch; the bar/input read
+      `config.MODEL` live) and `--agent`/orchestration (the --tui instance is the
+      orchestrator UI; sub-agents stay headless).
 
-## 8. Tests
-- [ ] Flag routing: `--tui` selects TUI, absence selects REPL (unit on the
-      dispatch in `main`).
-- [ ] Worker-thread dispatch: a submitted input runs the backend off the UI loop
-      and results marshal back (mock backend; assert no UI-thread blocking).
-- [ ] Output sink: feeding ANSI text appends renderable content to the buffer.
-- [ ] Info bar composes cwd + status line + `render_toolbar()`.
-- [ ] Sub-agent frames route to window/bar (drive `agent_orchestrator` with a
-      reporter, assert the TUI sink received them).
-- [ ] REPL regression guard: existing conversation tests still pass.
+## 8. Tests  — ✅ 23 in tests/monitor/tui/test_tui_app.py
+- [x] Worker-thread dispatch: backend runs off the UI loop; result marshals back.
+- [x] Output sink: stdout+stderr captured into the buffer; scroll marker present.
+- [x] Info bar composes cwd + status line + `render_toolbar()`; live model prompt.
+- [x] Sub-agent output (`drain_pending_output`) streams into the window.
+- [x] Input parity (lexer/completer/history wired); pipeline-mode refusal.
+- [x] Ctrl-C mid-turn/idle behavior; model-switch applied after turn; turn-error
+      renders without crashing; `:exit` exits.
+- [x] REPL regression guard: existing conversation/chat tests still pass.

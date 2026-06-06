@@ -63,6 +63,7 @@ from monitor.lib.lexer import (
 from monitor.core.conversation import (
     prepare_chat_session,
     compute_prompt_display,
+    apply_model_switch_if_needed,
     process_input,
     flush_logs_and_conversation,
     _maybe_report_agent_result,
@@ -143,6 +144,10 @@ class MonitorTUI:
         self._status_line = ""
         self._recompute_status()
 
+        # Track the active model so a :model switch mid-session adapts the token
+        # window (and may auto-summarize) just like the REPL loop does.
+        self._last_model = getattr(config, "MODEL", None)
+
         self.input = TextArea(
             height=1,
             multiline=False,
@@ -173,12 +178,15 @@ class MonitorTUI:
 
         kb = KeyBindings()
 
-        @kb.add("c-c")
         @kb.add("c-d")
         @kb.add("c-q")
         def _exit(event):
             self._stop.set()
             event.app.exit()
+
+        @kb.add("c-c")
+        def _ctrl_c(event):
+            self._ctrl_c_action()
 
         self.app = Application(
             layout=Layout(body, focused_element=self.input),
@@ -294,6 +302,25 @@ class MonitorTUI:
 
     # --- input → worker-thread turn (the crux) ------------------------------
 
+    def _ctrl_c_action(self) -> None:
+        # Don't quit mid-turn (the backend turn is a blocking call on a worker
+        # thread — there's no safe way to kill it, and accidentally quitting
+        # during a long turn is the bigger hazard). When idle, Ctrl-C clears a
+        # non-empty input line (shell-like), else exits.
+        if self.processing:
+            self._emit(
+                "\n[a turn is running — Ctrl-C can't cancel it yet; "
+                "wait for it to finish, then Ctrl-D/Ctrl-Q to quit]\n"
+            )
+            self.app.invalidate()
+            return
+        buf = self.input.buffer
+        if buf.text:
+            buf.reset()
+            return
+        self._stop.set()
+        self.app.exit()
+
     def _on_accept(self, buff):
         text = buff.text
         # Gate: ignore submits while a turn is in flight (turn-based; no
@@ -332,6 +359,13 @@ class MonitorTUI:
         try:
             with contextlib.redirect_stdout(out_sink), contextlib.redirect_stderr(err_sink):
                 exit_flag = bool(process_input(text, self.history_file, self.session))
+                # React to a :model switch made during this turn (updates the
+                # token window / may auto-summarize). Inside the redirect so any
+                # summary/warning output lands in the output window, not the term.
+                try:
+                    self._last_model = apply_model_switch_if_needed(self._last_model)
+                except Exception:
+                    logger.debug("model switch handling failed", exc_info=True)
         except Exception:
             logger.exception("TUI turn failed")
             self._emit("\n[error] turn failed — see logs\n")
