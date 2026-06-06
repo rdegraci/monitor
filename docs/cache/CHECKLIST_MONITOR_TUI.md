@@ -15,21 +15,23 @@ default and fallback. Check items as completed.
 ## 0. Scaffolding (REPL untouched)
 - [x] (spike) Add `--tui` flag to argparse in `app.py`.
 - [x] (spike) `main()`: if `args.tui` → launch the TUI front-end; else → REPL.
-- [x] (spike) Module under `src/monitor/tui/` (`spike.py`); REPL imports nothing
-      from it. Real build adds `app.py`/`layout.py`/`output_sink.py`.
+- [x] Module under `src/monitor/tui/`: real `app.py` (`MonitorTUI`); `--tui`
+      now launches it. `spike.py` kept as reference. REPL imports nothing from it.
 - [x] (spike) Minimal full-screen `Application`: HSplit(output / info bar /
       input), Ctrl-C/D/Q exit. Verified it constructs + the layout renders.
 - [x] (spike) `monitor --tui` launches the screen; `monitor` (no flag) unchanged.
 
-## 1. Sync/async boundary (THE crux)
-- [x] (spike) On submit, dispatch the turn to a **worker thread**; backend never
-      runs on the UI loop (`SpikeApp._submit`).
-- [ ] Disable the input while a turn is processing; re-enable on completion.
-      (Spike sets a processing flag but doesn't lock input yet.)
-- [x] (spike) Marshal worker→UI updates via `loop.call_soon_threadsafe` +
-      `app.invalidate()`.
-- [x] (spike) Verified the UI does NOT freeze during a slow turn — the info-bar
-      tick keeps advancing (live + a headless off-thread-dispatch test).
+## 1. Sync/async boundary (THE crux)  — ✅ Phase 1 (real backend)
+- [x] On submit, dispatch the turn to a **worker thread** running the REAL
+      `process_input(text, history_file, session)` — backend never runs on the
+      UI loop (`MonitorTUI._run_turn`). Backend stays synchronous.
+- [x] Input gated while a turn is processing (`_on_accept` ignores submits when
+      `processing`); re-enabled on completion. Turn-based: no concurrent turns.
+- [x] Marshal worker→UI updates via `loop.call_soon_threadsafe` +
+      `app.invalidate()` (completion `done()` + streamed output repaints).
+- [x] Verified the UI does NOT freeze during a turn — the info-bar tick keeps
+      advancing; headless test asserts `process_input` ran off the UI thread and
+      completion marshaled back from the worker. `:exit` exit_flag exits cleanly.
 
 ## 2. Output routing (rich → output window)
 - [x] (spike) Output sink: capture the worker thread's stdout and append to the
@@ -38,8 +40,13 @@ default and fallback. Check items as completed.
       `color_system="standard"` so ANSI renders in color (default clamped to
       monochrome). Colors verified in a real terminal.
 - [ ] All appends go through one sink abstraction (isolate the rich↔ptk bridge).
-- [ ] Capture the REAL backend's stdout (process_input), not just the stub —
-      scope the stdout redirect carefully (it's process-global).
+- [x] Capture the REAL backend's stdout: `_OutputSink` (claims `isatty()` so
+      rich emits color) is installed via `contextlib.redirect_stdout` for the
+      duration of the worker turn ONLY (scoped — process-global but turn-gated).
+      Streams writes into the output buffer via `call_soon_threadsafe`.
+- [ ] Force the backend's rich console to `color_system="standard"` so its
+      palette matches the retro 16-color bar (Phase 2/6 — currently inherits
+      rich's auto-detection, downsampled by the 8-bit `color_depth`).
 - [ ] Assistant responses + tool output appear in the output window, formatted.
 - [ ] Output window scrolls; newest visible; no bleed into the input line.
 
@@ -69,7 +76,13 @@ default and fallback. Check items as completed.
       input stays stable.
 
 ## 6. Rendering & UX polish
-- [ ] Markdown/code rendering in the output window (rich → ANSI bridge).
+- [ ] **Preserve the spike's retro look (design spec, not placeholder):**
+      reverse-video info bar (`style="reverse"`), 16-color palette only
+      (`ColorDepth.DEPTH_8_BIT` + rich `color_system="standard"`, never
+      truecolor), full-screen blocked regions + fixed `]]` prompt line,
+      monospace/keyboard-first (no mouse chrome, no rounded widgets).
+- [ ] Markdown/code rendering in the output window (rich → ANSI bridge) routed
+      through `color_system="standard"` so it matches the bar's palette.
 - [ ] Scrollback (PgUp/PgDn), and terminal resize handling.
 - [ ] Cursor/focus management; clear visual separation of the three regions.
 

@@ -276,7 +276,7 @@ def main():
     parser.add_argument(
         "--tui",
         action="store_true",
-        help="Launch the experimental full-screen TUI front-end (spike) instead of the REPL.",
+        help="Launch the full-screen TUI front-end instead of the REPL.",
     )
 
     args, unknown = parser.parse_known_args()
@@ -362,11 +362,12 @@ def main():
 
     configure_subsystems()
 
-    # --tui (PLAN_MONITOR_TUI spike): launch the full-screen front-end instead of
-    # the REPL. Opt-in and self-contained; the REPL path below is the default.
+    # --tui (PLAN_MONITOR_TUI): launch the full-screen front-end instead of the
+    # REPL. Opt-in and self-contained; the REPL path below is the default. The
+    # original spike remains at monitor.tui.spike for reference.
     if getattr(args, "tui", False):
-        from monitor.tui.spike import run as run_tui_spike
-        run_tui_spike()
+        from monitor.tui.app import run as run_tui
+        run_tui()
         return
 
     # PLAN Phase 0.5: when spawned as a sub-agent (MONITOR_AGENT_SOCKET set by

@@ -30,16 +30,19 @@ risking the daily driver.
 is unchanged.
 **Risk:** Low.
 
-## Phase 1 — Worker-thread boundary (the crux)  — ✅ mechanics spike-validated
+## Phase 1 — Worker-thread boundary (the crux)  — ✅ DONE (real backend, 2026-06-05)
 **Goal:** Run a real turn without freezing the UI.
-*(Spike proved the boundary with a stub backend; the real-backend wiring +
-input-disable-during-turn remain.)*
-- Submit → backend on a worker thread; input disabled while processing.
+**Delivered:** `src/monitor/tui/app.py` (`MonitorTUI`) runs the REAL
+`process_input` on a worker thread; input gated while processing; worker→UI via
+`call_soon_threadsafe` + `invalidate()`; `:exit` exits cleanly. Backend setup is
+shared with the REPL via the extracted `conversation.prepare_chat_session()`
+(one backend, two shells). `--tui` now launches it. 6 headless tests in
+`tests/monitor/tui/test_tui_app.py`; full suite green (1421 passed).
+- Submit → backend on a worker thread; input gated while processing.
 - Worker→UI updates via `call_soon_threadsafe` + `invalidate()`.
-**Exit:** A (mock) slow backend call runs while the info bar keeps repainting;
-input re-enables on completion.
-**Risk:** **High** — this boundary is the make-or-break of the whole TUI. Get it
-right before any layout polish.
+**Exit:** ✅ a real turn runs while the info bar keeps repainting; input
+re-enables on completion. (Live single-line turns; pipeline/multiline → Phase 3.)
+**Risk:** **High** — *retired.* The boundary holds with the real backend.
 
 ## Phase 2 — Output routing  — ⚑ bridge spike-validated (real-backend capture remains)
 **Goal:** Real conversation output in the output window.

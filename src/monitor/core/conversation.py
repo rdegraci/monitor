@@ -619,38 +619,28 @@ def flush_logs_and_conversation():
                 pass
 
 
-def chat():
+def prepare_chat_session():
+    """Set up the interactive backend shared by the REPL (``chat()``) and the
+    full-screen TUI (``--tui``).
+
+    Creates the prompt_toolkit ``PromptSession`` (used for continuation prompts
+    and as the ``session`` argument to ``process_input``), initializes chat
+    history with the system prompt, stamps the summary clock, and registers the
+    conversation query function. Returns ``(session, history_file)``.
+
+    This is the single source of truth for "start an interactive turn loop" so
+    the two front-ends never drift. Raises ``RuntimeError`` in server mode —
+    interactive backends are disabled there.
+
+    SP-1/SP-2/SP-7: do NOT rebind any module-level SYSTEM_PROMPT here. Call
+    sites that need the prompt call ``build_system_prompt()`` directly.
     """
-    Main loop for interactive chatting with the system.
-
-    This function enforces that interactive chat is disabled in server mode.
-    If config.SERVER_MODE is True, this function will log an error and raise RuntimeError.
-
-    Uses config.last_summary_time for managing conversation summaries.
-    All token counting/usage must use canonical helpers from monitor.lib.token_management.
-
-    Returns:
-        ConversationResult: Use ConversationResult Enum for result statuses.
-    """
-    # Enforce server-mode restriction at the very start of the interactive chat.
     if getattr(config, "SERVER_MODE", False):
-        logger.error("Attempted to start interactive chat while SERVER_MODE is enabled.")
+        logger.error("Attempted to start interactive backend while SERVER_MODE is enabled.")
         raise RuntimeError("Interactive chat is disabled in server mode.")
 
-    logger.info("Starting chat loop...")
-    logger.info(
-        f"Configured with config.MODEL: {config.MODEL}, CONTEXT_WINDOW: {config.MODEL_CONTEXT_WINDOW}"
-    )
-
-    # Create the PromptSession with additional bindings once per chat session
+    # Create the PromptSession with additional bindings once per session.
     session = create_prompt_session(additional_bindings=ADDITIONAL_BINDINGS)
-
-    # SP-1/SP-2/SP-7: do not rebind any module-level SYSTEM_PROMPT here.
-    # The previous `global SYSTEM_PROMPT; SYSTEM_PROMPT += ...` pattern only
-    # affected conversation.py's local binding (from-import semantics), so
-    # other modules sent the prompt without the session-ID line, and re-init
-    # compounded duplicate session-ID lines. Call sites that need the prompt
-    # now call build_system_prompt() directly.
 
     # Initialize chat history
     history_file = config.HISTORY_FILE
@@ -674,6 +664,30 @@ def chat():
         return response
 
     register_query_function(session_query)
+
+    return session, history_file
+
+
+def chat():
+    """
+    Main loop for interactive chatting with the system.
+
+    This function enforces that interactive chat is disabled in server mode.
+    If config.SERVER_MODE is True, this function will log an error and raise RuntimeError.
+
+    Uses config.last_summary_time for managing conversation summaries.
+    All token counting/usage must use canonical helpers from monitor.lib.token_management.
+
+    Returns:
+        ConversationResult: Use ConversationResult Enum for result statuses.
+    """
+    logger.info("Starting chat loop...")
+    logger.info(
+        f"Configured with config.MODEL: {config.MODEL}, CONTEXT_WINDOW: {config.MODEL_CONTEXT_WINDOW}"
+    )
+
+    # Shared interactive backend setup (also used by the --tui front-end).
+    session, history_file = prepare_chat_session()
 
     # --- Model switch/live token window adaptivity logic:
     last_model = config.MODEL  # Track previous model to detect switches

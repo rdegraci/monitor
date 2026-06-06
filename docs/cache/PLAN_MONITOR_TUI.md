@@ -109,6 +109,27 @@ LLM's next turn (PLAN 8a) is unchanged — the TUI is purely a better renderer.
 - New code lives under `src/monitor/tui/` (or a single module to start) so the
   REPL path is untouched and the TUI is removable.
 
+## Visual identity (retro — adopt the spike's look as the spec)
+
+The spike's aesthetic is a **deliberate design target**, not placeholder styling.
+The real build must preserve the retro feel; do NOT "modernize" it. Concrete,
+load-bearing choices (lose any one and the retro character degrades):
+
+- **Reverse-video info bar** (`style="reverse"`) — the inverted status strip is
+  the strongest retro signal. Keep the bar inverted, not a subtle modern accent.
+- **16-color palette, never truecolor** — `ColorDepth.DEPTH_8_BIT` +
+  rich `color_system="standard"`. The limited, slightly-saturated 16-color SGR
+  look IS the retro feel; truecolor gradients read as modern. (Already pinned in
+  *Output routing* for correctness — it's also an aesthetic decision.)
+- **Full-screen blocked regions** with hard separators and a fixed prompt line
+  (`monitor <model> <effort> ]] `) — the classic three-pane TUI silhouette.
+- **Monospace, keyboard-first, no mouse chrome / no rounded widgets** — keep it
+  text-terminal, not a GUI-in-a-terminal.
+
+When the real backend's rich output flows into the window (P2), route it through
+the same `color_system="standard"` so its colors match the bar's palette — one
+consistent 16-color world, not two.
+
 ## What this pins down
 - **Three regions, one event loop** — output/info/input as separate windows;
   the input never moves, output never corrupts it.
