@@ -362,14 +362,6 @@ def main():
 
     configure_subsystems()
 
-    # --tui (PLAN_MONITOR_TUI): launch the full-screen front-end instead of the
-    # REPL. Opt-in and self-contained; the REPL path below is the default. The
-    # original spike remains at monitor.tui.spike for reference.
-    if getattr(args, "tui", False):
-        from monitor.tui.app import run as run_tui
-        run_tui()
-        return
-
     # PLAN Phase 0.5: when spawned as a sub-agent (MONITOR_AGENT_SOCKET set by
     # the orchestrator), connect back and report over the frame protocol.
     # from_env() returns None for a normal (non-spawned) instance and degrades
@@ -425,6 +417,15 @@ and scripts can access the conversation query API during execution."""
             create_flask_server(host_address, args.port)
             # After the Flask server stops (e.g., via /exit), exit the program.
             sys.exit(0)
+        elif getattr(args, "tui", False):
+            # --tui (PLAN_MONITOR_TUI): full-screen front-end instead of the
+            # REPL. Launched HERE (not earlier) so it goes through the same
+            # setup as chat() — built-ins, macros, and per-project prompt
+            # overrides are all configured first. The spike remains at
+            # monitor.tui.spike for reference.
+            logger.info("Monitor started (TUI)...")
+            from monitor.tui.app import run as run_tui
+            run_tui()
         else:
             logger.info("Monitor started...")
             print("Monitor ready!")

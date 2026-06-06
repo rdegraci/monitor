@@ -135,6 +135,11 @@ default and fallback. Check items as completed.
 - [x] `--tui` works with `--model` (applied before dispatch; the bar/input read
       `config.MODEL` live) and `--agent`/orchestration (the --tui instance is the
       orchestrator UI; sub-agents stay headless).
+- [x] `--tui` is launched from the SAME point as `chat()` (end of `main()`), so
+      it goes through full setup — `configure_built_ins` / `configure_macros` /
+      `configure_runtime_prompt_paths`. (Bug fix: an earlier early-return
+      dispatched the TUI before that setup, so `{{macros}}` didn't expand and
+      per-project prompt overrides were skipped. Guarded by an ordering test.)
 
 ## 8. Tests  — ✅ 23 in tests/monitor/tui/test_tui_app.py
 - [x] Worker-thread dispatch: backend runs off the UI loop; result marshals back.

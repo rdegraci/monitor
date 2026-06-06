@@ -248,6 +248,30 @@ def test_input_gated_while_processing(stub_backend, monkeypatch):
     assert submitted == []         # but no turn dispatched while processing
 
 
+def test_main_configures_macros_and_builtins_before_launching_tui(monkeypatch):
+    """Regression: --tui must launch AFTER configure_built_ins()/configure_macros()
+    so macros ({{...}}) expand and built-ins/prompt-overrides are registered.
+    (An earlier early-return dispatched the TUI before that setup.)"""
+    import monitor.app as app_mod
+
+    calls = []
+    monkeypatch.setattr("sys.argv", ["monitor", "--tui"])
+    for name in (
+        "load_model_config", "load_environment_globals", "start_logging",
+        "setup_sigint_handler", "configure_subsystems",
+        "configure_runtime_prompt_paths", "configure_built_ins", "configure_macros",
+    ):
+        monkeypatch.setattr(app_mod, name, (lambda n: lambda *a, **k: calls.append(n))(name))
+    monkeypatch.setattr("monitor.tui.app.run", lambda *a, **k: calls.append("run_tui"))
+
+    app_mod.main()
+
+    assert "run_tui" in calls                                       # TUI launched
+    assert calls.index("configure_macros") < calls.index("run_tui")
+    assert calls.index("configure_built_ins") < calls.index("run_tui")
+    assert calls.index("configure_runtime_prompt_paths") < calls.index("run_tui")
+
+
 def test_ctrl_c_does_not_quit_mid_turn(stub_backend):
     app = tui_app.MonitorTUI()
     app.app.invalidate = lambda: None
