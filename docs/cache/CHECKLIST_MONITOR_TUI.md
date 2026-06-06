@@ -59,14 +59,22 @@ default and fallback. Check items as completed.
       `:command` features (e.g. the markdown pager) so they match the bar — only
       relevant once those commands are wired into the TUI (Phase 3/6).
 
-## 3. Input parity with the REPL
-- [ ] Reuse `RedAfter120Lexer`, `CommandCompleter`, function-key bindings,
-      history in the input control.
-- [ ] Port multi-line input modes + `:command` handling (mirror `get_input` /
-      `process_input_mode`).
-- [ ] Enter submits; the same validation/format as `get_input` is applied.
-- [ ] `:` built-ins and the agent commands (`:agent list/logs/attach/kill/send`)
-      work from the TUI input.
+## 3. Input parity with the REPL  — ✅ Phase 3 (essentials; multi-line deferred)
+- [x] Reuse `RedAfter120Lexer`, `CommandCompleter`, the shared persistent
+      `FileHistory`, the REPL `style`, and the function-key bindings (c-left/
+      c-right word nav, f10 voice, f-key selector) — passed to the input
+      `TextArea` + merged into the Application key bindings. `complete_while_
+      typing=False` matches the REPL.
+- [x] `:` built-ins and agent commands work from the TUI input — they route
+      through the same `process_input`. `;` multi-command (split on `;;;`) and
+      `<` macros work on a submitted line.
+- [x] Enter submits (single-line). Tab completion, ↑/↓ history recall, and the
+      red-past-120 lexer all work via the reused components + ptk defaults.
+- [ ] (deferred) Multi-line continuation modes — `|` pipeline and trailing-`\`
+      continuation — drive `handle_*` loops on `session.prompt()`, which would
+      nest a prompt inside the full-screen app. `|` is **refused gracefully** in
+      the TUI (no break); native multi-line composition is a Phase 6 candidate.
+      `|` pipelines stay a REPL feature for now.
 
 ## 4. Info bar (live status)  — ✅ Phase 4
 - [x] Render the current working directory (live `os.getcwd()`, line 1).

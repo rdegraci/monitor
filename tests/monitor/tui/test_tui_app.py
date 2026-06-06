@@ -199,6 +199,40 @@ def test_turn_captures_stdout_and_stderr_off_thread(stub_backend, monkeypatch):
     assert not app._exit_called                                # no :exit → app stays up
 
 
+def test_input_wired_with_repl_lexer_completer_history(stub_backend):
+    from monitor.lib.lexer import (
+        RedAfter120Lexer, CommandCompleter, history as repl_history,
+    )
+
+    app = tui_app.MonitorTUI()
+    # TextArea wraps lexer/completer in Dynamic* — unwrap to the real component.
+    lexer = app.input.control.lexer
+    lexer = lexer.get_lexer() if hasattr(lexer, "get_lexer") else lexer
+    completer = app.input.buffer.completer
+    completer = completer.get_completer() if hasattr(completer, "get_completer") else completer
+
+    assert isinstance(lexer, RedAfter120Lexer)            # same lexer as the REPL
+    assert isinstance(completer, CommandCompleter)        # :commands + path completion
+    assert app.input.buffer.history is repl_history       # shared persistent history
+    assert app.input.buffer.complete_while_typing() is False
+
+
+def test_pipeline_mode_refused_without_nested_prompt(stub_backend, monkeypatch):
+    submitted = []
+    monkeypatch.setattr(tui_app.MonitorTUI, "_submit", lambda self, t: submitted.append(t))
+
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+
+    class Buff:
+        text = "| do a pipeline thing"
+
+    keep = app._on_accept(Buff())
+    assert keep is False
+    assert submitted == []                                  # NOT dispatched (no nested prompt)
+    assert "pipeline mode (|)" in "".join(app._chunks)      # friendly refusal shown
+
+
 def test_input_gated_while_processing(stub_backend, monkeypatch):
     submitted = []
     monkeypatch.setattr(tui_app.MonitorTUI, "_submit", lambda self, t: submitted.append(t))

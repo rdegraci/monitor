@@ -60,12 +60,19 @@ auto-follows newest, input stays put.
 `:command` features (markdown pager) once those are wired in.
 **Risk:** Medium-High — *retired.* The rich↔ptk ANSI bridge holds.
 
-## Phase 3 — Input parity
+## Phase 3 — Input parity  — ✅ DONE (essentials, 2026-06-05)
 **Goal:** TUI input behaves like the REPL's.
-- Lexer, completer, function keys, history, multi-line modes, `:commands`.
-**Exit:** Completion, multi-line, and built-ins (incl. `:agent …`) all work in
-the TUI input.
-**Risk:** Medium — large surface to port, but well-supported by prompt_toolkit.
+**Delivered:** the input `TextArea` reuses the REPL's `RedAfter120Lexer`,
+`CommandCompleter`, shared persistent `FileHistory`, `style`, and function-key
+bindings (merged into the Application). Tab completion, ↑/↓ history, red-past-120
+highlighting, `:` built-ins, `:agent …`, `;` multi-command, and `<` macros all
+work. 2 tests. Full suite green (1430).
+- Lexer, completer, function keys, history, `:commands`.  ✅
+**Exit:** ✅ completion + history + built-ins work in the TUI input.
+**Deferred → Phase 6:** multi-line continuation modes (`|` pipeline, trailing-`\`)
+nest a `session.prompt()` loop; `|` is refused gracefully (no break). Native
+multi-line composition would replace them.
+**Risk:** Medium — *retired* for the essentials.
 
 ## Phase 4 — Info bar  — ✅ DONE (2026-06-05)
 **Goal:** Live status region.

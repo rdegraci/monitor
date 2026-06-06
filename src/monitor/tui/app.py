@@ -41,7 +41,7 @@ import threading
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -49,6 +49,17 @@ from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.widgets import TextArea
 
 from monitor import config
+# Input parity (Phase 3): reuse the REPL's lexer / completer / history / style /
+# key bindings so the TUI input behaves like the REPL prompt. `bindings` and
+# `style` are mutated/populated by create_prompt_session() (called via
+# prepare_chat_session in __init__) before we build the Application.
+from monitor.lib.lexer import (
+    RedAfter120Lexer,
+    CommandCompleter,
+    history as _repl_history,
+    bindings as _repl_bindings,
+    style as _repl_style,
+)
 from monitor.core.conversation import (
     prepare_chat_session,
     compute_prompt_display,
@@ -139,6 +150,13 @@ class MonitorTUI:
             # `monitor <model> <effort> ]]` prompt tracks :model switches live.
             prompt=self._input_prompt,
             accept_handler=self._on_accept,
+            # Input parity with the REPL: same lexer (red past col 120),
+            # completer (:commands + paths, tab-triggered), and shared persistent
+            # history (↑/↓ recall, same ~/.chat_session_history file as the REPL).
+            lexer=RedAfter120Lexer(),
+            completer=CommandCompleter(),
+            complete_while_typing=False,
+            history=_repl_history,
         )
         body = HSplit([
             # show_cursor=False: the [SetCursorPosition] marker in _output_text
@@ -164,7 +182,13 @@ class MonitorTUI:
 
         self.app = Application(
             layout=Layout(body, focused_element=self.input),
-            key_bindings=kb,
+            # Merge the REPL's function-key bindings (c-left/c-right word nav,
+            # f10 voice, the f-key selector) with the TUI's own (exit). The REPL
+            # tab/enter/escape bindings are filtered to the f-key-preview state,
+            # so they don't disturb normal completion/submit.
+            key_bindings=merge_key_bindings([kb, _repl_bindings]),
+            # Reuse the REPL's style so the lexer's style classes resolve.
+            style=_repl_style,
             full_screen=True,
             # Pin the 16-color depth so ANSI renders in color AND keeps the retro
             # palette (default detection clamps to monochrome / would allow
@@ -276,6 +300,17 @@ class MonitorTUI:
         # concurrent turns). This is how "input is disabled while processing".
         if self.processing or not text.strip():
             return False  # clear the buffer
+        # Pipeline mode (leading "|") drives the REPL's continuation prompting
+        # (handle_pipeline_command loops on session.prompt) — that would nest a
+        # prompt inside the full-screen app. Refuse gracefully; it stays a REPL
+        # feature for now (Phase 6 may add native multi-line composition).
+        if text.lstrip().startswith("|"):
+            self._emit(
+                "\n[pipeline mode (|) isn't available in --tui yet — use the REPL "
+                "for | pipelines; ; multi-command and : built-ins work here]\n"
+            )
+            self.app.invalidate()
+            return False
         self._submit(text)
         return False  # clear the buffer
 
