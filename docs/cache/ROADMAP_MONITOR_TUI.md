@@ -67,12 +67,20 @@ auto-follows newest, input stays put.
 the TUI input.
 **Risk:** Medium — large surface to port, but well-supported by prompt_toolkit.
 
-## Phase 4 — Info bar
+## Phase 4 — Info bar  — ✅ DONE (2026-06-05)
 **Goal:** Live status region.
-- cwd + the existing status line (C:/R:/U:/~T:/P:/L:/H:) + live sub-agent status.
-**Exit:** The bar shows cwd, live token/cost counts, and agent status, updating
-per turn and on agent events.
-**Risk:** Medium — must locate and live-feed the status-line builder.
+**Delivered:** 3-line reverse-video bar — cwd / status line / sub-agent status.
+Extracted the REPL's status computation into `conversation.compute_prompt_
+display()` (shared source of truth; `chat()` now calls it too), cached +
+recomputed once per turn (off the UI thread). ANSI stripped for the bar; the
+`monitor <model> ]]` prompt moved to a live callable on the input line. Live
+sub-agent status via `render_toolbar()`. 4 tests; full suite green (1427).
+- cwd + status line (C:/R:/U:/~T:/P:/L:/H:) + live sub-agent status.  ✅
+**Exit:** ✅ the bar shows cwd, live token/cost counts, and agent status,
+updating per turn and on repaint.
+**Deferred → Phase 6:** model-switch token-window adaptivity (auto-summarize on
+`:model` switch) not yet ported to the TUI loop.
+**Risk:** Medium — *retired.*
 
 ## Phase 5 — Sub-agent feed (the payoff)
 **Goal:** Live orchestration UX, no corruption.

@@ -68,12 +68,21 @@ default and fallback. Check items as completed.
 - [ ] `:` built-ins and the agent commands (`:agent list/logs/attach/kill/send`)
       work from the TUI input.
 
-## 4. Info bar (live status)
-- [ ] Render the current working directory.
-- [ ] Render the existing status line (C:/R:/U:/~T:/P:/L:/H:) — locate its
-      builder and feed it live (refresh per turn / on token-count change).
-- [ ] Render live sub-agent status from `agent_orchestrator.render_toolbar()`.
-- [ ] Bar updates via `invalidate()` (periodic refresh + on backend/agent events).
+## 4. Info bar (live status)  — ✅ Phase 4
+- [x] Render the current working directory (live `os.getcwd()`, line 1).
+- [x] Render the existing status line (C:/R:/U:/~T:/P:/L:/H:): extracted the
+      REPL's computation into `conversation.compute_prompt_display()` (one source
+      of truth, shared with `chat()`). Cached + recomputed once per turn (it
+      tokenizes the whole history — never per repaint). ANSI stripped for the
+      clean reverse-video bar. The `monitor <model> <effort> ]]` part becomes the
+      input prompt via a callable (live `:model` tracking).
+- [x] Render live sub-agent status from `agent_orchestrator.render_toolbar()`
+      (line 3; "agents — none" when idle).
+- [x] Bar updates via `invalidate()` — the ticker repaints ~2×/s and each turn's
+      `done()` invalidates; sub-agent status reflects on next repaint.
+- [ ] (deferred) Model-switch token-window adaptivity (REPL recomputes
+      MAX_TOKEN_COUNT + may auto-summarize on `:model` switch) is not yet ported
+      to the TUI loop — Phase 6 hardening.
 
 ## 5. Sub-agent feed (replaces the REPL bridge)
 - [ ] Sub-agent `stdout`/`result` (`drain_pending_output`) → output window via

@@ -19,9 +19,15 @@ from monitor.tui import app as tui_app
 
 @pytest.fixture
 def stub_backend(monkeypatch):
-    """Stub prepare_chat_session so __init__ does no real backend setup."""
+    """Stub the backend hooks so __init__ does no real setup. compute_prompt_
+    display returns a realistic multi-line status string (the shape
+    format_prompt_display emits: leading blank, cwd, stats, prompt line)."""
     monkeypatch.setattr(
         tui_app, "prepare_chat_session", lambda: (object(), None)
+    )
+    monkeypatch.setattr(
+        tui_app, "compute_prompt_display",
+        lambda: "\n/home/u/proj\nC:12345 (80%) U:678 L:42 H:3\nmonitor gpt-5 medium ]] ",
     )
 
 
@@ -50,6 +56,43 @@ def test_builds_three_regions(stub_backend):
     assert app._output_text() is not None          # output window content
     assert "tick" in app._info_text()              # info bar has the live tick
     assert app.input is not None                    # input area
+
+
+def test_info_bar_shows_status_line_and_agents(stub_backend, monkeypatch):
+    # No active agents → render_toolbar returns "".
+    monkeypatch.setattr(
+        "monitor.lib.agent_orchestrator.render_toolbar", lambda: ""
+    )
+    app = tui_app.MonitorTUI()
+    bar = app._info_text()
+    assert "C:12345 (80%)" in bar      # real status line (stats) rendered
+    assert "H:3" in bar
+    assert "agents — none" in bar       # no sub-agents
+    assert "tick" in bar                # live tick still present
+    # ANSI color codes from the status string are stripped for the reverse bar.
+    assert "\x1b[" not in bar
+
+
+def test_info_bar_shows_live_agent_status(stub_backend, monkeypatch):
+    monkeypatch.setattr(
+        "monitor.lib.agent_orchestrator.render_toolbar",
+        lambda: "agents — a1b2: working",
+    )
+    app = tui_app.MonitorTUI()
+    bar = app._info_text()
+    assert "a1b2: working" in bar
+
+
+def test_input_prompt_reflects_live_model(stub_backend, monkeypatch):
+    monkeypatch.setattr(tui_app.config, "MODEL", "openai/gpt-5.4-mini", raising=False)
+    app = tui_app.MonitorTUI()
+    assert "openai/gpt-5.4-mini" in app._input_prompt()
+    assert app._input_prompt().rstrip().endswith("]]")
+
+
+def test_status_seeded_at_startup_and_recomputed(stub_backend):
+    app = tui_app.MonitorTUI()
+    assert app._status_line == "C:12345 (80%) U:678 L:42 H:3"  # stats line extracted
 
 
 def test_emit_accumulates_and_renders(stub_backend):

@@ -36,6 +36,7 @@ import contextlib
 import io
 import logging
 import os
+import re
 import threading
 
 from prompt_toolkit.application import Application
@@ -50,6 +51,7 @@ from prompt_toolkit.widgets import TextArea
 from monitor import config
 from monitor.core.conversation import (
     prepare_chat_session,
+    compute_prompt_display,
     process_input,
     flush_logs_and_conversation,
     _maybe_report_agent_result,
@@ -61,6 +63,15 @@ logger = logging.getLogger(__name__)
 # Soft cap on retained output text (Phase 6 will add real scrollback). Keeps a
 # long session from growing the buffer without bound; we trim from the front.
 _MAX_OUTPUT_CHARS = 400_000
+
+# Strip SGR color codes: the status line carries red/yellow/blue ANSI that would
+# clash with the reverse-video info bar. A clean monochrome reverse bar reads as
+# more retro anyway (PLAN "Visual identity").
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_SGR_RE.sub("", s or "")
 
 
 class _OutputSink(io.TextIOBase):
@@ -116,10 +127,17 @@ class MonitorTUI:
         self._stop = threading.Event()
         self._render_pending = False
 
+        # The status line (C:/R:/U:/~T:/P:/L:/H:), recomputed once per turn (it
+        # tokenizes the full history — never per-repaint). Seed it at startup.
+        self._status_line = ""
+        self._recompute_status()
+
         self.input = TextArea(
             height=1,
             multiline=False,
-            prompt="monitor ]] ",
+            # Callable prompt → BeforeInput re-evaluates it each render, so the
+            # `monitor <model> <effort> ]]` prompt tracks :model switches live.
+            prompt=self._input_prompt,
             accept_handler=self._on_accept,
         )
         body = HSplit([
@@ -129,8 +147,9 @@ class MonitorTUI:
                 FormattedTextControl(self._output_text, show_cursor=False),
                 wrap_lines=True,
             ),
-            # Reverse-video info bar — the retro signature (PLAN Visual identity).
-            Window(FormattedTextControl(self._info_text), height=2, style="reverse"),
+            # Reverse-video info bar — the retro signature (PLAN Visual identity):
+            # cwd / status line / live sub-agent status.
+            Window(FormattedTextControl(self._info_text), height=3, style="reverse"),
             self.input,
         ])
 
@@ -163,15 +182,47 @@ class MonitorTUI:
         # keep it visible — i.e. the output window auto-follows the newest line.
         return merge_formatted_text([ANSI(text), [("[SetCursorPosition]", "")]])
 
+    def _input_prompt(self):
+        """The `monitor <model> <effort> ]] ` input prompt (live model)."""
+        model = getattr(config, "MODEL", "") or ""
+        prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
+        effort = getattr(config, "REASONING_EFFORT", "") or ""
+        reasoning = effort if (isinstance(model, str) and prefix and prefix in model) else ""
+        return f"monitor {model} {reasoning} ]] "
+
+    def _recompute_status(self) -> None:
+        """Recompute the cached status line (C:/R:/U:/…). Called once per turn +
+        at startup — NOT per repaint (it tokenizes the whole history)."""
+        try:
+            raw = compute_prompt_display()
+        except Exception:
+            logger.debug("status recompute failed", exc_info=True)
+            return
+        plain = _strip_ansi(raw)
+        # The stats line is the one carrying the H: indicator; cwd + the
+        # `monitor … ]]` prompt line are rendered separately (live cwd / input).
+        stats = ""
+        for line in plain.splitlines():
+            if "H:" in line:
+                stats = line.strip()
+                break
+        self._status_line = stats
+
+    def _agent_status(self) -> str:
+        try:
+            from monitor.lib import agent_orchestrator as orch
+            return _strip_ansi(orch.render_toolbar() or "").strip()
+        except Exception:
+            return ""
+
     def _info_text(self):
         state = "WORKING…" if self.processing else "idle"
         cwd = os.getcwd()
-        model = getattr(config, "MODEL", "?")
-        # Phase 4 swaps the second line for the real status line
-        # (C:/R:/U:/~T:/P:/L:/H:) + live sub-agent status.
+        agents = self._agent_status() or "agents — none"
         return (
             f" {cwd}\n"
-            f" {model}   [{state}]   tick {self.tick}"
+            f" {self._status_line}   [{state}]  tick {self.tick}\n"
+            f" {agents}"
         )
 
     # --- output sink (streamed from the worker turn) ------------------------
@@ -245,6 +296,8 @@ class MonitorTUI:
                 reported = _maybe_report_agent_result(text)
             except Exception:
                 logger.debug("agent result report failed", exc_info=True)
+            # Refresh the status line for the next prompt (off the UI thread).
+            self._recompute_status()
 
         def done():
             self.processing = False

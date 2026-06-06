@@ -668,6 +668,81 @@ def prepare_chat_session():
     return session, history_file
 
 
+def compute_prompt_display():
+    """Compute the interactive status/prompt line (the ``monitor <model> ]]``
+    prompt with the C:/R:/U:/~T:/P:/L:/H: indicators).
+
+    Extracted from the REPL loop so the ``--tui`` info bar renders the exact
+    same status line the REPL shows — one source of truth. Reads live config
+    state (history size, token/cost counters, rate limiter), so call it once per
+    turn (it tokenizes the full history via ``count_message_tokens``); do NOT
+    call it on every UI repaint.
+
+    Returns:
+        str: the formatted prompt/status string from ``format_prompt_display``.
+    """
+    # Use live history count for bug-free prompt display after summarization or history reset:
+    tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
+    # Prefer MODEL_INPUT_WINDOW (CONTEXT_WINDOW - OUTPUT_WINDOW) as the
+    # budget for the C indicator so the displayed remaining matches the
+    # input-side gate the send path actually enforces. Fall back to
+    # MAX_TOKEN_COUNT when MODEL_INPUT_WINDOW isn't configured.
+    input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
+    context_budget = input_window if isinstance(input_window, int) and input_window > 0 else config.MAX_TOKEN_COUNT
+    context_remaining = context_budget - tokens_in_history
+    prompt_safety_margin = get_prompt_safety_margin()
+    adjusted_context_remaining = max(0, context_remaining - prompt_safety_margin)
+    logger.debug(
+        "Prompt safety margin selected: margin=%s context_remaining=%s adjusted_context_remaining=%s",
+        prompt_safety_margin,
+        context_remaining,
+        adjusted_context_remaining,
+    )
+
+    rate_remaining = None
+    try:
+        limiter = getattr(rate_limiter, "RATE_LIMITER", None)
+        if limiter is not None:
+            limit_value = getattr(limiter, "limit", None)
+            current_usage = None
+            if hasattr(limiter, "get_current_usage") and callable(getattr(limiter, "get_current_usage")):
+                current_usage = limiter.get_current_usage()
+            else:
+                current_usage = getattr(limiter, "current_usage", None)
+            if isinstance(limit_value, (int, float)) and isinstance(current_usage, (int, float)):
+                rate_remaining = limit_value - current_usage
+    except Exception:
+        rate_remaining = None
+    # U reads SESSION_TOTAL_TOKENS (pure cumulative, parallel to
+    # SESSION_COST_USD) rather than TOTAL_TOKEN_COUNT, which is
+    # overwritten by compaction with "current history size" and so
+    # would drop dramatically after each summarization. The new
+    # counter persists across compaction and only resets on
+    # set_model() or :reset_history.
+    total_used = getattr(config, "SESSION_TOTAL_TOKENS", None)
+    last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
+    last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
+    return format_prompt_display(
+        # H reports the count of user/assistant/tool messages — system
+        # messages are excluded so a fresh session shows H:0 (rather
+        # than H:1 for the system prompt that's in history from startup).
+        conversation_count=sum(
+            1 for m in config.CONVERSATION_HISTORY
+            if isinstance(m, dict) and m.get("role") != "system"
+        ),
+        tokens_remaining=adjusted_context_remaining,  # adjusted for display safety margin
+        context_remaining=adjusted_context_remaining,
+        context_budget=context_budget,
+        rate_remaining=rate_remaining,
+        total_used=total_used,
+        last_used=last_used,
+        last_used_estimated=last_used_estimated,
+        cwd=os.getcwd(),
+        model=config.MODEL,  # live config.MODEL value
+        extra_history_str="",
+    )
+
+
 def chat():
     """
     Main loop for interactive chatting with the system.
@@ -781,91 +856,8 @@ def chat():
                 # Update last_model to reflect switch has been handled
                 last_model = config.MODEL
 
-            # Use live history count for bug-free prompt display after summarization or history reset:
-            tokens_in_history = count_message_tokens(config.CONVERSATION_HISTORY)
-            # Prefer MODEL_INPUT_WINDOW (CONTEXT_WINDOW - OUTPUT_WINDOW) as the
-            # budget for the C indicator so the displayed remaining matches the
-            # input-side gate the send path actually enforces. Fall back to
-            # MAX_TOKEN_COUNT when MODEL_INPUT_WINDOW isn't configured.
-            input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
-            context_budget = input_window if isinstance(input_window, int) and input_window > 0 else config.MAX_TOKEN_COUNT
-            context_remaining = context_budget - tokens_in_history
-            prompt_safety_margin = get_prompt_safety_margin()
-            adjusted_context_remaining = max(0, context_remaining - prompt_safety_margin)
-            logger.info(
-                "Prompt context remaining computed: raw_context_remaining=%s safety_margin=%s adjusted_context_remaining=%s",
-                context_remaining,
-                prompt_safety_margin,
-                adjusted_context_remaining,
-            )
-            logger.debug(
-                "Prompt safety margin selected: margin=%s context_remaining=%s adjusted_context_remaining=%s",
-                prompt_safety_margin,
-                context_remaining,
-                adjusted_context_remaining,
-            )
-
-            rate_remaining = None
-            try:
-                limiter = getattr(rate_limiter, "RATE_LIMITER", None)
-                if limiter is not None:
-                    limit_value = getattr(limiter, "limit", None)
-                    current_usage = None
-                    used_get_current_usage = False
-                    if hasattr(limiter, "get_current_usage") and callable(getattr(limiter, "get_current_usage")):
-                        current_usage = limiter.get_current_usage()
-                        used_get_current_usage = True
-                    else:
-                        current_usage = getattr(limiter, "current_usage", None)
-                    if isinstance(limit_value, (int, float)) and isinstance(current_usage, (int, float)):
-                        rate_remaining = limit_value - current_usage
-                    try:
-                        logger.info(
-                            "RateLimiter introspection: limiter_type=%s limit=%r current_usage=%r current_usage_source=%s rate_remaining=%r",
-                            type(limiter),
-                            limit_value,
-                            current_usage,
-                            "get_current_usage" if used_get_current_usage else "current_usage_attr",
-                            rate_remaining,
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                rate_remaining = None
-            # U reads SESSION_TOTAL_TOKENS (pure cumulative, parallel to
-            # SESSION_COST_USD) rather than TOTAL_TOKEN_COUNT, which is
-            # overwritten by compaction with "current history size" and so
-            # would drop dramatically after each summarization. The new
-            # counter persists across compaction and only resets on
-            # set_model() or :reset_history.
-            total_used = getattr(config, "SESSION_TOTAL_TOKENS", None)
-            last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
-            last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
-            prompt = format_prompt_display(
-                # H reports the count of user/assistant/tool messages — system
-                # messages are excluded so a fresh session shows H:0 (rather
-                # than H:1 for the system prompt that's in history from startup).
-                conversation_count=sum(
-                    1 for m in config.CONVERSATION_HISTORY
-                    if isinstance(m, dict) and m.get("role") != "system"
-                ),
-                tokens_remaining=adjusted_context_remaining,  # adjusted for display safety margin
-                context_remaining=adjusted_context_remaining,
-                context_budget=context_budget,
-                rate_remaining=rate_remaining,
-                total_used=total_used,
-                last_used=last_used,
-                last_used_estimated=last_used_estimated,
-                cwd=os.getcwd(),
-                model=config.MODEL,  # live config.MODEL value
-                # H shows the current message count only. Compaction is now
-                # driven by token pressure (not message count), so there's no
-                # meaningful cap to display alongside. The count drops to ~3
-                # naturally after each compaction (reset rebuilds history as
-                # [system, summary, last_user_input]) and climbs back as
-                # messages accumulate.
-                extra_history_str="",
-            )
+            # Compute the status/prompt line (shared with the --tui info bar).
+            prompt = compute_prompt_display()
             user_input = get_input(prompt, session=session)
 
             # Process input; always flush logs afterward regardless of errors
