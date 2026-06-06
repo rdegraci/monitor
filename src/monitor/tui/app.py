@@ -39,7 +39,7 @@ import os
 import threading
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
@@ -64,17 +64,26 @@ _MAX_OUTPUT_CHARS = 400_000
 
 
 class _OutputSink(io.TextIOBase):
-    """Process-global stdout for the duration of a worker turn.
+    """Process-global stdout/stderr for the duration of a worker turn.
 
     Each write streams text into the TUI's output buffer (on the worker thread,
     under the app's lock) and schedules a coalesced repaint on the UI loop, so
     the backend's rich/ANSI output flows into the output window live without
-    touching the input line. Claims ``isatty()`` so rich emits color codes
-    (prompt_toolkit then renders them at the app's pinned `color_depth`).
+    touching the input line.
+
+    ``tty`` controls what ``isatty()`` reports:
+    - stdout sink → ``True`` so rich/pygments emit color (rendered at the app's
+      pinned `color_depth`).
+    - stderr sink → ``False`` so the progress spinner (`progress_dots`, which
+      gates on ``sys.stderr.isatty()`` and repaints ``\\r[Processing …]``
+      directly to the terminal) auto-suppresses under the TUI. The info bar's
+      WORKING…/tick is the TUI's own activity indicator. Genuine stderr error
+      text still flows into the output window.
     """
 
-    def __init__(self, app: "MonitorTUI"):
+    def __init__(self, app: "MonitorTUI", *, tty: bool = True):
         self._app = app
+        self._tty = tty
 
     def write(self, s):  # noqa: D401 - file-like
         if s:
@@ -85,7 +94,7 @@ class _OutputSink(io.TextIOBase):
         pass
 
     def isatty(self):
-        return True
+        return self._tty
 
 
 class MonitorTUI:
@@ -114,7 +123,12 @@ class MonitorTUI:
             accept_handler=self._on_accept,
         )
         body = HSplit([
-            Window(FormattedTextControl(self._output_text), wrap_lines=True),
+            # show_cursor=False: the [SetCursorPosition] marker in _output_text
+            # drives auto-scroll-to-bottom without drawing a cursor block here.
+            Window(
+                FormattedTextControl(self._output_text, show_cursor=False),
+                wrap_lines=True,
+            ),
             # Reverse-video info bar — the retro signature (PLAN Visual identity).
             Window(FormattedTextControl(self._info_text), height=2, style="reverse"),
             self.input,
@@ -143,7 +157,11 @@ class MonitorTUI:
 
     def _output_text(self):
         with self._lock:
-            return ANSI("".join(self._chunks))
+            text = "".join(self._chunks)
+        # Append a [SetCursorPosition] marker at the end: FormattedTextControl
+        # places the (hidden) cursor there and the containing Window scrolls to
+        # keep it visible — i.e. the output window auto-follows the newest line.
+        return merge_formatted_text([ANSI(text), [("[SetCursorPosition]", "")]])
 
     def _info_text(self):
         state = "WORKING…" if self.processing else "idle"
@@ -208,9 +226,10 @@ class MonitorTUI:
         redirected into the output window, then marshals completion back."""
         exit_flag = False
         reported = False
-        sink = _OutputSink(self)
+        out_sink = _OutputSink(self, tty=True)    # color for rich/pygments
+        err_sink = _OutputSink(self, tty=False)   # non-tty → spinner suppresses
         try:
-            with contextlib.redirect_stdout(sink):
+            with contextlib.redirect_stdout(out_sink), contextlib.redirect_stderr(err_sink):
                 exit_flag = bool(process_input(text, self.history_file, self.session))
         except Exception:
             logger.exception("TUI turn failed")

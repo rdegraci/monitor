@@ -61,6 +61,17 @@ def test_emit_accumulates_and_renders(stub_backend):
     assert "hello" in text
 
 
+def test_output_includes_scroll_to_bottom_marker(stub_backend):
+    from prompt_toolkit.formatted_text import to_formatted_text
+
+    app = tui_app.MonitorTUI()
+    app._emit("line one\nline two\n")
+    fragments = to_formatted_text(app._output_text())
+    # The [SetCursorPosition] marker drives the Window's auto-follow scroll so
+    # the newest output stays visible.
+    assert any("[SetCursorPosition]" in style for style, _text, *_ in fragments)
+
+
 def test_emit_trims_to_soft_cap(stub_backend, monkeypatch):
     monkeypatch.setattr(tui_app, "_MAX_OUTPUT_CHARS", 100)
     app = tui_app.MonitorTUI()
@@ -72,12 +83,26 @@ def test_emit_trims_to_soft_cap(stub_backend, monkeypatch):
     assert total <= 100 + 20  # trimmed from the front, last chunk may overshoot
 
 
-def test_turn_runs_process_input_off_thread_and_captures_output(stub_backend, monkeypatch):
+def test_sink_isatty_contract(stub_backend):
+    """The spinner gates on sys.stderr.isatty(): stdout sink must be a tty (so
+    rich/pygments colorize) and stderr sink must NOT (so the spinner suppresses
+    under the TUI)."""
+    app = tui_app.MonitorTUI()
+    assert tui_app._OutputSink(app, tty=True).isatty() is True
+    assert tui_app._OutputSink(app, tty=False).isatty() is False
+
+
+def test_turn_captures_stdout_and_stderr_off_thread(stub_backend, monkeypatch):
+    import sys
+
     ran_on = []
 
     def fake_process_input(text, history_file, session):
         ran_on.append(threading.current_thread().name)
-        print(f"backend reply to {text!r}")   # goes through the redirected sink
+        print(f"backend reply to {text!r}")          # stdout → output window
+        print("a stderr diagnostic", file=sys.stderr) # stderr → output window
+        # Under the TUI, stderr is a non-tty sink, so the spinner would suppress.
+        assert sys.stderr.isatty() is False
         return False
 
     monkeypatch.setattr(tui_app, "process_input", fake_process_input)
@@ -99,6 +124,7 @@ def test_turn_runs_process_input_off_thread_and_captures_output(stub_backend, mo
     text = "".join(app._chunks)
     assert "> hello" in text                                   # echoed input
     assert "backend reply to 'hello'" in text                  # captured stdout
+    assert "a stderr diagnostic" in text                       # captured stderr
     # process_input ran on the worker thread, not the UI/test thread.
     assert ran_on and all(t != ui_thread for t in ran_on)
     # Backend output + the completion callback were marshaled FROM the worker

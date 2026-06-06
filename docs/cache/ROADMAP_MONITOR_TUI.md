@@ -44,16 +44,21 @@ shared with the REPL via the extracted `conversation.prepare_chat_session()`
 re-enables on completion. (Live single-line turns; pipeline/multiline → Phase 3.)
 **Risk:** **High** — *retired.* The boundary holds with the real backend.
 
-## Phase 2 — Output routing  — ⚑ bridge spike-validated (real-backend capture remains)
+## Phase 2 — Output routing  — ✅ DONE (real backend, 2026-06-05)
 **Goal:** Real conversation output in the output window.
-*(Spike proved rich→ANSI→window + the `color_depth` fix; capturing the real
-process_input stdout safely is the remaining work.)*
-- Output sink: worker stdout → `ANSI(...)` → output buffer.
-- Responses + tool output render and scroll in the window.
-**Exit:** You can hold a full conversation in the TUI; output shows formatted,
-input stays put.
-**Risk:** Medium-High — the rich ↔ prompt_toolkit ANSI bridge is the fiddliest
-integration.
+**Delivered:** `_OutputSink` streams the real backend's stdout into the output
+window (single bridge point), scoped via `redirect_stdout` to the worker turn.
+The main response path is pygments `TerminalFormatter` = 16-color ANSI (already
+retro). Auto-scroll-to-bottom via a `[SetCursorPosition]` marker (`show_cursor=
+False`); separate Windows prevent input-line bleed. Test:
+`test_output_includes_scroll_to_bottom_marker`.
+- Output sink: worker stdout → `ANSI(...)` → output buffer.  ✅
+- Responses render and auto-scroll in the window.  ✅
+**Exit:** ✅ you can hold a full conversation in the TUI; output shows formatted,
+auto-follows newest, input stays put.
+**Remaining finesse (→ Phase 6):** force `color_system="standard"` on rich-Console
+`:command` features (markdown pager) once those are wired in.
+**Risk:** Medium-High — *retired.* The rich↔ptk ANSI bridge holds.
 
 ## Phase 3 — Input parity
 **Goal:** TUI input behaves like the REPL's.

@@ -33,22 +33,31 @@ default and fallback. Check items as completed.
       advancing; headless test asserts `process_input` ran off the UI thread and
       completion marshaled back from the worker. `:exit` exit_flag exits cleanly.
 
-## 2. Output routing (rich → output window)
-- [x] (spike) Output sink: capture the worker thread's stdout and append to the
-      output buffer as `ANSI(...)` formatted text — proven via `_run_and_capture`.
-- [x] (spike) **Pin `Application(color_depth=ColorDepth.DEPTH_8_BIT)`** + rich
-      `color_system="standard"` so ANSI renders in color (default clamped to
-      monochrome). Colors verified in a real terminal.
-- [ ] All appends go through one sink abstraction (isolate the rich↔ptk bridge).
+## 2. Output routing (rich → output window)  — ✅ Phase 2 (real backend)
+- [x] **Pin `Application(color_depth=ColorDepth.DEPTH_8_BIT)`** so ANSI renders
+      in color (default clamped to monochrome). Verified in a real terminal.
+- [x] All appends go through one sink abstraction (`_OutputSink._emit`) — the
+      single rich↔ptk bridge point.
 - [x] Capture the REAL backend's stdout: `_OutputSink` (claims `isatty()` so
       rich emits color) is installed via `contextlib.redirect_stdout` for the
       duration of the worker turn ONLY (scoped — process-global but turn-gated).
       Streams writes into the output buffer via `call_soon_threadsafe`.
-- [ ] Force the backend's rich console to `color_system="standard"` so its
-      palette matches the retro 16-color bar (Phase 2/6 — currently inherits
-      rich's auto-detection, downsampled by the 8-bit `color_depth`).
-- [ ] Assistant responses + tool output appear in the output window, formatted.
-- [ ] Output window scrolls; newest visible; no bleed into the input line.
+- [x] Also redirect **stderr** to a non-tty `_OutputSink(tty=False)` during the
+      turn: the `progress_dots` spinner gates on `sys.stderr.isatty()` and was
+      repainting `\r[Processing …]` straight to the terminal (corrupted the input
+      line — found in live validation). Non-tty sink → spinner auto-suppresses
+      (the info bar's WORKING…/tick is the TUI's activity indicator); genuine
+      stderr errors still flow to the output window. Verified end-to-end.
+- [x] Assistant responses appear formatted: the main response path uses pygments
+      `TerminalFormatter` (`display_output.highlightMarkdown`) which emits
+      **16-color ANSI** — already the retro palette, no rich-truecolor leak.
+- [x] Output window auto-scrolls / newest visible / no bleed into input: a
+      `[SetCursorPosition]` marker at the end of `_output_text` makes the Window
+      follow the bottom; `show_cursor=False` hides the marker cursor; the three
+      Windows are physically separate so output can't bleed into the input line.
+- [ ] (deferred to 6) Force `color_system="standard"` on the few rich-Console
+      `:command` features (e.g. the markdown pager) so they match the bar — only
+      relevant once those commands are wired into the TUI (Phase 3/6).
 
 ## 3. Input parity with the REPL
 - [ ] Reuse `RedAfter120Lexer`, `CommandCompleter`, function-key bindings,
