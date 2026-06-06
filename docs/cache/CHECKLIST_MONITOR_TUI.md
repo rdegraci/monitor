@@ -84,14 +84,18 @@ default and fallback. Check items as completed.
       MAX_TOKEN_COUNT + may auto-summarize on `:model` switch) is not yet ported
       to the TUI loop — Phase 6 hardening.
 
-## 5. Sub-agent feed (replaces the REPL bridge)
-- [ ] Sub-agent `stdout`/`result` (`drain_pending_output`) → output window via
-      `call_soon_threadsafe`.
-- [ ] Sub-agent `status` → info bar.
-- [ ] In TUI mode, do NOT use `_prompt_with_agent_bridge` (no concurrent printing
-      into the input line). Async next-turn injection (8a) is unchanged.
-- [ ] Spawn an agent: status shows live in the bar, output streams in the window,
-      input stays stable.
+## 5. Sub-agent feed (replaces the REPL bridge)  — ✅ Phase 5
+- [x] Sub-agent `stdout`/`result` (`drain_pending_output`, lines already prefixed
+      `[agent_id]`) → output window. Drained from the ticker (~2×/s) and emitted
+      via `_emit` (marshaled with `call_soon_threadsafe`). The TUI is the sole
+      drainer in --tui mode.
+- [x] Sub-agent `status` → info bar (`render_toolbar()`, done in Phase 4).
+- [x] `_prompt_with_agent_bridge` is NOT used in TUI mode (no concurrent printing
+      into the input line — output has its own region). Async next-turn injection
+      (8a) runs in the backend query path (`drain_pending_injections`), separate
+      from the output drain — unchanged.
+- [ ] (live-validate) Spawn an agent: status shows live in the bar, output
+      streams in the window, input stays stable.
 
 ## 6. Rendering & UX polish
 - [ ] **Preserve the spike's retro look (design spec, not placeholder):**

@@ -215,6 +215,21 @@ class MonitorTUI:
         except Exception:
             return ""
 
+    def _drain_agent_output(self) -> None:
+        """Pull queued sub-agent stdout/result lines (already prefixed with
+        ``[agent_id]``) and stream them into the output window — the live
+        orchestration feed (PLAN Phase 5). Polled from the ticker. The TUI is the
+        sole drainer in --tui mode (the REPL's _prompt_with_agent_bridge is not
+        used here). Result→next-turn injection (8a) runs separately in the
+        backend query path and is unaffected."""
+        try:
+            from monitor.lib import agent_orchestrator as orch
+            lines = orch.drain_pending_output()
+        except Exception:
+            return
+        for line in lines:
+            self._emit(line if line.endswith("\n") else line + "\n")
+
     def _info_text(self):
         state = "WORKING…" if self.processing else "idle"
         cwd = os.getcwd()
@@ -324,11 +339,13 @@ class MonitorTUI:
 
     def _ticker(self) -> None:
         # Advances ~2x/sec. If a turn ran on the UI thread this would stall, so a
-        # moving tick is the visible proof the worker-thread boundary holds.
+        # moving tick is the visible proof the worker-thread boundary holds. Also
+        # the pump for the live sub-agent feed (Phase 5).
         import time as _time
         while not self._stop.is_set():
             _time.sleep(0.5)
             self.tick += 1
+            self._drain_agent_output()   # stream sub-agent output → window
             if self.loop is not None:
                 try:
                     self.loop.call_soon_threadsafe(self.app.invalidate)

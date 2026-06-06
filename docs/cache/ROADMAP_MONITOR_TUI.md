@@ -82,13 +82,18 @@ updating per turn and on repaint.
 `:model` switch) not yet ported to the TUI loop.
 **Risk:** Medium — *retired.*
 
-## Phase 5 — Sub-agent feed (the payoff)
+## Phase 5 — Sub-agent feed (the payoff)  — ✅ DONE (2026-06-05)
 **Goal:** Live orchestration UX, no corruption.
-- Sub-agent status → info bar; sub-agent output → output window; via
-  `call_soon_threadsafe` + `invalidate`. No `_prompt_with_agent_bridge` in TUI.
-**Exit:** Spawn an agent → status live in the bar, output streams in the window,
-input rock-stable; async next-turn injection still works.
-**Risk:** Medium — but the layout makes this clean (the reason for the whole TUI).
+**Delivered:** sub-agent status → info bar (`render_toolbar()`, Phase 4);
+sub-agent stdout/result → output window via `_drain_agent_output()` polled from
+the ticker and marshaled through `_emit`/`call_soon_threadsafe`. No
+`_prompt_with_agent_bridge` in TUI (output has its own region, so no input-line
+corruption — the root reason for the whole TUI). Async next-turn injection (8a)
+is untouched (separate `drain_pending_injections` in the query path). Test:
+`test_drain_agent_output_streams_into_window`. Full suite green (1428).
+**Exit:** ✅ status live in the bar, output streams in the window, input stable;
+injection still works. (Live agent-spawn validation pending the user.)
+**Risk:** Medium — *retired.* The layout made it clean, as predicted.
 
 ## Phase 6 — Hardening & polish
 **Goal:** Daily-driver quality.

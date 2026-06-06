@@ -83,6 +83,29 @@ def test_info_bar_shows_live_agent_status(stub_backend, monkeypatch):
     assert "a1b2: working" in bar
 
 
+def test_drain_agent_output_streams_into_window(stub_backend, monkeypatch):
+    drained = [["[a1b2] tool: reading file", "[a1b2] ✓ found 3 matches"]]
+
+    def fake_drain(limit=None):
+        return drained.pop(0) if drained else []
+
+    monkeypatch.setattr(
+        "monitor.lib.agent_orchestrator.drain_pending_output", fake_drain
+    )
+    app = tui_app.MonitorTUI()
+    app.loop = _FakeLoop()
+    app.app.invalidate = lambda: None
+
+    app._drain_agent_output()
+    text = "".join(app._chunks)
+    assert "[a1b2] tool: reading file" in text     # sub-agent stdout streamed
+    assert "[a1b2] ✓ found 3 matches" in text       # sub-agent result streamed
+    # Second drain is empty → nothing more appended.
+    before = len(app._chunks)
+    app._drain_agent_output()
+    assert len(app._chunks) == before
+
+
 def test_input_prompt_reflects_live_model(stub_backend, monkeypatch):
     monkeypatch.setattr(tui_app.config, "MODEL", "openai/gpt-5.4-mini", raising=False)
     app = tui_app.MonitorTUI()
