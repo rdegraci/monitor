@@ -325,8 +325,11 @@ def command_needs_tty(command: str) -> bool:
     if name in ("sh", "bash", "zsh"):
         return "-c" not in rest_tokens
     match = next(
-        (cmd for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS + NON_INTERACTIVE_COMMANDS)
-         if cmd.get("command") == first_word),
+        (
+            cmd
+            for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS + NON_INTERACTIVE_COMMANDS)
+            if cmd.get("command") in {first_word, name}
+        ),
         None,
     )
     return bool(match.get("needs_tty", False)) if match else False

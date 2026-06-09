@@ -143,6 +143,18 @@ def test_command_needs_tty_defaults_false_when_flag_absent(_isolated_command_lis
     assert commands.command_needs_tty("ls -la") is False
 
 
+
+def test_command_needs_tty_true_for_path_qualified_tty_program(_isolated_command_lists, monkeypatch):
+    monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS",
+                        [{"command": "vim", "needs_tty": True}])
+    assert commands.command_needs_tty("/usr/bin/vim notes.txt") is True
+
+
+def test_command_needs_tty_false_for_path_qualified_output_command(_isolated_command_lists, monkeypatch):
+    monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS",
+                        [{"command": "git", "needs_tty": False}])
+    assert commands.command_needs_tty("/usr/bin/git status") is False
+
 def test_command_needs_tty_false_for_unknown_command(_isolated_command_lists):
     assert commands.command_needs_tty("some_unlisted_thing --flag") is False
 
