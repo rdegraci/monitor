@@ -18,6 +18,16 @@ risking the daily driver.
 > and remains the default. 23 TUI tests; full suite 1434 green. Remaining items
 > are optional niceties (manual scrollback, native multi-line, rich-pager color).
 
+> **Post-launch fix — shell command handling (2026-06-08).** Shell commands
+> corrupted the TUI because `run_subprocess` inherits the terminal fds (Python's
+> `redirect_stdout` doesn't cover fd 1/2). Fixed via a `needs_tty` flag on the
+> command JSONs + `command_needs_tty()`: output-style commands (git, ls, …) are
+> piped and streamed into the window (`set_output_stream_writer` seam;
+> `execute_interactive_command` now passes `interactive=command_needs_tty(cmd)`);
+> true TTY programs (vim/ssh/top/…) route through `run_in_terminal` (suspend →
+> real terminal → redraw). REPL unchanged. +9 tests; full suite 1449 green. See
+> CHECKLIST §7. Live validation of vim/ssh suspend pending.
+
 > **Spike complete (2026-06-05).** A throwaway `src/monitor/tui/spike.py`
 > (behind `--tui`) validated P0 + P1 + thin-P2 with a STUB backend, in a real
 > terminal: 3-region layout renders, the worker-thread boundary holds (no

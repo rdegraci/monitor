@@ -1,177 +1,196 @@
 [
   {
     "command": "less",
+    "needs_tty": true,
     "description": "view files one page at a time"
   },
   {
     "command": "tail",
+    "needs_tty": false,
     "description": "output the last part of files"
   },
   {
     "command": "man",
+    "needs_tty": true,
     "description": "display manual pages"
   },
   {
     "command": "top",
+    "needs_tty": true,
     "description": "display real-time system summary and processes"
   },
   {
     "command": "ssh",
+    "needs_tty": true,
     "description": "secure shell for remote login"
   },
   {
     "command": "psql",
+    "needs_tty": true,
     "description": "PostgreSQL interactive terminal"
   },
   {
-    "command": "subl",
-    "description": "launch Sublime Text editor"
-  },
-  {
     "command": "vi",
+    "needs_tty": true,
     "description": "text editor (vi)"
   },
   {
     "command": "vim",
+    "needs_tty": true,
     "description": "improved vi text editor"
   },
   {
     "command": "python",
+    "needs_tty": true,
     "description": "run the Python interpreter"
   },
   {
     "command": "emacs",
+    "needs_tty": true,
     "description": "Emacs text editor"
   },
   {
     "command": "zsh",
+    "needs_tty": true,
     "description": "Z shell (interactive shell)"
   },
   {
     "command": "gitx",
+    "needs_tty": false,
     "description": "graphical Git client (gitx)"
   },
   {
-    "command": "bin/rails",
-    "description": "Rails application executable in project bin"
-  },
-  {
     "command": "screen",
+    "needs_tty": true,
     "expansion": "function _screen() { screen \"$@\"; }; _screen",
     "description": "expansion: shell function - forwards all positional arguments to screen"
   },
   {
     "command": "redis-cli",
+    "needs_tty": true,
     "description": "Redis command-line interface"
   },
   {
     "command": "sh",
+    "needs_tty": true,
     "description": "run a shell command"
   },
   {
     "command": "shell",
+    "needs_tty": true,
     "expansion": "zsh",
     "description": "start an interactive zsh shell"
   },
   {
-    "command": "open",
-    "description": "Open files in MacOS"
-  },
-  {
     "command": "ollama",
+    "needs_tty": true,
     "description": "OLLAMA CLI for local AI model interaction"
   },
   {
     "command": "crontab",
+    "needs_tty": true,
     "description": "schedule and manage periodic jobs"
   },
   {
     "command": "rsync-server",
+    "needs_tty": false,
     "expansion": "function _rsync_server() { [ -z \"$1\" ] && return; rsync -avz ./ \"${RSYNC_SERVER_TARGET:?RSYNC_SERVER_TARGET not set}/$1\"; }; _rsync_server",
     "description": "expansion: shell function; requires RSYNC_SERVER_TARGET environment variable (e.g. user@host:base_path)"
   },
   {
     "command": "scp-server",
+    "needs_tty": false,
     "expansion": "function _scp_server() { [ -z \"$1\" ] && return; scp -r ./ \"${SCP_SERVER_TARGET:?SCP_SERVER_TARGET not set}/$1\"; }; _scp_server",
     "description": "expansion: shell function to SCP current directory to a server location; requires SCP_SERVER_TARGET env var"
   },
   {
     "command": "monitor",
+    "needs_tty": true,
     "description": "helper for monitoring system or application status"
   },
   {
     "command": "git-log",
+    "needs_tty": false,
     "expansion": "git log --oneline --decorate",
     "description": "show condensed git log with branch and tag decorations"
   },
   {
     "command": "git-diff",
+    "needs_tty": false,
     "expansion": "git diff --color HEAD",
     "description": "show colored diff of working tree against HEAD"
   },
   {
     "command": "git-log-tree",
+    "needs_tty": false,
     "expansion": "git log --graph --oneline --all",
     "description": "show git log as a graph for all branches"
   },
   {
     "command": "glt",
+    "needs_tty": false,
     "expansion": "git log --graph --oneline --all",
     "description": "alias for git-log-tree (graphical condensed git log)"
   },
   {
     "command": "doccomment",
+    "needs_tty": false,
     "expansion": "fabric --pattern doc_comment -s",
     "description": "run fabric task to process documentation comments"
   },
   {
     "command": "doccomment2code",
+    "needs_tty": false,
     "expansion": "fabric --pattern doc_comment2code -s",
     "description": "run fabric task to convert documentation comments into code"
   },
   {
     "command": "doccomment2spec",
+    "needs_tty": false,
     "expansion": "fabric --pattern doc_comment2spec -s",
     "description": "run fabric task to convert documentation comments into specs"
   },
   {
     "command": "spec2code",
+    "needs_tty": false,
     "expansion": "fabric --pattern spec2code -s",
     "description": "run fabric task to convert specs into code"
   },
   {
     "command": "diff-code-review",
+    "needs_tty": false,
     "expansion": "~/bin/code-review-latest.sh",
     "description": "run the local code-review helper script"
   },
   {
     "command": "jobs",
+    "needs_tty": false,
     "description": "list active jobs in the current shell"
   },
   {
-    "command": "ping",
-    "expansion": "function _ping() { ping \"$@\"; }; _ping",
-    "description": "send ICMP ECHO_REQUEST to a host (forwards all args)"
-  },
-  {
     "command": "ai",
+    "needs_tty": true,
     "description": "invoke AI assistant or related tooling"
   },
   {
     "command": "head",
+    "needs_tty": false,
     "description": "output the first part of files"
   },
   {
     "command": "git",
+    "needs_tty": false,
     "description": "distributed version control system"
   },
   {
     "command": "cat",
+    "needs_tty": false,
     "expansion": "function _cat() { cat \"$@\"; }; _cat",
     "description": "concatenate and display files  (forwards all args)"
   },
   {
     "command": "brew",
+    "needs_tty": false,
     "expansion": "function _brew() { brew \"$@\"; }; _brew",
     "description": "Homebrew  (forwards all args)"
   }

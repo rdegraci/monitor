@@ -282,6 +282,55 @@ def is_non_interactive_command(command: str):
     first_word, _, _ = parse_command(command)
     return next((cmd for cmd in NON_INTERACTIVE_COMMANDS if cmd["command"] == first_word), None)
 
+def _python_is_interactive(rest_tokens: list[str]) -> bool:
+    """Bare ``python`` drops into the REPL (needs a TTY); ``python script.py``,
+    ``python -c ...`` and ``python -m ...`` run a program and are output-style.
+    ``-i`` forces the REPL even with a script."""
+    if not rest_tokens or "-i" in rest_tokens:
+        return True
+    if "-c" in rest_tokens or "-m" in rest_tokens:
+        return False
+    # A non-option token is a script path → running a program, not the REPL.
+    return not any(not tok.startswith("-") for tok in rest_tokens)
+
+
+def command_needs_tty(command: str) -> bool:
+    """Return True if the command requires a real interactive terminal (full-screen
+    rendering and/or reading from the keyboard/stdin), e.g. vim/ssh/top/psql.
+
+    This is the orthogonal "needs a TTY" signal — distinct from which JSON list a
+    command lives in. The interactive list contains both true TTY programs and
+    output-style tools (git, cat, head, …); only the former carry
+    ``"needs_tty": true``. Absence of the flag (or no matching entry) → False.
+
+    A few commands are argument-dependent — the same name is interactive or
+    output-style depending on its args — so a flat JSON flag can't be right for
+    both. Those are decided here by inspecting the arguments (and so don't even
+    need a JSON entry to be classified correctly):
+      - ``python``/``python3``: bare REPL needs a TTY; with a script/-c/-m it doesn't.
+      - ``crontab``: ``-e`` edits in $EDITOR (TTY); ``-l``/``-r`` are output-style.
+      - ``sh``/``bash``/``zsh``: bare shell is interactive; ``-c '…'`` just runs a command.
+
+    Front-ends use this to decide how to run a command: a TTY program must own the
+    terminal (in the --tui front-end that means suspending the full-screen app),
+    whereas an output-style command can have its output captured. Returns False
+    for anything not found in the command lists (e.g. plain LLM queries).
+    """
+    first_word, rest_tokens, _ = parse_command(command)
+    name = os.path.basename(first_word) if first_word else first_word
+    if name in ("python", "python3"):
+        return _python_is_interactive(rest_tokens)
+    if name == "crontab":
+        return "-e" in rest_tokens
+    if name in ("sh", "bash", "zsh"):
+        return "-c" not in rest_tokens
+    match = next(
+        (cmd for cmd in (PRIVATE_COMMANDS + INTERACTIVE_COMMANDS + NON_INTERACTIVE_COMMANDS)
+         if cmd.get("command") == first_word),
+        None,
+    )
+    return bool(match.get("needs_tty", False)) if match else False
+
 def execute_non_interactive_command(command: str):
     """
     Execute a non-interactive command as defined in NON_INTERACTIVE_COMMANDS.
@@ -408,12 +457,21 @@ def execute_interactive_command(command: str):
             else:
                 command_to_run = f"{first_word} {chosen_remainder}" if chosen_remainder else first_word
 
-            logger.info(f"Executing interactive command '{first_word}' without macro expansion.")
+            # Only claim the terminal for commands that actually need a TTY
+            # (vim/ssh/top/…). Output-style commands in the interactive list
+            # (git, cat, head, …) run non-interactively so a front-end can
+            # capture their output (the --tui window) instead of having them
+            # write straight to the terminal. In the REPL nothing captures, so
+            # they still inherit the terminal exactly as before — no regression.
+            needs_tty = bool(command_needs_tty(command))
+            logger.info(
+                f"Executing interactive-list command '{first_word}' (needs_tty={needs_tty})."
+            )
             logger.debug(f"Executing command in subprocess: {command_to_run}")
             preexec = (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name == 'posix' else None
             exit_code, stdout, stderr, process = run_subprocess(
                 command_to_run,
-                interactive=True,
+                interactive=needs_tty,
                 shell=True,
                 preexec_fn=preexec,
                 text=True,

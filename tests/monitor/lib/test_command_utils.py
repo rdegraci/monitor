@@ -203,5 +203,86 @@ class TestCommandUtils(unittest.TestCase):
         self.assertNotIn('stderr', kwargs)
 
 
+class TestOutputStreamWriter(unittest.TestCase):
+    """The TUI output-stream seam: non-interactive commands stream to the writer
+    instead of inheriting the terminal, without changing other behavior."""
+
+    def tearDown(self):
+        command_utils.set_output_stream_writer(None)  # never leak across tests
+
+    def test_streams_to_writer_when_set(self):
+        chunks = []
+        command_utils.set_output_stream_writer(chunks.append)
+        exit_code, out, err, _ = command_utils.run_subprocess(
+            "echo hello", interactive=False, fetch_output=False
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn("hello", "".join(chunks))   # output streamed to the sink
+        self.assertIsNone(out)                     # not returned (streamed)
+
+    def test_interactive_command_not_streamed(self):
+        chunks = []
+        command_utils.set_output_stream_writer(chunks.append)
+        # interactive=True must inherit the terminal, never stream to the writer.
+        command_utils.run_subprocess("echo x", interactive=True, fetch_output=False)
+        self.assertEqual(chunks, [])
+
+    def test_fetch_output_still_returns_string_not_streamed(self):
+        chunks = []
+        command_utils.set_output_stream_writer(chunks.append)
+        # Callers that want the captured string back are unaffected by the writer.
+        exit_code, out, err, _ = command_utils.run_subprocess(
+            "echo cap", interactive=False, fetch_output=True
+        )
+        self.assertIn("cap", out or "")
+        self.assertEqual(chunks, [])
+
+    def test_no_writer_does_not_stream(self):
+        command_utils.set_output_stream_writer(None)
+        # No writer → non-interactive fetch_output=False inherits the terminal
+        # (returns None), exactly as before — REPL behavior unchanged.
+        exit_code, out, err, _ = command_utils.run_subprocess(
+            "echo hi", interactive=False, fetch_output=False
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIsNone(out)
+
+    def test_partial_line_streamed_before_completion(self):
+        # Chunked reads (not line iteration) must deliver newline-less output as
+        # soon as it's produced — progress bars / \r updates would otherwise stay
+        # invisible until the command finishes.
+        import time
+        chunks, stamps = [], []
+        start = time.monotonic()
+
+        def writer(s):
+            chunks.append(s)
+            stamps.append(time.monotonic() - start)
+
+        command_utils.set_output_stream_writer(writer)
+        exit_code, out, err, _ = command_utils.run_subprocess(
+            "printf 'progress...'; sleep 0.4; printf ' done\\n'",
+            interactive=False, fetch_output=False,
+        )
+        self.assertEqual(exit_code, 0)
+        # The partial (newline-less) chunk arrives well before the 0.4s completion.
+        partial = next((t for c, t in zip(chunks, stamps)
+                        if "progress" in c and "done" not in c), None)
+        self.assertIsNotNone(partial, f"no partial chunk in {chunks!r}")
+        self.assertLess(partial, 0.3)
+        self.assertIn("done", "".join(chunks))
+
+    def test_streamed_multibyte_not_corrupted(self):
+        # An incremental decoder must reassemble a multibyte char even if a read
+        # splits its bytes — no U+FFFD replacement.
+        chunks = []
+        command_utils.set_output_stream_writer(chunks.append)
+        exit_code, out, err, _ = command_utils.run_subprocess(
+            "printf '\\xe2\\x9c\\x93 ok'", interactive=False, fetch_output=False
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn("✓ ok", "".join(chunks))
+
+
 if __name__ == "__main__":
     unittest.main()

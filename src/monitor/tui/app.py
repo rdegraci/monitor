@@ -39,8 +39,9 @@ import os
 import re
 import threading
 
-from prompt_toolkit.application import Application
-from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
+from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.data_structures import Point
+from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
@@ -50,9 +51,13 @@ from prompt_toolkit.widgets import TextArea
 
 from monitor import config
 # Input parity (Phase 3): reuse the REPL's lexer / completer / history / style /
-# key bindings so the TUI input behaves like the REPL prompt. `bindings` and
-# `style` are mutated/populated by create_prompt_session() (called via
-# prepare_chat_session in __init__) before we build the Application.
+# key bindings so the TUI input behaves like the REPL prompt — including the
+# function-key preset selector (F1–F12). `bindings`/`style` are populated by
+# create_prompt_session() (via prepare_chat_session in __init__) before we build
+# the Application. The f-key selector binds a bare `escape`, which would make
+# escape-prefixed keys (PageUp/arrows) wait to disambiguate — we keep them snappy
+# by lowering the Application's `timeoutlen` (see below) rather than dropping the
+# selector.
 from monitor.lib.lexer import (
     RedAfter120Lexer,
     CommandCompleter,
@@ -69,6 +74,8 @@ from monitor.core.conversation import (
     _maybe_report_agent_result,
     _agent_is_one_shot,
 )
+from monitor.core.commands import command_needs_tty
+from monitor.lib.command_utils import set_output_stream_writer
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +145,22 @@ class MonitorTUI:
         self.loop = None
         self._stop = threading.Event()
         self._render_pending = False
+        # Cache of resolved output fragments — rebuilt only when output changes
+        # (see _emit), NOT on every repaint. Without this, each keystroke / tick
+        # re-parsed the whole ANSI buffer (~1s when large → per-letter input lag).
+        self._render_cache = None
+        self._total_chars = sum(len(c) for c in self._chunks)
+        # Scrollback: a hidden cursor drives the output Window's scroll position
+        # (robust with wrap_lines, unlike manually poking vertical_scroll). While
+        # following, the cursor sits on the last line (pinned to bottom); PageUp
+        # moves it up (scrollback), PageDown to the bottom resumes follow.
+        self._follow = True
+        self._scroll_line = 0
+        self._nlines = sum(c.count("\n") for c in self._chunks)
+        # The scroll cursor, computed together with the fragment cache under the
+        # lock so its y can never exceed the cached fragments' line count (a live
+        # recompute raced the output thread → IndexError during streaming).
+        self._cache_cursor = Point(x=0, y=0)
 
         # The status line (C:/R:/U:/~T:/P:/L:/H:), recomputed once per turn (it
         # tokenizes the full history — never per-repaint). Seed it at startup.
@@ -163,13 +186,19 @@ class MonitorTUI:
             complete_while_typing=False,
             history=_repl_history,
         )
-        body = HSplit([
-            # show_cursor=False: the [SetCursorPosition] marker in _output_text
-            # drives auto-scroll-to-bottom without drawing a cursor block here.
-            Window(
-                FormattedTextControl(self._output_text, show_cursor=False),
-                wrap_lines=True,
+        # show_cursor=False: the cursor is invisible but its position (from
+        # _cursor_position) drives the Window's scroll — bottom while following,
+        # else the paged-to line.
+        self.output_window = Window(
+            FormattedTextControl(
+                self._output_text,
+                show_cursor=False,
+                get_cursor_position=self._cursor_position,
             ),
+            wrap_lines=True,
+        )
+        body = HSplit([
+            self.output_window,
             # Reverse-video info bar — the retro signature (PLAN Visual identity):
             # cwd / status line / live sub-agent status.
             Window(FormattedTextControl(self._info_text), height=3, style="reverse"),
@@ -188,12 +217,22 @@ class MonitorTUI:
         def _ctrl_c(event):
             self._ctrl_c_action()
 
+        # Scrollback for the output window (input keeps focus). PageUp drops into
+        # scrollback (stops auto-following); PageDown to the bottom resumes follow.
+        @kb.add("pageup")
+        def _(event):
+            self._scroll_output(-1)
+
+        @kb.add("pagedown")
+        def _(event):
+            self._scroll_output(+1)
+
         self.app = Application(
             layout=Layout(body, focused_element=self.input),
-            # Merge the REPL's function-key bindings (c-left/c-right word nav,
-            # f10 voice, the f-key selector) with the TUI's own (exit). The REPL
-            # tab/enter/escape bindings are filtered to the f-key-preview state,
-            # so they don't disturb normal completion/submit.
+            # Merge the REPL's bindings (c-left/c-right word nav, f10 voice, and
+            # the F1–F12 preset selector) with the TUI's own (exit, ctrl-c,
+            # scrollback). The selector's tab/enter/escape bindings are filtered
+            # to its preview state, so they don't disturb normal completion/submit.
             key_bindings=merge_key_bindings([kb, _repl_bindings]),
             # Reuse the REPL's style so the lexer's style classes resolve.
             style=_repl_style,
@@ -203,16 +242,45 @@ class MonitorTUI:
             # truecolor). See PLAN "Visual identity".
             color_depth=ColorDepth.DEPTH_8_BIT,
         )
+        # Keep escape-prefixed keys (PageUp/PageDown/arrows) snappy. ESC is the
+        # prefix of EVERY terminal escape sequence, so prompt_toolkit's parser
+        # briefly holds a lone ESC waiting for the rest; if the bytes arrive
+        # split, it flushes only after `ttimeoutlen` (default 0.5s) — THAT wait
+        # is the "have to press twice" lag. It's the escape-SEQUENCE flush, at
+        # the parser level, independent of which keys are bound (so rebinding the
+        # f-key selector's ESC wouldn't help). `timeoutlen` (default 1.0s) is the
+        # separate key-MAPPING completion timeout (e.g. enter's ControlM/ControlJ
+        # pair). Lower both so a single tap registers near-instantly. (If you run
+        # the TUI over a slow link and sequences start splitting, raise
+        # ttimeoutlen back toward ~0.2.)
+        self.app.ttimeoutlen = 0.05
+        self.app.timeoutlen = 0.1
 
     # --- region content -----------------------------------------------------
 
     def _output_text(self):
         with self._lock:
-            text = "".join(self._chunks)
-        # Append a [SetCursorPosition] marker at the end: FormattedTextControl
-        # places the (hidden) cursor there and the containing Window scrolls to
-        # keep it visible — i.e. the output window auto-follows the newest line.
-        return merge_formatted_text([ANSI(text), [("[SetCursorPosition]", "")]])
+            if self._render_cache is None:
+                # Resolve ANSI → fragments ONCE per output change — cached, NOT
+                # re-parsed per repaint. Recompute the scroll cursor in the SAME
+                # locked snapshot so cursor.y stays within these fragments' lines.
+                text = "".join(self._chunks)
+                self._render_cache = to_formatted_text(ANSI(text))
+                self._recompute_cursor_locked()
+            return self._render_cache
+
+    def _recompute_cursor_locked(self):
+        """Set the scroll cursor consistent with the current buffer. Caller MUST
+        hold self._lock. y == _nlines is the last line index (line_count-1), so
+        it can't exceed the fragment list built from the same snapshot."""
+        y = self._nlines if self._follow else min(self._scroll_line, self._nlines)
+        self._cache_cursor = Point(x=0, y=max(0, y))
+
+    def _cursor_position(self):
+        # Return the stored cursor (computed under the lock with the fragments),
+        # NOT a live recompute — that raced the output thread (IndexError).
+        with self._lock:
+            return self._cache_cursor
 
     def _input_prompt(self):
         """The `monitor <model> <effort> ]] ` input prompt (live model)."""
@@ -262,26 +330,47 @@ class MonitorTUI:
         for line in lines:
             self._emit(line if line.endswith("\n") else line + "\n")
 
+    _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
     def _info_text(self):
-        state = "WORKING…" if self.processing else "idle"
         cwd = os.getcwd()
         agents = self._agent_status() or "agents — none"
+        if self.processing:
+            state = f"working {self._SPINNER[self.tick % len(self._SPINNER)]}"
+        else:
+            state = "idle"
         return (
             f" {cwd}\n"
-            f" {self._status_line}   [{state}]  tick {self.tick}\n"
+            f" {self._status_line}   [{state}]\n"
             f" {agents}"
         )
+
+    def _has_agent_activity(self) -> bool:
+        try:
+            from monitor.lib import agent_orchestrator as orch
+            return bool(orch.has_active_agents())
+        except Exception:
+            return False
 
     # --- output sink (streamed from the worker turn) ------------------------
 
     def _emit(self, s: str) -> None:
+        if not s:
+            return
         with self._lock:
             self._chunks.append(s)
-            # Trim from the front if we exceed the soft cap (cheap; Phase 6 adds
-            # proper scrollback).
-            total = sum(len(c) for c in self._chunks)
-            while total > _MAX_OUTPUT_CHARS and len(self._chunks) > 1:
-                total -= len(self._chunks.pop(0))
+            self._total_chars += len(s)
+            self._nlines += s.count("\n")
+            # Trim from the front past the soft cap (running totals — O(1)
+            # amortized, not an O(n) re-sum every write). Removing front lines
+            # shifts line numbers, so adjust the scrollback anchor too.
+            while self._total_chars > _MAX_OUTPUT_CHARS and len(self._chunks) > 1:
+                popped = self._chunks.pop(0)
+                self._total_chars -= len(popped)
+                removed_nl = popped.count("\n")
+                self._nlines -= removed_nl
+                self._scroll_line = max(0, self._scroll_line - removed_nl)
+            self._render_cache = None  # output changed → rebuild fragments next render
         self._schedule_render()
 
     def _schedule_render(self) -> None:
@@ -299,6 +388,35 @@ class MonitorTUI:
             self.loop.call_soon_threadsafe(_do)
         except Exception:
             self._render_pending = False
+
+    # --- scrollback ---------------------------------------------------------
+
+    def _scroll_output(self, direction: int) -> None:
+        """Scroll the output window by ~a page (direction: -1 up, +1 down) by
+        moving the hidden scroll cursor; the Window scrolls to keep it visible.
+        Paging up enters scrollback (stops following); paging down to the bottom
+        resumes follow. No-op until the window has rendered at least once."""
+        info = self.output_window.render_info
+        if info is None:
+            return
+        page = max(1, info.window_height - 1)
+        last = self._nlines
+        # On leaving follow, anchor the scroll cursor at the current bottom.
+        if self._follow:
+            self._scroll_line = last
+        if direction < 0:
+            self._scroll_line = max(0, self._scroll_line - page)
+            self._follow = False
+        else:
+            self._scroll_line += page
+            if self._scroll_line >= last:      # reached the bottom → resume follow
+                self._scroll_line = last
+                self._follow = True
+            else:
+                self._follow = False
+        with self._lock:
+            self._recompute_cursor_locked()
+        self.app.invalidate()
 
     # --- input → worker-thread turn (the crux) ------------------------------
 
@@ -345,9 +463,59 @@ class MonitorTUI:
         self.processing = True
         self._emit(f"\n> {text}\n")
         self.app.invalidate()
-        threading.Thread(
-            target=self._run_turn, args=(text,), name="tui-worker", daemon=True
-        ).start()
+        if command_needs_tty(text):
+            # Needs a real terminal (vim/ssh/top/psql/…): suspend the full-screen
+            # app and hand the terminal to the command, then redraw. Runs inline
+            # via run_in_terminal (NOT the worker thread) so the app is paused.
+            self._run_tty_turn(text)
+        else:
+            # Output-style command or LLM turn: run on the worker thread; output
+            # (incl. captured subprocess output) streams into the window.
+            threading.Thread(
+                target=self._run_turn, args=(text,), name="tui-worker", daemon=True
+            ).start()
+
+    def _run_tty_turn(self, text: str) -> None:
+        """Run a TTY command by suspending the full-screen app so the command
+        owns the real terminal (run_in_terminal), then redrawing. Runs on the UI
+        thread (the app is paused), which is correct here — we WANT to block
+        until the interactive program exits."""
+        state = {"exit": False}
+
+        def work():
+            # App rendering suspended; the command owns the real terminal.
+            try:
+                state["exit"] = bool(process_input(text, self.history_file, self.session))
+            except Exception:
+                logger.exception("TUI tty turn failed")
+            try:
+                flush_logs_and_conversation()
+            except Exception:
+                logger.exception("Failed flushing logs after tty turn")
+            try:
+                self._last_model = apply_model_switch_if_needed(self._last_model)
+            except Exception:
+                logger.debug("model switch handling failed", exc_info=True)
+            self._recompute_status()
+
+        def done(_fut):
+            self.processing = False
+            self._emit(f"[ran: {text}]\n")
+            if state["exit"]:
+                self._stop.set()
+                self.app.exit()
+            else:
+                self.app.invalidate()
+
+        try:
+            fut = run_in_terminal(work)
+            fut.add_done_callback(done)
+        except Exception:
+            # Degrade gracefully rather than corrupt the screen.
+            logger.exception("run_in_terminal failed")
+            self.processing = False
+            self._emit("\n[could not run interactive command in --tui]\n")
+            self.app.invalidate()
 
     def _run_turn(self, text: str) -> None:
         """Runs OFF the UI thread. Executes one real backend turn with stdout
@@ -402,27 +570,38 @@ class MonitorTUI:
             self.loop = asyncio.get_running_loop()
         except RuntimeError:
             self.loop = asyncio.get_event_loop()
+        # Route non-interactive subprocess output (git, ls, grep, …) into the
+        # output window instead of letting it write to / corrupt the terminal.
+        set_output_stream_writer(self._emit)
         threading.Thread(
             target=self._ticker, name="tui-ticker", daemon=True
         ).start()
 
     def _ticker(self) -> None:
-        # Advances ~2x/sec. If a turn ran on the UI thread this would stall, so a
-        # moving tick is the visible proof the worker-thread boundary holds. Also
-        # the pump for the live sub-agent feed (Phase 5).
+        # Pumps the live sub-agent feed and animates the working spinner. Only
+        # forces a repaint when something is actually changing (a turn running,
+        # or active agents) — when idle it does NOT repaint, so it never competes
+        # with keystroke rendering. (Sub-agent output repaints itself via _emit.)
         import time as _time
         while not self._stop.is_set():
             _time.sleep(0.5)
             self.tick += 1
             self._drain_agent_output()   # stream sub-agent output → window
-            if self.loop is not None:
+            if (self.processing or self._has_agent_activity()) and self.loop is not None:
                 try:
                     self.loop.call_soon_threadsafe(self.app.invalidate)
                 except Exception:
                     break
 
     def run(self) -> None:
-        self.app.run(pre_run=self._on_start)
+        try:
+            self.app.run(pre_run=self._on_start)
+        finally:
+            # Clear the process-global subprocess sink we installed in
+            # _on_start. It's a bound method on THIS instance; leaving it set
+            # would route later in-process subprocess output into a dead TUI
+            # (and leak across tests that build/tear down a TUI).
+            set_output_stream_writer(None)
 
 
 def run() -> None:

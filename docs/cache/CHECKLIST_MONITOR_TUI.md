@@ -61,10 +61,17 @@ default and fallback. Check items as completed.
 
 ## 3. Input parity with the REPL  — ✅ Phase 3 (essentials; multi-line deferred)
 - [x] Reuse `RedAfter120Lexer`, `CommandCompleter`, the shared persistent
-      `FileHistory`, the REPL `style`, and the function-key bindings (c-left/
-      c-right word nav, f10 voice, f-key selector) — passed to the input
-      `TextArea` + merged into the Application key bindings. `complete_while_
-      typing=False` matches the REPL.
+      `FileHistory`, the REPL `style`, and the REPL key bindings (c-left/c-right
+      word nav, f10 voice, **and the F1–F12 preset selector**) — merged into the
+      Application. `complete_while_typing=False` matches the REPL.
+- [x] **Keep escape-prefixed keys snappy via `ttimeoutlen=0.05`** (default 0.5s).
+      ESC is the prefix of EVERY terminal escape sequence, so the vt100 parser
+      holds a lone ESC and flushes only after `ttimeoutlen` if the rest arrives
+      split — THAT 0.5s wait was the "press twice" lag on PageUp/PageDown/arrows.
+      It's the escape-SEQUENCE flush at the parser level — independent of key
+      bindings (rebinding the selector's ESC would NOT help). `timeoutlen=0.1`
+      (key-mapping completion) lowered too. Raise ttimeoutlen toward ~0.2 if
+      running over a slow link where sequences start splitting.
 - [x] `:` built-ins and agent commands work from the TUI input — they route
       through the same `process_input`. `;` multi-command (split on `;;;`) and
       `<` macros work on a submitted line.
@@ -115,9 +122,19 @@ default and fallback. Check items as completed.
       `TerminalFormatter` (16-color ANSI) → renders in the output window.
 - [x] Terminal resize handling — prompt_toolkit's full-screen app handles
       SIGWINCH/re-layout automatically (no code needed).
-- [ ] (deferred) Manual scrollback (PgUp/PgDn): auto-follow-to-bottom covers the
-      common case; "stick unless scrolled up" needs care vs the SetCursorPosition
-      auto-follow — left as a future nicety.
+- [x] Manual scrollback (PgUp/PgDn): driven by a **hidden cursor**
+      (`FormattedTextControl.get_cursor_position` → `_cursor_position`), NOT by
+      poking `vertical_scroll` — the latter is unreliable with `wrap_lines=True`
+      (prompt_toolkit recomputes it each render, which broke PageDown). A
+      `_follow` flag pins the cursor to the last line (`_nlines`, tracked
+      incrementally); PageUp moves it up a page (scrollback), PageDown to the
+      bottom resumes follow. Input keeps focus. (Mouse-wheel still scrolls the
+      *terminal* — mouse capture intentionally off, keyboard-first.)
+- [x] **Cursor/fragments computed in one locked snapshot** (`_recompute_cursor_
+      locked` runs inside `_output_text` under `self._lock`; `_cursor_position`
+      returns the stored value). A live cursor recompute raced the output thread
+      growing `_nlines`, so `cursor.y` could land past the cached fragment lines
+      → `fragment_lines[i]` IndexError mid-render. Guarded by a regression test.
 - [x] Cursor/focus management; clear visual separation of the three regions
       (separate Windows + reverse bar; input focused; output cursor hidden).
 
@@ -140,8 +157,23 @@ default and fallback. Check items as completed.
       `configure_runtime_prompt_paths`. (Bug fix: an earlier early-return
       dispatched the TUI before that setup, so `{{macros}}` didn't expand and
       per-project prompt overrides were skipped. Guarded by an ordering test.)
+- [x] **Shell commands no longer corrupt the TUI.** Root cause: a shell command
+      (git/ls/grep/…) runs via `run_subprocess` which, with `fetch_output=False`,
+      *inherits the terminal fds* — so its output wrote over the full-screen
+      display (`redirect_stdout` only swaps Python's `sys.stdout`, not fd 1/2).
+      Fix, driven by the `needs_tty` flag (step C):
+      - **Output-style commands** (`needs_tty=False`, incl. `git`): the TUI sets
+        `command_utils.set_output_stream_writer(self._emit)`; `run_subprocess`
+        then *pipes* a non-interactive command's stdout/stderr (subprocess-level,
+        NOT `os.dup2` — that would fight ptk's own rendering) and streams it into
+        the output window. `execute_interactive_command` now passes
+        `interactive=command_needs_tty(cmd)` so output commands in the
+        interactive list become capturable. REPL behavior unchanged (no writer).
+      - **TTY programs** (`needs_tty=True`, e.g. `vim`/`ssh`/`top`/`psql`):
+        `_submit` routes them through `run_in_terminal` — suspends the
+        full-screen app, hands over the real terminal, then redraws.
 
-## 8. Tests  — ✅ 23 in tests/monitor/tui/test_tui_app.py
+## 8. Tests  — ✅ 32 in tests/monitor/tui/test_tui_app.py
 - [x] Worker-thread dispatch: backend runs off the UI loop; result marshals back.
 - [x] Output sink: stdout+stderr captured into the buffer; scroll marker present.
 - [x] Info bar composes cwd + status line + `render_toolbar()`; live model prompt.
@@ -149,4 +181,8 @@ default and fallback. Check items as completed.
 - [x] Input parity (lexer/completer/history wired); pipeline-mode refusal.
 - [x] Ctrl-C mid-turn/idle behavior; model-switch applied after turn; turn-error
       renders without crashing; `:exit` exits.
+- [x] Shell command handling: output commands stream to the window via the
+      writer seam; TTY commands route to `run_in_terminal`; `command_needs_tty`
+      drives the split. (+ command_utils streaming tests, execute_interactive
+      interactive-flag tests.)
 - [x] REPL regression guard: existing conversation/chat tests still pass.

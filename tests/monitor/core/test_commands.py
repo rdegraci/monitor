@@ -113,3 +113,114 @@ def test_llm_internal_command_missing_shell():
          patch('monitor.core.commands.logger') as mock_logger:
         commands.execute_internal_command(cmd_line, display)
         mock_handle_error.assert_called_once()
+
+
+# --- command_needs_tty -------------------------------------------------------
+
+@pytest.fixture
+def _isolated_command_lists(monkeypatch):
+    """Empty all command lists so needs_tty tests only see what they inject."""
+    monkeypatch.setattr(commands, "PRIVATE_COMMANDS", [])
+    monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS", [])
+    monkeypatch.setattr(commands, "NON_INTERACTIVE_COMMANDS", [])
+
+
+def test_command_needs_tty_true_for_tty_program(_isolated_command_lists, monkeypatch):
+    monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS",
+                        [{"command": "vim", "needs_tty": True}])
+    assert commands.command_needs_tty("vim notes.txt") is True
+
+
+def test_command_needs_tty_false_for_output_command(_isolated_command_lists, monkeypatch):
+    monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS",
+                        [{"command": "git", "needs_tty": False}])
+    assert commands.command_needs_tty("git status") is False
+
+
+def test_command_needs_tty_defaults_false_when_flag_absent(_isolated_command_lists, monkeypatch):
+    monkeypatch.setattr(commands, "NON_INTERACTIVE_COMMANDS",
+                        [{"command": "ls"}])  # no needs_tty key
+    assert commands.command_needs_tty("ls -la") is False
+
+
+def test_command_needs_tty_false_for_unknown_command(_isolated_command_lists):
+    assert commands.command_needs_tty("some_unlisted_thing --flag") is False
+
+
+@pytest.mark.parametrize("cmd,expected", [
+    # python: bare REPL needs a TTY; with a program it's output-style.
+    ("python", True),
+    ("python3", True),
+    ("python script.py", False),
+    ("python -c 'print(1)'", False),
+    ("python -m http.server", False),
+    ("python -i script.py", True),   # -i forces the REPL
+    # crontab: -e edits in $EDITOR (TTY); -l/-r are output-style.
+    ("crontab -e", True),
+    ("crontab -l", False),
+    # sh-family: bare shell is interactive; -c just runs a command.
+    ("sh", True),
+    ("sh -c 'echo hi'", False),
+    ("bash -c 'ls'", False),
+    ("zsh", True),
+])
+def test_command_needs_tty_argument_sensitive(_isolated_command_lists, cmd, expected):
+    """Argument-dependent commands are decided by their args, NOT a flat JSON flag
+    (and don't even need a list entry)."""
+    assert commands.command_needs_tty(cmd) is expected
+
+
+def test_command_lists_have_no_overlapping_commands():
+    """Guard the dedup: a command name must live in exactly one list, else
+    command_needs_tty / routing depend on list order rather than semantics."""
+    import importlib.resources, json
+    inter = json.loads(
+        importlib.resources.files("monitor").joinpath("interactive_commands.json").read_text()
+    )
+    noninter = json.loads(
+        importlib.resources.files("monitor").joinpath("non_interactive_commands.json").read_text()
+    )
+    ic = [e["command"] for e in inter]
+    nc = [e["command"] for e in noninter]
+    assert len(ic) == len(set(ic)), "duplicate command within interactive list"
+    assert len(nc) == len(set(nc)), "duplicate command within non-interactive list"
+    assert not (set(ic) & set(nc)), f"command(s) in both lists: {sorted(set(ic) & set(nc))}"
+
+
+def test_execute_interactive_command_interactive_flag_follows_needs_tty(monkeypatch):
+    """execute_interactive_command passes interactive=needs_tty to run_subprocess:
+    True for a TTY program, False for an output-style command (so a front-end can
+    capture it)."""
+    monkeypatch.setattr(commands, "PRIVATE_COMMANDS", [])
+
+    for entry, cmd, expected in (
+        ({"command": "vim", "needs_tty": True}, "vim notes.txt", True),
+        ({"command": "git", "needs_tty": False}, "git status", False),
+    ):
+        monkeypatch.setattr(commands, "INTERACTIVE_COMMANDS", [entry])
+        captured = {}
+
+        def fake_run(cmd_to_run, **kwargs):
+            captured.update(kwargs)
+            return (0, None, None, None)
+
+        monkeypatch.setattr(commands, "run_subprocess", fake_run)
+        commands.execute_interactive_command(cmd)
+        assert captured.get("interactive") is expected, cmd
+
+
+def test_real_interactive_json_carries_sane_needs_tty_flags():
+    """Guard the actual shipped data: TTY programs flagged True, output tools False."""
+    import importlib.resources, json
+    data = json.loads(
+        importlib.resources.files("monitor").joinpath("interactive_commands.json").read_text()
+    )
+    flags = {e["command"]: e.get("needs_tty") for e in data}
+    # Every entry has an explicit boolean flag.
+    assert all(isinstance(v, bool) for v in flags.values())
+    # True TTY programs.
+    for c in ("vim", "ssh", "top", "psql", "less"):
+        assert flags.get(c) is True, c
+    # Output-style tools that merely live in the interactive list.
+    for c in ("git", "cat", "head", "git-log"):
+        assert flags.get(c) is False, c

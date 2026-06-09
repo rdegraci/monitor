@@ -54,7 +54,7 @@ def test_builds_three_regions(stub_backend):
     app = tui_app.MonitorTUI()
     assert app.app is not None
     assert app._output_text() is not None          # output window content
-    assert "tick" in app._info_text()              # info bar has the live tick
+    assert "idle" in app._info_text()              # info bar shows idle state
     assert app.input is not None                    # input area
 
 
@@ -68,7 +68,7 @@ def test_info_bar_shows_status_line_and_agents(stub_backend, monkeypatch):
     assert "C:12345 (80%)" in bar      # real status line (stats) rendered
     assert "H:3" in bar
     assert "agents — none" in bar       # no sub-agents
-    assert "tick" in bar                # live tick still present
+    assert "idle" in bar                # idle state shown (spinner only when working)
     # ANSI color codes from the status string are stripped for the reverse bar.
     assert "\x1b[" not in bar
 
@@ -118,6 +118,118 @@ def test_status_seeded_at_startup_and_recomputed(stub_backend):
     assert app._status_line == "C:12345 (80%) U:678 L:42 H:3"  # stats line extracted
 
 
+def test_info_bar_spinner_only_when_processing(stub_backend, monkeypatch):
+    monkeypatch.setattr("monitor.lib.agent_orchestrator.render_toolbar", lambda: "")
+    app = tui_app.MonitorTUI()
+    assert "idle" in app._info_text()          # idle by default
+    app.processing = True
+    bar = app._info_text()
+    assert "working" in bar                     # animated spinner while a turn runs
+    assert "idle" not in bar
+
+
+def test_output_fragments_cached_and_rebuilt_on_emit(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.loop = _FakeLoop()
+    app.app.invalidate = lambda: None
+
+    first = app._output_text()
+    # No output change → same cached object (no expensive re-parse per repaint).
+    assert app._output_text() is first
+    app._emit("a brand new line\n")
+    second = app._output_text()
+    assert second is not first                                  # cache rebuilt
+    assert "a brand new line" in "".join(t for _s, t, *_ in second)
+
+
+class _FakeRenderInfo:
+    def __init__(self, window_height):
+        self.window_height = window_height
+
+
+def test_cursor_follows_bottom_then_paged_line(stub_backend):
+    app = tui_app.MonitorTUI()
+    app._nlines = 100
+    # Following → cursor pinned to the last line (bottom). The cursor is computed
+    # under the lock when fragments build, so recompute as a render would.
+    app._follow = True
+    app._recompute_cursor_locked()
+    assert app._cursor_position().y == 100
+    # Scrollback → cursor at the paged-to line (clamped to content).
+    app._follow = False
+    app._scroll_line = 30
+    app._recompute_cursor_locked()
+    assert app._cursor_position().y == 30
+
+
+def test_pageup_enters_scrollback_and_moves_cursor_up(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._nlines = 100
+    app._follow = True                       # start following (cursor at bottom=100)
+    app.output_window.render_info = _FakeRenderInfo(window_height=10)
+    app._scroll_output(-1)
+    assert app._follow is False
+    assert app._scroll_line == 100 - 9       # anchored at bottom, then up a page
+
+
+def test_pagedown_to_bottom_resumes_follow(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._nlines = 100
+    app._follow = False
+    app._scroll_line = 95
+    app.output_window.render_info = _FakeRenderInfo(window_height=10)
+    app._scroll_output(+1)                   # 95 + 9 = 104 >= 100 → bottom
+    assert app._scroll_line == 100
+    assert app._follow is True               # resumed follow
+
+
+def test_pagedown_midway_stays_in_scrollback(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._nlines = 100
+    app._follow = False
+    app._scroll_line = 0
+    app.output_window.render_info = _FakeRenderInfo(window_height=10)
+    app._scroll_output(+1)
+    assert app._scroll_line == 9
+    assert app._follow is False              # not at bottom yet
+
+
+def test_scroll_is_noop_without_render_info(stub_backend):
+    app = tui_app.MonitorTUI()
+    app.output_window.render_info = None
+    app._scroll_output(-1)                   # must not raise
+    assert app._follow is True               # unchanged (no render yet)
+
+
+def test_snappy_timeout_keeps_escape_keys_responsive(stub_backend):
+    from prompt_toolkit.keys import Keys
+
+    app = tui_app.MonitorTUI()
+    # ttimeoutlen is the escape-SEQUENCE flush (the real PageUp/PageDown lag
+    # knob); timeoutlen is key-mapping completion. Both lowered for snappy keys.
+    assert app.app.ttimeoutlen <= 0.1
+    assert app.app.timeoutlen <= 0.2
+    keyseqs = [tuple(b.keys) for b in app.app.key_bindings.bindings]
+    assert (Keys.PageUp,) in keyseqs and (Keys.PageDown,) in keyseqs
+
+
+def test_fkey_selector_bindings_merged_into_app(stub_backend):
+    """The F1–F12 preset selector is restored: registering the handlers (as the
+    real prepare_chat_session does) and building the app exposes them."""
+    from prompt_toolkit.keys import Keys
+    from monitor.lib import lexer as lexer_mod
+    from monitor.lib.keyboard import register_function_key_handlers
+
+    register_function_key_handlers(lexer_mod.bindings)  # what create_prompt_session does
+    app = tui_app.MonitorTUI()
+    keyseqs = [tuple(b.keys) for b in app.app.key_bindings.bindings]
+    assert (Keys.F12,) in keyseqs        # selector menu key present
+    assert (Keys.Escape,) in keyseqs     # selector's escape (kept snappy via timeoutlen)
+
+
 def test_emit_accumulates_and_renders(stub_backend):
     app = tui_app.MonitorTUI()
     app.loop = _FakeLoop()
@@ -127,15 +239,28 @@ def test_emit_accumulates_and_renders(stub_backend):
     assert "hello" in text
 
 
-def test_output_includes_scroll_to_bottom_marker(stub_backend):
-    from prompt_toolkit.formatted_text import to_formatted_text
-
+def test_output_auto_follows_bottom_via_cursor(stub_backend):
     app = tui_app.MonitorTUI()
+    start = app._nlines
     app._emit("line one\nline two\n")
-    fragments = to_formatted_text(app._output_text())
-    # The [SetCursorPosition] marker drives the Window's auto-follow scroll so
-    # the newest output stays visible.
-    assert any("[SetCursorPosition]" in style for style, _text, *_ in fragments)
+    # Newlines tracked incrementally → cursor pins to the new bottom (auto-follow).
+    assert app._nlines == start + 2
+    app._output_text()   # building fragments recomputes the cursor (as a render does)
+    assert app._cursor_position().y == app._nlines
+
+
+def test_cursor_never_exceeds_fragment_lines(stub_backend):
+    """Regression: the scroll cursor must stay within the rendered fragments even
+    if the output thread grows _nlines after fragments were built (else
+    fragment_lines[y] → IndexError mid-render)."""
+    app = tui_app.MonitorTUI()
+    app._emit("a\nb\nc\n")
+    frags = app._output_text()                       # builds fragments + cursor
+    line_count = "".join(t for _s, t, *_ in frags).count("\n") + 1
+    # Simulate the output thread racing ahead AFTER fragments were cached.
+    app._nlines += 500
+    # _cursor_position returns the stored (consistent) cursor, not a live value.
+    assert app._cursor_position().y < line_count
 
 
 def test_emit_trims_to_soft_cap(stub_backend, monkeypatch):
@@ -231,6 +356,96 @@ def test_pipeline_mode_refused_without_nested_prompt(stub_backend, monkeypatch):
     assert keep is False
     assert submitted == []                                  # NOT dispatched (no nested prompt)
     assert "pipeline mode (|)" in "".join(app._chunks)      # friendly refusal shown
+
+
+def test_submit_routes_tty_command_to_run_in_terminal(stub_backend, monkeypatch):
+    monkeypatch.setattr(tui_app, "command_needs_tty", lambda t: True)
+    tty_calls, worker_calls = [], []
+    monkeypatch.setattr(tui_app.MonitorTUI, "_run_tty_turn", lambda self, t: tty_calls.append(t))
+    monkeypatch.setattr(tui_app.MonitorTUI, "_run_turn", lambda self, t: worker_calls.append(t))
+
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._submit("vim notes.txt")
+
+    assert tty_calls == ["vim notes.txt"]      # routed to the suspend path
+    assert worker_calls == []                   # NOT the worker turn
+
+
+def test_submit_routes_output_command_to_worker(stub_backend, monkeypatch):
+    monkeypatch.setattr(tui_app, "command_needs_tty", lambda t: False)
+    tty_calls, worker_calls = [], []
+    monkeypatch.setattr(tui_app.MonitorTUI, "_run_tty_turn", lambda self, t: tty_calls.append(t))
+    monkeypatch.setattr(tui_app.MonitorTUI, "_run_turn", lambda self, t: worker_calls.append(t))
+
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._submit("git status")
+
+    deadline = time.time() + 2
+    while not worker_calls and time.time() < deadline:
+        time.sleep(0.01)
+    assert worker_calls == ["git status"]       # worker turn (captured output)
+    assert tty_calls == []
+
+
+def test_on_start_installs_output_stream_writer(stub_backend, monkeypatch):
+    set_calls = []
+    monkeypatch.setattr(tui_app, "set_output_stream_writer", lambda w: set_calls.append(w))
+    # Avoid spawning the ticker thread / needing a real event loop.
+    monkeypatch.setattr(tui_app.threading, "Thread",
+                        lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(tui_app.asyncio, "get_running_loop", lambda: _FakeLoop())
+
+    app = tui_app.MonitorTUI()
+    app._on_start()
+    assert set_calls and set_calls[-1] == app._emit  # subprocess output → window
+
+
+def test_run_clears_output_stream_writer_on_exit(stub_backend, monkeypatch):
+    # run() must clear the process-global sink it installs, even if app.run
+    # raises — otherwise later in-process subprocess output routes into a dead
+    # TUI (and leaks across tests).
+    set_calls = []
+    monkeypatch.setattr(tui_app, "set_output_stream_writer", lambda w: set_calls.append(w))
+
+    app = tui_app.MonitorTUI()
+    monkeypatch.setattr(app.app, "run", lambda **k: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError):
+        app.run()
+    assert set_calls[-1] is None  # cleared in finally
+
+
+def test_run_tty_turn_suspends_via_run_in_terminal(stub_backend, monkeypatch):
+    ran = {}
+    monkeypatch.setattr(tui_app, "process_input",
+                        lambda t, h, s: ran.setdefault("pi", t) is None and False)
+    monkeypatch.setattr(tui_app, "flush_logs_and_conversation", lambda: None)
+    monkeypatch.setattr(tui_app, "apply_model_switch_if_needed", lambda m: m)
+
+    class FakeFut:
+        def add_done_callback(self, cb):
+            cb(self)  # fire completion immediately
+
+    def fake_run_in_terminal(func):
+        func()        # simulate suspended terminal: run the work inline
+        return FakeFut()
+
+    monkeypatch.setattr(tui_app, "run_in_terminal", fake_run_in_terminal)
+
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._exit_called = []
+    app.app.exit = lambda *a, **k: app._exit_called.append(True)
+    app.processing = True
+
+    app._run_tty_turn("vim notes.txt")
+
+    assert ran.get("pi") == "vim notes.txt"          # backend ran inside the suspend
+    assert app.processing is False                    # completion handled
+    assert "[ran: vim notes.txt]" in "".join(app._chunks)
+    assert app._exit_called == []                     # no :exit → stays up
 
 
 def test_input_gated_while_processing(stub_backend, monkeypatch):

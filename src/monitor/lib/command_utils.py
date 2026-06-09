@@ -7,6 +7,26 @@ except ImportError:
     def colored(text, color):
         return text
 
+logger = logging.getLogger(__name__)
+
+# Optional sink for streaming subprocess output. When set (by the --tui
+# front-end via set_output_stream_writer), a NON-interactive command that would
+# otherwise inherit the terminal instead has its stdout/stderr piped and streamed
+# to this writer — so command output (git, ls, grep, …) lands in the TUI output
+# window rather than corrupting the full-screen display. The REPL leaves this
+# unset, so its behavior is unchanged (commands inherit the terminal as before).
+# Note: this captures at the SUBPROCESS boundary (subprocess.PIPE), NOT via
+# os.dup2 fd-level redirection — the latter would fight prompt_toolkit's own
+# rendering to fd 1.
+_output_stream_writer = None
+
+
+def set_output_stream_writer(writer):
+    """Install (or clear with None) the subprocess output sink. ``writer`` is a
+    callable taking a ``str`` chunk. See ``_output_stream_writer``."""
+    global _output_stream_writer
+    _output_stream_writer = writer
+
 def get_first_word(command: str) -> str:
     """Extracts the first word from a shell command string.
 
@@ -95,9 +115,20 @@ def run_subprocess(
         popen_kwargs["preexec_fn"] = preexec_fn
     if cwd is not None:
         popen_kwargs["cwd"] = cwd
+    # Stream a non-interactive command's output to the installed sink (TUI) when
+    # the caller isn't asking for the captured string back. This routes command
+    # output into the TUI window instead of letting it inherit (and corrupt) the
+    # full-screen terminal. Interactive commands are never streamed here — the
+    # TUI runs those with the real terminal via run_in_terminal.
+    stream_writer = _output_stream_writer
+    stream_to_writer = stream_writer is not None and not interactive and not fetch_output
+
     if not interactive and fetch_output:
         popen_kwargs["stdout"] = subprocess.PIPE
         popen_kwargs["stderr"] = subprocess.PIPE
+    elif stream_to_writer:
+        popen_kwargs["stdout"] = subprocess.PIPE
+        popen_kwargs["stderr"] = subprocess.STDOUT  # merge so order is preserved
     try:
         process = subprocess.Popen(command_string, **popen_kwargs)
     except Exception as ex_start:
@@ -114,6 +145,42 @@ def run_subprocess(
     try:
         if not interactive and fetch_output:
             stdout, stderr = process.communicate()
+            exit_code = process.returncode
+        elif stream_to_writer:
+            # Stream in chunks (NOT line-by-line) so output appears live even when
+            # a command emits partial lines: progress bars, \r status updates, or
+            # long unflushed runs would otherwise stay invisible until a newline.
+            # read1() returns whatever bytes are already available (one underlying
+            # read), so we forward them immediately. We read the binary buffer and
+            # decode incrementally — a fixed chunk size can split a multibyte char,
+            # and an incremental decoder buffers that partial byte until the rest
+            # arrives instead of emitting U+FFFD. (text=True wraps stdout in a
+            # TextIOWrapper whose .buffer is the binary stream; binary mode has no
+            # .buffer, so fall back to stdout itself.)
+            import codecs
+
+            raw = getattr(process.stdout, "buffer", process.stdout)
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            try:
+                while True:
+                    data = raw.read1(65536)
+                    if not data:
+                        break
+                    chunk = decoder.decode(data)
+                    if chunk:
+                        try:
+                            stream_writer(chunk)
+                        except Exception:
+                            logger.debug("output stream writer failed", exc_info=True)
+                tail = decoder.decode(b"", final=True)
+                if tail:
+                    try:
+                        stream_writer(tail)
+                    except Exception:
+                        logger.debug("output stream writer failed", exc_info=True)
+            finally:
+                process.stdout.close()
+            process.wait()
             exit_code = process.returncode
         else:
             process.wait()
