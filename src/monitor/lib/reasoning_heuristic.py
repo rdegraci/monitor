@@ -38,6 +38,8 @@ KEYWORD_SIGNALS = (
     "migrate",
     "align",
     "why",
+    "examine",
+    "trace"
 )
 
 # Messages above this character length suggest the user is providing
