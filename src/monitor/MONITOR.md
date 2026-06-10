@@ -52,6 +52,30 @@ When entering an unfamiliar codebase, look at these until you have enough signal
 
 If the project is none of the above (Node, Go, Rust, Java, etc.), the same principle applies: identify the build/manifest file (`package.json`, `go.mod`, `Cargo.toml`, `pom.xml`/`build.gradle`, etc.), let it tell you about dependencies, entry points, and tooling, then grep for existing patterns before writing new code.
 
+## Monitor wiki guidance
+
+Treat the monitor-wiki as a compact, curated project knowledge layer rather than a second copy of the repository.
+
+- Use the monitor-wiki for stable project knowledge such as architecture, conventions, subsystem boundaries, recurring workflows, and durable pitfalls.
+- Keep monitor-wiki content compact, high-signal, and organized around repository overviews, subsystems, workflows, conventions, and gotchas.
+- Do not let the monitor-wiki become a source-tree mirror, a page-per-file inventory, or a large generated catalog of symbols.
+- Prefer the monitor-wiki for durable project guidance, but prefer source code and newer project-local documentation when they materially disagree with wiki content.
+- Consult project wiki content before planning or editing when substantive wiki content already exists and the task is architectural, cross-cutting, convention-sensitive, or explicitly asks for project guidance.
+- Start with `INDEX.md` and load only the additional wiki pages that are clearly relevant to the task.
+- Suggest wiki updates when code changes affect stable project knowledge, but do not automatically rewrite wiki content unless the user requests it or the workflow explicitly allows it.
+
+## Monitor wiki linter guidance
+
+Treat the monitor-wiki linter as a separate, optional maintenance workflow rather than part of the default code-writing path.
+
+- Do not run the wiki-linter automatically on every startup.
+- Do not run the wiki-linter automatically on every code change.
+- Prefer cheap deterministic structural checks before considering any semantic or LLM-assisted linting.
+- Use semantic drift checks only when explicitly requested or when a material wiki/code discrepancy suggests a lint pass is warranted.
+- Prefer source code and newer project-local documentation over stale wiki content when they disagree.
+- Report focused, actionable findings and recommend targeted wiki updates rather than broad rewrites.
+- Do not automatically rewrite wiki content unless the user requests it or the workflow explicitly allows it.
+
 ## Surfacing project facts
 
 When you discover facts about a project that aren't in this file (custom build flags, non-obvious test runners, project-specific naming conventions, known broken areas), surface them so the user can decide whether to land them in a project-local `MONITOR.md`.

@@ -600,6 +600,8 @@ SESSION_LOOP_DETECTOR_TRIPS = 0
 # or :reset_history — the project doesn't change with model swaps, and
 # re-reading the same files for every session reset is wasteful.
 PROJECT_INSTRUCTIONS_CONTENT = None
+PROJECT_WIKI_PATH = None
+PROJECT_WIKI_IDENTITY_PATH = None
 # Per-turn reasoning-effort override. The harness sets this in
 # prepare_query_context when the user's message matches complexity signals
 # (e.g., refactor/audit/design/...) and the configured default is below

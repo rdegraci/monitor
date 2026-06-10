@@ -18,6 +18,7 @@ from monitor.lib.tool_definitions import GEMINI_TOOL_DESCRIPTIONS, TOOL_DESCRIPT
 from monitor.lib.tool_loading import add_openai_editor_tools
 
 from monitor import config
+from monitor.lib.monitor_wiki import configure_project_wiki_paths
 from monitor.lib.system_prompt import (
     build_system_prompt,
     build_user_prompt_prefix,
@@ -31,8 +32,10 @@ from monitor.lib.system_prompt import (
 def _reset_project_instructions_cache():
     """Each test starts with a clean cache slate."""
     clear_project_instructions_cache()
+    configure_project_wiki_paths(None)
     yield
     clear_project_instructions_cache()
+    configure_project_wiki_paths(None)
     # Also clear any override paths set by tests.
     configure_runtime_prompt_paths(None)
 
@@ -123,6 +126,85 @@ def test_session_id_appended_after_project_instructions(tmp_path):
     assert "Session ID: abc-123" in out
     # Session ID should appear AFTER the project instructions.
     assert out.index("PROJ") < out.index("Session ID:")
+
+
+def test_build_system_prompt_includes_project_wiki_pointer(tmp_path):
+    (tmp_path / "MONITOR.md").write_text("PROJ\n")
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
+    configure_runtime_prompt_paths(tmp_path)
+    configure_project_wiki_paths(tmp_path)
+
+    project_wiki_dir = tmp_path / "appdir" / "monitor-wiki" / "tmp"
+    project_wiki_dir.mkdir(parents=True)
+    (project_wiki_dir / "INDEX.md").write_text(
+        "# Project Wiki Index\n\nCustom content\n",
+        encoding="utf-8",
+    )
+    config.PROJECT_WIKI_PATH = str(project_wiki_dir)
+
+    out = build_system_prompt()
+
+    assert "--- Project wiki ---" in out
+    assert "Project wiki context is available for this session" in out
+    assert "INDEX.md" in out
+    assert "Index excerpt:" in out
+    assert "Custom content" in out
+
+
+def test_build_system_prompt_limits_project_wiki_excerpt_length(tmp_path):
+    (tmp_path / "MONITOR.md").write_text("PROJ\n")
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
+    configure_runtime_prompt_paths(tmp_path)
+    configure_project_wiki_paths(tmp_path)
+
+    project_wiki_dir = tmp_path / "appdir" / "monitor-wiki" / "long"
+    project_wiki_dir.mkdir(parents=True)
+    long_index = "\n".join(f"line {number}" for number in range(1, 21)) + "\n"
+    (project_wiki_dir / "INDEX.md").write_text(long_index, encoding="utf-8")
+    config.PROJECT_WIKI_PATH = str(project_wiki_dir)
+
+    out = build_system_prompt()
+
+    assert "line 1" in out
+    assert "line 12" in out
+    assert "line 13" not in out
+
+
+def test_build_system_prompt_includes_up_to_two_additional_wiki_pages(tmp_path):
+    (tmp_path / "MONITOR.md").write_text("PROJ\n")
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
+    configure_runtime_prompt_paths(tmp_path)
+    configure_project_wiki_paths(tmp_path)
+
+    project_wiki_dir = tmp_path / "appdir" / "monitor-wiki" / "linked"
+    project_wiki_dir.mkdir(parents=True)
+    (project_wiki_dir / "ARCHITECTURE.md").write_text("Architecture details\n", encoding="utf-8")
+    (project_wiki_dir / "CONVENTIONS.md").write_text("Convention details\n", encoding="utf-8")
+    (project_wiki_dir / "TESTING.md").write_text("Testing details\n", encoding="utf-8")
+    (project_wiki_dir / "INDEX.md").write_text(
+        "# Project Wiki Index\n\nSee ARCHITECTURE.md and CONVENTIONS.md and TESTING.md\n",
+        encoding="utf-8",
+    )
+    config.PROJECT_WIKI_PATH = str(project_wiki_dir)
+
+    out = build_system_prompt()
+
+    assert "ARCHITECTURE.md:" in out
+    assert "Architecture details" in out
+    assert "CONVENTIONS.md:" in out
+    assert "Convention details" in out
+    assert "TESTING.md:" not in out
+
+
+def test_build_system_prompt_omits_project_wiki_pointer_for_starter_only_wiki(tmp_path):
+    (tmp_path / "MONITOR.md").write_text("PROJ\n")
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
+    configure_runtime_prompt_paths(tmp_path)
+    configure_project_wiki_paths(tmp_path)
+
+    out = build_system_prompt()
+
+    assert "--- Project wiki ---" not in out
 
 
 def test_build_user_prompt_prefix_returns_empty():

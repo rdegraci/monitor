@@ -29,6 +29,7 @@ from monitor.core.query_service import register_query_function  # Ensure query i
 from monitor.core.version import VERSION
 from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
 from monitor.lib.macros import configure_macros
+from monitor.lib.monitor_wiki import configure_project_wiki_paths
 from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 from monitor.lib.system_prompt import configure_runtime_prompt_paths
@@ -382,7 +383,9 @@ def main():
     # Snapshot the startup cwd to resolve any per-project prompt overrides
     # (MONITOR.md / MONITOR_CONVENTIONS.md in the cwd). Frozen for the rest
     # of the session — :cd later does NOT re-resolve.
-    configure_runtime_prompt_paths(os.getcwd())
+    startup_cwd = os.getcwd()
+    configure_runtime_prompt_paths(startup_cwd)
+    configure_project_wiki_paths(startup_cwd)
 
     # Built-ins
     configure_built_ins()

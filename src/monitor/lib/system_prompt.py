@@ -24,6 +24,13 @@ from pathlib import Path
 
 import appdirs
 
+from monitor.lib.monitor_wiki import (
+    configured_project_wiki_additional_pages,
+    configured_project_wiki_index_path,
+    ensure_configured_project_wiki,
+    has_substantive_configured_project_wiki,
+)
+
 
 # Per-project override of the runtime prompt files. Captured once at startup
 # from the cwd via configure_runtime_prompt_paths(). For MONITOR.md the chain
@@ -62,6 +69,9 @@ Working style:
 - Prefer the surgical text-edit tools (text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create) over modify_source_code. Reach for modify_source_code only when the change genuinely can't be expressed as exact text replacements (fuzzy intent or sweeping refactors).
 - After any write, always inspect the diff before claiming success. Run language-specific verification only when clearly applicable: for example, type-check Python changes when the edited files make that relevant, and run targeted tests when an obvious scoped test target exists. If no relevant automated check is clearly applicable, say so plainly.
 - When discovering broken or dead code (syntax errors, never-called functions), report it explicitly rather than silently working around it.
+- Treat project wiki content as a compact, high-signal guidance layer when it exists and the task is architectural, cross-cutting, convention-sensitive, or explicitly requests project guidance.
+- Prefer source code and newer project-local documentation over stale wiki content when they materially disagree.
+- Do not run wiki linting automatically as part of routine coding flow; use it only when explicitly requested or when a material wiki/code discrepancy suggests a focused lint pass.
 
 When to ask vs. act:
 - For routine, scoped tasks (fix one bug, rename one variable, add one test), act directly.
@@ -285,10 +295,73 @@ You were spawned by an orchestrator to do ONE focused task. Your final assistant
 """
 
 
+def _project_wiki_excerpt() -> str:
+    """Return a compact excerpt of substantive project wiki index content.
+
+    Returns:
+        A compact excerpt from the configured project wiki ``INDEX.md``, or an
+        empty string when no substantive configured wiki exists.
+    """
+    ensure_configured_project_wiki()
+    if not has_substantive_configured_project_wiki():
+        return ""
+
+    index_path = configured_project_wiki_index_path()
+    if index_path is None:
+        return ""
+
+    lines = index_path.read_text(encoding="utf-8").strip().splitlines()
+    excerpt = "\n".join(lines[:12]).strip()
+    if not excerpt:
+        return ""
+    return excerpt
+
+
+def _project_wiki_additional_page_blocks() -> str:
+    """Return compact prompt blocks for additional wiki pages from INDEX.
+
+    Returns:
+        Prompt text for up to two additional wiki pages referenced by the
+        configured wiki index, or an empty string when none are available.
+    """
+    blocks = []
+    for page in configured_project_wiki_additional_pages(max_pages=2):
+        lines = page.read_text(encoding="utf-8").strip().splitlines()
+        excerpt = "\n".join(lines[:10]).strip()
+        if not excerpt:
+            continue
+        blocks.append(f"\n{page.name}:\n{excerpt}\n")
+    return "".join(blocks)
+
+
+def _project_wiki_prompt_block() -> str:
+    """Return a concise prompt block for substantive project wiki content.
+
+    Returns:
+        A prompt snippet containing the configured project wiki entry point,
+        compact index content, and up to two additional referenced wiki page
+        excerpts, or an empty string when no substantive wiki content is
+        available.
+    """
+    index_path = configured_project_wiki_index_path()
+    excerpt = _project_wiki_excerpt()
+    if index_path is None or not excerpt:
+        return ""
+    additional_pages = _project_wiki_additional_page_blocks()
+    return (
+        "\n--- Project wiki ---\n\n"
+        "Project wiki context is available for this session. Start with the "
+        f"wiki entry point at `{index_path}` when wiki guidance is relevant.\n\n"
+        "Index excerpt:\n"
+        f"{excerpt}\n"
+        f"{additional_pages}"
+    )
+
+
 def build_system_prompt(session_id=None):
-    """Return the assembled system prompt: platform invariants
-    (SYSTEM_PROMPT_TEMPLATE) followed by the project instructions
-    (MONITOR.md + MONITOR_CONVENTIONS.md) and an optional session-ID line.
+    """Return the assembled system prompt: platform invariants, project
+    instructions, optional project wiki pointer, and an optional session-ID
+    line.
 
     SYSTEM_PROMPT_TEMPLATE stays platform-only in source (per the
     'system-prompt scope' design rule); the project instructions are
@@ -309,6 +382,10 @@ def build_system_prompt(session_id=None):
         # system-level guidance.
         parts.append("\n--- Project instructions ---\n\n")
         parts.append(project)
+
+    project_wiki = _project_wiki_prompt_block()
+    if project_wiki:
+        parts.append(project_wiki)
 
     from monitor import config as _config
     if getattr(_config, "AGENT", False):
