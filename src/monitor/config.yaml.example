@@ -67,7 +67,7 @@ DAILY_COST_TARGET_USD: 5.0          # dollars/day the tank represents; 0 hides t
 # reasoning effort. Seed/tune from observation: at session end, your rate is
 # T: (dollars) / U: (tokens). Models not listed here are scaled off the anchor.
 MODEL_TOKEN_RATE_PER_MTOK:
-  openai/gpt-5.4: 1.0               # observed ~$1/1M at medium reasoning
+  openai/gpt-5.4: 0.34               # observed ~$0.34/1M at medium reasoning
 TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4   # scale unlisted models off this measured entry
 DEFAULT_TOKEN_RATE_PER_MTOK: 1.0    # last resort when no anchor/table rate is available
 
