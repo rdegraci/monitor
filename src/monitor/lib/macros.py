@@ -22,15 +22,18 @@ If you ever need to evaluate macros from a less-trusted source, the Tcl
 expansion path in ``macro_utils.tcl_macro_expand`` is the boundary to gate.
 """
 
-import json
 import logging
 import os
 import subprocess
 
 from monitor import config
 
-from monitor.lib.macro_utils import load_additional_macros, update_macros
-from monitor.lib.colors import red, yellow, reset
+from monitor.lib.macro_utils import (
+    load_additional_macro_metadata,
+    load_additional_macros,
+    update_macros,
+)
+from monitor.lib.colors import magenta, red, reset, yellow
 
 MACRO_VALUES = {}
 
@@ -38,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # When adding macros via '<key=value' the macros are stored in EPHEMERAL_MACRO_VALUES
 # and are destroyed when monitor exits. If you want macros to persist, use the
-# :edit_macros command 
+# :edit_macros command
 EPHEMERAL_MACRO_VALUES = {}
 
 # Initialize macro values dictionary with hardcoded values
@@ -48,6 +51,29 @@ PRIVATE_MACRO_VALUES = {
     "memories?": "What are your memories?",
     "purpose?": "What is your purpose?",
     "self_test": "what is the weather in san diego, ca in F? {{purpose?}} {{memories?}}",
+}
+
+PRIVATE_MACRO_METADATA = {
+    "system?": {
+        "title": "System prompt check",
+        "description": "Internal prompt used to verify the assistant is responsive.",
+        "group": "built_in_internal",
+    },
+    "memories?": {
+        "title": "Memory prompt check",
+        "description": "Internal prompt used to inspect the assistant's memories.",
+        "group": "built_in_internal",
+    },
+    "purpose?": {
+        "title": "Purpose prompt check",
+        "description": "Internal prompt used to ask the assistant about its purpose.",
+        "group": "built_in_internal",
+    },
+    "self_test": {
+        "title": "Internal self test",
+        "description": "Internal macro that chains built-in prompts for a quick self test.",
+        "group": "built_in_internal",
+    },
 }
 
 # Useful macros, these are visible when dumping macros via the 'macros' built in command.
@@ -65,7 +91,7 @@ it must provide comprehensive context. Title must have max 50 characters and no 
 
 Body content by change type:
 
-Bug fix — explain:  
+Bug fix — explain:
 - what was broken
 - what should happen instead
 - why the correction matters to users or the system
@@ -79,7 +105,7 @@ New feature — explain:
 - why it was added
 Keep implementation details out unless they matter for reviewers, rollout, or risk.
 
-Refactor — explain: 
+Refactor — explain:
 - what design or maintenance issue is being addressed
 - why the change helps
 - whether behavior is intentionally unchanged (usually it is)
@@ -91,6 +117,247 @@ Avoid generic "cleanup" framing or listing moved methods unless that context mat
     "plan": "Give me a step by step plan",
     "wdyt": "Don't change any code. Tell me what do you think",
 }
+
+PUBLIC_MACRO_METADATA = {
+    "do_diff": {
+        "title": "Diff current changes",
+        "description": "Ask the assistant to inspect the files modified in the current working tree.",
+        "group": "built_in_general",
+    },
+    "create_git_entry": {
+        "title": "Write git commit message",
+        "description": "Generate a concise commit title and a detailed wrapped commit body.",
+        "group": "built_in_general",
+    },
+    "rank_examine": {
+        "title": "Rank next examination target",
+        "description": "Ask the assistant to prioritize what should be examined next.",
+        "group": "built_in_general",
+    },
+    "diff": {
+        "title": "Diff plus commit entry",
+        "description": "Run the diff review flow together with commit message drafting guidance.",
+        "group": "built_in_general",
+    },
+    "diff_previous": {
+        "title": "Diff previous commit",
+        "description": "Inspect changes between the current commit and its parent commit.",
+        "group": "built_in_general",
+    },
+    "xdiff": {
+        "title": "Show diff for revision",
+        "description": "Inspect source changes for a supplied commit hash or branch name.",
+        "group": "built_in_general",
+    },
+    "plan": {
+        "title": "Step-by-step plan",
+        "description": "Ask the assistant to produce a step-by-step plan.",
+        "group": "built_in_general",
+    },
+    "wdyt": {
+        "title": "What do you think",
+        "description": "Request feedback without changing any code.",
+        "group": "built_in_general",
+    },
+}
+
+BUILT_IN_GROUP_METADATA = {
+    "built_in_general": {
+        "title": "Built-in macros",
+        "description": "Macros that ship with the application and are visible in normal macro listings.",
+        "order": 100,
+    },
+    "built_in_internal": {
+        "title": "Built-in internal macros",
+        "description": "Internal macros reserved for runtime behavior and excluded from normal display.",
+        "order": 900,
+    },
+    "runtime": {
+        "title": "Runtime macros",
+        "description": "Macros added during the current session with the <key=value syntax.",
+        "order": 300,
+    },
+    "file": {
+        "title": "Macros file",
+        "description": "Persistent macros loaded from the configured macros file.",
+        "order": 200,
+    },
+}
+
+
+def _normalize_macro_metadata(name, metadata=None, default_group="file"):
+    """Normalize metadata for a macro entry.
+
+    Invalid non-dictionary metadata values are ignored so malformed nested
+    entries in ``_macro_meta`` cannot break macro display.
+
+    Args:
+        name (str): Macro name.
+        metadata (dict | None): Raw metadata dictionary for the macro.
+        default_group (str): Group identifier to use when metadata omits one.
+
+    Returns:
+        dict: Normalized metadata containing ``title``, ``description``,
+        ``usage``, and ``group`` keys.
+    """
+    if not isinstance(metadata, dict):
+        metadata = {}
+    title = metadata.get("title") or name
+    description = metadata.get("description") or ""
+    usage = metadata.get("usage") or ""
+    group = metadata.get("group") or default_group
+    return {
+        "title": title,
+        "description": description,
+        "usage": usage,
+        "group": group,
+    }
+
+
+def _normalize_group_metadata(group_name, metadata=None, default_order=500):
+    """Normalize metadata for a group entry.
+
+    Invalid non-dictionary metadata values are ignored so malformed nested
+    entries in ``_groups`` cannot break macro display.
+
+    Args:
+        group_name (str): Group identifier.
+        metadata (dict | None): Raw metadata dictionary for the group.
+        default_order (int): Sort order to use when metadata omits one.
+
+    Returns:
+        dict: Normalized metadata containing ``title``, ``description``, and
+        ``order`` keys.
+    """
+    if not isinstance(metadata, dict):
+        metadata = {}
+    title = metadata.get("title") or group_name.replace("_", " ").title()
+    description = metadata.get("description") or ""
+    order = metadata.get("order", default_order)
+    if not isinstance(order, (int, float)):
+        order = default_order
+    return {
+        "title": title,
+        "description": description,
+        "order": order,
+    }
+
+
+def _build_visible_macro_catalog():
+    """Build the visible macro catalog using display precedence rules.
+
+    Visible macro display follows precedence ``public < file < ephemeral`` so
+    later sources replace earlier entries with the same macro name. Private
+    macros are excluded from the returned catalog.
+
+    Returns:
+        tuple[list[dict], dict]: A tuple containing a list of visible macro
+        entries and normalized group metadata keyed by group name.
+    """
+    file_macros = load_additional_macros(config.MACRO_FILE_PATH)
+    file_metadata = load_additional_macro_metadata(config.MACRO_FILE_PATH)
+
+    group_metadata = {
+        group_name: _normalize_group_metadata(group_name, metadata)
+        for group_name, metadata in BUILT_IN_GROUP_METADATA.items()
+    }
+    for group_name, metadata in file_metadata.get("groups", {}).items():
+        group_metadata[group_name] = _normalize_group_metadata(
+            group_name,
+            metadata,
+            default_order=group_metadata.get(group_name, {}).get("order", 500),
+        )
+
+    visible_macros = {}
+
+    sources = [
+        ("public", PUBLIC_MACRO_VALUES, PUBLIC_MACRO_METADATA, "built_in_general"),
+        ("file", file_macros, file_metadata.get("macro_meta", {}), "file"),
+        ("ephemeral", EPHEMERAL_MACRO_VALUES, {}, "runtime"),
+    ]
+
+    for source_label, macro_values, macro_metadata, default_group in sources:
+        for name, value in macro_values.items():
+            normalized_metadata = _normalize_macro_metadata(
+                name,
+                macro_metadata.get(name),
+                default_group=default_group,
+            )
+            group_name = normalized_metadata["group"]
+            if group_name not in group_metadata:
+                group_metadata[group_name] = _normalize_group_metadata(group_name)
+            visible_macros[name] = {
+                "name": name,
+                "value": value,
+                "title": normalized_metadata["title"],
+                "description": normalized_metadata["description"],
+                "usage": normalized_metadata["usage"],
+                "group": group_name,
+                "source": source_label,
+            }
+
+    catalog = sorted(
+        visible_macros.values(),
+        key=lambda entry: (
+            group_metadata[entry["group"]]["order"],
+            group_metadata[entry["group"]]["title"].lower(),
+            entry["name"].lower(),
+        ),
+    )
+    return catalog, group_metadata
+
+
+def _render_grouped_macro_catalog(catalog, group_metadata):
+    """Render the visible macro catalog as grouped plain text.
+
+    Args:
+        catalog (list[dict]): Visible macro entries to render.
+        group_metadata (dict): Normalized group metadata keyed by group name.
+
+    Returns:
+        str: Grouped text suitable for paging or direct printing.
+    """
+    if not catalog:
+        return "No visible macros are currently defined."
+
+    source_labels = {
+        "public": "built-in",
+        "file": "file",
+        "ephemeral": "runtime",
+    }
+
+    lines = []
+    current_group = None
+
+    for entry in catalog:
+        group_name = entry["group"]
+        if group_name != current_group:
+            if lines:
+                lines.append("")
+            group_info = group_metadata[group_name]
+            lines.append(group_info["title"])
+            lines.append("-" * len(group_info["title"]))
+            if group_info["description"]:
+                lines.append(group_info["description"])
+                lines.append("")
+            current_group = group_name
+
+        source_label = source_labels.get(entry["source"], entry["source"])
+        lines.append(f"{yellow}{entry['name']}{reset}")
+        lines.append(f"  Source: {source_label}")
+        if entry["title"] and entry["title"] != entry["name"]:
+            lines.append(f"  Title: {entry['title']}")
+        if entry["description"]:
+            lines.append(f"  Description: {entry['description']}")
+        if entry["usage"]:
+            lines.append(f"  Usage: {magenta}{entry['usage']}{reset}")
+        lines.append("")
+
+    while lines and lines[-1] == "":
+        lines.pop()
+
+    return "\n".join(lines)
+
 
 def configure_macros():
     """Load, update, and configure all macro dictionaries into global MACRO_VALUES.
@@ -115,11 +382,11 @@ def configure_macros():
 
 
 def print_macros(arg=None):
-    """Display the current macro dictionaries using a paginated view.
+    """Display visible macros grouped by metadata using a paginated view.
 
-    Formats both public and ephemeral macro dictionaries as JSON and displays them
-    to the user. Pipes through a pager (Unix less-like) if available, falls back
-    to print.
+    Renders public, file-based, and ephemeral macros grouped by metadata and
+    displays them to the user. Pipes through a pager (Unix less-like) if
+    available, falls back to print.
 
     Args:
         arg: Optional; Unused, maintained for CLI handler compatibility.
@@ -127,14 +394,13 @@ def print_macros(arg=None):
     Returns:
         None
     """
-    macros = load_additional_macros(config.MACRO_FILE_PATH)
-    output_parts = [
-        json.dumps(PUBLIC_MACRO_VALUES, indent=4, sort_keys=True),
-        json.dumps(macros, indent=4, sort_keys=True),
-        json.dumps(EPHEMERAL_MACRO_VALUES, indent=4, sort_keys=True),
-    ]
-    combined_output = "\n\n".join(output_parts)
+    _ = arg
+    catalog, group_metadata = _build_visible_macro_catalog()
+    combined_output = _render_grouped_macro_catalog(catalog, group_metadata)
 
+    _unset = object()
+    previous_less = os.environ.get("LESS", _unset)
+    os.environ["LESS"] = "-R"
     try:
         import pydoc
 
@@ -142,6 +408,11 @@ def print_macros(arg=None):
     except Exception as exc:  # pragma: no cover
         print(combined_output)
         logger.warning("pydoc.pager failed: %s; falling back to print.", exc)
+    finally:
+        if previous_less is _unset:
+            os.environ.pop("LESS", None)
+        else:
+            os.environ["LESS"] = previous_less
 
 
 def add_macro_definition(user_input):

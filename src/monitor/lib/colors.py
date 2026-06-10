@@ -3,9 +3,10 @@ from colored import fg, attr
 
 # Terminal text formatting for colored output
 blue = fg('blue')
+green = fg('green')
+magenta = fg('magenta')
 red = fg('red')
 yellow = fg('yellow')
-green = fg('green')
 reset = attr('reset')
 
 COLOR_WARNING_FUNCS = {'red': red, 'yellow': yellow, 'reset': reset}

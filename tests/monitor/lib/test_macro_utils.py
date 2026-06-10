@@ -15,14 +15,102 @@ class TestMacroUtils(unittest.TestCase):
             "test_macro": "test_value",
             "another_macro": "another_value"
         }
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(test_macros, f)
             temp_path = f.name
-        
+
         try:
             result = macro_utils.load_additional_macros(temp_path)
             self.assertEqual(result, test_macros)
+        finally:
+            os.unlink(temp_path)
+
+    def test_load_additional_macros_ignores_metadata_and_non_string_values(self):
+        """Test that reserved metadata keys and non-string macro values are ignored."""
+        test_macros = {
+            "_groups": {"team": ["macro_one"]},
+            "_macro_meta": {"macro_one": {"description": "desc"}},
+            "macro_one": "value_one",
+            "macro_two": 2,
+            "macro_three": ["not", "a", "string"],
+            "_private_macro": "reserved_value",
+            "macro_four": "value_four",
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(test_macros, f)
+            temp_path = f.name
+
+        try:
+            result = macro_utils.load_additional_macros(temp_path)
+            self.assertEqual(
+                result,
+                {
+                    "macro_one": "value_one",
+                    "macro_four": "value_four",
+                },
+            )
+        finally:
+            os.unlink(temp_path)
+
+    def test_load_additional_macro_metadata_returns_groups_and_macro_meta(self):
+        """Test that macro metadata loading returns groups and macro metadata."""
+        test_macros = {
+            "_groups": {
+                "core": ["macro_one", "macro_two"],
+                "ops": ["macro_two"],
+            },
+            "_macro_meta": {
+                "macro_one": {"description": "First macro", "owner": "team-a"},
+                "macro_two": {"description": "Second macro", "owner": "team-b"},
+            },
+            "macro_one": "value_one",
+            "macro_two": "value_two",
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(test_macros, f)
+            temp_path = f.name
+
+        try:
+            metadata = macro_utils.load_additional_macro_metadata(temp_path)
+            groups = metadata["groups"]
+            macro_meta = metadata["macro_meta"]
+            self.assertEqual(
+                groups,
+                {
+                    "core": ["macro_one", "macro_two"],
+                    "ops": ["macro_two"],
+                },
+            )
+            self.assertEqual(
+                macro_meta,
+                {
+                    "macro_one": {"description": "First macro", "owner": "team-a"},
+                    "macro_two": {"description": "Second macro", "owner": "team-b"},
+                },
+            )
+        finally:
+            os.unlink(temp_path)
+
+    def test_load_additional_macro_metadata_defaults_for_missing_metadata(self):
+        """Test that missing metadata sections return empty groups and macro metadata."""
+        test_macros = {
+            "macro_one": "value_one",
+            "macro_two": "value_two",
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(test_macros, f)
+            temp_path = f.name
+
+        try:
+            metadata = macro_utils.load_additional_macro_metadata(temp_path)
+            groups = metadata["groups"]
+            macro_meta = metadata["macro_meta"]
+            self.assertEqual(groups, {})
+            self.assertEqual(macro_meta, {})
         finally:
             os.unlink(temp_path)
 
@@ -49,15 +137,14 @@ class TestMacroUtils(unittest.TestCase):
         finally:
             os.unlink(temp_path)
 
-
     def test_update_macros(self):
         """Test updating macro store with new macros."""
         store = {"existing": "value"}
         new_macros = {"new1": "value1", "new2": "value2"}
-        
+
         with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             macro_utils.update_macros(store, new_macros)
-        
+
         expected = {"existing": "value", "new1": "value1", "new2": "value2"}
         self.assertEqual(store, expected)
         self.assertTrue(any("Entering update_macros with 2 macro items" in log for log in cm.output))
@@ -66,36 +153,36 @@ class TestMacroUtils(unittest.TestCase):
         """Test that update_macros overwrites existing keys."""
         store = {"key1": "old_value", "key2": "keep_value"}
         new_macros = {"key1": "new_value", "key3": "added_value"}
-        
+
         macro_utils.update_macros(store, new_macros)
-        
+
         expected = {"key1": "new_value", "key2": "keep_value", "key3": "added_value"}
         self.assertEqual(store, expected)
 
     def test_recursive_macro_expand_simple_replacement(self):
         """Test simple macro replacement without delimiters."""
         values = {"hello": "world", "test": "success"}
-        
+
         result = macro_utils.recursive_macro_expand("hello", values, "{{", "}}", "\\")
         self.assertEqual(result, "world")
-        
+
         result = macro_utils.recursive_macro_expand("test", values, "{{", "}}", "\\")
         self.assertEqual(result, "success")
 
     def test_recursive_macro_expand_no_match(self):
         """Test macro expansion when no match is found."""
         values = {"hello": "world"}
-        
+
         result = macro_utils.recursive_macro_expand("unknown", values, "{{", "}}", "\\")
         self.assertEqual(result, "unknown")
 
     def test_recursive_macro_expand_with_delimiters(self):
         """Test macro expansion with delimiter syntax."""
         values = {"name": "John", "greeting": "Hello"}
-        
+
         result = macro_utils.recursive_macro_expand("{{name}}", values, "{{", "}}", "\\")
         self.assertEqual(result, "John")
-        
+
         result = macro_utils.recursive_macro_expand("{{greeting}} {{name}}", values, "{{", "}}", "\\")
         self.assertEqual(result, "Hello John")
 
@@ -106,7 +193,7 @@ class TestMacroUtils(unittest.TestCase):
             "outer": "{{inner}}",
             "name": "John"
         }
-        
+
         result = macro_utils.recursive_macro_expand("{{outer}}", values, "{{", "}}", "\\")
         self.assertEqual(result, "value")
 
@@ -114,18 +201,18 @@ class TestMacroUtils(unittest.TestCase):
         """Test complex nested macro scenarios."""
         values = {
             "a": "1",
-            "b": "{{a}}2", 
+            "b": "{{a}}2",
             "c": "{{b}}3",
             "final": "Result: {{c}}"
         }
-        
+
         result = macro_utils.recursive_macro_expand("{{final}}", values, "{{", "}}", "\\")
         self.assertEqual(result, "Result: 123")
 
     def test_recursive_macro_expand_mismatched_delimiters(self):
         """Test macro expansion with mismatched delimiters."""
         values = {"name": "John"}
-        
+
         # This should handle the case gracefully
         result = macro_utils.recursive_macro_expand("{{{{name}}", values, "{{", "}}", "\\")
         # The function should attempt to expand what it can
@@ -134,29 +221,29 @@ class TestMacroUtils(unittest.TestCase):
     def test_recursive_macro_expand_empty_macro(self):
         """Test macro expansion with empty macro body."""
         values = {"": "empty_value"}
-        
+
         result = macro_utils.recursive_macro_expand("{{}}", values, "{{", "}}", "\\")
         self.assertEqual(result, "empty_value")
 
     def test_recursive_macro_expand_different_delimiters(self):
         """Test macro expansion with different delimiter configurations."""
         values = {"name": "John"}
-        
+
         # Test with <% %> delimiters
         result = macro_utils.recursive_macro_expand("<%name%>", values, "<%", "%>", "\\")
         self.assertEqual(result, "John")
-        
-        # Test with [] delimiters  
+
+        # Test with [] delimiters
         result = macro_utils.recursive_macro_expand("[name]", values, "[", "]", "\\")
         self.assertEqual(result, "John")
 
     def test_recursive_macro_expand_logging(self):
         """Test that macro expansion logs appropriately."""
         values = {"name": "John", "greeting": "Hello"}
-        
+
         with self.assertLogs('monitor.lib.macro_utils', level='DEBUG') as cm:
             result = macro_utils.recursive_macro_expand("{{greeting}} {{name}}", values, "{{", "}}", "\\")
-        
+
         self.assertEqual(result, "Hello John")
         # Should have debug logs for entering the function
         self.assertTrue(any("Entering recursive_macro_expand" in log for log in cm.output))
@@ -244,11 +331,11 @@ class TestMacroUtils(unittest.TestCase):
         Test that unbalanced escaped delimiters generate appropriate error messages.
         """
         values = {"name": "John"}
-        
+
         # Test unbalanced at the high level (more escaped open than close)
         result = macro_utils.recursive_macro_expand("(tcl puts \\(more open\\(than close)", values, "(", ")", "\\")
         self.assertIn('[MACRO ERROR: Unbalanced escaped delimiters', result)
-        
+
         # Test unbalanced inside a TCL macro
         result = macro_utils.recursive_macro_expand("(tcl puts $env\\(HOME)", values, "(", ")", "\\")
         self.assertIn('[MACRO ERROR: Unbalanced escaped delimiters', result)
@@ -287,15 +374,15 @@ class TestMacroUtils(unittest.TestCase):
         # Test with balanced escaped delimiters
         result = macro_utils.recursive_macro_expand("text with \\(balanced\\) delims", {}, "(", ")", "\\")
         self.assertEqual(result, "text with (balanced) delims")
-        
+
         # Test with unbalanced escaped delimiters (more opens than closes)
         result = macro_utils.recursive_macro_expand("text with \\(unbalanced", {}, "(", ")", "\\")
         self.assertIn('[MACRO ERROR: Unbalanced escaped delimiters', result)
-        
+
         # Test with unbalanced escaped delimiters (more closes than opens)
         result = macro_utils.recursive_macro_expand("text with unbalanced\\)", {}, "(", ")", "\\")
         self.assertIn('[MACRO ERROR: Unbalanced escaped delimiters', result)
-        
+
         # Test with multiple balanced escaped delimiters
         result = macro_utils.recursive_macro_expand("complex \\(text\\) with \\(multiple\\) delims", {}, "(", ")", "\\")
         self.assertEqual(result, "complex (text) with (multiple) delims")

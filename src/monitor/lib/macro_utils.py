@@ -64,28 +64,27 @@ def _get_tcl_interpreter():
         return None
 
 
-def load_additional_macros(macro_file_path):
-    """Load additional macros from a specified JSON file.
+def _load_raw_macro_file_object(macro_file_path):
+    """Load and validate the raw top-level JSON object from a macros file.
 
-    MAC-7: a missing file is silently treated as "no additional macros" (the
-    common case for users who haven't created one). A *malformed* file is
-    surfaced to stderr in addition to the log so the user notices that their
-    custom macros disappeared because of a syntax error.
+    Missing files are treated as an empty object. Malformed JSON is logged and
+    echoed to stderr, then treated as an empty object. Non-dict top-level JSON
+    values are rejected and treated as an empty object.
 
     Args:
         macro_file_path (str): The path to the JSON macro file.
 
     Returns:
-        dict: Dictionary loaded from the JSON macro file, or an empty
-            dictionary if loading failed.
+        dict: The raw top-level JSON object, or an empty dict if the file is
+            missing, invalid, or not a JSON object.
     """
     logger.debug(
-        "Entering load_additional_macros with file path: %s", macro_file_path
+        "Entering _load_raw_macro_file_object with file path: %s", macro_file_path
     )
     expanded_path = os.path.expanduser(macro_file_path)
     try:
         with open(expanded_path, "r") as f:
-            return json.load(f)
+            loaded = json.load(f)
     except FileNotFoundError:
         logger.debug("Macros file not found at %s; using empty macro set", expanded_path)
         return {}
@@ -98,10 +97,99 @@ def load_additional_macros(macro_file_path):
         logger.error(msg)
         try:
             import sys
+
             print(msg, file=sys.stderr)
         except Exception:
             pass
         return {}
+
+    if not isinstance(loaded, dict):
+        msg = (
+            f"Macros file at {expanded_path} must contain a top-level JSON "
+            f"object; no custom macros loaded. Run :edit_macros to fix."
+        )
+        logger.error(msg)
+        try:
+            import sys
+
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
+        return {}
+
+    return loaded
+
+
+def load_additional_macro_metadata(macro_file_path):
+    """Load reserved metadata sections from a macros JSON file.
+
+    Reserved top-level keys are:
+      - ``_groups`` -> returned as ``groups``
+      - ``_macro_meta`` -> returned as ``macro_meta``
+
+    Missing reserved keys, or keys with non-dict values, are returned as empty
+    dictionaries.
+
+    Args:
+        macro_file_path (str): The path to the JSON macro file.
+
+    Returns:
+        dict: A dictionary with keys ``groups`` and ``macro_meta``.
+    """
+    logger.debug(
+        "Entering load_additional_macro_metadata with file path: %s",
+        macro_file_path,
+    )
+    raw_macros = _load_raw_macro_file_object(macro_file_path)
+
+    groups = raw_macros.get("_groups", {})
+    if not isinstance(groups, dict):
+        logger.warning(
+            "Ignoring reserved _groups metadata in %s because it is not a JSON object",
+            os.path.expanduser(macro_file_path),
+        )
+        groups = {}
+
+    macro_meta = raw_macros.get("_macro_meta", {})
+    if not isinstance(macro_meta, dict):
+        logger.warning(
+            "Ignoring reserved _macro_meta metadata in %s because it is not a JSON object",
+            os.path.expanduser(macro_file_path),
+        )
+        macro_meta = {}
+
+    return {"groups": groups, "macro_meta": macro_meta}
+
+
+def load_additional_macros(macro_file_path):
+    """Load executable macros from a specified JSON file.
+
+    Reserved metadata keys beginning with ``_`` are excluded from the returned
+    macro set. Only string-valued entries are treated as executable macros to
+    avoid accidentally loading structured metadata as macro bodies.
+
+    MAC-7: a missing file is silently treated as "no additional macros" (the
+    common case for users who haven't created one). A *malformed* file is
+    surfaced to stderr in addition to the log so the user notices that their
+    custom macros disappeared because of a syntax error.
+
+    Args:
+        macro_file_path (str): The path to the JSON macro file.
+
+    Returns:
+        dict: Dictionary of executable macros loaded from the JSON macro file,
+            or an empty dictionary if loading failed.
+    """
+    logger.debug(
+        "Entering load_additional_macros with file path: %s", macro_file_path
+    )
+    raw_macros = _load_raw_macro_file_object(macro_file_path)
+    executable_macros = {
+        key: value
+        for key, value in raw_macros.items()
+        if not key.startswith("_") and isinstance(value, str)
+    }
+    return executable_macros
 
 
 def update_macros(store, macros):
@@ -141,8 +229,8 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
     delimiter strings (not just single characters).
 
     Supports literal delimiter escape sequences in macro expansions: any instance of delim_escape
-    followed by delim_open or delim_close  is treated as a literal character rather than as 
-    a macro boundary, and macro expansion is NOT performed inside such escape sequences. 
+    followed by delim_open or delim_close  is treated as a literal character rather than as
+    a macro boundary, and macro expansion is NOT performed inside such escape sequences.
 
     Args:
         macro (str): The macro expression to expand.
@@ -158,7 +246,10 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
 
     open_escaped = re.escape(delim_open)
     close_escaped = re.escape(delim_close)
-    TCL_MACRO_MAIN_REGEX = re.compile(rf'^\s*(?:{open_escaped}tcl\s+(.+){close_escaped}|tcl\s+(.+))\s*$', re.DOTALL)
+    TCL_MACRO_MAIN_REGEX = re.compile(
+        rf"^\s*(?:{open_escaped}tcl\s+(.+){close_escaped}|tcl\s+(.+))\s*$",
+        re.DOTALL,
+    )
 
     def _looks_like_tcl_macro(text, pos):
         """Return True iff text starting at pos begins with whitespace+'tcl'+(whitespace or end).
@@ -197,8 +288,8 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
         while i < n:
             # Macro-engine escape on the close delim: \}}
             if (
-                body[i:i + len(descape)] == descape
-                and body[i + len(descape):i + len(descape) + close_len] == dclose
+                body[i : i + len(descape)] == descape
+                and body[i + len(descape) : i + len(descape) + close_len] == dclose
             ):
                 i += len(descape) + close_len
                 continue
@@ -207,7 +298,7 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 i += 2
                 continue
             # Macro close at Tcl depth 0?
-            if depth == 0 and body[i:i + close_len] == dclose:
+            if depth == 0 and body[i : i + close_len] == dclose:
                 return i
             # Tcl brace tracking
             if body[i] == "{":
@@ -268,47 +359,66 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
 
     def tcl_macro_expand(tcl_code_body, log_info=None, macro_for_logging=None):
         # INPUT VALIDATION: check balance of escaped delimiters in tcl_code_body
-        balanced, open_count, close_count = count_balanced_escaped_delims(tcl_code_body)
+        balanced, open_count, close_count = count_balanced_escaped_delims(
+            tcl_code_body
+        )
         if not balanced:
             logger.error(
                 "Unbalanced escaped delimiters in TCL macro body. Opened %d ('%s'), closed %d ('%s'). Input: %r",
-                open_count, delim_escape + delim_open,
-                close_count, delim_escape + delim_close, tcl_code_body
+                open_count,
+                delim_escape + delim_open,
+                close_count,
+                delim_escape + delim_close,
+                tcl_code_body,
             )
-            return '[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]'.format(tcl_code_body)
+            return "[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]".format(
+                tcl_code_body
+            )
         try:
             # Only unescape delim_escape+delim_open and delim_escape+delim_close to literal delimiters in TCL.
             # Do NOT perform any macro expansion within the TCL macro body itself; all other escapes are left untouched.
-            tcl_code_inner = tcl_code_body.replace(delim_escape + delim_open, delim_open)
-            tcl_code_inner = tcl_code_inner.replace(delim_escape + delim_close, delim_close)
+            tcl_code_inner = tcl_code_body.replace(
+                delim_escape + delim_open, delim_open
+            )
+            tcl_code_inner = tcl_code_inner.replace(
+                delim_escape + delim_close, delim_close
+            )
 
             # INPUT VALIDATION: check balance again after unescaping
-            balanced2, open_count2, close_count2 = count_balanced_escaped_delims(tcl_code_inner)
+            balanced2, open_count2, close_count2 = count_balanced_escaped_delims(
+                tcl_code_inner
+            )
             if not balanced2:
                 logger.error(
                     "Unbalanced escaped delimiters after unescaping in TCL macro. Opened %d ('%s'), closed %d ('%s'). Input: %r",
-                    open_count2, delim_escape + delim_open,
-                    close_count2, delim_escape + delim_close, tcl_code_inner
+                    open_count2,
+                    delim_escape + delim_open,
+                    close_count2,
+                    delim_escape + delim_close,
+                    tcl_code_inner,
                 )
-                return '[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]'.format(tcl_code_inner)
+                return "[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]".format(
+                    tcl_code_inner
+                )
 
             # GUARD: Skip TCL evaluation if code is empty, whitespace, or just '...'
-            if not tcl_code_inner.strip() or tcl_code_inner.strip() == '...':
+            if not tcl_code_inner.strip() or tcl_code_inner.strip() == "...":
                 logger.error(
                     "Skipping TCL macro evaluation: code is empty or a placeholder ('...') (code: %r, in macro: %r)",
-                    tcl_code_inner, macro_for_logging
+                    tcl_code_inner,
+                    macro_for_logging,
                 )
-                return ''
+                return ""
 
             try:
                 tk_interp = _get_tcl_interpreter()
                 if tk_interp is None:
-                    return '[TCL ERROR: Tcl interpreter unavailable (tkinter not installed)]'
+                    return "[TCL ERROR: Tcl interpreter unavailable (tkinter not installed)]"
                 result_output = []
 
                 def python_puts(*args):
                     # Concatenate given arguments like standard TCL puts
-                    joined = ' '.join(str(a) for a in args)
+                    joined = " ".join(str(a) for a in args)
                     result_output.append(joined)
 
                 # Re-bind on every call so the closure captures THIS call's
@@ -321,20 +431,26 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                     if log_info:
                         logger.info(log_info)
                     else:
-                        logger.info("Expanding macro as TCL (bare or (/tcl ...)): %s", tcl_code_inner)
+                        logger.info(
+                            "Expanding macro as TCL (bare or (/tcl ...)): %s",
+                            tcl_code_inner,
+                        )
                     tk_interp.eval(tcl_code_inner)
                 except Exception as e_inner:
-                    logger.error("TCL execution error: %s", str(e_inner), exc_info=True)
-                    return '[TCL ERROR: {}]'.format(str(e_inner))
-                joined_output = '\n'.join(result_output)
+                    logger.error(
+                        "TCL execution error: %s", str(e_inner), exc_info=True
+                    )
+                    return "[TCL ERROR: {}]".format(str(e_inner))
+                joined_output = "\n".join(result_output)
                 return joined_output
             except Exception as e:
                 logger.error("TCL execution failed: %s", str(e), exc_info=True)
-                return '[TCL ERROR: {}]'.format(str(e))
+                return "[TCL ERROR: {}]".format(str(e))
         except Exception as e_outer:
-            logger.error("Error doing TCL macro expansion: %s", str(e_outer), exc_info=True)
-            return '[TCL ERROR: {}]'.format(str(e_outer))
-
+            logger.error(
+                "Error doing TCL macro expansion: %s", str(e_outer), exc_info=True
+            )
+            return "[TCL ERROR: {}]".format(str(e_outer))
 
     # MAC-9: bound on nested-delimiter recursion depth. Pathological inputs
     # like 100k nested `{{...}}` would otherwise blow the Python stack with
@@ -358,7 +474,13 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 MAX_RECURSION_DEPTH,
                 expression[:120],
             )
-            return ('[MACRO ERROR: max recursion depth {} exceeded]'.format(MAX_RECURSION_DEPTH), True, True)
+            return (
+                "[MACRO ERROR: max recursion depth {} exceeded]".format(
+                    MAX_RECURSION_DEPTH
+                ),
+                True,
+                True,
+            )
         try:
             idx_open, _ = find_next_delim(expression, delim_open)
             if idx_open == -1:
@@ -373,16 +495,19 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                         if tcl_match.group(1) is not None
                         else tcl_match.group(2)
                     )
-                    log_detail = (
-                        "Detected TCL macro via {} syntax. TCL body: {}".format(
-                            "(tcl ...)" if tcl_match.group(1) is not None else "bare tcl ...", tcl_body
-                        )
+                    log_detail = "Detected TCL macro via {} syntax. TCL body: {}".format(
+                        "(tcl ...)"
+                        if tcl_match.group(1) is not None
+                        else "bare tcl ...",
+                        tcl_body,
                     )
                     logger.debug(log_detail)
                     tcl_result = tcl_macro_expand(
                         tcl_body,
                         log_info=log_detail,
-                        macro_for_logging=macro if macro_context is None else macro_context
+                        macro_for_logging=(
+                            macro if macro_context is None else macro_context
+                        ),
                     )
                     final_expanded = tcl_result
                     return final_expanded, True, True
@@ -398,17 +523,19 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                         if tcl_match_after.group(1) is not None
                         else tcl_match_after.group(2)
                     )
-                    log_detail = (
-                        "Detected TCL macro in macro store value via {} syntax. TCL body: {}".format(
-                            "(tcl ...)" if tcl_match_after.group(1) is not None else "bare tcl ...",
-                            tcl_body
-                        )
+                    log_detail = "Detected TCL macro in macro store value via {} syntax. TCL body: {}".format(
+                        "(tcl ...)"
+                        if tcl_match_after.group(1) is not None
+                        else "bare tcl ...",
+                        tcl_body,
                     )
                     logger.debug(log_detail)
                     tcl_result = tcl_macro_expand(
                         tcl_body,
                         log_info=log_detail,
-                        macro_for_logging=macro if macro_context is None else macro_context
+                        macro_for_logging=(
+                            macro if macro_context is None else macro_context
+                        ),
                     )
                     final_expanded = tcl_result
                     return final_expanded, True, True
@@ -463,9 +590,7 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                     )
                     return expression, False, False
 
-            macro_body = expression[
-                idx_open + len(delim_open) : idx_close_current
-            ]
+            macro_body = expression[idx_open + len(delim_open) : idx_close_current]
 
             # Check if this macro_body represents a TCL macro
             macro_body_stripped = macro_body.strip()
@@ -477,29 +602,39 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                     if tcl_match.group(1) is not None
                     else tcl_match.group(2)
                 )
-                log_detail = (
-                    "Detected TCL macro via {} syntax. TCL body: {}".format(
-                        "(tcl ...)" if tcl_match.group(1) is not None else "bare tcl ...", tcl_body
-                    )
+                log_detail = "Detected TCL macro via {} syntax. TCL body: {}".format(
+                    "(tcl ...)"
+                    if tcl_match.group(1) is not None
+                    else "bare tcl ...",
+                    tcl_body,
                 )
                 logger.debug(log_detail)
                 expanded_inner = tcl_macro_expand(
                     tcl_body,
                     log_info=log_detail,
-                    macro_for_logging=macro if macro_context is None else macro_context
+                    macro_for_logging=(
+                        macro if macro_context is None else macro_context
+                    ),
                 )
                 inner_changed = True
                 is_terminal = True
             else:
                 # INPUT VALIDATION: check balance of escaped delimiters in the current macro_body
-                balanced, open_count, close_count = count_balanced_escaped_delims(macro_body)
+                balanced, open_count, close_count = count_balanced_escaped_delims(
+                    macro_body
+                )
                 if not balanced:
                     logger.error(
                         "Unbalanced escaped delimiters in macro body. Opened %d ('%s'), closed %d ('%s'). Input: %r",
-                        open_count, delim_escape + delim_open,
-                        close_count, delim_escape + delim_close, macro_body
+                        open_count,
+                        delim_escape + delim_open,
+                        close_count,
+                        delim_escape + delim_close,
+                        macro_body,
                     )
-                    error_str = '[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]'.format(macro_body)
+                    error_str = "[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]".format(
+                        macro_body
+                    )
                     new_expression = (
                         expression[:idx_open]
                         + error_str
@@ -507,7 +642,11 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                     )
                     return new_expression, True, False
 
-                expanded_inner, inner_changed, _ = expand_inner_expression(macro_body, macro_context=macro if macro_context is None else macro_context, _depth=_depth + 1)
+                expanded_inner, inner_changed, _ = expand_inner_expression(
+                    macro_body,
+                    macro_context=macro if macro_context is None else macro_context,
+                    _depth=_depth + 1,
+                )
                 logger.debug("Expanding inner macro: %s", macro_body)
                 is_terminal = False
 
@@ -516,12 +655,15 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 + expanded_inner
                 + expression[idx_close_current + len(delim_close) :]
             )
-            return new_expression, inner_changed or (new_expression != expression), is_terminal
+            return (
+                new_expression,
+                inner_changed or (new_expression != expression),
+                is_terminal,
+            )
 
         except Exception as e:
             logger.error(
-                "Error while expanding macro expression: %s", str(e),
-                exc_info=True
+                "Error while expanding macro expression: %s", str(e), exc_info=True
             )
             return expression, False, False
 
@@ -531,10 +673,15 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
         if not balanced0:
             logger.error(
                 "Unbalanced escaped delimiters at initial macro level. Opened %d ('%s'), closed %d ('%s'). Input: %r",
-                open_count0, delim_escape + delim_open,
-                close_count0, delim_escape + delim_close, macro
+                open_count0,
+                delim_escape + delim_open,
+                close_count0,
+                delim_escape + delim_close,
+                macro,
             )
-            return '[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]'.format(macro)
+            return "[MACRO ERROR: Unbalanced escaped delimiters in expression: {}]".format(
+                macro
+            )
         # MAC-2: cap the expansion loop so cyclic macro references (e.g.
         # "foo": "{{bar}}", "bar": "{{foo}}") can't infinite-loop. 64 is more
         # than enough for any legitimate nesting depth; the inner-expansion
@@ -545,7 +692,9 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
         iterations = 0
         while iterations < MAX_EXPANSION_ITERATIONS:
             iterations += 1
-            new_macro, changed, is_terminal = expand_inner_expression(macro_to_expand, macro_context=macro)
+            new_macro, changed, is_terminal = expand_inner_expression(
+                macro_to_expand, macro_context=macro
+            )
             any_expansions = any_expansions or changed
             # MAC-OUT-1: always capture the new expansion before checking break
             # conditions. The previous code broke FIRST and only assigned in
@@ -562,7 +711,9 @@ def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape)
                 MAX_EXPANSION_ITERATIONS,
                 macro,
             )
-            return '[MACRO ERROR: cycle detected after {} iterations]'.format(MAX_EXPANSION_ITERATIONS)
+            return "[MACRO ERROR: cycle detected after {} iterations]".format(
+                MAX_EXPANSION_ITERATIONS
+            )
 
         logger.debug("Expanded macro: %s", macro_to_expand)
 

@@ -32,21 +32,61 @@ Notes on recognition:
 - Macros are stored in JSON format in `macros.json`.
 - Default location: `~/.config/monitor/macros.json`.
 - On first run the application will copy the packaged default `macros.json` into that location; see `src/monitor/__main__.py` for the copy-on-first-run behavior.
+- The file now supports reserved display-metadata sections alongside executable macro entries.
 
 Example `macros.json` file (JSON):
 ```
 {
-  "hello_macro": "Hello, world!",
-  "name_macro": "Alex",
-  "greet_macro": "Hello, {{name_macro}}!",
-  "math_macro": "{{tcl set a 6; set b 3; puts [expr {$a * $b + 2}]}}",
-  "date_macro": "{{tcl puts [clock format [clock seconds] -format \"%Y-%m-%d\"]}}"
+  "_trust_model": "This file is executable, not configuration.",
+  "_groups": {
+    "git": {
+      "title": "Git",
+      "description": "Repository, branch, and commit helper macros.",
+      "order": 210
+    },
+    "analysis": {
+      "title": "Analysis",
+      "description": "Macros for review, planning, and code analysis.",
+      "order": 220
+    }
+  },
+  "_macro_meta": {
+    "branch": {
+      "group": "git",
+      "title": "Current branch",
+      "description": "Returns the current git branch name."
+    },
+    "review_changes": {
+      "group": "analysis",
+      "title": "Review source changes",
+      "description": "Examines modified files and reports possible issues."
+    }
+  },
+  "branch": "{{tcl if {[catch {exec git branch --show-current} b]} {puts \"(not in git)\"} else {puts $b}}}",
+  "review_changes": "Source code files have been updated. {{do_diff}} then examine each source file noted in the diff."
 }
 ```
 
+Reserved top-level keys:
+- `_groups`: Display-only group metadata keyed by group id.
+- `_macro_meta`: Display-only per-macro metadata keyed by macro name.
+- Any top-level key beginning with `_` is treated as metadata and is not loaded into the executable runtime macro dictionary.
+
+Group metadata shape:
+- `title`: Optional human-readable group heading.
+- `description`: Optional text shown under the group heading.
+- `order`: Optional numeric sort order. Lower values appear first.
+
+Per-macro metadata shape:
+- `group`: Optional group id. Defaults to `file` for file-defined macros.
+- `title`: Optional human-readable macro title. Defaults to the macro name.
+- `description`: Optional display description. Defaults to an empty string.
+
 Notes:
-- Keys and values must be valid JSON strings.
+- Executable macros remain flat top-level string entries. Runtime expansion behavior is unchanged.
+- Keys and executable values must be valid JSON strings.
 - TCL macros are represented as strings whose value begins with `tcl` inside the configured delimiters (the default shown above uses `{{` and `}}`). Legacy parenthesis-style TCL macros such as `(tcl ...)` are also supported for backwards compatibility.
+- Legacy flat `macros.json` files without `_groups` or `_macro_meta` remain valid.
 
 ---
 
@@ -204,12 +244,19 @@ This re-reads `~/.config/monitor/macros.json` and updates the runtime macro stor
 ```
 macros
 ```
-(or the equivalent built-in command named `macros`) — lists known macros and their current expansion results (pure expansions shown; TCL macros may show a short indicator of being TCL-backed).
+(or the equivalent built-in command named `macros`) — lists visible macros grouped by display metadata. The output reflects display precedence for visible macros: built-in public macros, then file-defined macros, then runtime macros. Private/internal macros remain hidden from the standard listing.
+
+Grouped listing behavior:
+- Group headings come from `_groups` metadata when present.
+- Macros are shown with their name, a source label such as `built-in`, `file`, or `runtime`, and optional title and description text.
+- If a macro has no metadata, fallback display behavior is used: the title defaults to the macro name, the description defaults to empty, and the group defaults to `file` for file-defined macros or the built-in/runtime default for those sources.
+- If a group has no metadata, its heading falls back to a titleized form of the group id.
+- When the same visible macro name exists in multiple visible sources, the later-precedence source is shown in the grouped display.
 
 Examples:
 - Run `:edit_macros` to modify your JSON file.
 - Then run `:reload_macros` to apply your changes without restarting the whole application.
-- Run `macros` to see the current macro definitions.
+- Run `macros` to browse the current grouped macro catalog.
 
 ---
 

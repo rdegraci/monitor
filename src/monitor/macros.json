@@ -1,5 +1,271 @@
 {
     "_trust_model": "TRUST MODEL: this file is executable, not configuration. {{tcl ...}} macros run arbitrary Tcl code in a tkinter.Tcl() interpreter on the host; Tcl can `exec` shell commands, read/write files, and access env vars. Only add macros from sources you trust as much as a shell script. Macros added at runtime via `<name=value` are ephemeral but equally unsandboxed.",
+    "_groups": {
+        "analysis": {
+            "title": "Analysis",
+            "description": "Macros for review, planning, refactoring, and change analysis.",
+            "order": 210
+        },
+        "git": {
+            "title": "Git",
+            "description": "Repository, branch, and commit helper macros.",
+            "order": 220
+        },
+        "system": {
+            "title": "System",
+            "description": "Environment and host inspection macros.",
+            "order": 230
+        },
+        "python": {
+            "title": "Python",
+            "description": "Python project and interpreter helper macros.",
+            "order": 240
+        },
+        "ios": {
+            "title": "iOS",
+            "description": "Xcode, Swift, and simulator helper macros.",
+            "order": 250
+        },
+        "context": {
+            "title": "Context",
+            "description": "Project context and environment summary macros.",
+            "order": 260
+        }
+    },
+    "_macro_meta": {
+        "sample_tcl_macro": {
+            "group": "context",
+            "title": "Sample Tcl Macro",
+            "description": "Illustrates that Tcl-backed macros can execute host commands and access environment variables."
+        },
+        "load_context": {
+            "group": "analysis",
+            "title": "Load Project Context",
+            "description": "Directs the assistant to inspect primary application entrypoints and related source files for context."
+        },
+        "trace": {
+            "group": "analysis",
+            "title": "Downstream Call Trace",
+            "description": "Requests a readable project-only call tree for a named function, with truncation guidance for large graphs.",
+            "usage": "trace <function>"
+        },
+        "call_trace": {
+            "group": "analysis",
+            "title": "Reverse Call Trace",
+            "description": "Requests a readable caller tree showing which project functions invoke a named function.",
+            "usage": "call_trace <function>"
+        },
+        "rank_improvements": {
+            "group": "analysis",
+            "title": "Rank Improvements",
+            "description": "Asks for improvement opportunities ordered by ease and impact in a simple table."
+        },
+        "review_changes": {
+            "group": "analysis",
+            "title": "Review Source Changes",
+            "description": "Runs a diff-oriented review workflow and asks for bug reports ordered from easiest to solve."
+        },
+        "test_plan": {
+            "group": "analysis",
+            "title": "Generate Test Plan",
+            "description": "Requests a comprehensive prioritized test plan with unit, integration, and edge-case coverage."
+        },
+        "doc_gen": {
+            "group": "analysis",
+            "title": "Generate Documentation",
+            "description": "Asks for docstring or comment additions in language-appropriate style, emitted as additive diffs."
+        },
+        "security_audit": {
+            "group": "analysis",
+            "title": "Security Audit",
+            "description": "Requests an OWASP-oriented audit for common vulnerabilities with ranked mitigations and diffs."
+        },
+        "perf_optimize": {
+            "group": "analysis",
+            "title": "Performance Optimization Review",
+            "description": "Requests bottleneck analysis and optimization suggestions with complexity notes and diffs."
+        },
+        "branch_status": {
+            "group": "git",
+            "title": "Branch Status Summary",
+            "description": "Requests a concise report of git working tree state, divergence, and recommended next actions."
+        },
+        "todo_extract": {
+            "group": "analysis",
+            "title": "Extract TODOs",
+            "description": "Scans for TODO and FIXME markers, prioritizes them, and suggests resolutions in table form."
+        },
+        "multi_file_refactor": {
+            "group": "analysis",
+            "title": "Multi-file Refactor Proposal",
+            "description": "Requests coordinated refactor suggestions across files, including affected files and unified diffs."
+        },
+        "deploy_check": {
+            "group": "analysis",
+            "title": "Deployment Readiness Check",
+            "description": "Reviews changes for deployment implications such as dependencies, env vars, and migrations."
+        },
+        "branch": {
+            "group": "git",
+            "title": "Current Git Branch",
+            "description": "Returns the current git branch name when available."
+        },
+        "sha": {
+            "group": "git",
+            "title": "Current Commit SHA",
+            "description": "Returns the short git commit hash for the current HEAD."
+        },
+        "git_clean": {
+            "group": "git",
+            "title": "Git Cleanliness",
+            "description": "Reports whether the repository has uncommitted changes."
+        },
+        "recent_commits": {
+            "group": "git",
+            "title": "Recent Commits",
+            "description": "Returns the latest commit history entries in one-line format."
+        },
+        "branch_age": {
+            "group": "git",
+            "title": "Latest Commit Age",
+            "description": "Returns the relative age of the latest commit."
+        },
+        "is_git_repo": {
+            "group": "git",
+            "title": "Git Repository Check",
+            "description": "Reports whether the current directory is inside a git work tree."
+        },
+        "today": {
+            "group": "system",
+            "title": "Current Date",
+            "description": "Returns the current local date in YYYY-MM-DD format."
+        },
+        "now": {
+            "group": "system",
+            "title": "Current Date and Time",
+            "description": "Returns the current local date and time in YYYY-MM-DD HH:MM format."
+        },
+        "cwd": {
+            "group": "system",
+            "title": "Current Working Directory",
+            "description": "Returns the current working directory path."
+        },
+        "home": {
+            "group": "system",
+            "title": "Home Directory",
+            "description": "Returns the HOME environment variable when available."
+        },
+        "hostname": {
+            "group": "system",
+            "title": "Hostname",
+            "description": "Returns the host name reported by Tcl."
+        },
+        "py_project": {
+            "group": "python",
+            "title": "Python Project Detector",
+            "description": "Detects common Python project markers such as pyproject.toml, setup.py, or requirements.txt."
+        },
+        "py_version": {
+            "group": "python",
+            "title": "Python Version",
+            "description": "Returns the Python interpreter version found on PATH."
+        },
+        "py_deps_head": {
+            "group": "python",
+            "title": "Requirements File Preview",
+            "description": "Shows the first lines of requirements.txt when present."
+        },
+        "py_files": {
+            "group": "python",
+            "title": "Python File Count",
+            "description": "Counts Python source files in the current directory tree."
+        },
+        "ios_xcode_version": {
+            "group": "ios",
+            "title": "Xcode Version",
+            "description": "Returns the installed Xcode version when available."
+        },
+        "ios_swift_version": {
+            "group": "ios",
+            "title": "Swift Version",
+            "description": "Returns the installed Swift toolchain version when available."
+        },
+        "ios_project_files": {
+            "group": "ios",
+            "title": "iOS Project Files",
+            "description": "Lists common Xcode or Swift Package project files in the current directory."
+        },
+        "ios_swift_files_count": {
+            "group": "ios",
+            "title": "Swift File Count",
+            "description": "Counts Swift source files in the current directory tree."
+        },
+        "ios_booted_simulator": {
+            "group": "ios",
+            "title": "Booted Simulator Devices",
+            "description": "Lists currently booted iOS simulator devices when simctl is available."
+        },
+        "ios_schemes": {
+            "group": "ios",
+            "title": "Xcode Schemes",
+            "description": "Lists schemes and project information via xcodebuild when available."
+        },
+        "ios_pkg_swift_head": {
+            "group": "ios",
+            "title": "Package.swift Preview",
+            "description": "Shows the first lines of Package.swift when present."
+        },
+        "context_audit": {
+            "group": "context",
+            "title": "Context Audit",
+            "description": "Builds a compact environment summary including date, project type, branch, and branch status."
+        },
+        "branch_diff": {
+            "group": "git",
+            "title": "Branch Diff Summary",
+            "description": "Combines current branch information, diff output, and ranked improvements."
+        },
+        "commit_with_age": {
+            "group": "git",
+            "title": "Latest Commit With Age",
+            "description": "Formats the latest commit subject together with the relative age of that commit."
+        },
+        "order_swift_file": {
+            "group": "analysis",
+            "title": "Order Swift File",
+            "description": "Reorders a Swift type according to the project's member ordering rules without changing logic."
+        },
+        "check_refactor_constants": {
+            "group": "analysis",
+            "title": "Check Refactor Constants",
+            "description": "Checks that constant values remain unchanged across a supplied diff."
+        },
+        "fixf": {
+            "group": "analysis",
+            "title": "Suggest Function Fixes",
+            "description": "Requests suggested fixes for a function, ordered from simplest first."
+        },
+        "refactorf": {
+            "group": "analysis",
+            "title": "Suggest Function Refactors",
+            "description": "Requests suggested refactors for a function, ordered from simplest first."
+        },
+        "weekday": {
+            "group": "system",
+            "title": "Current Weekday",
+            "description": "Returns the current local weekday name."
+        },
+        "debug_ctx": {
+            "group": "system",
+            "title": "Debug Context",
+            "description": "Reports whether DEBUG_PROMPT enables extra verbose mode."
+        },
+        "rank_examine": {
+            "group": "analysis",
+            "title": "Rank Examine Target",
+            "description": "Requests prioritized examination guidance for a specified type."
+        }
+    },
     "sample_tcl_macro": "{{tcl puts \"$env(HOME)\"}}",
     "load_context": "Examine the app.py or main.py or server.py file and associated source files",
     "trace": "Given the specified function name, produce a readable downstream call chain (call tree) for that function. The call tree should recursively show all functions that are called, directly or indirectly, from it. Please ignore standard library or system API calls (focus only on user-defined/project functions).\n\n        **Special Request:**  \n\n        - If the call tree is very large, please provide only the first 2–3 levels (or as much as fits in a reasonable output).\n        - Summarize deep branches with a note like \"... (N more calls)\" or \"continued\".\n        - If any branch is recursive, indicate where recursion occurs.\n        - Optionally, ask me if I want details of a particular branch.\n\n        **Example Desired Output:**\n\n        ```\n        myFunction (in MyClass.swift)\n        ├─> validateInput\n        │    └─> logError\n        ├─> fetchData\n        │    ├─> makeNetworkRequest\n        │    ├─> parseResponse\n        │    │    └─> ... (more branches, truncated)\n        │    └─> handleError\n        └─> updateUI\n            └─> ... (more branches, truncated)\n        ```\n\n        Function Name: \"",
