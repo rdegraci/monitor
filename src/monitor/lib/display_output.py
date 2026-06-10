@@ -2,6 +2,7 @@
 # If token logic is required in the future, use count_message_tokens and update_token_usage from monitor.lib/token_management.py. 
 
 import logging
+import math
 import os
 import sys
 from datetime import datetime
@@ -29,6 +30,16 @@ def _format_dollars(value, cumulative):
     if cumulative:
         return f"{value:.3f}" if value < 1.0 else f"{value:.2f}"
     return f"{value:.4f}" if value < 1.0 else f"{value:.2f}"
+
+
+def _fuel_color(remaining_percent):
+    """Color for the F: fuel gauge by how full the tank is: blue (healthy) →
+    yellow (under half) → red (nearly empty / overrun)."""
+    if remaining_percent < 15:
+        return red
+    if remaining_percent < 50:
+        return yellow
+    return blue
 
 
 def _context_color(remaining_tokens, remaining_percent):
@@ -140,6 +151,35 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     r_count = ""
     u_count = ""
     l_count = ""
+    f_count = ""
+
+    # F: fuel tank — budget minus cumulative tokens used. The draining
+    # counterpart to U:; only goes down (and may go negative). Shown as the
+    # EXACT remaining token count plus percent, e.g. "5198195 (52%)" (no
+    # shorthand, no price). The cap is derived from the dollar/day target per
+    # current model + effort (or an explicit override); None disables the gauge.
+    try:
+        from monitor.lib.model_pricing import session_token_budget
+        budget = session_token_budget()
+        if isinstance(budget, (int, float)) and budget > 0:
+            used = total_used if isinstance(total_used, (int, float)) else (
+                getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+            )
+            remaining = int(budget - used)
+            remaining_percent = (remaining / budget) * 100
+            fuel_color = _fuel_color(remaining_percent)
+            # "100%" only when the tank is genuinely full (nothing used). Once
+            # it dips, show 2 decimals so the slow drain on a large budget is
+            # visible — TRUNCATED (not rounded) so a barely-used tank never
+            # rounds back up to "100.00%".
+            if remaining >= budget:
+                pct_str = "100%"
+            else:
+                pct_str = f"{math.floor(remaining_percent * 100) / 100:.2f}%"
+            f_count = f"{fuel_color}{remaining} ({pct_str}){reset}"
+    except Exception as e:
+        f_count = ""
+        logger.error(f"Error in calculating fuel budget: {e}", exc_info=True)
 
     try:
         if context_remaining is None:
@@ -343,6 +383,8 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     reasoning_str = effort if isinstance(model, str) and prefix and (prefix in model) else ""
 
     parts = []
+    if f_count:
+        parts.append(f"F:{f_count}")
     if c_count:
         parts.append(f"C:{c_count}")
     if r_count:

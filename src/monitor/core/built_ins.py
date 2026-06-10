@@ -37,8 +37,7 @@ from monitor.lib.built_in_commands import (
     save_response_command,
     reasoning_command,
     ttl_command,
-    trim_history_command,
-    compact_history_command,
+    compact_command,
 )
 from monitor.lib.tool_loading import (
     add_db_tools,
@@ -398,22 +397,9 @@ def configure_built_ins() -> None:
                     "description": "Reset the conversation history.",
                 },
                 {
-                    "command": ":trim_history",
-                    "function": _make_callable(trim_history_command),
-                    "description": "Trim last N items from conversation history.",
-                },
-                {
-                    "command": ":compact_history",
-                    "function": lambda arg=None: (
-                        compact_history_command(
-                            arg,
-                            config,
-                            print,
-                            COLOR_WARNING_FUNCS,
-                            logger
-                        )
-                    ),
-                    "description": "Trim history and set the max to N messages (usage: :compact N).",
+                    "command": ":compact",
+                    "function": _make_callable(compact_command),
+                    "description": "Compact older conversation history into a summary (usage: :compact).",
                 },
                 {
                     "command": ":dump_history",

@@ -46,6 +46,44 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 #         Treat as "emergency only" — you'll pay the worst-case curve.
 AUTO_COMPACT_THRESHOLD_RATIO: 0.50
 
+# F: fuel-tank gauge — a per-session cumulative-token budget, shown before C:
+# in the status line as F: = budget - SESSION_TOTAL_TOKENS (the exact remaining
+# token count plus a percent). It is the DRAINING counterpart to U:: a fixed
+# quota that only goes down (and may read negative). Unlike C:, it is NOT the
+# context window and compaction does NOT refill it.
+#
+# The cap is normally DERIVED from a dollar/day target, so it auto-resizes per
+# model and reasoning effort:
+#   token_cap = DAILY_COST_TARGET_USD / effective_rate
+# where effective_rate is the current model's $/1M-tokens (from
+# MODEL_TOKEN_RATE_PER_MTOK, else the anchor rate scaled by the model's
+# published price ratio) times the reasoning-effort multiplier. A cheaper model
+# (e.g. gpt-5.4-mini) auto-yields a much larger tank; higher reasoning effort a
+# smaller one. A stable per-model/effort rate is used (not the live realized
+# rate), so the cap doesn't jitter within a session.
+DAILY_COST_TARGET_USD: 5.0          # dollars/day the tank represents; 0 hides the gauge
+
+# Measured effective rate ($ per 1M total tokens) per model, at your typical
+# reasoning effort. Seed/tune from observation: at session end, your rate is
+# T: (dollars) / U: (tokens). Models not listed here are scaled off the anchor.
+MODEL_TOKEN_RATE_PER_MTOK:
+  openai/gpt-5.4: 1.0               # observed ~$1/1M at medium reasoning
+TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4   # scale unlisted models off this measured entry
+DEFAULT_TOKEN_RATE_PER_MTOK: 1.0    # last resort when no anchor/table rate is available
+
+# Rate multiplier by reasoning effort, relative to medium (the anchor). Higher
+# effort emits more output/reasoning tokens -> higher $/token -> smaller tank.
+# Applies only to reasoning models. Rough defaults; tune from observation.
+REASONING_EFFORT_RATE_MULTIPLIER:
+  minimal: 0.5
+  low: 0.75
+  medium: 1.0
+  high: 1.75
+
+# Optional MANUAL OVERRIDE: pin the F: cap to an exact token count, bypassing the
+# dollar derivation above. Leave unset (or 0) to derive. Uncomment to use:
+# SESSION_TOKEN_BUDGET: 5000000
+
 # Number of recent "turns" (user-message-bounded segments) to keep verbatim
 # when auto-compaction fires. Older history is replaced with a single summary
 # message; the last N turns stay intact so the model retains immediate

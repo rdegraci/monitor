@@ -528,6 +528,50 @@ SHOW_COST_ESTIMATE = None
 # summarization call itself spends more.
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
+# F: fuel-tank gauge — a per-session cumulative-token budget, the draining
+# counterpart to U:. Rendered before C: as F: = budget - SESSION_TOTAL_TOKENS,
+# shown as the exact remaining token count plus percent. Unlike C: (a refillable
+# window LEVEL bounded by the model context window), this is a fixed quota that
+# only drains and is allowed to go negative — compaction does NOT refill it.
+#
+# The cap is normally DERIVED from a dollar/day target (see DAILY_COST_TARGET_USD
+# below) so it auto-resizes per model and reasoning effort. SESSION_TOKEN_BUDGET
+# here is an optional MANUAL OVERRIDE: set a positive int to pin the cap to an
+# exact token count (bypassing the dollar derivation); leave None to derive.
+SESSION_TOKEN_BUDGET = None
+# Dollar/day budget the F: gauge targets. The token cap is computed as
+# DAILY_COST_TARGET_USD / effective_rate, where the rate comes from
+# MODEL_TOKEN_RATE_PER_MTOK (measured $/1M-tokens for the current model) or, for
+# models not listed there, the anchor rate scaled by the model's published price
+# ratio (so a cheaper model like gpt-5.4-mini auto-yields a larger tank), then
+# multiplied by the reasoning-effort multiplier. Set to 0 / null to hide the
+# gauge (unless SESSION_TOKEN_BUDGET is set). A STABLE per-model/effort rate is
+# used (NOT the live realized rate), so the cap doesn't jitter within a session.
+DAILY_COST_TARGET_USD = 5.0
+# Measured effective rate ($ per 1M total tokens) per model, at the user's
+# typical reasoning effort. Seeded from observation; extend/tune as you measure
+# (T: / U: at session end). Keys are full model strings (e.g. "openai/gpt-5.4").
+MODEL_TOKEN_RATE_PER_MTOK = {
+    "openai/gpt-5.4": 1.0,  # observed ~$1/1M at medium reasoning
+}
+# Which MODEL_TOKEN_RATE_PER_MTOK entry to treat as the scaling anchor for models
+# not explicitly listed: their rate = anchor_rate * (price_ratio from the
+# pricing table). Should be a model you've actually measured.
+TOKEN_RATE_ANCHOR_MODEL = "openai/gpt-5.4"
+# Last-resort rate ($/1M) when neither a measured entry nor a table-based anchor
+# scaling is available for the current model.
+DEFAULT_TOKEN_RATE_PER_MTOK = 1.0
+# Reasoning-effort rate multiplier, relative to medium (the rate anchor). Higher
+# effort emits more output/reasoning tokens (billed at the output rate), raising
+# the realized $/token → a smaller starting tank. Applies only to reasoning
+# models (REASONING_MODEL_PREFIX in the model name); 1.0 otherwise. Rough
+# defaults — tune from observation.
+REASONING_EFFORT_RATE_MULTIPLIER = {
+    "minimal": 0.5,
+    "low": 0.75,
+    "medium": 1.0,
+    "high": 1.75,
+}
 # Number of auto-compaction events that have fired in the current session.
 # Incremented after each successful partial-summary reset (soft-trigger and
 # rate-limit paths). Surfaced in the H: indicator as "H:(N) <count>" so the
@@ -873,6 +917,59 @@ def configure_globals():
                 "AUTO_COMPACT_THRESHOLD_RATIO=%r is not a number; keeping default %s",
                 _ratio_raw, AUTO_COMPACT_THRESHOLD_RATIO,
             )
+
+    # F: fuel-tank cap — optional MANUAL OVERRIDE (exact token count). Positive
+    # int pins the cap; null/0/invalid leaves it unset so the cap derives from
+    # DAILY_COST_TARGET_USD instead.
+    global SESSION_TOKEN_BUDGET
+    _budget_raw = yaml_config.get("SESSION_TOKEN_BUDGET")
+    if _budget_raw is not None:
+        try:
+            _budget_val = int(_budget_raw)
+            if _budget_val > 0:
+                SESSION_TOKEN_BUDGET = _budget_val
+            else:
+                SESSION_TOKEN_BUDGET = None  # 0/negative → derive from dollar target
+        except (TypeError, ValueError):
+            logger.warning(
+                "SESSION_TOKEN_BUDGET=%r is not an integer; ignoring (will derive)",
+                _budget_raw,
+            )
+
+    # Dollar/day target the F: gauge sizes its token cap from.
+    global DAILY_COST_TARGET_USD
+    _target_raw = yaml_config.get("DAILY_COST_TARGET_USD")
+    if _target_raw is not None:
+        try:
+            DAILY_COST_TARGET_USD = float(_target_raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "DAILY_COST_TARGET_USD=%r is not a number; keeping default %s",
+                _target_raw, DAILY_COST_TARGET_USD,
+            )
+
+    # Per-model measured rate map / anchor / default / effort multipliers. Dicts
+    # and scalars are taken as-is when present (shallow-validated).
+    global MODEL_TOKEN_RATE_PER_MTOK, TOKEN_RATE_ANCHOR_MODEL
+    global DEFAULT_TOKEN_RATE_PER_MTOK, REASONING_EFFORT_RATE_MULTIPLIER
+    _rate_map = yaml_config.get("MODEL_TOKEN_RATE_PER_MTOK")
+    if isinstance(_rate_map, dict):
+        MODEL_TOKEN_RATE_PER_MTOK = _rate_map
+    _anchor = yaml_config.get("TOKEN_RATE_ANCHOR_MODEL")
+    if isinstance(_anchor, str) and _anchor:
+        TOKEN_RATE_ANCHOR_MODEL = _anchor
+    _default_rate = yaml_config.get("DEFAULT_TOKEN_RATE_PER_MTOK")
+    if _default_rate is not None:
+        try:
+            DEFAULT_TOKEN_RATE_PER_MTOK = float(_default_rate)
+        except (TypeError, ValueError):
+            logger.warning(
+                "DEFAULT_TOKEN_RATE_PER_MTOK=%r is not a number; keeping default %s",
+                _default_rate, DEFAULT_TOKEN_RATE_PER_MTOK,
+            )
+    _effort_mult = yaml_config.get("REASONING_EFFORT_RATE_MULTIPLIER")
+    if isinstance(_effort_mult, dict):
+        REASONING_EFFORT_RATE_MULTIPLIER = _effort_mult
 
     # Override RECENT_TURNS_PRESERVED_ON_COMPACT from YAML if provided. Clamp
     # to >= 1 (zero would preserve nothing, defeating the purpose). Invalid

@@ -1,3 +1,4 @@
+import contextlib
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -189,6 +190,125 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertIn("C:", result)
         self.assertIn("H:", result)
         self.assertIn("]", result)  # End bracket of prompt
+
+
+class TestFuelGauge(unittest.TestCase):
+    """The F: fuel tank: SESSION_TOKEN_BUDGET - SESSION_TOTAL_TOKENS, drawn
+    before C: as the exact remaining token count plus percent. No price."""
+
+    def _line(self, **over):
+        # These tests pin the cap via the explicit SESSION_TOKEN_BUDGET override
+        # (and DAILY_COST_TARGET_USD=0 so nothing derives), isolating the F:
+        # *rendering* from the budget-derivation logic (covered separately).
+        import monitor.config as config
+        budget = over.pop("budget", 10_000_000)
+        with patch.object(config, "SESSION_TOKEN_BUDGET", budget), \
+             patch.object(config, "DAILY_COST_TARGET_USD", over.pop("cost_target", 0.0)), \
+             patch.object(config, "SESSION_TOTAL_TOKENS", over.get("total_used", 0)):
+            kwargs = dict(conversation_count=18, tokens_remaining=914345,
+                          context_remaining=914345, context_budget=924000,
+                          rate_remaining=4000000, last_used=188977, model="m")
+            kwargs.update(over)
+            return format_prompt_display(**kwargs)
+
+    def test_fuel_drawn_before_context(self):
+        line = self._line(total_used=4_801_805)
+        self.assertIn("F:", line)
+        self.assertLess(line.index("F:"), line.index("C:"))  # F: precedes C:
+
+    def test_exact_remaining_count_and_percent(self):
+        # 10M cap - 4,801,805 used -> exact 5,198,195 (51.98%), no shorthand.
+        line = self._line(total_used=4_801_805)
+        self.assertIn("F:5198195 (51.98%)", line)
+        self.assertNotIn("5.2M", line)  # not abbreviated
+
+    def test_no_price_shown(self):
+        line = self._line(total_used=4_801_805)
+        self.assertNotIn("$", line.split("C:")[0])  # nothing dollar-ish in the F: segment
+
+    def test_full_tank_shows_clean_100(self):
+        # Genuinely full (nothing used) -> "100%", no decimals.
+        line = self._line(total_used=0)
+        self.assertIn("F:10000000 (100%)", line)
+
+    def test_barely_used_does_not_round_up_to_100(self):
+        # 1 token used must read 99.99%, NOT 100.00% — the truncation guard.
+        line = self._line(total_used=1)
+        self.assertIn("F:9999999 (99.99%)", line)
+
+    def test_overrun_goes_negative(self):
+        line = self._line(total_used=10_400_000)
+        self.assertIn("F:-400000 (-4.00%)", line)
+
+    def test_no_budget_disables_gauge(self):
+        # No explicit override and no dollar target -> gauge hidden.
+        line = self._line(total_used=4_801_805, budget=None, cost_target=0.0)
+        self.assertNotIn("F:", line)
+        self.assertIn("C:", line)  # rest of the line intact
+
+
+class TestFuelBudgetDerivation(unittest.TestCase):
+    """The dollar-target-derived F: cap: DAILY_COST_TARGET_USD / per-model rate,
+    auto-scaling across models and reasoning effort (session_token_budget)."""
+
+    def _budget(self, model="openai/gpt-5.4", effort="medium", **cfg):
+        import monitor.config as config
+        from monitor.lib.model_pricing import session_token_budget
+        settings = dict(
+            SESSION_TOKEN_BUDGET=None,
+            DAILY_COST_TARGET_USD=5.0,
+            MODEL_TOKEN_RATE_PER_MTOK={"openai/gpt-5.4": 1.0},
+            TOKEN_RATE_ANCHOR_MODEL="openai/gpt-5.4",
+            DEFAULT_TOKEN_RATE_PER_MTOK=1.0,
+            REASONING_EFFORT_RATE_MULTIPLIER={"minimal": 0.5, "low": 0.75, "medium": 1.0, "high": 1.75},
+            MODEL=model,
+            REASONING_MODEL_PREFIX="gpt-5",
+            REASONING_EFFORT=effort,
+            MODEL_PRICING_OVERRIDES={},
+        )
+        settings.update(cfg)
+        with contextlib.ExitStack() as stack:
+            for k, v in settings.items():
+                stack.enter_context(patch.object(config, k, v, create=True))
+            return session_token_budget()
+
+    def test_anchor_model_medium_hits_target(self):
+        # $5 / $1.00 per M = 5M tokens.
+        self.assertEqual(self._budget("openai/gpt-5.4", "medium"), 5_000_000)
+
+    def test_cheaper_model_yields_bigger_tank(self):
+        # gpt-5.4-mini is ~1/8 the price -> ~39M for the same $5/day.
+        b = self._budget("openai/gpt-5.4-mini", "medium")
+        self.assertGreater(b, 30_000_000)
+        self.assertLess(b, 50_000_000)
+
+    def test_pricier_model_yields_smaller_tank(self):
+        # opus-4-7 ~1.7x -> ~2.9M.
+        b = self._budget("anthropic/claude-opus-4-7", "medium")
+        self.assertGreater(b, 2_000_000)
+        self.assertLess(b, 3_500_000)
+
+    def test_higher_effort_shrinks_tank(self):
+        low = self._budget("openai/gpt-5.4", "low")
+        med = self._budget("openai/gpt-5.4", "medium")
+        high = self._budget("openai/gpt-5.4", "high")
+        self.assertGreater(low, med)
+        self.assertLess(high, med)
+        self.assertEqual(high, int(5.0 / (1.75 / 1_000_000)))  # exact: ~2.857M
+
+    def test_effort_ignored_for_non_reasoning_model(self):
+        # prefix absent from model name -> multiplier 1.0 whatever the effort.
+        b = self._budget("openai/gpt-5.4", "high", REASONING_MODEL_PREFIX="zzz")
+        self.assertEqual(b, 5_000_000)
+
+    def test_explicit_override_wins(self):
+        self.assertEqual(
+            self._budget("openai/gpt-5.4", "high", SESSION_TOKEN_BUDGET=7_000_000),
+            7_000_000,
+        )
+
+    def test_zero_target_disables(self):
+        self.assertIsNone(self._budget("openai/gpt-5.4", "medium", DAILY_COST_TARGET_USD=0))
 
 
 if __name__ == "__main__":

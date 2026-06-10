@@ -21,7 +21,7 @@ def _reset_orch():
 def test_agent_create_blocked(mock_screen, monkeypatch):
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
     # Simulate handler raising SubagentCreationBlocked
-    def raise_block(prompt, persistent=False):
+    def raise_block(prompt, persistent=False, write_access=False, write_scope=""):
         raise SubagentCreationBlocked("Sub-agent creation disabled: MONITOR_AGENT_MAX_DEPTH reached (depth=1, max=1).")
     mock_screen.create_interactive_subagent.side_effect = raise_block
 

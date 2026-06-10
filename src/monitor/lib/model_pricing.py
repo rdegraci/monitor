@@ -92,6 +92,103 @@ def get_model_rates(model_name):
     return SHIPPED_MODEL_PRICING.get(model_name)
 
 
+# --- F: fuel-tank budget sizing ---------------------------------------------
+#
+# The F: gauge's token cap is DERIVED from a dollar/day target (config.
+# DAILY_COST_TARGET_USD) divided by an effective $/token rate for the current
+# model + reasoning effort, so it auto-resizes when you switch model or effort.
+# A STABLE per-model/effort rate is used (not the live realized rate), so the
+# cap doesn't jitter within a session.
+
+# Weights for collapsing a model's (cached-input, input, output) rates into one
+# blended per-token figure. Used ONLY for the model-to-model RATIO when scaling
+# the budget off a measured anchor — the assumed usage mix (cache-heavy coding:
+# mostly cached input, a slice of output/reasoning) largely cancels in the
+# ratio, so the absolute blend needn't be exact.
+_BUDGET_BLEND_WEIGHTS = {
+    "cached_input_per_token": 0.70,
+    "input_per_token": 0.15,
+    "output_per_token": 0.15,
+}
+
+
+def _blended_rate(rates):
+    """Collapse a get_model_rates() dict to one per-token number via
+    _BUDGET_BLEND_WEIGHTS, renormalized over whatever fields are present.
+    Returns None when no usable rate field exists."""
+    if not isinstance(rates, dict):
+        return None
+    total = 0.0
+    weight = 0.0
+    for key, w in _BUDGET_BLEND_WEIGHTS.items():
+        r = rates.get(key)
+        if isinstance(r, (int, float)) and r > 0:
+            total += w * r
+            weight += w
+    return (total / weight) if weight > 0 else None
+
+
+def _effort_multiplier():
+    """Rate multiplier for the CURRENT reasoning effort, relative to medium.
+    Applies only to reasoning models (REASONING_MODEL_PREFIX in config.MODEL);
+    1.0 otherwise or when the effort isn't in the multiplier table."""
+    from monitor import config
+    model = getattr(config, "MODEL", "") or ""
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
+    if not (prefix and prefix in model):
+        return 1.0
+    effort = getattr(config, "REASONING_EFFORT", "") or ""
+    table = getattr(config, "REASONING_EFFORT_RATE_MULTIPLIER", None) or {}
+    m = table.get(effort) if isinstance(table, dict) else None
+    return float(m) if isinstance(m, (int, float)) and m > 0 else 1.0
+
+
+def model_effective_rate_per_mtok(model=None):
+    """Effective $ per 1M tokens used to size the F: budget. Precedence:
+      1. measured rate in config.MODEL_TOKEN_RATE_PER_MTOK[model]
+      2. anchor measured rate * (model/anchor published-price ratio)
+      3. config.DEFAULT_TOKEN_RATE_PER_MTOK
+    then scaled by the current reasoning-effort multiplier."""
+    from monitor import config
+    if model is None:
+        model = getattr(config, "MODEL", "") or ""
+    measured = getattr(config, "MODEL_TOKEN_RATE_PER_MTOK", None) or {}
+    default_rate = getattr(config, "DEFAULT_TOKEN_RATE_PER_MTOK", 1.0) or 1.0
+
+    base = None
+    if isinstance(measured, dict) and isinstance(measured.get(model), (int, float)) and measured[model] > 0:
+        base = float(measured[model])
+    else:
+        anchor = getattr(config, "TOKEN_RATE_ANCHOR_MODEL", None)
+        anchor_rate = measured.get(anchor) if isinstance(measured, dict) else None
+        if isinstance(anchor_rate, (int, float)) and anchor_rate > 0:
+            bm = _blended_rate(get_model_rates(model))
+            ba = _blended_rate(get_model_rates(anchor))
+            if bm and ba and ba > 0:
+                base = float(anchor_rate) * (bm / ba)
+        if base is None:
+            base = float(default_rate)
+
+    return base * _effort_multiplier()
+
+
+def session_token_budget():
+    """The F: fuel-tank cap in tokens, or None to hide the gauge. Precedence:
+    explicit config.SESSION_TOKEN_BUDGET override (positive int) → dollar target
+    (DAILY_COST_TARGET_USD) / effective rate → None. Derived from the CURRENT
+    model + effort, so it re-sizes on a switch."""
+    from monitor import config
+    explicit = getattr(config, "SESSION_TOKEN_BUDGET", None)
+    if isinstance(explicit, (int, float)) and explicit > 0:
+        return int(explicit)
+    target = getattr(config, "DAILY_COST_TARGET_USD", None)
+    if isinstance(target, (int, float)) and target > 0:
+        rate_per_mtok = model_effective_rate_per_mtok()
+        if isinstance(rate_per_mtok, (int, float)) and rate_per_mtok > 0:
+            return int(target / (rate_per_mtok / 1_000_000))
+    return None
+
+
 def _read_usage_field(usage, *names, default=0):
     """Read the first matching field name from a usage object/dict.
 

@@ -1360,43 +1360,92 @@ def llm_command(arg: str = None) -> None:
                 print(f"  {k:16} -> {v}")
         print("Usage: :llm <modelname>. See ':llm help'.")
 
-def trim_history_command(arg: str) -> None:
-    """Trim the last N items from conversation history.
+def compact_command(arg: str | None = None) -> None:
+    """Manually run the same partial-preserve compaction flow used automatically.
 
     Args:
-        arg: A string representing the number of items to remove from history.
+        arg: Optional argument string. This command does not accept arguments.
 
     Behavior:
-        - Parses arg to an integer (N). If invalid or not provided, prints an error.
-        - If N <= 0, prints an error.
-        - If N > len(config.CONVERSATION_HISTORY), removes all history and warns user.
-        - Otherwise, pops last N elements from monitor.config.CONVERSATION_HISTORY.
-        - Prints or logs how many items were removed.
+        - Rejects any provided argument.
+        - Finds the partial-preserve split point using the configured recent-turns setting.
+        - Summarizes only the older portion of history.
+        - Resets history to ``[system, summary, preserved tail]``.
+        - Increments ``SESSION_COMPACTION_COUNT`` after a successful compaction.
+        - Prints a no-op message when there is not enough history to compact.
     """
+    if arg is not None and str(arg).strip():
+        print_colored_error(":compact does not accept arguments.")
+        return
 
-    if arg is None or not str(arg).strip():
-        print_colored_error("You must provide a count for how many history items to remove.")
-        return
     try:
-        n = int(str(arg).strip())
-    except Exception:
-        print_colored_error(f"Cannot parse number of items to remove from history: '{arg}'")
-        return
-    if n <= 0:
-        print_colored_error("Number of items to remove must be positive.")
-        return
-    size = len(config.CONVERSATION_HISTORY)
-    if n > size:
-        removed = size
-        config.CONVERSATION_HISTORY.clear()
-        logger.warning("Requested to remove %s items, but history contains only %s items. History cleared.", n, size)
-        print(f"History contained {size} items. All were removed.")
-    else:
-        removed = n
-        for _ in range(n):
-            config.CONVERSATION_HISTORY.pop()
-        print(f"Removed last {removed} item(s) from conversation history.")
-        logger.info("Removed last %s item(s) from conversation history.", removed)
+        from monitor.lib.history import (
+            _find_compaction_split_index,
+            generate_conversation_summary,
+            reset_conversation_with_partial_summary,
+        )
+        from monitor.lib.system_prompt import build_system_prompt
+        from monitor.lib.token_management import count_message_tokens
+        from monitor.lib import rate_limiter
+        import litellm
+
+        history = getattr(config, "CONVERSATION_HISTORY", None) or []
+        keep_turns = getattr(config, "RECENT_TURNS_PRESERVED_ON_COMPACT", 6)
+        split_idx = _find_compaction_split_index(history, keep_turns)
+        if split_idx is None:
+            print("Not enough history to compact yet.")
+            logger.info(
+                "Manual compaction skipped: history has <= %s user turns.",
+                keep_turns,
+            )
+            return
+
+        old_portion = list(history[:split_idx])
+        preserved = list(history[split_idx:])
+        system_prompt = build_system_prompt(session_id=getattr(config, "SESSION_ID", None))
+        summary_response = generate_conversation_summary(
+            system_prompt,
+            old_portion,
+            config.SUMMARIZATION_CONFIG,
+            config.MODEL,
+            litellm.completion,
+            count_message_tokens,
+            rate_limiter.RATE_LIMITER,
+            logger,
+            config,
+        )
+
+        summary_content = None
+        try:
+            if (
+                hasattr(summary_response, "choices")
+                and summary_response.choices
+                and len(summary_response.choices) > 0
+                and hasattr(summary_response.choices[0], "message")
+                and summary_response.choices[0].message is not None
+                and hasattr(summary_response.choices[0].message, "content")
+            ):
+                summary_content = summary_response.choices[0].message.content
+        except Exception:
+            logger.exception("Failed to extract summary content from manual compaction response.")
+
+        reset_conversation_with_partial_summary(
+            summary_content or "",
+            system_prompt,
+            preserved,
+            config.CONVERSATION_HISTORY,
+            logger,
+            config,
+        )
+        config.SESSION_COMPACTION_COUNT = getattr(config, "SESSION_COMPACTION_COUNT", 0) + 1
+        print("Conversation compacted.")
+        logger.info(
+            "Manual compaction complete: preserved %s recent message(s).",
+            len(preserved),
+        )
+    except Exception as e:
+        logger.error("Manual compaction failed: %s", e, exc_info=True)
+        print_colored_error(f"Manual compaction failed: {e}")
 
 
 def compact_history_command(

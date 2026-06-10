@@ -1,91 +1,107 @@
 import pytest
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch, MagicMock
 import io
 import copy
+import sys
 
 import monitor.core.built_ins as built_ins
 import monitor.lib.built_in_commands as bic
 
 class TestConfigureBuiltIns(unittest.TestCase):
     @patch('monitor.lib.built_in_commands.print_colored_error')
-    @patch('monitor.lib.built_in_commands.config', autospec=True)
-    @patch('monitor.core.built_ins.logger', autospec=True)
-    def test_trim_history_valid_number(self, mock_logger, mock_config, mock_error):
-        mock_history = [f"item{i}" for i in range(10)]
-        mock_config.CONVERSATION_HISTORY = mock_history
-        output_msgs = []
-        def fake_print(msg, *a, **kw):
-            output_msgs.append(msg)
-        with patch('builtins.print', fake_print):
-            built_ins.trim_history_command("3")
-        # After trimming, 7 items should remain
-        self.assertEqual(len(mock_config.CONVERSATION_HISTORY), 7)
-        # The print output should match the exact expected string
-        self.assertEqual(output_msgs[-1], "Removed last 3 item(s) from conversation history.")
-        mock_error.assert_not_called()
+    def test_compact_rejects_arguments(self, mock_error):
+        built_ins.compact_command("unexpected")
+        mock_error.assert_called_once_with(":compact does not accept arguments.")
 
-    @patch('monitor.lib.built_in_commands.print_colored_error')
-    @patch('monitor.lib.built_in_commands.config', autospec=True)
-    @patch('monitor.core.built_ins.logger', autospec=True)
-    def test_trim_history_more_than_available(self, mock_logger, mock_config, mock_error):
-        mock_history = [f"item{i}" for i in range(2)]
-        mock_config.CONVERSATION_HISTORY = mock_history
-        output_msgs = []
-        def fake_print(msg, *a, **kw):
-            output_msgs.append(msg)
-        with patch('builtins.print', fake_print):
-            built_ins.trim_history_command("10")
-        # All items should be removed (history becomes empty)
-        self.assertEqual(len(mock_config.CONVERSATION_HISTORY), 0)
-        # Output should confirm that all were removed (precise matching)
-        self.assertEqual(output_msgs[-1], "History contained 2 items. All were removed.")
-        mock_error.assert_not_called()
+    @patch('monitor.lib.built_in_commands.logger')
+    @patch('monitor.lib.built_in_commands.print')
+    @patch('monitor.lib.built_in_commands.config')
+    def test_compact_runs_partial_preserve_flow(
+        self,
+        mock_config,
+        mock_print,
+        mock_logger,
+    ):
+        mock_config.CONVERSATION_HISTORY = [
+            {"role": "user", "content": "older"},
+            {"role": "assistant", "content": "older reply"},
+            {"role": "user", "content": "recent"},
+            {"role": "assistant", "content": "recent reply"},
+        ]
+        mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 1
+        mock_config.SUMMARIZATION_CONFIG = {"prompt": {"template": "x"}, "triggers": {}}
+        mock_config.MODEL = "test-model"
+        mock_config.SESSION_ID = "session-1"
+        mock_config.SESSION_COMPACTION_COUNT = 0
 
-    @patch('monitor.lib.built_in_commands.print_colored_error')
-    @patch('monitor.lib.built_in_commands.config', autospec=True)
-    @patch('monitor.core.built_ins.logger', autospec=True)
-    def test_trim_history_zero_or_negative(self, mock_logger, mock_config, mock_error):
-        mock_config.CONVERSATION_HISTORY = [1,2,3]
-        built_ins.trim_history_command("0")
-        built_ins.trim_history_command("-5")
-        # Test both responses, which should both call error handler with correct string
-        # Single-argument error handler is always called with the error message as the first
-        # element in args tuple, so index with [0] for clarity and robustness.
-        mock_error.assert_any_call("Number of items to remove must be positive.")
-        mock_error.assert_any_call("Number of items to remove must be positive.")
-        self.assertGreaterEqual(mock_error.call_count, 2)
+        mock_split = MagicMock(return_value=2)
+        mock_generate = MagicMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="summary text"))]
+            )
+        )
+        mock_reset = MagicMock()
+        fake_rate_limiter = SimpleNamespace(RATE_LIMITER=MagicMock())
+        fake_litellm = SimpleNamespace(completion=MagicMock())
 
+        with patch.dict(
+            sys.modules,
+            {
+                "monitor.lib.history": SimpleNamespace(
+                    _find_compaction_split_index=mock_split,
+                    generate_conversation_summary=mock_generate,
+                    reset_conversation_with_partial_summary=mock_reset,
+                ),
+                "monitor.lib.token_management": SimpleNamespace(count_message_tokens=MagicMock()),
+                "monitor.lib.rate_limiter": fake_rate_limiter,
+                "litellm": fake_litellm,
+            },
+        ), patch(
+            "monitor.lib.built_in_commands.build_system_prompt",
+            return_value="system prompt",
+            create=True,
+        ):
+            built_ins.compact_command()
 
-    @patch('monitor.lib.built_in_commands.print_colored_error')
-    @patch('monitor.lib.built_in_commands.config', autospec=True)
-    @patch('monitor.core.built_ins.logger', autospec=True)
-    def test_trim_history_non_integer(self, mock_logger, mock_config, mock_error):
-        mock_config.CONVERSATION_HISTORY = [1,2,3]
-        built_ins.trim_history_command("ten")
-        mock_error.assert_any_call("Cannot parse number of items to remove from history: 'ten'")
-        built_ins.trim_history_command("3.14")
-        mock_error.assert_any_call("Cannot parse number of items to remove from history: '3.14'")
-        self.assertGreaterEqual(mock_error.call_count, 2)
-        # In the single-argument handler scenario, call_arg is a tuple whose first position contains the error string.
-        # This is now respected everywhere these arguments are accessed, for clarity and robustness.
-        args0, _ = mock_error.call_args_list[0]
-        self.assertIn("Cannot parse number of items", args0[0])
+        mock_generate.assert_called_once()
+        mock_reset.assert_called_once()
+        reset_args = mock_reset.call_args.args
+        self.assertEqual(reset_args[0], "summary text")
+        self.assertEqual(
+            reset_args[2],
+            [
+                {"role": "user", "content": "recent"},
+                {"role": "assistant", "content": "recent reply"},
+            ],
+        )
+        self.assertIs(reset_args[3], mock_config.CONVERSATION_HISTORY)
+        self.assertIs(reset_args[4], mock_logger)
+        self.assertIs(reset_args[5], mock_config)
+        self.assertEqual(mock_config.SESSION_COMPACTION_COUNT, 1)
+        mock_print.assert_called_with("Conversation compacted.")
 
+    @patch('monitor.lib.built_in_commands.logger')
+    @patch('monitor.lib.built_in_commands.print')
+    @patch('monitor.lib.built_in_commands.config')
+    @patch('monitor.lib.built_in_commands._find_compaction_split_index', create=True)
+    def test_compact_noop_when_history_too_short(
+        self,
+        mock_split,
+        mock_config,
+        mock_print,
+        mock_logger,
+    ):
+        mock_config.CONVERSATION_HISTORY = [{"role": "user", "content": "only"}]
+        mock_config.RECENT_TURNS_PRESERVED_ON_COMPACT = 6
+        mock_split.return_value = None
 
-    @patch('monitor.lib.built_in_commands.print_colored_error')
-    @patch('monitor.lib.built_in_commands.config', autospec=True)
-    @patch('monitor.core.built_ins.logger', autospec=True)
-    def test_trim_history_missing_or_blank_arg(self, mock_logger, mock_config, mock_error):
-        mock_config.CONVERSATION_HISTORY = [1,2,3]
-        built_ins.trim_history_command("")
-        built_ins.trim_history_command(None)
-        self.assertGreaterEqual(mock_error.call_count, 2)
-        for call in mock_error.call_args_list:
-            # call[0] is the tuple of positional arguments (here, the first position is the string).
-            self.assertIn("You must provide a count for how many history items to remove.", call[0][0])
+        built_ins.compact_command()
 
+        mock_print.assert_called_with("Not enough history to compact yet.")
+        mock_logger.info.assert_called_once()
 
     @patch('monitor.core.built_ins.append_function_to_built_ins')
     @patch('monitor.core.built_ins.edit_macros_command')
