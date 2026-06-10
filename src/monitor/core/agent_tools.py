@@ -216,7 +216,12 @@ def agent_list(full: bool = False) -> Dict[str, Any]:
         return {"status": "error", "correlation_id": cid, "message": str(exc)}
 
 
-def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
+def agent_create(
+    prompt: str,
+    persistent: bool = False,
+    write_access: bool = False,
+    write_scope: str = "",
+) -> Dict[str, Any]:
     """Create an interactive subagent (screen) session.
 
     This wrapper requests the ScreenHandler to create an interactive subagent
@@ -231,6 +236,10 @@ def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
         persistent: If False (default), the sub-agent is ONE-SHOT — it exits
             after reporting its result, reaping itself. If True, it stays alive
             for agent_send follow-ups and must be agent_kill-ed when done.
+        write_access: If True, grant this specific sub-agent delegated write
+            authority for the task.
+        write_scope: Optional newline-delimited path scope for delegated
+            writes. Empty means no path restriction beyond the write grant.
 
     Returns:
         Dict[str, Any]: A dictionary containing status, correlation_id, and on
@@ -249,6 +258,23 @@ def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
     if not isinstance(prompt, str):
         msg = "prompt must be a str"
         logger.error("agent_create validation failed: cid=%s, prompt=%r, msg=%s", cid, prompt, msg)
+        return {"status": "error", "correlation_id": cid, "message": msg}
+    if not isinstance(write_access, bool):
+        msg = "write_access must be a bool"
+        logger.error("agent_create validation failed: cid=%s, write_access=%r", cid, write_access)
+        return {"status": "error", "correlation_id": cid, "message": msg}
+    if not isinstance(write_scope, str):
+        msg = "write_scope must be a str"
+        logger.error("agent_create validation failed: cid=%s, write_scope=%r", cid, write_scope)
+        return {"status": "error", "correlation_id": cid, "message": msg}
+    if write_scope.strip() and not write_access:
+        msg = "write_scope requires write_access=true"
+        logger.error(
+            "agent_create validation failed: cid=%s, write_access=%r, write_scope=%r",
+            cid,
+            write_access,
+            write_scope,
+        )
         return {"status": "error", "correlation_id": cid, "message": msg}
 
     # Breadth / total caps (Phase 8c): bound concurrent and lifetime fan-out so
@@ -271,7 +297,12 @@ def agent_create(prompt: str, persistent: bool = False) -> Dict[str, Any]:
     try:
         # Request creation from the handler, handling the blocked case explicitly.
         try:
-            info = _SCREEN.create_interactive_subagent(prompt, persistent=persistent)
+            info = _SCREEN.create_interactive_subagent(
+                prompt,
+                persistent=persistent,
+                write_access=write_access,
+                write_scope=write_scope,
+            )
         except Exception as exc:
             # Import SubagentCreationBlocked lazily; handle the blocked case if available.
             try:

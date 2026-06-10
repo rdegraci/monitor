@@ -62,7 +62,13 @@ def test_agent_create_enabled(monkeypatch):
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
 
     class DummyScreen:
-        def create_interactive_subagent(self, prompt, persistent=False):
+        def create_interactive_subagent(
+            self,
+            prompt,
+            persistent=False,
+            write_access=False,
+            write_scope="",
+        ):
             return {"session_name": "sess-123", "meta_path": "/tmp/meta", "log_path": "/tmp/log"}
 
     # Patch the module-level _SCREEN proxy to return our dummy screen

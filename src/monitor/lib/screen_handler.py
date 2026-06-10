@@ -281,6 +281,8 @@ class ScreenHandler:
         max_retries: int = 30,
         retry_delay: float = 0.2,
         persistent: bool = False,
+        write_access: bool = False,
+        write_scope: str = "",
     ) -> Dict[str, Any]:
         """Create a detached screen session running interactive Monitor and inject prompt.
 
@@ -289,6 +291,10 @@ class ScreenHandler:
             session_name: Optional session name to use; if None a unique name is generated.
             max_retries: How many times to retry prompt injection.
             retry_delay: Seconds to wait between retries.
+            write_access: Whether this specific sub-agent should receive a
+                delegated write grant.
+            write_scope: Optional newline-delimited path scope for delegated
+                writes.
 
         Returns:
             A dict describing the created session (session_name, log_path, meta_path).
@@ -363,6 +369,7 @@ class ScreenHandler:
             "MONITOR_AGENT=1",
             f"MONITOR_AGENT_DEPTH={curr_depth+1}",
         ]
+        child_env = os.environ.copy()
         if max_depth is not None:
             env_vars.append(f"MONITOR_AGENT_MAX_DEPTH={max_depth}")
 
@@ -371,6 +378,15 @@ class ScreenHandler:
         # flag so the child stays alive for agent_send follow-ups.
         if not persistent:
             env_vars.append("MONITOR_AGENT_ONE_SHOT=1")
+
+        if write_access:
+            child_env["MONITOR_SUBAGENT_WRITE_GRANTED"] = "1"
+        else:
+            child_env.pop("MONITOR_SUBAGENT_WRITE_GRANTED", None)
+        if write_scope:
+            child_env["MONITOR_SUBAGENT_WRITE_SCOPE"] = write_scope
+        else:
+            child_env.pop("MONITOR_SUBAGENT_WRITE_SCOPE", None)
 
         # PLAN Phase 0.5: hand the child the orchestrator's frame-protocol
         # listener socket + a stable agent id. The child's agent_reporter
@@ -385,7 +401,7 @@ class ScreenHandler:
             logger.exception("Could not start agent orchestrator listener; child will run unreported")
 
         cmd = [self.screen_cmd, "-S", session_name, "-dm", "env"] + env_vars + self.monitor_cmd
-        cp = self._run(cmd, check=False, capture_output=True, text=True)
+        cp = self._run(cmd, check=False, capture_output=True, text=True, env=child_env)
         time.sleep(0.4)
 
         if cp.returncode != 0:

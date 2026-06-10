@@ -99,3 +99,44 @@ def test_create_interactive_subagent_blocked_by_max_depth(mock_run, handler, mon
 
     with pytest.raises(SubagentCreationBlocked):
         handler.create_interactive_subagent("should be blocked")
+
+
+@patch("subprocess.run")
+def test_create_interactive_subagent_passes_delegated_write_env(mock_run, handler):
+    mock_cp = MagicMock()
+    mock_cp.returncode = 0
+    mock_run.return_value = mock_cp
+
+    handler.create_interactive_subagent(
+        "Hello sub-agent",
+        write_access=True,
+        write_scope="src/foo.py\ntests/test_foo.py",
+    )
+
+    create_call = mock_run.call_args_list[0]
+    child_env = create_call.kwargs["env"]
+
+    assert child_env["MONITOR_SUBAGENT_WRITE_GRANTED"] == "1"
+    assert child_env["MONITOR_SUBAGENT_WRITE_SCOPE"] == "src/foo.py\ntests/test_foo.py"
+
+
+@patch("subprocess.run")
+def test_create_interactive_subagent_clears_delegated_write_env_when_unset(mock_run, handler, monkeypatch):
+    monkeypatch.setenv("MONITOR_SUBAGENT_WRITE_GRANTED", "1")
+    monkeypatch.setenv("MONITOR_SUBAGENT_WRITE_SCOPE", "stale/path.py")
+
+    mock_cp = MagicMock()
+    mock_cp.returncode = 0
+    mock_run.return_value = mock_cp
+
+    handler.create_interactive_subagent(
+        "Hello sub-agent",
+        write_access=False,
+        write_scope="",
+    )
+
+    create_call = mock_run.call_args_list[0]
+    child_env = create_call.kwargs["env"]
+
+    assert "MONITOR_SUBAGENT_WRITE_GRANTED" not in child_env
+    assert "MONITOR_SUBAGENT_WRITE_SCOPE" not in child_env

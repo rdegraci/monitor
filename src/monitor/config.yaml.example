@@ -499,4 +499,27 @@ MONITOR_AGENT_MAX_TOTAL: 1                 # Max sub-agents spawned per session 
 MONITOR_AGENT_HEARTBEAT_TIMEOUT: 45        # Seconds before a silent sub-agent is treated as crashed/hung.
 MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may sit idle (post-result) before it's reaped.
 
+# Sub-agent write behavior
+#
+# - `none`
+#  - Sub-agents have no write access.
+#  - They can read, inspect, analyze, propose diffs/plans/tests, and report back.
+#  - Any actual file mutation must be done by the orchestrator.
+#
+# - `delegated`
+#  - Sub-agents may write only when the orchestrator explicitly grants write authority for that specific task.
+#  - Default remains read-only.
+#  - The grant should be narrow and intentional, ideally scoped in the spawn prompt or follow-up message:
+#    - what files or directories,
+#    - what kind of edits,
+#    - whether tests are allowed,
+#    - and whether creation/deletion is allowed.
+#  - Without that explicit delegation, write tools should remain unavailable or rejected.
+#
+# - `full`
+#  - Sub-agents can use write tools normally, like the orchestrator.
+#  - They may create and modify files without needing an extra per-task delegation step.
+#  - The orchestrator still owns review and final responsibility, but runtime does not restrict write capability.
+# SUBAGENT_WRITE_ACCESS: none
+
 # End Config.yaml

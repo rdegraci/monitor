@@ -20,16 +20,14 @@ shippable state. Phases are sequential; later phases assume earlier ones land.
 **Exit criteria:** Documented decisions; config verified as single source of truth.
 **Risk:** Low.
 
-## Phase 0.5 — Wire `:agent create` to launch a real `--agent` subagent
+## Phase 0.5 — Wire `:agent create` to launch a real `--agent` subagent  — ✅ DONE
 **Goal:** The spawned child actually runs in agent mode and reports back.
-- Add `--agent` to `monitor_cmd` (`screen_handler.py:75`).
-- Pass `MONITOR_AGENT_SOCKET=<name>.sock` in the spawn `env` (`:364`).
-- Build the `config.AGENT` startup reporting path (`app.py:354`): connect +
-  emit `hello`/`status`/`stdout`/`result`, reusing the client at `:667`.
-**Exit criteria:** A spawned subagent connects to its socket and emits frames an
-ad-hoc listener can read.
-**Risk:** Medium. The child-side reporting path is the main net-new code, but
-it's localized and reuses existing idioms.
+**Delivered:** `screen_handler.py` launches `python -m monitor --agent`, passes
+`MONITOR_AGENT_SOCKET` and `MONITOR_AGENT_ID`, and the agent startup path
+connects back through `agent_reporter.from_env()` to emit lifecycle frames.
+Verified with real subprocess coverage.
+**Exit criteria:** ✅ A spawned subagent connects to its socket and emits frames.
+**Risk:** Medium — retired.
 
 ## Phase 1 — Protocol library (no UI)
 **Goal:** A standalone, tested frame (de)serializer.
@@ -59,20 +57,15 @@ unlinks the socket.
 races; `result`/`error`/`exit` never dropped under load.
 **Risk:** High. This is the correctness crux — concurrency.
 
-## Phase 4 — Terminal UI
+## Phase 4 — Terminal UI  — ✅ MOSTLY DONE
 **Goal:** Live status + live background output without display corruption.
-- `bottom_toolbar` reads the status map; `get_app().invalidate()` (guarded). DONE.
-- `patch_stdout()` wraps the prompt; output flushes between prompts. DONE.
-- **live-flush-during-prompt** (RE-ELEVATED — required by the async model): a
-  background flusher streams agent `stdout`/`result` above the live prompt via
-  `run_in_terminal`, with **coalescing/verbosity caps** so a chatty agent
-  doesn't spam the input line. (Was deferred under the blocking-gather
-  assumption; now in scope because the human keeps working while agents run.)
-- Verify prompt input buffer is never touched by a reader thread.
-**Exit criteria:** Type at the prompt while a background agent streams output
-above it; no cursor corruption; toolbar updates live.
-**Risk:** Medium. Additive (prompt_toolkit already in use); the live-flush
-thread→app bridge is the fiddly part.
+**Delivered:** `bottom_toolbar` reads orchestrator status, `patch_stdout()` wraps
+active prompts, and a background flusher streams agent `stdout`/`result` above
+the live prompt via `run_in_terminal`, with drain limits so chatty agents do
+not spam the terminal.
+**Exit criteria:** ✅ Type at the prompt while a background agent streams output
+above it; toolbar updates live without prompt corruption.
+**Risk:** Medium — substantially retired.
 
 ## Phase 5 — Lifecycle, failure & rollback
 **Goal:** Crash semantics are correct and honest.
@@ -102,7 +95,7 @@ over-deep spawns.
 existing `:agent` subcommands unaffected.
 **Risk:** Medium.
 
-## Phase 8 — LLM orchestration layer (the capstone)
+## Phase 8 — LLM orchestration layer (the capstone)  — ✅ PARTIALLY DONE
 **Goal:** Turn the subsystem from "spawns processes" into "an LLM that
 orchestrates subagents, aggregates their findings, and acts." This is where the
 existing LLM-callable tools (`tool_definitions.py:~682-749`) become genuinely

@@ -8,38 +8,39 @@ as completed. Items are ordered so each builds on verified prior work.
 > path (`:agent create` → `agent_create` → `create_interactive_subagent`) is
 > already ~90% wired; see §1b for the two concrete gaps that make it real.
 
-> **IMPLEMENTED (2026-06-04) — Phases 1, 2, 0.5 done, verified end-to-end.**
+> **IMPLEMENTED (2026-06-08) — orchestration stack is substantially complete.**
 > New modules (stdlib-only, no config dependency → import-cycle-safe):
 > - `lib/agent_protocol.py` — Phase 1 frame protocol (length-prefixed, versioned,
->   typed; partial-read-tolerant `FrameDecoder`). 16 tests.
+>   typed; partial-read-tolerant `FrameDecoder`).
 > - `lib/agent_listener.py` — Phase 2 orchestrator AF_UNIX listener (accept/reader
->   threads, pluggable `on_frame` sink, clean-vs-dirty disconnect, teardown). 7 tests.
+>   threads, pluggable `on_frame` sink, clean-vs-dirty disconnect, teardown).
 > - `lib/agent_reporter.py` — Phase 0.5 child reporting client (`hello/status/
 >   stdout/result/error/exit/heartbeat`, monotonic seq, heartbeat thread,
->   degrades to no-op if no orchestrator). 8 tests.
-> - `lib/agent_orchestrator.py` — Phase 0.5 orchestrator singleton (listener +
->   lock-guarded frame registry = seed of the Phase 3 shared state). 5 tests.
+>   degrades to no-op if no orchestrator).
+> - `lib/agent_orchestrator.py` — orchestrator singleton (listener + lock-guarded
+>   frame registry + pending-output/injection queues + spawn-cap accounting).
 >
 > Live wiring: `screen_handler.py` spawns `python -m monitor --agent` and passes
 > `MONITOR_AGENT_SOCKET` (orchestrator listener) + `MONITOR_AGENT_ID`; `app.py`
 > startup calls `agent_reporter.from_env()` (heartbeat + status + atexit exit).
-> **Verified with a real subprocess**: a spawned `monitor --agent` connected and
-> emitted hello → status → exit.
+> `conversation.py` routes prompts through `_prompt_with_agent_bridge`, which
+> shows a live `bottom_toolbar` and live-flushes agent output above the prompt
+> only when agents are active.
 >
-> **Phase 3 + most of Phase 4 also done.** `agent_orchestrator` gained a bounded
-> pending-output buffer + `drain_pending_output`/`render_toolbar`/
-> `has_active_agents`; `conversation.py` `get_input` now routes through
-> `_prompt_with_agent_bridge`, which flushes agent output above the prompt and
-> shows a live `bottom_toolbar` — ONLY when agents are active (byte-identical to
-> a plain prompt otherwise; degrades on any error). Full suite 1337 passed / 1
-> skipped.
+> **Implemented since the original draft:**
+> - live-flush DURING a prompt is done,
+> - `agent_gather` is built and tested,
+> - result/error frames enqueue next-turn LLM injections,
+> - breadth and total-agent caps are enforced with leak-proof reservation reaping,
+> - heartbeat timeout marks never-connected / hung children failed,
+> - tests now cover lifecycle, gather, caps, and write-access restrictions.
 >
-> NOT yet done: Phase 4 live-flush DURING a prompt (currently flushes between
-> prompts; toolbar refreshes live), Phase 5 (dirty-disconnect → history
-> rollback; detection exists, firing the rollback is unwired), Phase 6 (depth
-> ceiling at `hello`, direct-children-only toolbar), Phase 7 (hardening), Phase 8
-> (LLM `agent_gather` layer). The legacy child-served status-socket + poller path
-> was left intact (additive); cleanup deferred.
+> Still pending: Phase 5's old proposed "history rollback" path (the current
+> design surfaces failures honestly to the orchestrator instead), Phase 6 depth
+> enforcement at `hello`, direct-children-only toolbar verification, Phase 11e
+> researcher/worker policy completion, and follow-up coverage for persistent
+> `agent_send` workflows. The legacy child-served status-socket + poller path
+> remains additive; cleanup is still deferred.
 
 ## 0. Pre-flight
 - [x] `MONITOR_ENABLE_AGENT_ORCHESTRATION`, `MONITOR_AGENT_DEPTH`,
@@ -53,18 +54,15 @@ as completed. Items are ordered so each builds on verified prior work.
       the spawn path; document that orchestration is UNIX-only.
 
 ## 1b. Make `:agent create` spawn a real `--agent` subagent (THE net-new wiring)
-- [ ] **Spawn side:** add `--agent` to `self.monitor_cmd`
-      (`screen_handler.py:75`) so the child runs in agent mode (currently
-      `["python", "-m", "monitor"]` with no flag).
-- [ ] **Spawn side:** pass the socket path to the child, e.g.
-      `MONITOR_AGENT_SOCKET=<name>.sock` in the same `env` list that already
-      carries the depth vars (`screen_handler.py:364`).
-- [ ] **Child side:** in the `config.AGENT` startup path (`app.py:354`, today a
-      near-noop), connect to `MONITOR_AGENT_SOCKET` and emit framed
-      `hello`/`status`/`stdout`/`result` frames — reuse the existing AF_UNIX
-      client idiom at `screen_handler.py:667`.
-- [ ] Verify a spawned child reports frames the orchestrator receives (smoke
-      test before building the full bridge).
+- [x] **Spawn side:** add `--agent` to `self.monitor_cmd`
+      (`screen_handler.py:75`) so the child runs in agent mode.
+- [x] **Spawn side:** pass the socket path to the child via
+      `MONITOR_AGENT_SOCKET=<listener.sock>` and the stable id via
+      `MONITOR_AGENT_ID=<agent_id>` alongside the depth vars.
+- [x] **Child side:** in the `config.AGENT` startup path, connect to
+      `MONITOR_AGENT_SOCKET` and emit framed
+      `hello`/`status`/`stdout`/`result`/`error`/`exit` frames.
+- [x] Verify a spawned child reports frames the orchestrator receives.
 
 ## 1. Frame protocol — wire layer
 - [ ] Implement length-prefixed framing: `uint32` BE length + JSON body.

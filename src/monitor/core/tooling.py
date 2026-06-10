@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from pathlib import Path
 
 from monitor import config
 
@@ -28,6 +30,270 @@ SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 # tool call dispatched this turn. When the same signature has appeared the
 # last config.MAX_REPEATED_TOOL_CALLS times in a row, handle_tool_call
 # rejects the call without executing it — the model gets an error string
+
+WRITE_GUARDED_TOOLS = {
+    "bulk_replace_in_files",
+    "create_file",
+    "modify_source_code",
+    "str_replace_based_edit_tool",
+    "str_replace_editor",
+    "text_file_create",
+    "text_file_insert_text_at_line",
+    "text_file_str_replace_in_file",
+}
+
+
+
+def _extract_single_path_target(function_args):
+    """Return a single path target from a tool call.
+
+    Args:
+        function_args: Parsed tool arguments.
+
+    Returns:
+        list[str]: One target when a non-empty path is present, else empty.
+    """
+    path_value = function_args.get("path")
+    if isinstance(path_value, str) and path_value.strip():
+        return [path_value.strip()]
+    return []
+
+
+
+def _extract_source_file_target(function_args):
+    """Return a source_file target from a tool call.
+
+    Args:
+        function_args: Parsed tool arguments.
+
+    Returns:
+        list[str]: One target when a non-empty source_file is present, else empty.
+    """
+    source_file = function_args.get("source_file")
+    if isinstance(source_file, str) and source_file.strip():
+        return [source_file.strip()]
+    return []
+
+
+
+def _extract_paths_targets(function_args):
+    """Return explicit targets from a paths argument.
+
+    Args:
+        function_args: Parsed tool arguments.
+
+    Returns:
+        list[str]: Normalized targets from paths.
+
+    Raises:
+        ValueError: If paths contains non-string or empty entries.
+    """
+    paths_value = function_args.get("paths")
+    if isinstance(paths_value, str):
+        if paths_value.strip():
+            return [paths_value.strip()]
+        raise ValueError("paths must not be empty")
+    if isinstance(paths_value, list):
+        targets = []
+        for entry in paths_value:
+            if not isinstance(entry, str):
+                raise ValueError("paths entries must all be strings")
+            cleaned = entry.strip()
+            if not cleaned:
+                raise ValueError("paths entries must not be empty")
+            targets.append(cleaned)
+        if not targets:
+            raise ValueError("paths must not be empty")
+        return targets
+    return []
+
+
+WRITE_TARGET_EXTRACTORS = {
+    "bulk_replace_in_files": _extract_paths_targets,
+    "create_file": _extract_single_path_target,
+    "modify_source_code": _extract_source_file_target,
+    "str_replace_based_edit_tool": _extract_single_path_target,
+    "str_replace_editor": _extract_single_path_target,
+    "text_file_create": _extract_single_path_target,
+    "text_file_insert_text_at_line": _extract_single_path_target,
+    "text_file_str_replace_in_file": _extract_single_path_target,
+}
+
+_MISSING_WRITE_TARGET_EXTRACTORS = WRITE_GUARDED_TOOLS - set(WRITE_TARGET_EXTRACTORS)
+if _MISSING_WRITE_TARGET_EXTRACTORS:
+    missing_names = ", ".join(sorted(_MISSING_WRITE_TARGET_EXTRACTORS))
+    raise RuntimeError(f"Missing write target extractors for guarded tools: {missing_names}")
+
+_EXTRA_WRITE_TARGET_EXTRACTORS = set(WRITE_TARGET_EXTRACTORS) - WRITE_GUARDED_TOOLS
+if _EXTRA_WRITE_TARGET_EXTRACTORS:
+    extra_names = ", ".join(sorted(_EXTRA_WRITE_TARGET_EXTRACTORS))
+    raise RuntimeError(f"Write target extractors registered for unguarded tools: {extra_names}")
+
+
+def _resolve_write_scope_paths(raw_scope):
+    """Return normalized allowed write scope paths from the environment.
+
+    Args:
+        raw_scope: Newline-delimited scope entries.
+
+    Returns:
+        list[Path]: Absolute normalized allowed scope paths.
+    """
+    allowed_paths = []
+    for entry in raw_scope.splitlines():
+        cleaned = entry.strip()
+        if not cleaned:
+            continue
+        allowed_path = Path(cleaned).expanduser()
+        if not allowed_path.is_absolute():
+            allowed_path = Path.cwd() / allowed_path
+        allowed_paths.append(allowed_path.resolve(strict=False))
+    return allowed_paths
+
+
+def _extract_write_targets(function_name, function_args):
+    """Return normalized write targets for one guarded write tool.
+
+    Args:
+        function_name: The write-capable tool being authorized.
+        function_args: Parsed tool arguments.
+
+    Returns:
+        list[str]: Raw path-like write targets supplied by the tool call.
+
+    Raises:
+        ValueError: If the tool is guarded but has no extractor or has invalid targets.
+    """
+    if function_name not in WRITE_GUARDED_TOOLS:
+        return []
+    extractor = WRITE_TARGET_EXTRACTORS.get(function_name)
+    if extractor is None:
+        raise ValueError(f"No write target extractor registered for {function_name}")
+    return extractor(function_args)
+
+
+def _path_is_within_scope(target_value, allowed_paths):
+    """Return whether a target path is within any allowed delegated scope.
+
+    Args:
+        target_value: Raw target path supplied to the tool.
+        allowed_paths: Normalized allowed scope paths.
+
+    Returns:
+        bool: True when the target is inside at least one allowed scope.
+    """
+    target = Path(target_value).expanduser()
+    if not target.is_absolute():
+        target = Path.cwd() / target
+    target = target.resolve(strict=False)
+
+    for allowed_path in allowed_paths:
+        try:
+            target.relative_to(allowed_path)
+            return True
+        except ValueError:
+            if target == allowed_path:
+                return True
+    return False
+
+
+def _target_scope_error(function_name, target_value, allowed_paths):
+    """Return a delegated-scope error for one target, if any.
+
+    Args:
+        function_name: The write-capable tool the sub-agent attempted to use.
+        target_value: Raw target path or glob supplied to the tool.
+        allowed_paths: Normalized allowed scope paths.
+
+    Returns:
+        str | None: Scope error string for this target, else None.
+    """
+    has_glob = any(char in target_value for char in "*?[]{}")
+    if has_glob:
+        return (
+            f"Delegated sub-agent write for tool '{function_name}' must use "
+            f"explicit file paths; glob targets are not allowed: {target_value}"
+        )
+
+    if _path_is_within_scope(target_value, allowed_paths):
+        return None
+    return (
+        f"Delegated sub-agent write for tool '{function_name}' is outside the "
+        f"granted scope: {target_value}"
+    )
+
+
+def _subagent_write_scope_error(function_name, function_args):
+    """Return an error when a delegated sub-agent write is out of scope.
+
+    Args:
+        function_name: The write-capable tool the sub-agent attempted to use.
+        function_args: Parsed tool arguments.
+
+    Returns:
+        str | None: A user-visible error string when the target path is out of
+            scope, else None.
+    """
+    raw_scope = os.environ.get("MONITOR_SUBAGENT_WRITE_SCOPE", "")
+    allowed_paths = _resolve_write_scope_paths(raw_scope)
+    if not allowed_paths:
+        return None
+
+    try:
+        targets = _extract_write_targets(function_name, function_args)
+    except ValueError as exc:
+        return (
+            f"Delegated sub-agent write for tool '{function_name}' has invalid "
+            f"targets: {exc}"
+        )
+    if not targets:
+        return (
+            f"Delegated sub-agent write access for '{function_name}' requires a "
+            "path-like target, but none was provided."
+        )
+
+    for target_value in targets:
+        scope_error = _target_scope_error(function_name, target_value, allowed_paths)
+        if scope_error is not None:
+            return scope_error
+
+    return None
+
+
+def _subagent_write_block_error(function_name, function_args):
+    """Return an error when a sub-agent is denied write-tool access.
+
+    Args:
+        function_name: The write-capable tool the sub-agent attempted to use.
+        function_args: Parsed tool arguments.
+
+    Returns:
+        str | None: A user-visible error string when writes are blocked, else None.
+    """
+    if not getattr(config, "AGENT", False):
+        return None
+
+    mode = str(getattr(config, "SUBAGENT_WRITE_ACCESS", "none")).strip().lower()
+    if mode == "full":
+        return None
+    if mode == "none":
+        return (
+            f"Sub-agent write access is disabled (SUBAGENT_WRITE_ACCESS=none). "
+            f"Tool '{function_name}' cannot be used in --agent mode. "
+            "Report the proposed change to the orchestrator instead."
+        )
+    if mode == "delegated":
+        if os.environ.get("MONITOR_SUBAGENT_WRITE_GRANTED") != "1":
+            return (
+                f"Sub-agent write access requires explicit delegation "
+                f"(SUBAGENT_WRITE_ACCESS=delegated). Tool '{function_name}' cannot "
+                "be used until the orchestrator grants write authority for this task."
+            )
+        return _subagent_write_scope_error(function_name, function_args)
+    return (
+        f"Sub-agent write access mode '{mode}' is not recognized. "
+        f"Tool '{function_name}' is blocked in --agent mode."
+    )
 # routed back as the tool result so it can change strategy. Cleared when a
 # new user turn enters handle_tool_call at _depth=0.
 _RECENT_TOOL_CALLS: list[str] = []
@@ -109,9 +375,24 @@ def execute_tool_call(tool_call):
         return None, f"Key {function_name} not found in available_functions"
 
     try:
-        # Parse function arguments
         function_args = parse_function_args(function_args_raw)
+    except json.JSONDecodeError as e:
+        error_msg = f"Error parsing arguments for {function_name}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error parsing arguments for {function_name}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
 
+    blocked_error = None
+    if function_name in WRITE_GUARDED_TOOLS:
+        blocked_error = _subagent_write_block_error(function_name, function_args)
+    if blocked_error is not None:
+        logger.warning(blocked_error)
+        return None, blocked_error
+
+    try:
         # Apply rate limiting for high-token operations using centralized API
         if function_name in ["cat_file", "cat_file_range", "list_directory_contents", "create_file"]:
             if function_name in ("cat_file", "cat_file_range") and "path" in function_args:
@@ -478,6 +759,23 @@ def execute_function(function_name, function_args_raw):
     try:
         # Parse function arguments
         function_args = parse_function_args(function_args_raw)
+    except json.JSONDecodeError as e:
+        error_msg = f"Error parsing arguments for {function_name}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error parsing arguments for {function_name}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, error_msg
+
+    blocked_error = None
+    if function_name in WRITE_GUARDED_TOOLS:
+        blocked_error = _subagent_write_block_error(function_name, function_args)
+    if blocked_error is not None:
+        logger.warning(blocked_error)
+        return None, blocked_error
+
+    try:
 
         # Apply rate limiting for high-token operations (centralized logic)
         if function_name in ["cat_file", "cat_file_range", "list_directory_contents", "modify_source_code"]:

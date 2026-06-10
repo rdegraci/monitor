@@ -499,6 +499,7 @@ AGENT = False
 MONITOR_AGENT_DEPTH = 0
 MONITOR_AGENT_MAX_DEPTH = 1
 MONITOR_ENABLE_AGENT_ORCHESTRATION = False
+SUBAGENT_WRITE_ACCESS = "none"
 # Agent orchestration spawn caps + liveness. Maximally conservative SAFE
 # defaults: at most ONE sub-agent ever, one at a time. Raise deliberately.
 # (0 disables a cap.) Read from config.yaml / env in the loader below.
@@ -693,6 +694,7 @@ def configure_globals():
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
+    global SUBAGENT_WRITE_ACCESS
     global TWITTER_CLIENT_API, TWITCH_CLIENT_API, LINKEDIN_CLIENT_API
     global DEFAULT_EXCLUDE_EXTENSIONS, DEFAULT_EXCLUDE_GLOBS
     global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
@@ -1076,6 +1078,32 @@ def configure_globals():
         except Exception as _e:
             logger.error(f"Error parsing MONITOR_ENABLE_AGENT_ORCHESTRATION environment variable: {_e}", exc_info=True)
             raise
+
+    # SUBAGENT_WRITE_ACCESS (str) - write capability policy for sub-agents.
+    # Environment overrides YAML. Accepted values: none, delegated, full.
+    try:
+        _subagent_write_access_raw = os.getenv(
+            "SUBAGENT_WRITE_ACCESS",
+            yaml_config.get("SUBAGENT_WRITE_ACCESS", "none"),
+        )
+    except Exception as e:
+        logger.error(f"Error reading SUBAGENT_WRITE_ACCESS configuration: {e}", exc_info=True)
+        raise
+
+    try:
+        _subagent_write_access = str(_subagent_write_access_raw).strip().lower()
+    except Exception as e:
+        logger.error(f"Error parsing SUBAGENT_WRITE_ACCESS value: {e}", exc_info=True)
+        raise
+
+    if _subagent_write_access in {"none", "delegated", "full"}:
+        SUBAGENT_WRITE_ACCESS = _subagent_write_access
+    else:
+        logger.warning(
+            "Invalid SUBAGENT_WRITE_ACCESS value %r; defaulting to 'none'",
+            _subagent_write_access_raw,
+        )
+        SUBAGENT_WRITE_ACCESS = "none"
 
     # MONITOR_AGENT_DEPTH (int) - controls the agent recursion/depth behavior.
     # MONITOR_AGENT_MAX_DEPTH (int) - maximum allowed depth for agent operations.
