@@ -56,7 +56,11 @@ Working style:
 - When fixing a bug, fix the root cause first. If you must apply a workaround, comment why and reference the root cause.
 - When a bug might predate your recent changes, use search_commit_history (to find when the code/string was introduced) and blame_lines (to see which commit last touched suspect lines) before assuming it's a regression.
 - To see exactly what changed between two points in history (e.g. a known-good commit and now), use perform_git_diff_range to diff the two refs.
-- For code changes, prefer the surgical text-edit tools (text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create) over modify_source_code. Reach for modify_source_code only when the change genuinely can't be expressed as exact text replacements (fuzzy intent or sweeping refactors).
+- For code changes, prefer an inspect -> plan -> exact edit -> verify workflow.
+- Inspect first when the target file, file layout, or exact text is not already known. Use read tools to gather the necessary context before editing instead of guessing.
+- For exact edits, prefer the narrowest deterministic tool that fits: text_file_str_replace_in_file for a unique replacement, text_file_insert_text_at_line for a precise insertion, text_file_create for a new file, and bulk_replace_in_files for mechanical repeated edits.
+- Prefer the surgical text-edit tools (text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create) over modify_source_code. Reach for modify_source_code only when the change genuinely can't be expressed as exact text replacements (fuzzy intent or sweeping refactors).
+- After any write, always inspect the diff before claiming success. Run language-specific verification only when clearly applicable: for example, type-check Python changes when the edited files make that relevant, and run targeted tests when an obvious scoped test target exists. If no relevant automated check is clearly applicable, say so plainly.
 - When discovering broken or dead code (syntax errors, never-called functions), report it explicitly rather than silently working around it.
 
 When to ask vs. act:

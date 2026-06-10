@@ -14,6 +14,8 @@ import pytest
 
 # Pre-import config to break the known import cycle for tests touching history.
 import monitor.config  # noqa: F401
+from monitor.lib.tool_definitions import GEMINI_TOOL_DESCRIPTIONS, TOOL_DESCRIPTIONS
+from monitor.lib.tool_loading import add_openai_editor_tools
 
 from monitor import config
 from monitor.lib.system_prompt import (
@@ -138,3 +140,59 @@ def test_build_prefixed_model_text_no_longer_prefixes_user_input():
     from monitor.core.conversation import build_prefixed_model_text
     user_input = "fix the bug in foo.py"
     assert build_prefixed_model_text(user_input) == user_input
+
+
+def test_build_system_prompt_includes_tool_routing_guidance():
+    out = build_system_prompt()
+    assert "inspect -> plan -> exact edit -> verify" in out
+    assert "Inspect first when the target file, file layout, or exact text is not already known" in out
+    assert "bulk_replace_in_files for mechanical repeated edits" in out
+
+
+def test_build_system_prompt_includes_post_write_verification_guidance():
+    out = build_system_prompt()
+    assert "After any write, always inspect the diff before claiming success" in out
+    assert "type-check Python changes" in out
+    assert "If no relevant automated check is clearly applicable, say so plainly" in out
+
+
+def test_modify_source_code_tool_descriptions_include_updated_guidance():
+    description = next(
+        tool["function"]["description"]
+        for tool in TOOL_DESCRIPTIONS
+        if tool["function"]["name"] == "modify_source_code"
+    )
+    gemini_description = next(
+        tool["description"]
+        for tool in GEMINI_TOOL_DESCRIPTIONS
+        if tool["name"] == "modify_source_code"
+    )
+
+    for text in (
+        "Inspect first when the exact target text or file context is not already known",
+        "bulk_replace_in_files for mechanical repeated edits",
+        "After any write, inspect the diff before claiming success",
+    ):
+        assert text in description
+        assert text in gemini_description
+
+
+def test_add_openai_editor_tools_uses_updated_modify_source_code_guidance():
+    tool_descriptions = []
+    gemini_tool_descriptions = []
+    tool_state = {}
+
+    add_openai_editor_tools(tool_descriptions, gemini_tool_descriptions, tool_state)
+
+    description = next(
+        tool["function"]["description"]
+        for tool in tool_descriptions
+        if tool["function"]["name"] == "modify_source_code"
+    )
+
+    assert (
+        "Inspect first when the exact target text or file context is not already known"
+        in description
+    )
+    assert "bulk_replace_in_files for mechanical repeated edits" in description
+    assert "After any write, inspect the diff before claiming success" in description

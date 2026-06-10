@@ -48,3 +48,10 @@ def test_subagent_gets_subagent_guidance(monkeypatch):
 def test_platform_template_always_present():
     sp = system_prompt.build_system_prompt()
     assert "coding assistant invoked from a CLI harness" in sp
+
+
+def test_platform_template_includes_prompt_first_routing_guidance():
+    sp = system_prompt.build_system_prompt()
+    assert "inspect -> plan -> exact edit -> verify" in sp
+    assert "modify_source_code only when the change genuinely can't be expressed" in sp
+    assert "always inspect the diff before claiming success" in sp
