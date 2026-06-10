@@ -155,7 +155,7 @@ def test_max_tokens_command_no_arg_shows_help(capsys, monkeypatch):
     monkeypatch.setattr(config, "MAX_COMPLETION_TOKENS", 8192, raising=False)
     max_tokens_command(None)
     out = capsys.readouterr().out
-    assert "Usage: :max_tokens" in out
+    assert "Usage: : (or /) max_tokens" in out
     assert "Current cap: 8192" in out
     assert config.MAX_COMPLETION_TOKENS == 8192  # unchanged
 
@@ -185,7 +185,7 @@ def test_max_tokens_command_help_keyword(capsys, monkeypatch):
     monkeypatch.setattr(config, "MAX_COMPLETION_TOKENS", 8192, raising=False)
     max_tokens_command("help")
     out = capsys.readouterr().out
-    assert "Usage: :max_tokens" in out
+    assert "Usage: : (or /) max_tokens" in out
 
 
 # --- helper -----------------------------------------------------------------

@@ -166,7 +166,7 @@ def test_dump_history_is_registered_as_builtin():
         (
             cmd
             for cmd in built_ins_utils.built_in_functions
-            if cmd.get("command") == ":dump_history"
+            if cmd.get("command") == "dump_history"
         ),
         None,
     )

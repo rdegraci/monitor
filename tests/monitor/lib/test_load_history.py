@@ -352,4 +352,4 @@ def test_load_history_is_registered_as_builtin():
     built_ins.configure_built_ins()
 
     names = [cmd.get("command") for cmd in built_ins_utils.built_in_functions]
-    assert ":load_history" in names
+    assert "load_history" in names

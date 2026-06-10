@@ -274,8 +274,8 @@ def test_both_command_names_registered():
     built_ins.configure_built_ins()
 
     names = [cmd.get("command") for cmd in built_ins_utils.built_in_functions]
-    assert ":copy_code" in names
-    assert ":cc" in names
+    assert "copy_code" in names
+    assert "cc" in names
 
 
 def test_cc_alias_and_copy_code_share_the_same_underlying_function():
@@ -288,8 +288,8 @@ def test_cc_alias_and_copy_code_share_the_same_underlying_function():
 
     built_ins.configure_built_ins()
 
-    cc_entry = next(c for c in built_ins_utils.built_in_functions if c["command"] == ":cc")
-    copy_entry = next(c for c in built_ins_utils.built_in_functions if c["command"] == ":copy_code")
+    cc_entry = next(c for c in built_ins_utils.built_in_functions if c["command"] == "cc")
+    copy_entry = next(c for c in built_ins_utils.built_in_functions if c["command"] == "copy_code")
 
     # Both wrappers are _make_callable adapters around the same source —
     # easiest invariant to check is that they behave identically.

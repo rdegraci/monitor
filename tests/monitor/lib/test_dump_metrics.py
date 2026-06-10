@@ -154,7 +154,7 @@ def test_dump_metrics_is_registered_as_builtin():
         (
             cmd
             for cmd in built_ins_utils.built_in_functions
-            if cmd.get("command") == ":dump_metrics"
+            if cmd.get("command") == "dump_metrics"
         ),
         None,
     )

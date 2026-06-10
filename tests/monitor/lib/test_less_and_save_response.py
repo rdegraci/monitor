@@ -453,5 +453,5 @@ def test_less_and_save_response_are_registered_as_builtins():
     built_ins.configure_built_ins()
 
     names = [cmd.get("command") for cmd in built_ins_utils.built_in_functions]
-    assert ":less" in names
-    assert ":save_response" in names
+    assert "less" in names
+    assert "save_response" in names

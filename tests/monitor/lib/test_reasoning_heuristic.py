@@ -62,9 +62,14 @@ def test_signal_match_is_case_insensitive():
 
 
 def test_word_boundary_prevents_partial_word_false_positives():
-    """The signal is 'align' — must not fire on 'alignment' or 'aligned'.
-    'why' must not fire on 'anywhere' or 'pathways'."""
-    assert detect_reasoning_bump("fix the alignment of the header", "medium") is None
+    """Signals should not fire on partial-word matches.
+
+    'align' must not fire on 'alignment' or 'aligned'.
+    'why' must not fire on 'anywhere' or 'pathways'.
+    Avoid separate keywords like 'fix' so the assertion isolates the
+    word-boundary behavior under test.
+    """
+    assert detect_reasoning_bump("adjust the alignment of the header", "medium") is None
     assert detect_reasoning_bump("the rows are aligned correctly", "medium") is None
     assert detect_reasoning_bump("does the answer live anywhere", "medium") is None
     assert detect_reasoning_bump("update the pathways constant", "medium") is None
@@ -76,6 +81,7 @@ def test_keyword_signals_constant_matches_documented_list():
     assert set(KEYWORD_SIGNALS) == {
         "refactor", "audit", "design", "review for", "analyze",
         "debug", "architecture", "cross-file", "migrate", "align", "why",
+        "examine", "trace", "verify", "fix",
     }
 
 
@@ -100,7 +106,7 @@ def test_multi_line_message_triggers():
 
 def test_short_message_with_no_signals_does_not_trigger():
     """The control case — routine one-liners should keep the default."""
-    assert detect_reasoning_bump("fix typo on line 42", "medium") is None
+    assert detect_reasoning_bump("typo on line 42", "medium") is None
     assert detect_reasoning_bump("add a print statement", "medium") is None
     assert detect_reasoning_bump("rename foo to bar", "medium") is None
 

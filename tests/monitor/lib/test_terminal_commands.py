@@ -71,7 +71,7 @@ def test_run_command_in_screen_unknown_subcommand_shows_usage(capsys):
     terminal_commands.run_command_in_screen("doit")
     out = capsys.readouterr().out
     assert "Unknown :agent subcommand" in out
-    assert "Usage: :agent" in out  # usage block follows
+    assert "Usage: : (or /) agent" in out  # usage block follows
 
 def test_attach_resolves_token(monkeypatch, caplog):
     monkeypatch.setattr("platform.system", lambda: "Linux")
