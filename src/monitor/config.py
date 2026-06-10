@@ -657,6 +657,13 @@ MAX_REPEATED_TOOL_CALLS = 3
 # model. Read-side protection lives in LARGE_FILE_TOKEN_THRESHOLD; this
 # is the symmetric write-side guard.
 #
+# Default 8K tokens for a single serialized tool result that gets fed back
+# into the model loop. This is intentionally much smaller than the model
+# context window; it bounds one tool's blast radius without constraining the
+# full conversation budget. Set to 0 to disable entirely.
+# Override via YAML key TOOL_OUTPUT_TOKEN_LIMIT.
+TOOL_OUTPUT_TOKEN_LIMIT = 8_192
+
 # Default 1 MiB (1_048_576 bytes) — large enough for legitimate writes
 # (vendored license, generated migration, lockfile up to ~1 MB), tight
 # enough to catch hallucinated runaway writes before they fill disk or
@@ -691,7 +698,7 @@ def configure_globals():
     global MONITOR_AGENT_DEPTH, MONITOR_AGENT_MAX_DEPTH, MONITOR_ENABLE_AGENT_ORCHESTRATION
     global MONITOR_AGENT_MAX_BREADTH, MONITOR_AGENT_MAX_TOTAL, MONITOR_AGENT_HEARTBEAT_TIMEOUT
     global MONITOR_AGENT_IDLE_TIMEOUT
-    global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE
+    global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE, TOOL_OUTPUT_TOKEN_LIMIT
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -1012,6 +1019,26 @@ def configure_globals():
             logger.warning(
                 "MAX_FILE_WRITE_BYTES=%r is not an integer; keeping default %d",
                 _write_cap_raw, MAX_FILE_WRITE_BYTES,
+            )
+
+    # Per-tool serialized output cap before the result is fed back into the
+    # next model request. 0 disables truncation. Invalid values fall back to
+    # the module-level default.
+    _tool_output_limit_raw = yaml_config.get("TOOL_OUTPUT_TOKEN_LIMIT")
+    if _tool_output_limit_raw is not None:
+        try:
+            _tool_output_limit_val = int(_tool_output_limit_raw)
+            if _tool_output_limit_val >= 0:
+                TOOL_OUTPUT_TOKEN_LIMIT = _tool_output_limit_val
+            else:
+                logger.warning(
+                    "TOOL_OUTPUT_TOKEN_LIMIT=%r must be >= 0; keeping default %d",
+                    _tool_output_limit_raw, TOOL_OUTPUT_TOKEN_LIMIT,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "TOOL_OUTPUT_TOKEN_LIMIT=%r is not an integer; keeping default %d",
+                _tool_output_limit_raw, TOOL_OUTPUT_TOKEN_LIMIT,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")

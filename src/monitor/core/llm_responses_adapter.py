@@ -562,11 +562,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                 # Truncate serialized output to configured per-tool token limit to avoid oversized follow-ups.
                 try:
-                    token_limit = getattr(config, "TOOL_OUTPUT_TOKEN_LIMIT", 4000)
-                    try:
-                        token_limit = int(token_limit)
-                    except Exception:
-                        token_limit = 4000
+                    token_limit = int(config.TOOL_OUTPUT_TOKEN_LIMIT)
                     truncated_output = truncate_to_token_limit(
                         output_payload, token_limit, model=strip_openai_prefix(config.MODEL)
                     )

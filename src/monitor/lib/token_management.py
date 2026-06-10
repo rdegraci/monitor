@@ -551,9 +551,11 @@ def token_budgeter(params, input_window=100000, model_name=None):
         new_len = max(1, new_len)
         truncated, did_truncate = truncate_with_marker(output_str, new_len)
         if did_truncate:
-            logger.debug(
-                f"Trimming tool output in params['input'][{i}]['output'] to fit input_window on iteration {trim_iteration}: "
-                f"from {largest_len} to <= {new_len} tokens with marker applied (total tokens before: {tokentotal}, after trim will decrease by >= {largest_len - new_len})"
+            logger.warning(
+                f"Trimming tool output in params['input'][{i}]['output'] to fit input_window "
+                f"on iteration {trim_iteration}: from {largest_len} to <= {new_len} tokens "
+                f"with marker applied (total tokens before: {tokentotal}, input_window: {input_window}, "
+                f"tokens over: {tokens_over})"
             )
             input_list[i]["output"] = truncated
         else:

@@ -1072,6 +1072,12 @@ def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = 
                     tokens = encoding.encode(text)
                     if len(tokens) <= tok_limit:
                         return text
+                    logger.warning(
+                        "Truncating text to token limit %s for model %s (original tokens=%s)",
+                        tok_limit,
+                        model,
+                        len(tokens),
+                    )
                     # Reserve a small number of tokens for the sentinel; use 3 as requested
                     take = max(0, tok_limit - 3)
                     truncated_tokens = tokens[:take]
@@ -1099,6 +1105,14 @@ def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = 
         char_limit = tok_limit * avg_chars_per_token
         if len(text) <= char_limit:
             return text
+        logger.warning(
+            "Truncating text with character fallback to token limit %s for model %s "
+            "(original chars=%s, approx char limit=%s)",
+            tok_limit,
+            model,
+            len(text),
+            char_limit,
+        )
         # Reserve space for sentinel
         take_chars = max(0, char_limit - len(sentinel))
         return text[:take_chars] + sentinel

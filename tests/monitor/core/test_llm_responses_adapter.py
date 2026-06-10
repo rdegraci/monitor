@@ -308,46 +308,71 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         mock_progress_dots.return_value = _DummyCtx()
 
-        # Capture and assert inside side effect that arguments are dict
-        def _side_effect(*args, **kwargs):
-            candidate = None
-            for a in args:
-                if isinstance(a, dict) and "arguments" in a:
-                    candidate = a
-                    break
-            if candidate is None:
-                for v in kwargs.values():
-                    if isinstance(v, dict) and "arguments" in v:
-                        candidate = v
-                        break
-            assert isinstance(candidate, dict), "execute_tool_call should receive a dict call item"
-            assert isinstance(candidate["arguments"], dict), "function.arguments must be a dict after parsing"
-            return {"ok": True}, None
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_followup_uses_config_tool_output_token_limit(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        """Ensure tool-output truncation reads the configured limit from config."""
+        from monitor.core import llm_responses_adapter as adapter
 
-        mock_execute_tool_call.side_effect = _side_effect
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
 
         fake_client = self.FakeClient()
         first = self._fake_response(
             "resp_1",
-            total_tokens=2,
-            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"msg\":\"hi\"}"}],
+            total_tokens=5,
+            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
         )
-        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        second = self._fake_response("resp_2", total_tokens=3, output=[])
         fake_client.responses.create.side_effect = [first, second]
 
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
             RESPONSES_API=True,
             RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
             RATE_LIMITER=True,
+            MODEL_INPUT_WINDOW=None,
+            TOOL_OUTPUT_TOKEN_LIMIT=8_192,
         )
         mock_rate_limiter.RATE_LIMITER = MagicMock()
 
-        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api([{"role": "user", "content": "hi"}], tool_descriptions={}, gemini_tool_descriptions={})
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg), patch.object(
+            adapter,
+            "truncate_to_token_limit",
+            return_value="{}",
+        ) as mock_truncate:
+            adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
-        # Ensure two calls happened (initial + follow-up)
-        assert fake_client.responses.create.call_count == 2
+        mock_truncate.assert_called_once_with("{}", 8_192, model="gpt-4o-mini")
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
