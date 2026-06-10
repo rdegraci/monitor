@@ -39,7 +39,9 @@ KEYWORD_SIGNALS = (
     "align",
     "why",
     "examine",
-    "trace"
+    "trace",
+    "verify",
+    "fix"
 )
 
 # Messages above this character length suggest the user is providing
