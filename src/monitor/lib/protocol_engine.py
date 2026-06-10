@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 # shouldn't; this surfaces the "rewrote half the file" case.
 COLLATERAL_WARN_RATIO = 0.5
 COLLATERAL_WARN_MIN_LINES = 20  # don't cry wolf on tiny files
+# Fraction of original lines REMOVED above which we treat the change as a
+# rewrite/deletion (the real "touched code it shouldn't" concern) rather than an
+# addition. Below it, a large footprint is addition-dominated — existing lines
+# were preserved — so we phrase the warning accordingly instead of implying a
+# rewrite.
+COLLATERAL_REWRITE_RATIO = 0.25
 
 # Module-level counter: how often the (risky, LLM-driven) tier-2 path runs.
 # Visibility into whether the model is over-reaching for modify_source_code
@@ -250,6 +256,10 @@ class ProtocolEngine:
                     logger.warning(
                         f"Full modification cycle failed (attempt {self.global_retries} of {self.MAX_GLOBAL_MODIFICATION_ATTEMPTS}). Retrying from checkpoint..."
                     )
+                    self._progress(
+                        f"output didn't validate; retrying whole modification "
+                        f"({self.global_retries + 1}/{self.MAX_GLOBAL_MODIFICATION_ATTEMPTS})…"
+                    )
                     checkpoint = self._load_checkpoint(modification_request)
                     if not checkpoint:
                         logger.error("Checkpoint unavailable or broken. Cannot auto-retry further.")
@@ -270,6 +280,21 @@ class ProtocolEngine:
                 return error_result or "Modification process failed after all automatic retries. Manual intervention required."
         finally:
             self.global_retries = 0
+
+    def _progress(self, msg: str) -> None:
+        """Emit a user-facing progress line during a long modification.
+
+        A source edit runs a chunk-by-chunk LLM loop with per-chunk compliance
+        retries and possible global retries — that can be minutes of work with
+        nothing printed between the "Analyzing …" lines. The spinner shows the
+        app is alive but not that the engine is *advancing*, so a slow edit
+        reads as a hang. These lines narrate each step. Printed to stdout so
+        they surface in the REPL and the --tui output window (the stderr spinner
+        is suppressed under --tui)."""
+        try:
+            print(f"{yellow}  · {msg}{reset}", flush=True)
+        except Exception:
+            pass
 
     def _request_chunk_correction(self, non_compliant_chunk, original_source, chunk_index):
         """
@@ -353,8 +378,13 @@ class ProtocolEngine:
             return ret
 
         self.task_completed = True
-        # Note: _collect_chunks already saves on success; calling _assemble_and_save() again is harmless but redundant.
-        return self._assemble_and_save()
+        # _collect_chunks already saved on the success path and returned the
+        # assembled result — reuse it instead of saving (and re-running the
+        # verification gate, and re-emitting the collateral warning) a second
+        # time. Previously this unconditional re-save double-wrote the file and
+        # logged every collateral warning twice. Fall back to an explicit save
+        # only if no content came back.
+        return ret if ret is not None else self._assemble_and_save()
 
     def _send_request(self, query):
         logger.debug(f"_send_request with query length: {len(query)}")
@@ -443,6 +473,10 @@ class ProtocolEngine:
                 augmented_query = f"{query}\n\n{compliance_warn}"
             try:
                 logger.debug(f"Requesting chunk {chunk_index}, retry {retries + 1}")
+                self._progress(
+                    f"contacting model for chunk {chunk_index} "
+                    f"(try {retries + 1}/{self.MAX_RETRIES_PER_CHUNK})…"
+                )
                 output = self._send_request(augmented_query)
             except Exception as e:
                 # M-pe4: preserve cause across the second wrapping layer too.
@@ -453,6 +487,11 @@ class ProtocolEngine:
             prohibited = self._find_prohibited_phrases_in_text(output)
             if prohibited:
                 retries += 1
+                self._progress(
+                    f"chunk {chunk_index} response needs cleanup "
+                    f"({', '.join(sorted(prohibited))[:60]}); retrying "
+                    f"({retries}/{self.MAX_RETRIES_PER_CHUNK})…"
+                )
                 time.sleep(2**retries)
                 last_noncompliant_output = output
                 logger.warning(
@@ -692,6 +731,11 @@ class ProtocolEngine:
 
                 self.chunks.append(new_chunk)
                 logger.info(f"Added chunk {expected_index} to collection. Total chunks now: {len(self.chunks)}")
+                if not is_last_chunk and self.expected_total_chunks:
+                    self._progress(
+                        f"chunk {expected_index}/{self.expected_total_chunks} done; "
+                        f"requesting next…"
+                    )
 
                 if modification_request:
                     self._save_checkpoint(self.chunks, len(self.chunks) + 1, modification_request)
@@ -700,10 +744,12 @@ class ProtocolEngine:
                 if is_last_chunk:
                     found_last_chunk = True
                     logger.info(f"Found last chunk! Finalizing modification with {len(self.chunks)} total chunks")
-                    self._assemble_and_save()
+                    saved = self._assemble_and_save()
                     self._remove_checkpoint()
                     logger.info(f"\nModification complete. Updated {self.source_file}.")
-                    return
+                    # Return the assembled result so the caller reuses it rather
+                    # than saving (and re-verifying / re-warning) a second time.
+                    return saved
             else:
                 logger.warning("current_response is None or empty - this shouldn't happen")
 
@@ -760,7 +806,7 @@ class ProtocolEngine:
                     break
         if iteration >= max_iterations and self.chunks:
             logger.info(f"\nReached max iterations ({max_iterations}). Using collected chunks.")
-            self._assemble_and_save()
+            return self._assemble_and_save()
 
     def _parse_chunks(self, response):
         chunks = []
@@ -833,16 +879,32 @@ class ProtocolEngine:
             "modify_source_code footprint for %s: +%d/-%d lines across %d hunk(s) (ratio=%.2f)",
             self.source_file, fp["added"], fp["removed"], fp["hunks"], fp["ratio"],
         )
+        base = max(1, len(original.splitlines()))
+        removed_ratio = fp["removed"] / base
         if (
             original
-            and len(original.splitlines()) >= COLLATERAL_WARN_MIN_LINES
+            and base >= COLLATERAL_WARN_MIN_LINES
             and fp["ratio"] > COLLATERAL_WARN_RATIO
         ):
-            logger.warning(
-                "Large collateral footprint for %s: %.0f%% of lines changed — verify the "
-                "regeneration did not rewrite unrelated code.",
-                self.source_file, fp["ratio"] * 100,
-            )
+            # Report the change as a multiplier of the original size, plus the
+            # raw +added/-removed. The "rewrote unrelated code" caution is only
+            # apt when there are meaningful DELETIONS; a big addition (removed≈0)
+            # preserved every existing line, so phrase it as a large insert.
+            if removed_ratio > COLLATERAL_REWRITE_RATIO:
+                logger.warning(
+                    "Large collateral footprint for %s: +%d/-%d lines (%.1fx the original "
+                    "%d), %.0f%% of original lines removed — verify the regeneration did not "
+                    "rewrite or delete unrelated code.",
+                    self.source_file, fp["added"], fp["removed"], fp["ratio"], base,
+                    removed_ratio * 100,
+                )
+            else:
+                logger.warning(
+                    "Large change footprint for %s: +%d/-%d lines (%.1fx the original %d), "
+                    "almost entirely additions — existing lines preserved; verify the new "
+                    "lines are intended.",
+                    self.source_file, fp["added"], fp["removed"], fp["ratio"], base,
+                )
 
         ok, detail, tier = verify_file_content(self.source_file, full_script)
         if not ok:

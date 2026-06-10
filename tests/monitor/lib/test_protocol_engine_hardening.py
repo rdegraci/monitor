@@ -94,6 +94,44 @@ def test_collateral_footprint_counts(tmp_path):
     assert fp["ratio"] > 0
 
 
+def test_pure_addition_warning_does_not_imply_rewrite(tmp_path, caplog):
+    # +N/-0 should NOT use the "rewrote/deleted unrelated code" wording — that
+    # caution is only for significant deletions.
+    eng = _engine(tmp_path)  # .py
+    original = "".join(f"a{i} = {i}\n" for i in range(40))
+    eng._modification_script_content = original
+    added = "".join(f"b{i} = {i}\n" for i in range(120))
+    eng.chunks = [original + added]  # pure addition, 0 removed, valid Python
+    import logging
+    with caplog.at_level(logging.WARNING, logger="monitor.lib.protocol_engine"):
+        eng._assemble_and_save()
+    foot = [r.getMessage() for r in caplog.records if "footprint" in r.getMessage()]
+    assert foot, "expected a footprint warning for a large change"
+    assert "almost entirely additions" in foot[-1]
+    assert "rewrite or delete unrelated code" not in foot[-1]
+
+
+def test_modification_cycle_reuses_collect_chunks_result_no_double_save(tmp_path, monkeypatch):
+    # _collect_chunks already saves on success; _modification_cycle must REUSE
+    # its returned result, not call _assemble_and_save again (the double-save
+    # that wrote the file twice and logged the collateral warning twice).
+    eng = _engine(tmp_path)
+    eng.task_completed = False
+    monkeypatch.setattr(eng, "_load_checkpoint", lambda *a, **k: None)
+    monkeypatch.setattr(eng, "_make_chunk_plan",
+                        lambda *a, **k: {"expected_chunks": 1, "line_ranges": [(1, None)]})
+    monkeypatch.setattr(eng, "_send_request_with_compliance_retry",
+                        lambda *a, **k: "<chunk_1 last=\"true\">x = 1</chunk_1>")
+    monkeypatch.setattr(eng, "_collect_chunks", lambda *a, **k: "SAVED-RESULT")
+    save = Mock()
+    monkeypatch.setattr(eng, "_assemble_and_save", save)
+
+    result = eng._modification_cycle("x = 0\n", "do it", eng.source_file)
+
+    assert result == "SAVED-RESULT"
+    save.assert_not_called()  # no second save
+
+
 # --- Part 3: syntax-aware chunk boundaries ----------------------------------
 
 
