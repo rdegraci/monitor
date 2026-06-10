@@ -26,7 +26,7 @@ def _wait(predicate, timeout=2.0, interval=0.01):
 
 
 @pytest.fixture
-def listener(tmp_path):
+def listener(short_tmp_path):
     frames = []
     disconnects = []
     lock = threading.Lock()
@@ -39,7 +39,7 @@ def listener(tmp_path):
         with lock:
             disconnects.append((conn_id, agent_id, dirty))
 
-    sock_path = str(tmp_path / "orch.sock")
+    sock_path = str(short_tmp_path / "orch.sock")
     lis = AgentListener(sock_path, on_frame=on_frame, on_disconnect=on_disconnect)
     lis.start()
     yield lis, frames, disconnects, lock, sock_path

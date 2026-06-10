@@ -25,7 +25,7 @@ def _wait(predicate, timeout=2.0, interval=0.01):
 
 
 @pytest.fixture
-def wired(tmp_path):
+def wired(short_tmp_path):
     frames = []
     disconnects = []
     lock = threading.Lock()
@@ -38,7 +38,7 @@ def wired(tmp_path):
         with lock:
             disconnects.append((agent_id, dirty))
 
-    sock_path = str(tmp_path / "orch.sock")
+    sock_path = str(short_tmp_path / "orch.sock")
     lis = AgentListener(sock_path, on_frame=on_frame, on_disconnect=on_disconnect)
     lis.start()
     yield sock_path, frames, disconnects, lock
@@ -97,8 +97,8 @@ def test_seq_is_monotonic(wired):
     assert len(set(seqs)) == len(seqs)  # no duplicates
 
 
-def test_missing_socket_is_noop_not_crash(tmp_path):
-    r = AgentReporter(str(tmp_path / "nonexistent.sock"), "ag4")
+def test_missing_socket_is_noop_not_crash(short_tmp_path):
+    r = AgentReporter(str(short_tmp_path / "nonexistent.sock"), "ag4")
     assert r.connect() is False
     # All emit calls must be safe no-ops.
     r.status("x")
