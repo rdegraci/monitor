@@ -11,6 +11,7 @@ from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged
 from monitor.lib.macros import MACRO_VALUES
+from monitor.lib.progress import progress_dots
 
 logger = logging.getLogger("monitor.core.commit")
 
@@ -250,7 +251,8 @@ def get_suggested_commit_message(diff_output):
             },
             {"role": "user", "content": query_input},
         ]
-        response = litellm.completion(**kwargs)
+        with progress_dots("Generating commit message"):
+            response = litellm.completion(**kwargs)
         logger.debug("Generated suggested commit message.")
         return response.choices[0].message.content or ""
     except Exception as e:
