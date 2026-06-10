@@ -118,9 +118,9 @@ class TestConfigureBuiltIns(unittest.TestCase):
         # Run the registration
         built_ins.configure_built_ins()
 
-        # Find the :edit_macros registration
-        found = [d for d in registrations if d.get("command") == ":edit_macros"]
-        self.assertEqual(len(found), 1, "Should register :edit_macros exactly once")
+        # Find the canonical edit_macros registration
+        found = [d for d in registrations if d.get("command") == "edit_macros"]
+        self.assertEqual(len(found), 1, "Should register edit_macros exactly once")
         macro_cmd = found[0]
         macro_func = macro_cmd["function"]
 
@@ -140,12 +140,29 @@ class TestConfigureBuiltIns(unittest.TestCase):
         # Run the registration
         built_ins.configure_built_ins()
 
-        # Find the :reload_macros registration
-        found = [r for r in registrations if r.get("command") == ":reload_macros"]
-        self.assertEqual(len(found), 1, "Should register :reload_macros exactly once")
+        # Find the canonical reload_macros registration
+        found = [r for r in registrations if r.get("command") == "reload_macros"]
+        self.assertEqual(len(found), 1, "Should register reload_macros exactly once")
         reload_reg = found[0]
         reload_func = reload_reg["function"]
 
         # Call the registered function
         reload_func("test")
         mock_reload.assert_called_once_with("test")
+
+
+def test_execute_built_in_function_accepts_slash_prefix_and_preserves_raw_args():
+    from monitor.lib import built_ins_utils
+
+    original_entry = next(
+        item for item in built_ins_utils.built_in_functions if item.get("command") == "help"
+    )
+    original_function = original_entry["function"]
+    mock_handler = MagicMock()
+    original_entry["function"] = mock_handler
+    try:
+        built_ins_utils.execute_built_in_function("/help   spaced   args")
+    finally:
+        original_entry["function"] = original_function
+
+    mock_handler.assert_called_once_with("spaced   args")

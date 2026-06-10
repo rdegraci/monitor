@@ -27,17 +27,18 @@ def print_built_ins(arg: str = "") -> None:
     # short — the value is in being skimmable, not exhaustive. The
     # detailed Usage notes already live in each command's description.
     print(
-        "Type a command followed by Enter. Most start with ':' "
-        "(e.g. ':help', ':dump_metrics')."
+        "Type a command followed by Enter. Built-ins start with ':' or '/' "
+        "(e.g. ':help', '/dump_metrics')."
     )
+    print("Every listed ':name' command can also be invoked as '/name'.")
     print(
         "Arguments follow the command name with a space "
-        "(e.g. ':dump_metrics /tmp/m.json', ':copy_code 2')."
+        "(e.g. ':dump_metrics /tmp/m.json', '/copy_code 2')."
     )
 
-    # Determine the maximum command length across all built-ins for padding
+    # Determine the maximum displayed command length across all built-ins for padding
     longest_command_length: int = max(
-        len(item["command"]) for item in built_in_functions if "command" in item
+        len(f":{item['command']}") for item in built_in_functions if "command" in item
     )
 
     # Group commands by their 'group_description', defaulting to 'General'
@@ -52,7 +53,8 @@ def print_built_ins(arg: str = "") -> None:
         for item in grouped_commands[group_name]:
             command: str = item.get("command", "")
             description: str = item.get("description", "")
-            padded_command: str = command.ljust(longest_command_length)
+            display_command: str = f":{command}"
+            padded_command: str = display_command.ljust(longest_command_length)
             print(f"{padded_command}  - {description}")
     print("***")
 
@@ -73,37 +75,25 @@ def start_python_repl(arg: str = "") -> None:
 # List of built-in function descriptors
 built_in_functions: List[Dict[str, Any]] = [
     {
-        "command": ":repl",
+        "command": "repl",
         "description": "Starts an interactive Python REPL session.",
         "function": start_python_repl,
         "group_description": "Utilities",
     },
     {
-        "command": ":built_ins",
+        "command": "built_ins",
         "description": "Lists all registered built-in commands.",
         "function": print_built_ins,
         "group_description": "Utilities",
     },
     {
-        "command": ":memories",
+        "command": "memories",
         "description": "Dumps agent memories from Redis.",
         "function": dump_memories,
         "group_description": "Debugging",
     },
     {
-        "command": ":help",
-        "description": "Displays all registered built-in commands.",
-        "function": print_built_ins,
-        "group_description": "Utilities",
-    },
-    {
-        "command": "/help",
-        "description": "Displays all registered built-in commands.",
-        "function": print_built_ins,
-        "group_description": "Utilities",
-    },
-    {
-        "command": "/?",
+        "command": "help",
         "description": "Displays all registered built-in commands.",
         "function": print_built_ins,
         "group_description": "Utilities",
@@ -130,6 +120,39 @@ def append_function_to_built_ins(
         raise ValueError("First argument must be a dictionary.")
 
 
+def canonicalize_built_in_invocation(command: Optional[str]) -> Optional[tuple[str, str]]:
+    """Normalize a prefixed built-in invocation to its canonical command name.
+
+    Args:
+        command: The raw command string entered by the user.
+
+    Returns:
+        A tuple of the canonical command name and raw argument string when the
+        input is a prefixed built-in invocation candidate, else None.
+    """
+    if not isinstance(command, str):
+        return None
+
+    command_stripped: str = command.strip()
+    if not command_stripped:
+        return None
+
+    first_word, _, remainder = command_stripped.partition(" ")
+    if first_word in {":", "/"}:
+        return None
+
+    prefix: str = first_word[0]
+    if prefix not in {":", "/"}:
+        return None
+
+    canonical_command: str = first_word[1:]
+    if not canonical_command:
+        return None
+
+    arguments: str = remainder.lstrip()
+    return canonical_command, arguments
+
+
 def is_built_in_function(command: Optional[str]) -> Optional[Dict[str, Any]]:
     """
     Check if the given command corresponds to a registered built-in function.
@@ -140,20 +163,13 @@ def is_built_in_function(command: Optional[str]) -> Optional[Dict[str, Any]]:
     Returns:
         The matching built-in command dictionary if found, else None.
     """
-    if not isinstance(command, str):
+    normalized_command = canonicalize_built_in_invocation(command)
+    if normalized_command is None:
         return None
 
-    command_stripped: str = command.strip()
-    if not command_stripped:
-        return None
-
-    tokens: List[str] = command_stripped.split()
-    if not tokens:
-        return None
-
-    first_word: str = tokens[0]
+    canonical_command, _ = normalized_command
     return next(
-        (cmd for cmd in built_in_functions if cmd["command"] == first_word), None
+        (cmd for cmd in built_in_functions if cmd["command"] == canonical_command), None
     )
 
 
@@ -174,33 +190,28 @@ def execute_built_in_function(command: Optional[str]) -> None:
     if not isinstance(command, str):
         return
 
-    command_stripped: str = command.strip()
-    if not command_stripped:
+    normalized_command = canonicalize_built_in_invocation(command)
+    if normalized_command is None:
         return
 
-    tokens: List[str] = command_stripped.split()
-    if not tokens:
-        return
-
-    first_word: str = tokens[0]
+    canonical_command, arguments = normalized_command
     matching_command: Optional[Dict[str, Any]] = next(
-        (cmd for cmd in built_in_functions if cmd["command"] == first_word), None
+        (cmd for cmd in built_in_functions if cmd["command"] == canonical_command), None
     )
     if not matching_command:
         return
 
     # Prepare arguments: join remaining tokens; normalize empty input to empty string
-    arguments: str = " ".join(tokens[1:])
     arg_to_pass: str = arguments if arguments else ""
 
     logger.debug(
-        "Executing built-in function: %s with arguments: %s", first_word, arguments
+        "Executing built-in function: %s with arguments: %s", canonical_command, arguments
     )
 
     function_to_run = matching_command.get("function")
     if not callable(function_to_run):
         logger.error(
-            "Built-in command '%s' does not have a callable 'function' entry.", first_word
+            "Built-in command '%s' does not have a callable 'function' entry.", canonical_command
         )
         return
 
@@ -238,4 +249,4 @@ def execute_built_in_function(command: Optional[str]) -> None:
         else:
             function_to_run()  # type: ignore[misc]
     except Exception:
-        logger.exception("Exception occurred while executing built-in function: %s", first_word)
+        logger.exception("Exception occurred while executing built-in function: %s", canonical_command)

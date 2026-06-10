@@ -154,3 +154,5 @@ def test_registered_in_built_ins():
     # registry, not INTERNAL_COMMANDS — use the appropriate classifier.
     from monitor.lib.built_ins_utils import is_built_in_function
     assert is_built_in_function(":cost_debug") is not None
+    assert is_built_in_function("/cost_debug") is not None
+    assert is_built_in_function("cost_debug") is None

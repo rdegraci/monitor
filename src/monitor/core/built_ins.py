@@ -200,7 +200,7 @@ def next_steps_command(arg: Any = None) -> None:
             help_text = ""
         if help_text.lower() in ("help", "-h", "--help"):
             print(
-                "Usage: :next_steps <branch> [<main_branch>]\n"
+                "Usage: : (or /) next_steps <branch> [<main_branch>]\n"
                 "Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, the repo's default branch is auto-detected.\n"
                 "Examples:\n"
                 "  :next_steps my-feature\n"
@@ -209,16 +209,16 @@ def next_steps_command(arg: Any = None) -> None:
             )
             return
     if arg is None:
-        print_colored_error("Usage: :next_steps <branch> [<main_branch>]")
+        print_colored_error("Usage: : (or /) next_steps <branch> [<main_branch>]")
         return
     try:
         text = str(arg).strip()
     except Exception:
-        print_colored_error("Usage: :next_steps <branch> [<main_branch>]")
+        print_colored_error("Usage: : (or /) next_steps <branch> [<main_branch>]")
         return
     if not text:
         print_colored_error(
-            "Usage: :next_steps <branch> [<main_branch>]\n"
+            "Usage: : (or /) next_steps <branch> [<main_branch>]\n"
             'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
             "Examples:\n"
             "  :next_steps my-feature\n"
@@ -234,7 +234,7 @@ def next_steps_command(arg: Any = None) -> None:
         branch, main_branch = parts
     else:
         print_colored_error(
-            "Usage: :next_steps <branch> [<main_branch>]\n"
+            "Usage: : (or /) next_steps <branch> [<main_branch>]\n"
             'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
             "Examples:\n"
             "  :next_steps my-feature\n"
@@ -294,17 +294,17 @@ def configure_built_ins() -> None:
             "group_description": "General utility commands",
             "commands": [
                 {
-                    "command": ":commands",
+                    "command": "commands",
                     "function": _make_callable(print_terminal_commands),
                     "description": "Print the list of interactive commands.",
                 },
                 {
-                    "command": ":history",
+                    "command": "history",
                     "function": lambda arg=None: conversation_history_command(arg, 10),
                     "description": "Show conversation history.",
                 },
                 {
-                    "command": ":history_size",
+                    "command": "history_size",
                     "function": lambda arg=None: adjust_history_size(
                         int(arg) if arg and str(arg).strip() else None,
                         config.CONVERSATION_HISTORY,
@@ -317,72 +317,72 @@ def configure_built_ins() -> None:
                     "description": "Adjust max conversation history size.",
                 },
                 {
-                    "command": ":llm",
+                    "command": "llm",
                     "function": _make_callable(llm_command),
-                    "description": "Change the active LLM model at runtime. Usage: :llm <model> or :llm help for available models.",
+                    "description": "Change the active LLM model at runtime. Usage: : (or /) llm <model> or : (or /) llm help for available models.",
                 },
                 {
-                    "command": ":model",
+                    "command": "model",
                     "function": _make_callable(llm_command),
-                    "description": "Change the active LLM model at runtime. Usage: :model <model> or :model help for available models.",
+                    "description": "Change the active LLM model at runtime. Usage: : (or /) model <model> or : (or /) model help for available models.",
                 },
                 {
-                    "command": ":reasoning",
+                    "command": "reasoning",
                     "function": _make_callable(reasoning_command),
-                    "description": "Change reasoning effort (minimal/low/medium/high). Usage: :reasoning <level> or :reasoning help.",
+                    "description": "Change reasoning effort (minimal/low/medium/high). Usage: : (or /) reasoning <level> or : (or /) reasoning help.",
                 },
                 {
-                    "command": ":ttl",
+                    "command": "ttl",
                     "function": _make_callable(ttl_command),
-                    "description": "Configure the Anthropic prompt-cache TTL (5 or 60 minutes). Usage: :ttl <minutes> or :ttl for help.",
+                    "description": "Configure the Anthropic prompt-cache TTL (5 or 60 minutes). Usage: : (or /) ttl <minutes> or : (or /) ttl for help.",
                 },
                 {
-                    "command": ":max_tokens",
+                    "command": "max_tokens",
                     "function": _make_callable(max_tokens_command),
-                    "description": "Cap output tokens for non-reasoning model calls. Usage: :max_tokens <N> or :max_tokens for help.",
+                    "description": "Cap output tokens for non-reasoning model calls. Usage: : (or /) max_tokens <N> or : (or /) max_tokens for help.",
                 },
                 {
-                    "command": ":macros",
+                    "command": "macros",
                     "function": _make_callable(print_macros),
                     "description": "Print available macros.",
                 },
                 {
-                    "command": ":edit_macros",
+                    "command": "edit_macros",
                     "function": _make_callable(edit_macros_command),
                     "description": "Edit global macros file (persistent across sessions). Uses your $EDITOR.",
                 },
                 {
-                    "command": ":edit_function_keys",
+                    "command": "edit_function_keys",
                     "function": _make_callable(edit_function_keys_command),
                     "description": "Edit function keys file (persistent across sessions). Uses your $EDITOR.",
                 },
                 {
-                    "command": ":reload_macros",
+                    "command": "reload_macros",
                     "function": _make_callable(reload_macros_command),
                     "description": "Reload global macros from file and summarize changes.",
                 },
                 {
-                    "command": ":tools",
+                    "command": "tools",
                     "function": _make_callable(print_tools_command),
                     "description": "Print currently loaded tools.",
                 },
                 {
-                    "command": ":preferences",
+                    "command": "preferences",
                     "function": _make_callable(open_preferences_command),
                     "description": "Open user preferences for editing.",
                 },
                 {
-                    "command": ":tasks",
+                    "command": "tasks",
                     "function": _make_callable(tasks_command),
                     "description": "Show the current session's task plan (the list the model manages via task tools).",
                 },
                 {
-                    "command": ":clear_tasks",
+                    "command": "clear_tasks",
                     "function": _make_callable(clear_tasks_command),
                     "description": "Clear the current session's task plan.",
                 },
                 {
-                    "command": ":next_steps",
+                    "command": "next_steps",
                     "function": _make_callable(next_steps_command),
                     "description": "Suggest next steps based on commit analysis.",
                 },
@@ -392,24 +392,24 @@ def configure_built_ins() -> None:
             "group_description": "Session persistence",
             "commands": [
                 {
-                    "command": ":reset_history",
+                    "command": "reset_history",
                     "function": _make_callable(reset_conversation_history_command),
                     "description": "Reset the conversation history.",
                 },
                 {
-                    "command": ":compact",
+                    "command": "compact",
                     "function": _make_callable(compact_command),
                     "description": "Compact older conversation history into a summary (usage: :compact).",
                 },
                 {
-                    "command": ":dump_history",
+                    "command": "dump_history",
                     "function": _make_callable(dump_history_command),
-                    "description": "Write full conversation history as JSON. Usage: :dump_history <path>.",
+                    "description": "Write full conversation history as JSON. Usage: : (or /) dump_history <path>.",
                 },
                 {
-                    "command": ":load_history",
+                    "command": "load_history",
                     "function": _make_callable(load_history_command),
-                    "description": "Replace current conversation with a saved JSON transcript. Usage: :load_history <path>.",
+                    "description": "Replace current conversation with a saved JSON transcript. Usage: : (or /) load_history <path>.",
                 },
             ],
         },
@@ -417,14 +417,14 @@ def configure_built_ins() -> None:
             "group_description": "Diagnostics & metrics",
             "commands": [
                 {
-                    "command": ":cost_debug",
+                    "command": "cost_debug",
                     "function": _make_callable(cost_debug_command),
                     "description": "Dump per-turn cost-tracking state and flag invariant violations.",
                 },
                 {
-                    "command": ":dump_metrics",
+                    "command": "dump_metrics",
                     "function": _make_callable(dump_metrics_command),
-                    "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: :dump_metrics <path>.",
+                    "description": "Write session metrics (cost, tokens, tool calls, loop trips) as JSON. Usage: : (or /) dump_metrics <path>.",
                 },
             ],
         },
@@ -432,24 +432,24 @@ def configure_built_ins() -> None:
             "group_description": "Response helpers",
             "commands": [
                 {
-                    "command": ":less",
+                    "command": "less",
                     "function": _make_callable(less_command),
                     "description": "Re-display the last assistant response paged through less.",
                 },
                 {
-                    "command": ":save_response",
+                    "command": "save_response",
                     "function": _make_callable(save_response_command),
-                    "description": "Save the last assistant response to a file. Usage: :save_response [path]. No arg → cwd/response-<ts>.md.",
+                    "description": "Save the last assistant response to a file. Usage: : (or /) save_response [path]. No arg → cwd/response-<ts>.md.",
                 },
                 {
-                    "command": ":copy_code",
+                    "command": "copy_code",
                     "function": _make_callable(copy_code_command),
-                    "description": "Copy a code block from the last response to the clipboard. Usage: :copy_code [N | all]. No arg → first block.",
+                    "description": "Copy a code block from the last response to the clipboard. Usage: : (or /) copy_code [N | all]. No arg → first block.",
                 },
                 {
-                    "command": ":cc",
+                    "command": "cc",
                     "function": _make_callable(copy_code_command),
-                    "description": "Alias for :copy_code. Usage: :cc [N | all].",
+                    "description": "Alias for : (or /) copy_code. Usage: : (or /) cc [N | all].",
                 },
             ],
         },
@@ -457,12 +457,12 @@ def configure_built_ins() -> None:
             "group_description": "CSV data cleaning commands",
             "commands": [
                 {
-                    "command": ":clean_csv",
+                    "command": "clean_csv",
                     "function": _make_callable(clean_missing_values_command),
                     "description": "Clean missing values in a CSV file.",
                 },
                 {
-                    "command": ":normalize_csv",
+                    "command": "normalize_csv",
                     "function": _make_callable(normalize_data_command),
                     "description": "Normalize numerical data in a CSV file.",
                 },
@@ -472,22 +472,22 @@ def configure_built_ins() -> None:
             "group_description": "Tool management commands EXPERIMENTAL",
             "commands": [
                 {
-                    "command": ":add_db_tools",
+                    "command": "add_db_tools",
                     "function": lambda arg=None: add_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Add database related tools.",
                 },
                 {
-                    "command": ":remove_db_tools",
+                    "command": "remove_db_tools",
                     "function": lambda arg=None: remove_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Remove database related tools.",
                 },
                 {
-                    "command": ":add_modelling_tools",
+                    "command": "add_modelling_tools",
                     "function": lambda arg=None: add_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Add machine learning modelling tools.",
                 },
                 {
-                    "command": ":remove_modelling_tools",
+                    "command": "remove_modelling_tools",
                     "function": lambda arg=None: remove_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Remove machine learning modelling tools.",
                 },
@@ -497,22 +497,22 @@ def configure_built_ins() -> None:
             "group_description": "Indexing and retrieval commands (Experimental)",
             "commands": [
                 {
-                    "command": ":embed",
+                    "command": "embed",
                     "function": _make_callable(send_file_to_indexing_service),
                     "description": "Embed a file via the indexing service.",
                 },
                 {
-                    "command": ":query",
+                    "command": "query",
                     "function": _make_callable(query_using_rag),
                     "description": "Query the knowledge base using RAG.",
                 },
                 {
-                    "command": ":index",
+                    "command": "index",
                     "function": _make_callable(send_directory_to_indexing_service),
                     "description": "Index an entire directory.",
                 },
                 {
-                    "command": ":semstore",
+                    "command": "semstore",
                     "function": _make_callable(semantic_store_command),
                     "description": "Interact with the semantic store.",
                 },
@@ -522,34 +522,34 @@ def configure_built_ins() -> None:
             "group_description": "Development workflow commands",
             "commands": [
                 {
-                    "command": ":power_user",
+                    "command": "power_user",
                     "function": _make_callable(stream_code),
                     "description": "Enable power-user streaming mode. <file_path>:<prompt>",
                 },
                 {
-                    "command": ":design_mode",
+                    "command": "design_mode",
                     "function": _make_callable(design_mode_command),
                     "description": "Switch to design mode.",
                 },
                 {
-                    "command": ":dev_mode",
+                    "command": "dev_mode",
                     "function": _make_callable(dev_mode_command),
                     "description": "Switch to development mode.",
                 },
                 {
-                    "command": ":make_commit",
+                    "command": "make_commit",
                     "function": lambda arg=None: make_commit_command(arg, print_func=print),
                     "description": "Create a git commit with staged changes.",
                 },
                 {
-                    "command": ":rg",
+                    "command": "rg",
                     "function": lambda arg=None: rip_grep_command(arg, print_func=print),
                     "description": "Search project files using ripgrep.",
                 },
                 {
-                    "command": ":agent",
+                    "command": "agent",
                     "function": _make_callable(run_command_in_screen),
-                    "description": "Manage detached agent (GNU screen) sessions: list / logs / logfile / attach / kill / send / spawn. Type :agent for subcommand help.",
+                    "description": "Manage detached agent (GNU screen) sessions: list / logs / logfile / attach / kill / send / spawn. Type :agent or /agent for subcommand help.",
                 },
             ],
         },
@@ -557,27 +557,27 @@ def configure_built_ins() -> None:
             "group_description": "Social media and streaming commands",
             "commands": [
                 {
-                    "command": ":twitch",
+                    "command": "twitch",
                     "function": _make_callable(send_twitch_message_command),
                     "description": "Send a message to Twitch chat.",
                 },
                 {
-                    "command": ":joke",
+                    "command": "joke",
                     "function": _make_callable(joke_for_twitch),
                     "description": "Tell a programming joke for Twitch.",
                 },
                 {
-                    "command": ":tweet",
+                    "command": "tweet",
                     "function": _make_callable(send_twitter_message),
                     "description": "Send a tweet via Twitter API.",
                 },
                 {
-                    "command": ":twitch_summary",
+                    "command": "twitch_summary",
                     "function": _make_callable(twitch_summary_command),
                     "description": "Summarize Twitch chat activity.",
                 },
                 {
-                    "command": ":linkedin_summary",
+                    "command": "linkedin_summary",
                     "function": _make_callable(linkedin_summary_command),
                     "description": "Generate a LinkedIn post summary.",
                 },

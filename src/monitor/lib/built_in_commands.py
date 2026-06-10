@@ -527,7 +527,7 @@ def reasoning_command(arg: str = None) -> None:
             current = getattr(config, "REASONING_EFFORT", None)
             prefix = getattr(config, "REASONING_MODEL_PREFIX", "")
             print("Set the reasoning effort level used with reasoning-capable models.")
-            print("Usage: :reasoning <minimal|low|medium|high>")
+            print("Usage: : (or /) reasoning <minimal|low|medium|high>")
             print(f"Current reasoning effort: {current}")
             print(f"Reasoning model prefix requirement: {prefix}")
             return
@@ -565,10 +565,10 @@ def _ttl_minutes_from_api_value(api_value):
 
 def _print_ttl_help(current_minutes):
     print("Set the Anthropic prompt-cache TTL for the system + tools breakpoints.")
-    print("Usage: :ttl <minutes>")
+    print("Usage: : (or /) ttl <minutes>")
     print("Valid values:")
-    print("  :ttl 5    — 5-minute cache (write at 1.25x base input cost)")
-    print("  :ttl 60   — 1-hour cache (write at 2x base input cost; wins when idle >5min)")
+    print("  :ttl 5 or /ttl 5    — 5-minute cache (write at 1.25x base input cost)")
+    print("  :ttl 60 or /ttl 60   — 1-hour cache (write at 2x base input cost; wins when idle >5min)")
     print("Reads cost 0.1x base for both TTLs. The final-user-message breakpoint")
     print("stays at 5m regardless (it changes every turn).")
     print(f"Current TTL: {current_minutes} minutes.")
@@ -615,7 +615,7 @@ def ttl_command(arg: str = None) -> None:
 
 def _print_max_tokens_help(current_value):
     print("Cap output tokens for non-reasoning model calls (max_completion_tokens).")
-    print("Usage: :max_tokens <N>")
+    print("Usage: : (or /) max_tokens <N>")
     print("Reasoning models (gpt-5-style) use REASONING_MAX_COMPLETION_TOKENS instead;")
     print("this cap does not affect them. Raise the value for long-form generation,")
     print("lower it to cut runaway tail-end completions.")
@@ -757,7 +757,7 @@ def dump_metrics_command(arg: str = None) -> None:
     path = (arg or "").strip()
     if not path:
         print_colored_error(
-            "Usage: :dump_metrics <path>  — writes session metrics as JSON to <path>."
+            "Usage: : (or /) dump_metrics <path>  — writes session metrics as JSON to <path>."
         )
         return
 
@@ -835,7 +835,7 @@ def dump_history_command(arg: str = None) -> None:
     path = (arg or "").strip()
     if not path:
         print_colored_error(
-            "Usage: :dump_history <path>  — writes conversation history as JSON to <path>."
+            "Usage: : (or /) dump_history <path>  — writes conversation history as JSON to <path>."
         )
         return
 
@@ -927,7 +927,7 @@ def load_history_command(arg: str = None) -> None:
     """
     path = (arg or "").strip()
     if not path:
-        print_colored_error("Usage: :load_history <path>  — load a saved conversation JSON.")
+        print_colored_error("Usage: : (or /) load_history <path>  — load a saved conversation JSON.")
         return
 
     expanded = os.path.abspath(os.path.expanduser(path))
@@ -1208,7 +1208,7 @@ def copy_code_command(arg: str = None) -> None:
             n = int(raw)
         except ValueError:
             print_colored_error(
-                f"Invalid argument: {raw!r}. Usage: :copy_code [N | all]. "
+                f"Invalid argument: {raw!r}. Usage: : (or /) copy_code [N | all]. "
                 f"The last response has {len(blocks)} block{'s' if len(blocks) != 1 else ''}."
             )
             return
@@ -1326,7 +1326,7 @@ def llm_command(arg: str = None) -> None:
         arg_provided = arg is not None and str(arg).strip() != ""
         if not arg_provided or str(arg).strip().lower() in {"help", "?", "-h", "--help"}:
             print("Dynamically set the active LLM model for completions.")
-            print("Usage: :llm <modelname>")
+            print("Usage: : (or /) llm <modelname>")
             print("Available models:")
             mapping = getattr(config, "MODEL_MAPPING", {})
             for k, v in mapping.items():
@@ -1358,7 +1358,7 @@ def llm_command(arg: str = None) -> None:
             print("Available models:")
             for k, v in mapping.items():
                 print(f"  {k:16} -> {v}")
-        print("Usage: :llm <modelname>. See ':llm help'.")
+        print("Usage: : (or /) llm <modelname>. See ':llm help' or '/llm help'.")
 
 def compact_command(arg: str | None = None) -> None:
     """Manually run the same partial-preserve compaction flow used automatically.

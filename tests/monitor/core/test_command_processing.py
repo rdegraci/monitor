@@ -234,6 +234,20 @@ def test_process_command_llm(
         mock_ctx.assert_not_called()
 
 
+@patch.object(cp, "handle_exit_command", return_value=False)
+@patch.object(cp, "process_cd_command", return_value=False)
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_internal_command", return_value=False)
+@patch.object(cp, "is_built_in_function", return_value=True)
+@patch.object(cp, "execute_built_in_function")
+def test_process_command_built_in_slash_prefix(
+    mock_exec, mock_builtin, mock_is_internal, mock_inter, mock_cd, mock_exit, patch_config_macros
+):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
+        assert not cp.process_command("/help extra", "dummy_history")
+        mock_exec.assert_called_once_with("/help extra")
+
+
 @patch("monitor.core.command_processing.signal.signal")
 def test_handle_exit_command_cmd(mock_signal):
     with patch("monitor.core.command_processing.yellow", "yy"), patch("monitor.core.command_processing.reset", "rr"):

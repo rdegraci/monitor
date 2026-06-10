@@ -37,7 +37,7 @@ def test_ttl_command_no_arg_shows_help_without_mutating(capsys, monkeypatch):
     monkeypatch.setattr(cfg, "ANTHROPIC_CACHE_TTL", "1h", raising=False)
     ttl_command(None)
     out = capsys.readouterr().out
-    assert "Usage: :ttl <minutes>" in out
+    assert "Usage: : (or /) ttl <minutes>" in out
     assert "Current TTL: 60 minutes" in out
     assert cfg.ANTHROPIC_CACHE_TTL == "1h"  # unchanged
 
@@ -46,7 +46,7 @@ def test_ttl_command_help_keyword_shows_help(capsys, monkeypatch):
     monkeypatch.setattr(cfg, "ANTHROPIC_CACHE_TTL", "5m", raising=False)
     ttl_command("help")
     out = capsys.readouterr().out
-    assert "Usage: :ttl <minutes>" in out
+    assert "Usage: : (or /) ttl <minutes>" in out
     assert "Current TTL: 5 minutes" in out
     assert cfg.ANTHROPIC_CACHE_TTL == "5m"  # unchanged
 
@@ -57,7 +57,7 @@ def test_ttl_command_rejects_non_integer(capsys, monkeypatch):
     captured = capsys.readouterr()
     combined = captured.out + captured.err
     assert "Could not parse" in combined
-    assert "Usage: :ttl <minutes>" in combined
+    assert "Usage: : (or /) ttl <minutes>" in combined
     assert cfg.ANTHROPIC_CACHE_TTL == "1h"  # unchanged
 
 

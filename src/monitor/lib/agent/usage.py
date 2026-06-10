@@ -4,7 +4,7 @@ from monitor.lib.terminal_commands_util import user_feedback
 
 
 _AGENT_HELP_TEXT = (
-    "Usage: :agent <subcommand> [args]\n\n"
+    "Usage: : (or /) agent <subcommand> [args]\n\n"
     "Subcommands:\n"
     "  list, ls                    List active agent sessions (supports per-instance numeric indices)\n"
     "                              Use --full to show tokens and metadata paths\n"
