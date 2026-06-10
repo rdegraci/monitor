@@ -233,5 +233,10 @@
     "command": "pytest",
     "expansion": "function _pytest() { pytest \"$@\"; }; _pytest",
     "description": "Run pytest - forwards all positional parameters ($@)"
+  },
+  {
+    "command": "xcrun",
+    "expansion": "function _xcrun() { xcrun \"$@\"; }; _xcrun",
+    "description": "Run xcrun - forwards all positional parameters ($@)"
   }
 ]
