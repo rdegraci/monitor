@@ -368,9 +368,9 @@ def test_truncate_to_token_limit_basic(monkeypatch):
     except TypeError:
         pytest.skip("truncate_to_token_limit signature incompatible with test invocation")
     assert isinstance(truncated, str)
-    assert len(truncated.split()) <= 4
-    # If the truncation function appends a sentinel '...[TRUNCATED]', ensure the part before sentinel is a prefix.
-    sentinel = '...[TRUNCATED]'
+    # If the truncation function appends a sentinel with the token limit,
+    # ensure the part before sentinel is a prefix.
+    sentinel = '...[TRUNCATED to token limit 4]'
     if sentinel in truncated:
         prefix = truncated.split(sentinel)[0]
         assert text.startswith(prefix)

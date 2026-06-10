@@ -369,8 +369,9 @@ def token_budgeter(params, input_window=100000, model_name=None):
     occurs only as needed and is always targeted at the largest outputs, waterfall-style,
     until the overall budget is met or no outputs can be further truncated.
 
-    When truncating a tool's 'output', a truncation marker ("… [TRUNCATED]") will be
-    appended to the trimmed output (if space allows). The marker is also counted in the
+    When truncating a tool's 'output', a truncation marker of the form
+    ``...[TRUNCATED to input token budget <input_window>]`` will be appended to the
+    trimmed output (if space allows). The marker is also counted in the
     token budget: content will be trimmed enough for the marker to fit, always leaving at
     least one content token before the marker if possible. If the marker wouldn't fit
     alongside any content, the output is replaced by only the marker. The marker is only
@@ -393,7 +394,7 @@ def token_budgeter(params, input_window=100000, model_name=None):
     import copy
     import tiktoken
 
-    TRUNC_MARKER = "… [TRUNCATED]"
+    TRUNC_MARKER = f"...[TRUNCATED to input token budget {input_window}]"
 
     params = copy.deepcopy(params)
 

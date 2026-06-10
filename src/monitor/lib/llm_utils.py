@@ -1014,7 +1014,8 @@ def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = 
     approximate average characters-per-token heuristic.
 
     The function tries to preserve as much content as possible and appends
-    the sentinel string "...[TRUNCATED]" when truncation occurs.
+    the sentinel string ``... [TRUNCATED to token limit <token_limit>]`` when
+    truncation occurs.
 
     Args:
         text (str): The input text to truncate.
@@ -1026,10 +1027,12 @@ def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = 
 
     Returns:
         str: The original text when it fits within `token_limit`, or a truncated
-            version ending with "...[TRUNCATED]". The function always returns
-            a string and swallows internal errors, returning a best-effort result.
+            version ending with
+            ``... [TRUNCATED to token limit <token_limit>]``. The function
+            always returns a string and swallows internal errors, returning a
+            best-effort result.
     """
-    sentinel = "...[TRUNCATED]"
+    sentinel = f"...[TRUNCATED to token limit {token_limit}]"
     try:
         if text is None:
             return ""

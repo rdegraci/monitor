@@ -390,7 +390,9 @@ class TestLLMCore(unittest.TestCase):
                 result = []
                 for item in params.get('input', []):
                     content = item.get('output', '')
-                    trimmed = (content[:50] + '… [TRUNCATED]') if isinstance(content, str) else content
+                    trimmed = (
+                        content[:50] + f'...[TRUNCATED to input token budget {input_window}]'
+                    ) if isinstance(content, str) else content
                     result.append({'output': trimmed})
                 return {'input': result}
             mock_budget.side_effect = fake_budget
@@ -425,7 +427,7 @@ class TestLLMCore(unittest.TestCase):
             trimmed_content = tool_msgs[0]['content']
             # Should be shorter than original and contain truncation marker
             self.assertLess(len(trimmed_content), len(long_tool_output))
-            self.assertIn('… [TRUNCATED]', trimmed_content)
+            self.assertIn('...[TRUNCATED to input token budget 1000]', trimmed_content)
 
 if __name__ == "__main__":
     unittest.main()
