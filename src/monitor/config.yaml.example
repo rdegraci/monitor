@@ -1,5 +1,5 @@
-MODEL: openai/gpt-5-mini-2025-08-07  # Fully qualified primary LLM model (provider/model:version) used for standard responses
-MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens)
+MODEL: openai/gpt-5.4  # Fully qualified primary LLM model (provider/model:version) used for standard responses
+MODEL_CONTEXT_WINDOW: 1050000  # Maximum tokens the model can accept as input context (tokens)
 MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens)
 MODEL_INPUT_TIER: 4  # Input tier/plan selector for model usage limits (integer)
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
@@ -274,6 +274,13 @@ REASONING_MODEL_PREFIX: openai/gpt-5
 # Runtime override: `:reasoning <level>` swaps the active value mid-session
 # without editing this file.
 REASONING_EFFORT: medium
+
+# Commit-message generation can use its own model and reasoning settings.
+# Leave these unset to fall back to MODEL / REASONING_EFFORT /
+# REASONING_MAX_COMPLETION_TOKENS.
+# COMMIT_MODEL: openai/gpt-5.4
+# COMMIT_REASONING_EFFORT: high
+# COMMIT_REASONING_MAX_COMPLETION_TOKENS: 8000
 
 # Cap on output tokens (including reasoning tokens) for reasoning-model
 # calls. Set higher than the non-reasoning MAX_COMPLETION_TOKENS (8192)

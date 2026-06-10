@@ -7,13 +7,13 @@ import tempfile
 import litellm
 
 from monitor import config
-
-from monitor.lib.macros import MACRO_VALUES
-from monitor.lib.colors import yellow, reset
+from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
-from monitor.lib.git import perform_git_commit, perform_git_diff_staged  # Import centralized git wrappers
+from monitor.lib.git import perform_git_commit, perform_git_diff_staged
+from monitor.lib.macros import MACRO_VALUES
 
-logger = logging.getLogger('monitor.core.commit')
+logger = logging.getLogger("monitor.core.commit")
+
 
 def get_staged_diff(silent: bool = False):
     """
@@ -25,14 +25,87 @@ def get_staged_diff(silent: bool = False):
 
     Uses the centralized git wrapper perform_git_diff_staged(silent=silent).
     """
-    logger.debug("Entering get_staged_diff to retrieve staged git diff via perform_git_diff_staged.")
+    logger.debug(
+        "Entering get_staged_diff to retrieve staged git diff via perform_git_diff_staged."
+    )
     try:
         diff = perform_git_diff_staged(silent=silent)
         logger.debug("Successfully retrieved staged git diff via wrapper.")
         return diff
     except Exception as e:
-        logger.error(f"Error getting staged diff via perform_git_diff_staged: {e}", exc_info=True)
+        logger.error(
+            f"Error getting staged diff via perform_git_diff_staged: {e}",
+            exc_info=True,
+        )
         raise
+
+
+def _get_commit_generation_config():
+    """Return commit-specific LLM configuration with global fallbacks.
+
+    Returns:
+        dict[str, object]: A dict containing the model, reasoning effort, and
+        reasoning token cap to use for commit message generation.
+    """
+    model = getattr(config, "COMMIT_MODEL", None) or config.MODEL
+    effort = (
+        getattr(config, "COMMIT_REASONING_EFFORT", None)
+        or getattr(config, "REASONING_EFFORT", None)
+    )
+    token_cap = (
+        getattr(config, "COMMIT_REASONING_MAX_COMPLETION_TOKENS", None)
+        or getattr(config, "REASONING_MAX_COMPLETION_TOKENS", None)
+    )
+    return {
+        "model": model,
+        "reasoning_effort": effort,
+        "reasoning_max_completion_tokens": token_cap,
+    }
+
+
+def _build_commit_completion_kwargs(
+    model, reasoning_effort, reasoning_max_completion_tokens
+):
+    """Build keyword arguments for commit message generation.
+
+    Args:
+        model: The model name to use for the completion.
+        reasoning_effort: Optional reasoning effort value for reasoning models.
+        reasoning_max_completion_tokens: Optional token cap for reasoning models.
+
+    Returns:
+        dict[str, object]: Arguments suitable for ``litellm.completion``.
+    """
+    kwargs = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You write clear, conventional git commit messages.",
+            },
+        ],
+    }
+    if _should_use_reasoning_kwargs(model):
+        if isinstance(reasoning_effort, str) and reasoning_effort.strip():
+            kwargs["reasoning_effort"] = reasoning_effort.strip()
+        if (
+            isinstance(reasoning_max_completion_tokens, int)
+            and reasoning_max_completion_tokens > 0
+        ):
+            kwargs["max_completion_tokens"] = reasoning_max_completion_tokens
+    return kwargs
+
+
+def _should_use_reasoning_kwargs(model):
+    """Return whether the commit model should receive reasoning parameters."""
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+    return (
+        isinstance(prefix, str)
+        and prefix
+        and isinstance(model, str)
+        and model.lower().startswith(prefix.lower())
+    )
+
 
 def make_commit_command(arg=None, print_func=print):
     """
@@ -45,10 +118,11 @@ def make_commit_command(arg=None, print_func=print):
         diff_output = get_staged_diff(silent=True)
         if not diff_output.strip():
             logger.info("No staged changes found. Aborting commit flow.")
-            print_func(f"{yellow}No staged changes to commit. Please stage changes first.{reset}")
+            print_func(
+                f"{yellow}No staged changes to commit. Please stage changes first.{reset}"
+            )
             return
 
-        # Generate suggested commit message (title, body)
         logger.info("Requesting suggested commit message for staged changes.")
         try:
             commit_message = get_suggested_commit_message(diff_output)
@@ -63,21 +137,30 @@ def make_commit_command(arg=None, print_func=print):
             )
             return
         logger.info("Received suggested commit message.")
-        print_func(f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n")
+        print_func(
+            f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n"
+        )
 
-        resp = input("Use this commit message? [y/yes] to accept, [e/edit] to edit, [n/no] to abort: ").strip().lower()
+        resp = (
+            input(
+                "Use this commit message? [y/yes] to accept, [e/edit] to edit, [n/no] to abort: "
+            )
+            .strip()
+            .lower()
+        )
         if resp in ("e", "edit"):
-            logger.info("User selected 'Edit'. Opening editor for commit message editing.")
-            tf = tempfile.NamedTemporaryFile(delete=False, mode="w+t", suffix=".COMMIT_EDITMSG", encoding="utf-8")
+            logger.info(
+                "User selected 'Edit'. Opening editor for commit message editing."
+            )
+            tf = tempfile.NamedTemporaryFile(
+                delete=False, mode="w+t", suffix=".COMMIT_EDITMSG", encoding="utf-8"
+            )
             try:
                 tf.write(commit_message)
                 tf.flush()
-                tf.close()  # release the handle so the editor can write to it
+                tf.close()
                 editor = os.environ.get("EDITOR", "vim")
                 try:
-                    # shlex.split honors a multi-word $EDITOR (e.g. "code --wait")
-                    # and the list form runs without a shell, so the editor value
-                    # can't be used for command injection.
                     proc = subprocess.run(shlex.split(editor) + [tf.name])
                 except FileNotFoundError:
                     logger.error("Editor %r not found. Aborting commit.", editor)
@@ -87,10 +170,13 @@ def make_commit_command(arg=None, print_func=print):
                     logger.error(f"Could not open editor: {ex}. Aborting.", exc_info=True)
                     print_func(f"Could not open editor: {ex}\nAborting.")
                     return
-                # A non-zero editor exit means "abort" (same convention as git commit).
                 if proc.returncode != 0:
-                    logger.info("Editor exited with status %d. Aborting commit.", proc.returncode)
-                    print_func(f"Editor exited with non-zero status {proc.returncode}. Aborting.")
+                    logger.info(
+                        "Editor exited with status %d. Aborting commit.", proc.returncode
+                    )
+                    print_func(
+                        f"Editor exited with non-zero status {proc.returncode}. Aborting."
+                    )
                     return
                 with open(tf.name, "r", encoding="utf-8") as f:
                     final_message = f.read().strip()
@@ -112,8 +198,9 @@ def make_commit_command(arg=None, print_func=print):
             print_func("Commit message cannot be empty. Aborting.")
             return
 
-        # Commit staged changes with the message using perform_git_commit wrapper
-        logger.info("Attempting to commit staged changes with the composed commit message via perform_git_commit.")
+        logger.info(
+            "Attempting to commit staged changes with the composed commit message via perform_git_commit."
+        )
         try:
             perform_git_commit(final_message)
             logger.info("Git commit succeeded via perform_git_commit.")
@@ -128,6 +215,7 @@ def make_commit_command(arg=None, print_func=print):
         logger.error(f"Error in :make_commit: {e}", exc_info=True)
         print_func(f"Error in :make_commit: {e}")
 
+
 def get_suggested_commit_message(diff_output):
     """
     Return a suggested commit message based on staged git changes.
@@ -137,23 +225,32 @@ def get_suggested_commit_message(diff_output):
     history — generating a commit message shouldn't pollute the model's context
     or token/cost accounting for subsequent turns.
     """
-    logger.debug("Entering get_suggested_commit_message to generate message from staged changes.")
+    logger.debug(
+        "Entering get_suggested_commit_message to generate message from staged changes."
+    )
     try:
         query_input = build_commit_message_query_input(
             diff=diff_output,
             macro_values=MACRO_VALUES,
             macro_delim_open=config.MACRO_DELIMITER_OPEN,
             macro_delim_close=config.MACRO_DELIMITER_CLOSE,
-            macro_delim_escape=config.MACRO_DELIMITER_ESCAPE
+            macro_delim_escape=config.MACRO_DELIMITER_ESCAPE,
         )
         logger.debug("Built commit message query input for staged changes.")
-        response = litellm.completion(
-            model=config.MODEL,
-            messages=[
-                {"role": "system", "content": "You write clear, conventional git commit messages."},
-                {"role": "user", "content": query_input},
-            ],
+        generation_config = _get_commit_generation_config()
+        kwargs = _build_commit_completion_kwargs(
+            generation_config["model"],
+            generation_config["reasoning_effort"],
+            generation_config["reasoning_max_completion_tokens"],
         )
+        kwargs["messages"] = [
+            {
+                "role": "system",
+                "content": "You write clear, conventional git commit messages.",
+            },
+            {"role": "user", "content": query_input},
+        ]
+        response = litellm.completion(**kwargs)
         logger.debug("Generated suggested commit message.")
         return response.choices[0].message.content or ""
     except Exception as e:
