@@ -56,9 +56,9 @@
 - [x] Add tests for nested working directory mapping.
 - [x] Add tests for non-repo fallback behavior.
 - [x] Add tests for same-basename repos in different paths.
-- [ ] Add tests for symlink or canonical-path slug behavior if supported.
-  - Current status: canonicalization is implemented via resolved paths, but
-    explicit symlink-focused tests are still missing.
+- [x] Add tests for symlink or canonical-path slug behavior if supported.
+  - Current status: explicit symlink-focused tests now cover canonical repo
+    identity, slug stability, and project wiki path stability.
 - [x] Add tests for safe handling of filesystem creation failures.
   - Current status: dedicated failure-path tests now cover mkdir/write
     provisioning failures.

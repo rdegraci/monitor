@@ -333,3 +333,71 @@ def test_ensure_configured_project_wiki_returns_none_when_provisioning_fails(tmp
     monkeypatch.setattr(Path, "write_text", fail_for_index)
 
     assert monitor_wiki.ensure_configured_project_wiki() is None
+
+
+def test_resolve_project_identity_path_uses_canonical_repo_root_through_symlink(tmp_path):
+    """Resolve the same canonical repo root when startup enters via a symlink.
+
+    Args:
+        tmp_path: Temporary test directory.
+    """
+    repo_root = tmp_path / "real-repo"
+    nested = repo_root / "src" / "feature"
+    nested.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    symlink_root = tmp_path / "linked-repo"
+    symlink_root.symlink_to(repo_root, target_is_directory=True)
+    symlink_nested = symlink_root / "src" / "feature"
+
+    resolved_real = monitor_wiki.resolve_project_identity_path(nested)
+    resolved_symlink = monitor_wiki.resolve_project_identity_path(symlink_nested)
+
+    assert resolved_real == repo_root.resolve()
+    assert resolved_symlink == repo_root.resolve()
+    assert resolved_real == resolved_symlink
+
+
+def test_project_wiki_dir_for_start_path_is_stable_through_symlink(tmp_path):
+    """Map symlinked and real startup paths to the same project wiki dir.
+
+    Args:
+        tmp_path: Temporary test directory.
+    """
+    repo_root = tmp_path / "real-repo"
+    nested = repo_root / "src" / "feature"
+    nested.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    symlink_root = tmp_path / "linked-repo"
+    symlink_root.symlink_to(repo_root, target_is_directory=True)
+    symlink_nested = symlink_root / "src" / "feature"
+
+    wiki_real = monitor_wiki.project_wiki_dir_for_start_path(nested)
+    wiki_symlink = monitor_wiki.project_wiki_dir_for_start_path(symlink_nested)
+
+    assert wiki_real == wiki_symlink
+
+
+def test_project_slug_from_path_matches_for_real_and_symlinked_repo_identity(tmp_path):
+    """Produce identical slugs for real and symlink-resolved repo identities.
+
+    Args:
+        tmp_path: Temporary test directory.
+    """
+    repo_root = tmp_path / "real-repo"
+    nested = repo_root / "src" / "feature"
+    nested.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    symlink_root = tmp_path / "linked-repo"
+    symlink_root.symlink_to(repo_root, target_is_directory=True)
+    symlink_nested = symlink_root / "src" / "feature"
+
+    real_identity = monitor_wiki.resolve_project_identity_path(nested)
+    symlink_identity = monitor_wiki.resolve_project_identity_path(symlink_nested)
+
+    slug_real = monitor_wiki.project_slug_from_path(real_identity)
+    slug_symlink = monitor_wiki.project_slug_from_path(symlink_identity)
+
+    assert slug_real == slug_symlink
