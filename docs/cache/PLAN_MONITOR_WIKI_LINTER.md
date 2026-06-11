@@ -76,6 +76,8 @@ A likely shape is:
 - the linter remains separate from the main code-writing behavior
 
 ## Current implementation status
-- no dedicated wiki-linter module, command, or workflow was found in the
-  current implementation
-- this plan should still be treated as forward-looking design work
+- a dedicated structural linter module now exists at
+  `src/monitor/lib/monitor_wiki_linter.py`
+- the current implementation is deterministic-only and covers missing index,
+  broken references, and orphaned markdown pages
+- no built-in command or semantic drift workflow has been added yet

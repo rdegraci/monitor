@@ -15,7 +15,9 @@ The wiki-linter has a clear role as a maintenance and drift-detection tool, and
 its high-level behavior is anchored in packaged prompt guidance.
 
 ### Status
-- Role and scope are documented, but no code implementation was found.
+- Role and scope are documented.
+- A structural deterministic implementation now exists in
+  `src/monitor/lib/monitor_wiki_linter.py`.
 
 ## Phase 2: Structural Linting
 Implement cheap deterministic checks for monitor-wiki health.
@@ -29,6 +31,10 @@ Implement cheap deterministic checks for monitor-wiki health.
 
 ### Outcome
 Basic monitor-wiki integrity issues can be detected without LLM involvement.
+
+### Status
+- Implemented for missing `INDEX.md`, broken wiki-page references, and orphaned
+  markdown pages.
 
 ## Phase 3: Semantic Drift Detection
 Add targeted LLM-assisted checking for wiki/code contradictions.

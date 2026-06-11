@@ -8,14 +8,15 @@
 - [ ] Decide whether the linter is user-invoked, discrepancy-invoked, or both.
 
 Current implementation status:
-- no wiki-linter implementation was found, so unchecked items below remain
-  design/planning work rather than partial code work
+- structural linting now has an initial deterministic implementation in
+  `src/monitor/lib/monitor_wiki_linter.py`
+- unchecked semantic and workflow items below remain future work
 
 ## Structural Linting
-- [ ] Check for missing `INDEX.md` when a project wiki should exist.
-- [ ] Check for broken links between wiki pages.
+- [x] Check for missing `INDEX.md` when a project wiki should exist.
+- [x] Check for broken links between wiki pages.
 - [ ] Check for referenced code paths that no longer exist.
-- [ ] Check for orphaned wiki pages not reachable from `INDEX.md`.
+- [x] Check for orphaned wiki pages not reachable from `INDEX.md`.
 - [ ] Check for oversized or low-signal wiki pages.
 
 ## Semantic Linting
@@ -39,10 +40,10 @@ Current implementation status:
 - [ ] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 
 ## Testing
-- [ ] Add tests for structural lint checks.
-- [ ] Add tests for broken-link detection.
-- [ ] Add tests for orphaned-page detection.
-- [ ] Add tests for missing-file reference detection.
+- [x] Add tests for structural lint checks.
+- [x] Add tests for broken-link detection.
+- [x] Add tests for orphaned-page detection.
+- [x] Add tests for missing-file reference detection.
 - [ ] Add tests for semantic conflict reporting behavior.
 - [ ] Add tests for keeping the linter isolated from normal startup behavior.
 

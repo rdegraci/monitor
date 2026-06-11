@@ -85,6 +85,10 @@ It should validate:
 - allow separate prompt and model configuration for semantic linting if needed
 
 ## Current implementation status
-- no wiki-linter implementation was found in the current codebase
-- the wiki-linter remains a design-stage concept documented here for future
-  work
+- a structural wiki-linter v1 now exists in
+  `src/monitor/lib/monitor_wiki_linter.py`
+- the implemented deterministic checks currently cover:
+  - missing `INDEX.md`
+  - broken wiki-page references from `INDEX.md`
+  - orphaned markdown pages not referenced from `INDEX.md`
+- semantic drift detection remains future work
