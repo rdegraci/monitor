@@ -180,6 +180,121 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert mock_rate_limiter.RATE_LIMITER.add_request.call_count >= 2
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    def test_call_responses_api_clears_response_id_after_followup_failure(
+        self,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        """Clear RESPONSE_ID when tool follow-up submission fails.
+
+        Asserts:
+            - The initial response id is persisted before the follow-up attempt.
+            - A failed follow-up raises to the caller.
+            - RESPONSE_ID is cleared so later requests start fresh.
+        """
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=5,
+            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+        )
+        fake_client.responses.create.side_effect = [first, RuntimeError("follow-up denied")]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=False,
+            MODEL_INPUT_WINDOW=None,
+            TOOL_OUTPUT_TOKEN_LIMIT=1_000,
+        )
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            with self.assertRaises(RuntimeError):
+                adapter.call_responses_api(
+                    [{"role": "user", "content": "say hi"}],
+                    tool_descriptions={},
+                    gemini_tool_descriptions={},
+                )
+
+        assert fake_client.responses.create.call_count == 2
+        assert cfg.RESPONSE_ID is None
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_call_responses_api_starts_fresh_after_response_id_cleared(
+        self,
+        mock_rate_limiter,
+        _mock_update,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        """Start a fresh request when RESPONSE_ID has been cleared after failure.
+
+        Asserts:
+            - No previous_response_id is sent.
+            - The full prepared messages list is used as input.
+        """
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.return_value = self._fake_response("resp_fresh", total_tokens=1, output=[])
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        messages = [{"role": "user", "content": "new prompt after failure"}]
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(messages, tool_descriptions={}, gemini_tool_descriptions={})
+
+        kwargs = fake_client.responses.create.call_args.kwargs
+        assert kwargs["model"] == "gpt-4o-mini"
+        assert kwargs["input"] == messages
+        assert "previous_response_id" not in kwargs
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")

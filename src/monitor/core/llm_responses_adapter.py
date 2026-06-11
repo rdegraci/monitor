@@ -881,12 +881,20 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                     # Set last_response to followup_response and continue loop
                     last_response = followup_response
-                except Exception as e:
+                except Exception:
                     logger.exception(
                         "Failed to send follow-up responses.create for function call outputs"
                     )
-                    # If follow-up fails, break to avoid infinite loop
-                    break
+                    try:
+                        setattr(config, "RESPONSE_ID", None)
+                        logger.warning(
+                            "Cleared config.RESPONSE_ID after failed tool follow-up to avoid reusing a broken response chain"
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to clear config.RESPONSE_ID after tool follow-up failure"
+                        )
+                    raise
             else:
                 # No outputs to send back; break loop
                 break
