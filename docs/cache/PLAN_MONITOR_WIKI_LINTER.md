@@ -74,3 +74,8 @@ A likely shape is:
 - semantic drift can be surfaced when needed without excessive noise
 - linter findings are focused and actionable
 - the linter remains separate from the main code-writing behavior
+
+## Current implementation status
+- no dedicated wiki-linter module, command, or workflow was found in the
+  current implementation
+- this plan should still be treated as forward-looking design work

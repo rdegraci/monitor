@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import List
 
 import appdirs
+
+logger = logging.getLogger(__name__)
 
 _STARTER_INDEX_TEMPLATE = """# Project Wiki Index
 
@@ -119,23 +122,45 @@ def _starter_index_path(project_dir: Path) -> Path:
     return project_dir / "INDEX.md"
 
 
-def ensure_project_wiki(start_path: str | os.PathLike[str]) -> Path:
+def _provision_project_wiki_dir(project_dir: Path) -> Path | None:
+    """Create a project wiki directory and starter index when possible.
+
+    Args:
+        project_dir: The project wiki directory to provision.
+
+    Returns:
+        The provisioned project wiki directory, or ``None`` when filesystem
+        setup fails.
+    """
+    try:
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        index_path = _starter_index_path(project_dir)
+        if not index_path.exists():
+            index_path.write_text(_STARTER_INDEX_TEMPLATE, encoding="utf-8")
+    except OSError as error:
+        logger.warning(
+            "Monitor wiki provisioning unavailable for %s: %s",
+            project_dir,
+            error,
+        )
+        return None
+
+    return project_dir
+
+
+def ensure_project_wiki(start_path: str | os.PathLike[str]) -> Path | None:
     """Create the project wiki directory and starter index if needed.
 
     Args:
         start_path: Path captured at startup.
 
     Returns:
-        The provisioned project wiki directory path.
+        The provisioned project wiki directory path, or ``None`` when
+        provisioning fails.
     """
     project_dir = project_wiki_dir_for_start_path(start_path)
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    index_path = _starter_index_path(project_dir)
-    if not index_path.exists():
-        index_path.write_text(_STARTER_INDEX_TEMPLATE, encoding="utf-8")
-
-    return project_dir
+    return _provision_project_wiki_dir(project_dir)
 
 
 def ensure_configured_project_wiki() -> Path | None:
@@ -143,7 +168,8 @@ def ensure_configured_project_wiki() -> Path | None:
 
     Returns:
         The provisioned project wiki directory path, or ``None`` when the
-        session does not currently have frozen wiki context.
+        session does not currently have frozen wiki context or provisioning
+        fails.
     """
     from monitor import config as _config
 
@@ -152,13 +178,7 @@ def ensure_configured_project_wiki() -> Path | None:
         return None
 
     project_dir = Path(project_wiki_path)
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    index_path = _starter_index_path(project_dir)
-    if not index_path.exists():
-        index_path.write_text(_STARTER_INDEX_TEMPLATE, encoding="utf-8")
-
-    return project_dir
+    return _provision_project_wiki_dir(project_dir)
 
 
 def configured_project_wiki_index_path() -> Path | None:

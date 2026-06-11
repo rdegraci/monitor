@@ -39,6 +39,8 @@ Users do not need manual setup before Monitor can use project wiki content.
 
 ### Status
 - Implemented via lazy provisioning helpers in `src/monitor/lib/monitor_wiki.py`.
+- Graceful provisioning failure handling is now implemented for `OSError`
+  paths.
 
 ## Phase 3: Governance Model
 Define what the monitor-wiki is for, what it should not become, and where that
@@ -80,6 +82,8 @@ workflows without turning the wiki into mandatory overhead.
 ### Status
 - Partially implemented in `src/monitor/lib/system_prompt.py` with bounded
   `INDEX.md` excerpts and up to 2 additional referenced page excerpts.
+- Task-topic-based selection of additional pages remains a follow-up item; the
+  current implementation follows explicit `INDEX.md` references only.
 
 ## Phase 5: Hardening and Validation
 Validate path mapping, creation behavior, and failure handling.

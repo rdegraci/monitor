@@ -18,7 +18,10 @@
 - [x] Decide whether starter files such as `INDEX.md` are auto-created.
 - [x] Decide whether empty slug directories are acceptable.
 - [x] Decide whether a metadata file is created with the slug directory.
-- [ ] Ensure filesystem failures are surfaced clearly and handled gracefully.
+- [x] Ensure filesystem failures are surfaced clearly and handled gracefully.
+  - Current status: provisioning now degrades safely in
+    `src/monitor/lib/monitor_wiki.py`; follow-up UX improvements may still be
+    useful.
 
 ## Wiki Path Resolution
 - [x] Implement repo-root-based slug derivation.
@@ -54,7 +57,11 @@
 - [x] Add tests for non-repo fallback behavior.
 - [x] Add tests for same-basename repos in different paths.
 - [ ] Add tests for symlink or canonical-path slug behavior if supported.
-- [ ] Add tests for safe handling of filesystem creation failures.
+  - Current status: canonicalization is implemented via resolved paths, but
+    explicit symlink-focused tests are still missing.
+- [x] Add tests for safe handling of filesystem creation failures.
+  - Current status: dedicated failure-path tests now cover mkdir/write
+    provisioning failures.
 
 ## Documentation
 - [x] Document monitor-wiki purpose and structure.

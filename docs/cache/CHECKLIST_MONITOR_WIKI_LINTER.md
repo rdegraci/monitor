@@ -7,6 +7,10 @@
 - [ ] Decide how linter findings should be surfaced.
 - [ ] Decide whether the linter is user-invoked, discrepancy-invoked, or both.
 
+Current implementation status:
+- no wiki-linter implementation was found, so unchecked items below remain
+  design/planning work rather than partial code work
+
 ## Structural Linting
 - [ ] Check for missing `INDEX.md` when a project wiki should exist.
 - [ ] Check for broken links between wiki pages.

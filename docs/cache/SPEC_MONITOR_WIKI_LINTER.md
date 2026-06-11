@@ -83,3 +83,8 @@ It should validate:
 - run only on demand or when discrepancy-triggered
 - prefer code over stale wiki content
 - allow separate prompt and model configuration for semantic linting if needed
+
+## Current implementation status
+- no wiki-linter implementation was found in the current codebase
+- the wiki-linter remains a design-stage concept documented here for future
+  work

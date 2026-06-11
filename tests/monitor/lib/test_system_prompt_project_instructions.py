@@ -207,6 +207,31 @@ def test_build_system_prompt_omits_project_wiki_pointer_for_starter_only_wiki(tm
     assert "--- Project wiki ---" not in out
 
 
+
+def test_build_system_prompt_omits_project_wiki_pointer_when_provisioning_fails(tmp_path, monkeypatch):
+    """Keep system prompt construction non-fatal when wiki provisioning fails.
+
+    Args:
+        tmp_path: Temporary test directory.
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    (tmp_path / "MONITOR.md").write_text("PROJ\n")
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
+    configure_runtime_prompt_paths(tmp_path)
+    configure_project_wiki_paths(tmp_path)
+
+    def fail_provision():
+        return None
+
+    monkeypatch.setattr(
+        "monitor.lib.system_prompt.ensure_configured_project_wiki",
+        fail_provision,
+    )
+
+    out = build_system_prompt()
+
+    assert "--- Project wiki ---" not in out
+
 def test_build_user_prompt_prefix_returns_empty():
     """The project instructions used to live here. They've been moved into
     the system prompt to avoid per-user-message prefix duplication. The

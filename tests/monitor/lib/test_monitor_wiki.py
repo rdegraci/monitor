@@ -266,3 +266,70 @@ def test_configured_project_wiki_additional_pages_returns_up_to_two_existing_pag
 
     assert len(pages) == 2
     assert [page.name for page in pages] == ["ARCHITECTURE.md", "CONVENTIONS.md"]
+
+
+def test_ensure_project_wiki_returns_none_when_directory_creation_fails(tmp_path, monkeypatch):
+    """Degrade safely when the project wiki directory cannot be created.
+
+    Args:
+        tmp_path: Temporary test directory.
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    startup_dir = tmp_path / "workspace"
+    startup_dir.mkdir(parents=True)
+
+    original_mkdir = Path.mkdir
+
+    def fail_for_wiki_root(self, *args, **kwargs):
+        if self == monitor_wiki.monitor_wiki_root():
+            raise OSError("mkdir denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_for_wiki_root)
+
+    assert monitor_wiki.ensure_project_wiki(startup_dir) is None
+
+
+def test_ensure_project_wiki_returns_none_when_index_write_fails(tmp_path, monkeypatch):
+    """Degrade safely when the starter index cannot be written.
+
+    Args:
+        tmp_path: Temporary test directory.
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    startup_dir = tmp_path / "workspace"
+    startup_dir.mkdir(parents=True)
+
+    original_write_text = Path.write_text
+
+    def fail_for_index(self, *args, **kwargs):
+        if self.name == "INDEX.md":
+            raise OSError("write denied")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_for_index)
+
+    assert monitor_wiki.ensure_project_wiki(startup_dir) is None
+
+
+def test_ensure_configured_project_wiki_returns_none_when_provisioning_fails(tmp_path, monkeypatch):
+    """Keep configured wiki provisioning non-fatal on filesystem errors.
+
+    Args:
+        tmp_path: Temporary test directory.
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    startup_dir = tmp_path / "workspace"
+    startup_dir.mkdir(parents=True)
+    monitor_wiki.configure_project_wiki_paths(startup_dir)
+
+    original_write_text = Path.write_text
+
+    def fail_for_index(self, *args, **kwargs):
+        if self.name == "INDEX.md":
+            raise OSError("write denied")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_for_index)
+
+    assert monitor_wiki.ensure_configured_project_wiki() is None

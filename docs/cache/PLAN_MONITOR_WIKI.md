@@ -133,6 +133,10 @@ slug from the working directory path.
   bounded project wiki section when substantive wiki content exists.
 - The current retrieval path reads `INDEX.md` first and includes up to 2
   additional referenced wiki pages with bounded excerpts.
+- Additional page selection is currently index-reference-based only; the
+  task-topic matching behavior remains unimplemented.
+- Filesystem failure handling for wiki provisioning now degrades safely on
+  `OSError`, with targeted tests covering mkdir/write failures.
 
 ## Suggested implementation areas
 - appdir initialization or filesystem utility code

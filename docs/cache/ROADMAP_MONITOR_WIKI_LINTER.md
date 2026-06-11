@@ -14,6 +14,9 @@ Define the purpose, boundaries, and governance placement of the wiki-linter.
 The wiki-linter has a clear role as a maintenance and drift-detection tool, and
 its high-level behavior is anchored in packaged prompt guidance.
 
+### Status
+- Role and scope are documented, but no code implementation was found.
+
 ## Phase 2: Structural Linting
 Implement cheap deterministic checks for monitor-wiki health.
 

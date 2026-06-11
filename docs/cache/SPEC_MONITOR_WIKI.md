@@ -84,6 +84,11 @@ Optional pages such as `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, and
 - Additional wiki pages should be consulted only when:
   - `INDEX.md` points to them, or
   - the task clearly matches their topic.
+
+Current implementation status:
+- the implemented retrieval path currently follows only pages explicitly
+  referenced from `INDEX.md`
+- task-topic-based additional page selection remains a follow-up enhancement
 - The initial implementation should not recursively follow links beyond the
   selected additional pages.
 
@@ -150,11 +155,17 @@ Preferred page granularity:
 - pitfalls or gotchas pages
 
 ## Failure Handling
-If Monitor cannot create the top-level wiki directory or the project wiki
-subdirectory:
+Desired behavior when Monitor cannot create the top-level wiki directory or the
+project wiki subdirectory:
 - surface a clear message
 - do not crash unrelated code workflows solely because wiki provisioning failed
 - treat wiki support as unavailable for that operation or session when needed
+
+Current implementation status:
+- provisioning helpers now degrade safely on `OSError`
+- failure-path tests cover directory-creation and starter-index-write failures
+- additional UX improvements, if desired, would be follow-up polish rather than
+  missing core hardening
 
 ## Implementation Findings
 
