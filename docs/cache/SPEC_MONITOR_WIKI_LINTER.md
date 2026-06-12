@@ -170,4 +170,10 @@ free-form analysis blobs.
   - low-signal markdown pages based on deterministic heading/reference/list
     heuristics
   - orphaned markdown pages not referenced from `INDEX.md`
-- semantic drift detection remains future work
+- semantic linting now has a narrow v1 implementation for stale
+  location/path claims in claim-bearing wiki text
+- the current semantic v1 emits findings only when those claim-bearing lines
+  cite repo-relative paths that no longer exist
+- `:wiki_lint` now supports `structural`, `semantic`, and `all` modes and
+  stores latest findings in-process for explicit follow-up workflows
+- broader semantic drift detection remains future work

@@ -80,8 +80,6 @@ A likely shape is:
 ## Open decisions
 - whether discrepancy-triggered linting should be added in addition to the
   built-in command
-- whether structural and semantic linting should be separately invocable or
-  combined behind one command with explicit mode selection
 - whether semantic linting should use a dedicated model configuration
 - how strongly the linter should recommend wiki updates versus directly writing
   them

@@ -13,7 +13,12 @@ Current implementation status:
 - implemented deterministic checks now cover missing index, broken wiki-page
   references, missing repo-relative path references, oversized markdown pages,
   low-signal markdown pages, and orphaned markdown pages
-- unchecked semantic and workflow items below remain future work
+- semantic linting now has a narrow v1 implementation for stale
+  location/path claims in claim-bearing wiki lines
+- `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
+  modes, and latest results are stored in-process for explicit follow-up
+  workflows such as `wiki_fix`
+- unchecked broader semantic and workflow items below remain future work
 
 ## Structural Linting
 - [x] Check for missing `INDEX.md` when a project wiki should exist.
@@ -32,10 +37,10 @@ Current implementation status:
 
 ## Architecture
 - [ ] Decide whether to implement the linter as its own class or service.
-- [ ] Decide where deterministic lint helpers should live.
+- [x] Decide where deterministic lint helpers should live.
 - [ ] Decide whether the linter should have its own prompt template.
 - [ ] Decide whether the linter should have its own model and reasoning configuration.
-- [ ] Keep the linter separated from the normal code-writing path.
+- [x] Keep the linter separated from the normal code-writing path.
 
 ## Workflow and UX
 - [x] Decide whether the linter is exposed through a built-in command.
@@ -50,7 +55,7 @@ Current implementation status:
 - [x] Add tests for orphaned-page detection.
 - [x] Add tests for missing-file reference detection.
 - [x] Add tests for semantic conflict reporting behavior.
-- [ ] Add tests for keeping the linter isolated from normal startup behavior.
+- [x] Add tests for keeping the linter isolated from normal startup behavior.
 
 ## Documentation
 - [x] Document the purpose of the wiki-linter.

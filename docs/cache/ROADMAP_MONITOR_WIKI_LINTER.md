@@ -38,7 +38,8 @@ Basic monitor-wiki integrity issues can be detected without LLM involvement.
   markdown pages, and orphaned markdown pages.
 
 ## Phase 3: Semantic Drift Detection
-Add targeted LLM-assisted checking for wiki/code contradictions.
+Add targeted checking for wiki/code contradictions, with optional LLM-assisted
+expansion later.
 
 ### Deliverables
 - semantic comparison rules for stable wiki claims
@@ -48,6 +49,11 @@ Add targeted LLM-assisted checking for wiki/code contradictions.
 
 ### Outcome
 Monitor can detect meaningful wiki staleness when deterministic checks are not enough.
+
+### Status
+- A narrow semantic v1 implementation now exists for stale location/path claims
+  in claim-bearing wiki lines.
+- Broader semantic contradiction coverage remains future work.
 
 ## Phase 4: Component Isolation and Configuration
 Separate the linter from the normal coding flow.
