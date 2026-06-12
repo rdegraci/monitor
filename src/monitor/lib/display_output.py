@@ -117,7 +117,7 @@ def highlightMarkdown(query_result):
     print("*******************")
     print("Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S\n"))
 
-def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None, last_used=None, last_used_estimated: bool | None = None, context_budget=None):
+def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=None, extra_history_str="", context_remaining=None, rate_remaining=None, total_used=None, last_used=None, last_used_estimated: bool | None = None, context_budget=None, history_tokens=None):
     """Format the prompt display for the CLI.
 
     Args:
@@ -393,14 +393,19 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         parts.append(f"U:{u_count}")
     if l_count:
         parts.append(f"L:{l_count}")
-    # H indicator: "H:<count>" by default (tight — no space after colon to
-    # match the rest of the prompt indicators like C:/R:/U:/L:). When one
-    # or more auto-compactions have fired this session, a "(N)" suffix
-    # follows: "H:<count> (N)". The suffix lets the user see at a glance
-    # whether compaction has been triggering, without having to grep logs.
+    # H indicator: "H:<count>" — the retained-history message count (tight, no
+    # space after colon, to match C:/R:/U:/L:). When one or more auto-compactions
+    # have fired this session, a "(N)" suffix follows: "H:<count> (N)" — surfacing
+    # compaction activity at a glance. Finally, when history_tokens is supplied,
+    # the retained-history TOKEN size is appended as "<n>t" — that's the context
+    # actually re-sent each request (system prompt + kept messages), i.e. the
+    # cost-relevant baseline. Example: "H:29 (1) 12084t".
     _compaction_count = getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
     _compaction_suffix = f" ({_compaction_count})" if _compaction_count > 0 else ""
-    parts.append(f"H:{tch_count}{_compaction_suffix}{extra_history_str}")
+    _history_tokens_suffix = ""
+    if isinstance(history_tokens, (int, float)) and history_tokens >= 0:
+        _history_tokens_suffix = f" {int(history_tokens)}t"
+    parts.append(f"H:{tch_count}{_compaction_suffix}{_history_tokens_suffix}{extra_history_str}")
 
     stats_str = " ".join(parts)
 

@@ -191,6 +191,25 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertIn("H:", result)
         self.assertIn("]", result)  # End bracket of prompt
 
+    def test_history_tokens_rendered_as_suffix_on_H(self):
+        # H:<count> (<compactions>) <history_tokens>t — the retained-history
+        # token size (cost-relevant baseline re-sent each request).
+        with patch.object(display_output.config, "SESSION_COMPACTION_COUNT", 1):
+            result = format_prompt_display(
+                conversation_count=29, tokens_remaining=909916,
+                context_remaining=909916, context_budget=922000,
+                history_tokens=12084,
+            )
+        self.assertIn("H:29 (1) 12084t", result)
+
+    def test_history_tokens_omitted_when_not_supplied(self):
+        # Back-compat: no history_tokens -> bare H:<count>, no "t" suffix.
+        with patch.object(display_output.config, "SESSION_COMPACTION_COUNT", 0):
+            result = format_prompt_display(conversation_count=5, tokens_remaining=900000)
+        self.assertIn("H:5", result)
+        self.assertNotIn("t ", result.split("H:")[1] if "H:" in result else "")
+        self.assertNotIn("5t", result)
+
 
 class TestFuelGauge(unittest.TestCase):
     """The F: fuel tank: SESSION_TOKEN_BUDGET - SESSION_TOTAL_TOKENS, drawn

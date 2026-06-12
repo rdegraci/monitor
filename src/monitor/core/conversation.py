@@ -740,6 +740,10 @@ def compute_prompt_display():
         cwd=os.getcwd(),
         model=config.MODEL,  # live config.MODEL value
         extra_history_str="",
+        # Retained-history token size (system prompt + kept messages) — the
+        # context actually re-sent each request, rendered as the "<n>t" suffix
+        # on H:. Already computed above for the C: math; reused here.
+        history_tokens=tokens_in_history,
     )
 
 
