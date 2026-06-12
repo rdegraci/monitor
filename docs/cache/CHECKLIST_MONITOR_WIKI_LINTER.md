@@ -10,12 +10,15 @@
 Current implementation status:
 - structural linting now has an initial deterministic implementation in
   `src/monitor/lib/monitor_wiki_linter.py`
+- implemented deterministic checks now cover missing index, broken wiki-page
+  references, missing repo-relative path references, and orphaned markdown
+  pages
 - unchecked semantic and workflow items below remain future work
 
 ## Structural Linting
 - [x] Check for missing `INDEX.md` when a project wiki should exist.
 - [x] Check for broken links between wiki pages.
-- [ ] Check for referenced code paths that no longer exist.
+- [x] Check for referenced code paths that no longer exist.
 - [x] Check for orphaned wiki pages not reachable from `INDEX.md`.
 - [ ] Check for oversized or low-signal wiki pages.
 

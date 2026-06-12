@@ -33,8 +33,8 @@ Implement cheap deterministic checks for monitor-wiki health.
 Basic monitor-wiki integrity issues can be detected without LLM involvement.
 
 ### Status
-- Implemented for missing `INDEX.md`, broken wiki-page references, and orphaned
-  markdown pages.
+- Implemented for missing `INDEX.md`, broken wiki-page references, missing
+  repo-relative path references, and orphaned markdown pages.
 
 ## Phase 3: Semantic Drift Detection
 Add targeted LLM-assisted checking for wiki/code contradictions.

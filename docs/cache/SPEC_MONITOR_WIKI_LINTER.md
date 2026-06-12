@@ -90,5 +90,7 @@ It should validate:
 - the implemented deterministic checks currently cover:
   - missing `INDEX.md`
   - broken wiki-page references from `INDEX.md`
+  - missing repo-relative path references such as `src/...`, `tests/...`, and
+    `docs/...` mentioned from wiki markdown pages
   - orphaned markdown pages not referenced from `INDEX.md`
 - semantic drift detection remains future work

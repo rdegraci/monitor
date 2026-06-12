@@ -79,5 +79,6 @@ A likely shape is:
 - a dedicated structural linter module now exists at
   `src/monitor/lib/monitor_wiki_linter.py`
 - the current implementation is deterministic-only and covers missing index,
-  broken references, and orphaned markdown pages
+  broken references, missing repo-relative path references, and orphaned
+  markdown pages
 - no built-in command or semantic drift workflow has been added yet
