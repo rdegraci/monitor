@@ -8,6 +8,8 @@ from typing import Any
 
 
 _INDEX_NAME = "INDEX.md"
+_MAX_PAGE_LINES = 400
+_MAX_PAGE_CHARACTERS = 20_000
 _MARKDOWN_REFERENCE_PATTERN = re.compile(r"\b([A-Z][A-Z0-9_-]*\.md)\b")
 _REPO_PATH_REFERENCE_PATTERN = re.compile(
     r"(?<![\w./-])((?:src|tests|docs)/[A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_-]+)?)(?![\w./-])"
@@ -89,6 +91,26 @@ def markdown_pages_in_project_wiki(project_dir: Path) -> list[str]:
     )
 
 
+def oversized_wiki_pages(project_dir: Path) -> list[str]:
+    """Return markdown page names whose size exceeds heuristic thresholds.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A sorted list of markdown filenames whose line count or character count
+        exceeds the configured heuristic thresholds.
+    """
+    oversized_pages: list[str] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        if page_name == _INDEX_NAME:
+            continue
+        page_text = (project_dir / page_name).read_text(encoding="utf-8")
+        if page_text.count("\n") + 1 > _MAX_PAGE_LINES or len(page_text) > _MAX_PAGE_CHARACTERS:
+            oversized_pages.append(page_name)
+    return oversized_pages
+
+
 def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
 
@@ -99,8 +121,8 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         A dictionary containing the lint result with these keys:
         ``ok`` (bool), ``project_dir`` (str), ``missing_index`` (bool),
         ``broken_references`` (list[str]), ``missing_repo_paths`` (list[str]),
-        ``orphaned_pages`` (list[str]), and ``findings``
-        (list[dict[str, str]]).
+        ``oversized_pages`` (list[str]), ``orphaned_pages`` (list[str]), and
+        ``findings`` (list[dict[str, str]]).
     """
     repo_root = project_dir.parent.parent
     index_path = project_dir / _INDEX_NAME
@@ -108,6 +130,7 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     referenced_pages = referenced_wiki_pages(index_path)
     referenced_paths = referenced_repo_paths(project_dir)
     markdown_pages = markdown_pages_in_project_wiki(project_dir)
+    oversized_pages = oversized_wiki_pages(project_dir)
 
     broken_references = [
         page_name
@@ -147,6 +170,13 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
                 "message": f"Wiki references missing repo path: {repo_path}",
             }
         )
+    for page_name in oversized_pages:
+        findings.append(
+            {
+                "kind": "oversized_page",
+                "message": f"Wiki page exceeds size heuristic thresholds: {page_name}",
+            }
+        )
     for page_name in orphaned_pages:
         findings.append(
             {
@@ -161,6 +191,7 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         "missing_index": missing_index,
         "broken_references": broken_references,
         "missing_repo_paths": missing_repo_paths,
+        "oversized_pages": oversized_pages,
         "orphaned_pages": orphaned_pages,
         "findings": findings,
     }

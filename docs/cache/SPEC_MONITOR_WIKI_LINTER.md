@@ -30,7 +30,8 @@ It should validate:
 - whether linked wiki pages exist
 - whether referenced code paths still exist when applicable
 - whether wiki pages are orphaned from `INDEX.md`
-- whether wiki pages appear excessively large or low-signal
+- whether wiki pages appear excessively large
+- whether wiki pages appear low-signal
 
 ### Semantic linting
 Semantic linting may use an LLM-assisted workflow.
@@ -92,5 +93,6 @@ It should validate:
   - broken wiki-page references from `INDEX.md`
   - missing repo-relative path references such as `src/...`, `tests/...`, and
     `docs/...` mentioned from wiki markdown pages
+  - oversized markdown pages based on deterministic size thresholds
   - orphaned markdown pages not referenced from `INDEX.md`
 - semantic drift detection remains future work
