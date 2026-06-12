@@ -202,6 +202,18 @@ class TestDisplayOutput(unittest.TestCase):
             )
         self.assertIn("H:29 (1) 12084t", result)
 
+    def test_rt_shows_last_turn_round_trips(self):
+        # RT: reflects the LAST TURN_ROUND_TRIPS bucket, not the sum.
+        with patch.object(display_output.config, "TURN_ROUND_TRIPS", [1, 4]):
+            result = format_prompt_display(conversation_count=2, tokens_remaining=900000)
+        self.assertIn("RT:4", result)
+
+    def test_rt_omitted_when_no_round_trips(self):
+        for buckets in ([], [0]):
+            with patch.object(display_output.config, "TURN_ROUND_TRIPS", buckets):
+                result = format_prompt_display(conversation_count=2, tokens_remaining=900000)
+            self.assertNotIn("RT:", result)
+
     def test_history_tokens_omitted_when_not_supplied(self):
         # Back-compat: no history_tokens -> bare H:<count>, no "t" suffix.
         with patch.object(display_output.config, "SESSION_COMPACTION_COUNT", 0):

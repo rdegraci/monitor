@@ -132,8 +132,14 @@ def append_to_history_with_count(
                     turn_costs = []
                 turn_costs.append(0.0)
                 config.TURN_COSTS_USD = turn_costs
+                # Parallel per-turn round-trip ledger (see update_token_usage).
+                round_trips = getattr(config, "TURN_ROUND_TRIPS", None)
+                if not isinstance(round_trips, list):
+                    round_trips = []
+                round_trips.append(0)
+                config.TURN_ROUND_TRIPS = round_trips
         except Exception:
-            logger.debug("Failed to open new turn cost bucket on user message", exc_info=True)
+            logger.debug("Failed to open new turn cost/round-trip bucket on user message", exc_info=True)
     except Exception as e:
         logger.error(f"Error appending to conversation history: {str(e)}", exc_info=True)
 

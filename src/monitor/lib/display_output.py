@@ -407,6 +407,16 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         _history_tokens_suffix = f" {int(history_tokens)}t"
     parts.append(f"H:{tch_count}{_compaction_suffix}{_history_tokens_suffix}{extra_history_str}")
 
+    # RT: model round-trips in the previous turn (last TURN_ROUND_TRIPS bucket).
+    # Read alongside P:: high RT + high P → many generations; low RT + high P →
+    # fat (high-reasoning) calls. Omitted until a turn has registered one.
+    try:
+        _round_trips = getattr(config, "TURN_ROUND_TRIPS", None) or []
+        if _round_trips and isinstance(_round_trips[-1], (int, float)) and _round_trips[-1] > 0:
+            parts.append(f"RT:{int(_round_trips[-1])}")
+    except Exception as e:
+        logger.error(f"Error rendering RT round-trip count: {e}", exc_info=True)
+
     stats_str = " ".join(parts)
 
     return f"\n{cwd}\n{stats_str}\nmonitor {model_str} {reasoning_str} ]] "

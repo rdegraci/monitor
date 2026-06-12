@@ -327,6 +327,22 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
             except Exception:
                 logger.debug("Failed to compute completion cost via litellm", exc_info=True)
 
+        # Per-turn round-trip ledger: every completion accounted here is one
+        # model round-trip. Mirror TURN_COSTS_USD's bucket lifecycle (a bucket
+        # opens per user message in history.append) and increment the open one.
+        # Counted unconditionally (not gated on cost) so unpriced calls still
+        # register. Defensive: never let counting break token accounting.
+        try:
+            round_trips = getattr(config, "TURN_ROUND_TRIPS", None)
+            if not isinstance(round_trips, list):
+                round_trips = []
+            if not round_trips:
+                round_trips.append(0)
+            round_trips[-1] = round_trips[-1] + 1
+            config.TURN_ROUND_TRIPS = round_trips
+        except Exception:
+            logger.debug("Failed to bump TURN_ROUND_TRIPS", exc_info=True)
+
         # Update the count
         try:
             config.TOTAL_TOKEN_COUNT += tokens_to_add

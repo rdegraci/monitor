@@ -303,6 +303,7 @@ def reset_conversation_history_command(arg=None):
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
         config.TURN_COSTS_USD = []
+        config.TURN_ROUND_TRIPS = []
         config.CURRENT_TURN_REASONING_OVERRIDE = None
         config.RESPONSE_ID = None
         # Restart the time-based summarization clock so it matches startup
@@ -1009,6 +1010,7 @@ def dump_metrics_command(arg: str = None) -> None:
         "total_token_count": int(getattr(config, "TOTAL_TOKEN_COUNT", 0) or 0),
         "last_request_token_count": int(getattr(config, "LAST_REQUEST_TOKEN_COUNT", 0) or 0),
         "turn_costs_usd": list(getattr(config, "TURN_COSTS_USD", []) or []),
+        "turn_round_trips": list(getattr(config, "TURN_ROUND_TRIPS", []) or []),
         # Behavioral counters — populated by core.tooling.handle_tool_call.
         # tool_call_count counts every (tool_name, args) dispatched this
         # session; loop_detector_trips counts how many of those were
@@ -1209,6 +1211,7 @@ def load_history_command(arg: str = None) -> None:
     config.SESSION_TOOL_CALL_COUNT = 0
     config.SESSION_LOOP_DETECTOR_TRIPS = 0
     config.TURN_COSTS_USD = []
+    config.TURN_ROUND_TRIPS = []
     config.CURRENT_TURN_REASONING_OVERRIDE = None
     config.RESPONSE_ID = None
     # Restart the time-based summarization clock so it doesn't think

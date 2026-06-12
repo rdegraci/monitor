@@ -632,6 +632,11 @@ MODEL_PRICING_OVERRIDES = {}
 # indicator to show "last 10 turns" and "last turn" alongside the
 # cumulative session total. Resets on set_model() and :reset_history.
 TURN_COSTS_USD = []
+# Per-turn round-trip ledger, parallel to TURN_COSTS_USD: one entry per turn
+# (a bucket opens on each user message), incremented on every LLM completion in
+# that turn. RT: in the prompt reads the last entry — how many model round-trips
+# the previous turn took. Resets on set_model() and :reset_history.
+TURN_ROUND_TRIPS = []
 # How many recent turns to roll up for the middle dollar value in the U:
 # indicator. 10 captures recent-trajectory context (was this a brief flurry
 # or sustained spend?) without leaking back so far that the number looks
@@ -1591,7 +1596,7 @@ def set_model(model_key: str) -> bool:
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
-    global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS
+    global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -1677,6 +1682,7 @@ def set_model(model_key: str) -> bool:
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0
     TURN_COSTS_USD = []
+    TURN_ROUND_TRIPS = []
     CURRENT_TURN_REASONING_OVERRIDE = None
 
     if isinstance(CONVERSATION_HISTORY, list):
