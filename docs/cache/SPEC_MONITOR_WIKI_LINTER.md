@@ -50,12 +50,12 @@ work, including:
 - ownership or routing claims only when they affect where a developer should
   look or which subsystem should be changed
 
-#### Recommended next semantic finding types
-After the initial stale location/path claim support, the next semantic finding
-kinds should remain similarly narrow, path-grounded, and fixable with localized
-sentence rewrites.
+#### Implemented semantic finding types
+After the initial stale location/path claim support, the implemented semantic
+finding kinds remain similarly narrow, path-grounded, and fixable with
+localized sentence rewrites.
 
-Implemented or recommended next finding kinds:
+Implemented finding kinds:
 - `semantic_stale_authority_claim` for wiki lines that describe an
   authoritative or canonical project-local document using a repo-relative path
   that no longer exists
@@ -143,15 +143,17 @@ free-form analysis blobs.
 - `:wiki_lint` supports explicit `structural`, `semantic`, and `all` modes and
   defaults to structural mode when no argument is provided.
 - Semantic mode currently implements a narrow semantic v1 check for stale
-  location/path claims, stale authority/document claims, and stale
-  workflow-document claims in wiki text.
+  location/path claims, stale authority/document claims, stale
+  workflow-document claims, and stale ownership/routing claims in wiki text.
 - The current semantic v1 emits findings for claim-bearing lines that use
   phrases such as `lives in`, `implemented in`, `defined in`, or
   `authoritative implementation`; authority phrases such as `authoritative
-  doc`, `source of truth`, `canonical guide`, or `official guide`; and
-  workflow phrases such as `instructions live in`, `documented in`, `build
-  steps are in`, or `test workflow is in`, when those lines cite repo-relative
-  paths that no longer exist.
+  doc`, `source of truth`, `canonical guide`, or `official guide`; workflow
+  phrases such as `instructions live in`, `documented in`, `build steps are
+  in`, or `test workflow is in`; and ownership/routing phrases such as
+  `owned by`, `ownership lives in`, `routing lives in`, `changes belong in`,
+  or `handled in`, when those lines cite repo-relative paths that no longer
+  exist.
 - Latest wiki-lint results may be stored in-process with stable finding ids so
   explicit follow-up workflows can target one finding at a time.
 - A built-in `:wiki_fix` workflow may support previewing a narrow LLM-drafted
@@ -205,14 +207,15 @@ free-form analysis blobs.
     heuristics
   - orphaned markdown pages not referenced from `INDEX.md`
 - semantic linting now has a narrow v1 implementation for stale
-  location/path claims, stale authority/document claims, and stale workflow
-  claims in claim-bearing wiki text
+  location/path claims, stale authority/document claims, stale workflow
+  claims, and stale ownership/routing claims in claim-bearing wiki text
 - the current semantic v1 emits findings only when those claim-bearing lines
   cite repo-relative paths that no longer exist
 - `:wiki_lint` now supports `structural`, `semantic`, and `all` modes and
   stores latest findings in-process for explicit follow-up workflows
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
-  semantic stale-location, stale-authority, and stale-workflow findings
+  semantic stale-location, stale-authority, stale-workflow, and
+  stale-ownership findings
 - `:wiki_fix apply <finding_id>` now reuses the exact previously previewed
   draft and writes that reviewed change to disk
 - broader semantic drift detection remains future work

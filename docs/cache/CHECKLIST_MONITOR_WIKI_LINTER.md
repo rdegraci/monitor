@@ -14,14 +14,14 @@ Current implementation status:
   references, missing repo-relative path references, oversized markdown pages,
   low-signal markdown pages, and orphaned markdown pages
 - semantic linting now has a narrow v1 implementation for stale
-  location/path claims, stale authority/document claims, and stale workflow
-  claims in claim-bearing wiki lines
+  location/path claims, stale authority/document claims, stale workflow
+  claims, and stale ownership/routing claims in claim-bearing wiki lines
 - `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
   modes, and latest results are stored in-process for explicit follow-up
   workflows such as `wiki_fix`
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
-  semantic stale-location, stale-authority, and stale-workflow findings, with
-  apply reusing the reviewed preview
+  semantic stale-location, stale-authority, stale-workflow, and
+  stale-ownership findings, with apply reusing the reviewed preview
 - unchecked broader semantic and workflow items below remain future work
 
 ## Structural Linting
@@ -42,7 +42,7 @@ Current implementation status:
   with missing repo-relative paths.
 - [x] Add `semantic_stale_workflow_claim` detection for claim-bearing lines
   with missing repo-relative paths.
-- [ ] Add `semantic_stale_ownership_claim` detection for claim-bearing lines
+- [x] Add `semantic_stale_ownership_claim` detection for claim-bearing lines
   with missing repo-relative paths.
 - [x] Reuse narrow `:wiki_fix` preview/apply support for newly supported
   semantic finding kinds that can be fixed with one localized sentence rewrite.

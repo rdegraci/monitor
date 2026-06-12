@@ -520,6 +520,50 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_workflow_claim(
     mock_completion.assert_called_once()
 
 
+@patch("monitor.lib.built_in_commands.litellm.completion")
+def test_wiki_fix_command_previews_diff_for_semantic_stale_ownership_claim(
+    mock_completion,
+    tmp_path,
+    capsys,
+):
+    mock_completion.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="The ownership reference in this page is stale and must be updated."))]
+    )
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_path = wiki_dir / "ARCHITECTURE.md"
+    claim = "Changes belong in src/monitor/lib/ownership_router.py"
+    page_path.write_text(f"{claim}\n", encoding="utf-8")
+    finding = {
+        "id": "semantic|ARCHITECTURE.md|src/monitor/lib/ownership_router.py|claim",
+        "kind": "semantic_stale_ownership_claim",
+        "page": "ARCHITECTURE.md",
+        "path": "src/monitor/lib/ownership_router.py",
+        "claim": claim,
+        "evidence": "src/monitor/lib/ownership_router.py",
+    }
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={
+            "project_dir": str(wiki_dir),
+            "findings": [finding],
+        },
+    ):
+        result = bic.wiki_fix_command(f"llm {finding['id']}")
+
+    captured = capsys.readouterr()
+    assert result is not None
+    assert result["finding_id"] == finding["id"]
+    assert result["page"] == "ARCHITECTURE.md"
+    assert result["mode"] == "preview"
+    assert result["fix_mode"] == "llm"
+    assert "ownership reference" in result["replacement"]
+    assert "--- a/" in captured.out
+    assert "+++ b/" in captured.out
+    mock_completion.assert_called_once()
+
+
 @patch("monitor.lib.built_in_commands.print_colored_error")
 @patch("monitor.lib.built_in_commands.litellm.completion")
 def test_wiki_fix_command_rejects_empty_llm_replacement(mock_completion, mock_error, tmp_path):

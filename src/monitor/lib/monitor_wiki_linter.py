@@ -34,6 +34,10 @@ _SEMANTIC_WORKFLOW_CLAIM_PATTERN = re.compile(
     r"\b(instructions live in|documented in|build steps are in|test workflow is in)\b",
     re.IGNORECASE,
 )
+_SEMANTIC_OWNERSHIP_CLAIM_PATTERN = re.compile(
+    r"\b(owned by|ownership lives in|routing lives in|changes belong in|handled in)\b",
+    re.IGNORECASE,
+)
 
 
 def _finding(
@@ -377,6 +381,39 @@ def semantic_workflow_claims(project_dir: Path) -> list[dict[str, str]]:
     return claims
 
 
+def semantic_ownership_claims(project_dir: Path) -> list[dict[str, str]]:
+    """Extract claim-bearing wiki sentences that assert ownership or routing.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A list of dictionaries describing semantic ownership claims found in
+        wiki pages. Each dictionary contains ``page``, ``claim``, and ``path``.
+    """
+    claims: list[dict[str, str]] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        page_path = project_dir / page_name
+        page_text = page_path.read_text(encoding="utf-8")
+        for raw_line in page_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if _SEMANTIC_OWNERSHIP_CLAIM_PATTERN.search(line) is None:
+                continue
+            repo_paths = _REPO_PATH_REFERENCE_PATTERN.findall(line)
+            if not repo_paths:
+                continue
+            for repo_path in repo_paths:
+                claims.append(
+                    {
+                        "page": page_name,
+                        "claim": line,
+                        "path": repo_path,
+                    }
+                )
+    return claims
+
 
 def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
@@ -667,6 +704,24 @@ def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
                 "claim": claim["claim"],
                 "evidence": repo_path,
                 "impact": "This stale workflow claim could mislead coding work about how to build, test, or validate changes.",
+            }
+        )
+
+    for claim in semantic_ownership_claims(project_dir):
+        repo_path = claim["path"]
+        if (repo_root / repo_path).exists():
+            continue
+        findings.append(
+            {
+                "kind": "semantic_stale_ownership_claim",
+                "severity": "warning",
+                "page": claim["page"],
+                "path": repo_path,
+                "message": f"Wiki ownership claim references missing path: {repo_path}",
+                "suggestion": "Update the wiki claim to reference the current owning subsystem or routing path.",
+                "claim": claim["claim"],
+                "evidence": repo_path,
+                "impact": "This stale ownership claim could mislead coding work about where a developer should make a change.",
             }
         )
 

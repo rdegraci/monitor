@@ -247,9 +247,10 @@ def wiki_fix_command(arg=None):
         "semantic_stale_location_claim",
         "semantic_stale_authority_claim",
         "semantic_stale_workflow_claim",
+        "semantic_stale_ownership_claim",
     }:
         print_colored_error(
-            "wiki_fix currently supports only semantic_stale_location_claim, semantic_stale_authority_claim, and semantic_stale_workflow_claim findings."
+            "wiki_fix currently supports only semantic_stale_location_claim, semantic_stale_authority_claim, semantic_stale_workflow_claim, and semantic_stale_ownership_claim findings."
         )
         return None
 

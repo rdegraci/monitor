@@ -534,6 +534,28 @@ def test_run_project_wiki_semantic_lint_reports_stale_workflow_claims(tmp_path):
     assert "FAIL" in result["report"]
 
 
+def test_run_project_wiki_semantic_lint_reports_stale_ownership_claims(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "Changes belong in src/monitor/lib/ownership_router.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is False
+    assert result["findings"][0]["kind"] == "semantic_stale_ownership_claim"
+    assert result["findings"][0]["path"] == "src/monitor/lib/ownership_router.py"
+    assert "changes belong in" in result["findings"][0]["claim"].lower()
+    assert "FAIL" in result["report"]
+
+
 def test_run_project_wiki_semantic_lint_returns_pass_when_location_claim_path_exists(tmp_path):
     repo_root = tmp_path / "repo"
     wiki_dir = repo_root / "docs" / "cache"

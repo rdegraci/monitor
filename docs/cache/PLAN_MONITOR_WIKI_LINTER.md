@@ -57,16 +57,16 @@ When evidence is ambiguous, semantic linting should prefer no finding.
 - identify wiki/code contradictions that would materially affect coding tasks
 - suggest focused updates rather than broad rewrites
 
-### Recommended next semantic expansion
-The next semantic expansion should prioritize additional finding kinds that are
-still path-grounded, low-noise, and compatible with narrow localized fixes.
+### Implemented semantic expansion
+The current semantic expansion prioritizes additional finding kinds that are
+path-grounded, low-noise, and compatible with narrow localized fixes.
 
-Implemented or recommended next finding kinds:
+Implemented finding kinds:
 - `semantic_stale_authority_claim`
 - `semantic_stale_workflow_claim`
 - `semantic_stale_ownership_claim`
 
-Recommended implementation shape:
+Implemented shape:
 - detect claim-bearing wiki lines for each category
 - require an explicit repo-relative path in the line
 - emit a distinct semantic finding kind only when that path no longer exists
@@ -142,14 +142,18 @@ A likely shape is:
 - semantic mode now also implements stale workflow claim detection for
   claim-bearing lines using phrases such as `instructions live in`,
   `documented in`, `build steps are in`, or `test workflow is in`
+- semantic mode now also implements stale ownership/routing claim detection
+  for claim-bearing lines using phrases such as `owned by`,
+  `ownership lives in`, `routing lives in`, `changes belong in`, or
+  `handled in`
 - semantic findings are currently emitted only when those claim-bearing lines
   cite repo-relative paths that no longer exist
 - latest wiki-lint results are now stored in-process with stable finding ids so
   later workflows such as `:wiki_fix llm <finding_id>` can resolve one finding
   at a time
 - `:wiki_fix` now supports previewing a narrow LLM-drafted wiki update for a
-  supported semantic stale-location, stale-authority, or stale-workflow
-  finding and then applying that reviewed draft to disk with
+  supported semantic stale-location, stale-authority, stale-workflow, or
+  stale-ownership finding and then applying that reviewed draft to disk with
   `:wiki_fix apply <finding_id>`
 - apply mode now reuses the exact stored preview rather than regenerating text
   at apply time
