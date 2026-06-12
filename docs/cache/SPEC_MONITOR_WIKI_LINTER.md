@@ -94,5 +94,7 @@ It should validate:
   - missing repo-relative path references such as `src/...`, `tests/...`, and
     `docs/...` mentioned from wiki markdown pages
   - oversized markdown pages based on deterministic size thresholds
+  - low-signal markdown pages based on deterministic heading/reference/list
+    heuristics
   - orphaned markdown pages not referenced from `INDEX.md`
 - semantic drift detection remains future work

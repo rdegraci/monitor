@@ -80,5 +80,5 @@ A likely shape is:
   `src/monitor/lib/monitor_wiki_linter.py`
 - the current implementation is deterministic-only and covers missing index,
   broken references, missing repo-relative path references, oversized markdown
-  pages, and orphaned markdown pages
+  pages, low-signal markdown pages, and orphaned markdown pages
 - no built-in command or semantic drift workflow has been added yet

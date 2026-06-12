@@ -10,6 +10,12 @@ from typing import Any
 _INDEX_NAME = "INDEX.md"
 _MAX_PAGE_LINES = 400
 _MAX_PAGE_CHARACTERS = 20_000
+_LOW_SIGNAL_MIN_LINES = 80
+_LOW_SIGNAL_MAX_HEADINGS = 2
+_LOW_SIGNAL_MAX_REFERENCES = 2
+_LOW_SIGNAL_MAX_LIST_ITEMS = 10
+_HEADING_PATTERN = re.compile(r"^#{1,6}\s", re.MULTILINE)
+_LIST_ITEM_PATTERN = re.compile(r"^(?:[-*]|\d+\.)\s", re.MULTILINE)
 _MARKDOWN_REFERENCE_PATTERN = re.compile(r"\b([A-Z][A-Z0-9_-]*\.md)\b")
 _REPO_PATH_REFERENCE_PATTERN = re.compile(
     r"(?<![\w./-])((?:src|tests|docs)/[A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_-]+)?)(?![\w./-])"
@@ -111,6 +117,37 @@ def oversized_wiki_pages(project_dir: Path) -> list[str]:
     return oversized_pages
 
 
+def low_signal_wiki_pages(project_dir: Path) -> list[str]:
+    """Return markdown page names whose content appears low-signal.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A sorted list of markdown filenames whose content is large enough to
+        matter but contains very few headings and very few wiki or repo-path
+        references.
+    """
+    low_signal_pages: list[str] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        if page_name == _INDEX_NAME:
+            continue
+        page_text = (project_dir / page_name).read_text(encoding="utf-8")
+        if page_text.count("\n") + 1 < _LOW_SIGNAL_MIN_LINES:
+            continue
+        heading_count = len(_HEADING_PATTERN.findall(page_text))
+        reference_count = len(_MARKDOWN_REFERENCE_PATTERN.findall(page_text))
+        reference_count += len(_REPO_PATH_REFERENCE_PATTERN.findall(page_text))
+        list_item_count = len(_LIST_ITEM_PATTERN.findall(page_text))
+        if (
+            heading_count <= _LOW_SIGNAL_MAX_HEADINGS
+            and reference_count <= _LOW_SIGNAL_MAX_REFERENCES
+            and list_item_count <= _LOW_SIGNAL_MAX_LIST_ITEMS
+        ):
+            low_signal_pages.append(page_name)
+    return low_signal_pages
+
+
 def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
 
@@ -121,8 +158,9 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         A dictionary containing the lint result with these keys:
         ``ok`` (bool), ``project_dir`` (str), ``missing_index`` (bool),
         ``broken_references`` (list[str]), ``missing_repo_paths`` (list[str]),
-        ``oversized_pages`` (list[str]), ``orphaned_pages`` (list[str]), and
-        ``findings`` (list[dict[str, str]]).
+        ``oversized_pages`` (list[str]), ``low_signal_pages`` (list[str]),
+        ``orphaned_pages`` (list[str]), and ``findings``
+        (list[dict[str, str]]).
     """
     repo_root = project_dir.parent.parent
     index_path = project_dir / _INDEX_NAME
@@ -131,6 +169,7 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     referenced_paths = referenced_repo_paths(project_dir)
     markdown_pages = markdown_pages_in_project_wiki(project_dir)
     oversized_pages = oversized_wiki_pages(project_dir)
+    low_signal_pages = low_signal_wiki_pages(project_dir)
 
     broken_references = [
         page_name
@@ -177,6 +216,13 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
                 "message": f"Wiki page exceeds size heuristic thresholds: {page_name}",
             }
         )
+    for page_name in low_signal_pages:
+        findings.append(
+            {
+                "kind": "low_signal_page",
+                "message": f"Wiki page appears low-signal for its size: {page_name}",
+            }
+        )
     for page_name in orphaned_pages:
         findings.append(
             {
@@ -192,6 +238,7 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         "broken_references": broken_references,
         "missing_repo_paths": missing_repo_paths,
         "oversized_pages": oversized_pages,
+        "low_signal_pages": low_signal_pages,
         "orphaned_pages": orphaned_pages,
         "findings": findings,
     }
