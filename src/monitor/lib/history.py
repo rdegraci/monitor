@@ -1107,14 +1107,14 @@ def _truncate_summary_to_fit(
     Uses the canonical token-counting helper to estimate the per-message budget left
     after the system prompt and user input claim their share, reserves a small safety
     margin for message-framing overhead, and delegates the actual truncation to
-    ``monitor.lib.llm_utils.truncate_to_token_limit`` (which uses tiktoken when available
+    ``monitor.lib.llm_usage_utils.truncate_to_token_limit`` (which uses tiktoken when available
     and a character-based fallback otherwise). The helper is imported locally to avoid
     a circular import at module load.
     """
     # Local import to avoid a circular import (llm_utils imports from history at
     # module scope).
     try:
-        from monitor.lib.llm_utils import truncate_to_token_limit
+        from monitor.lib.llm_usage_utils import truncate_to_token_limit
     except Exception as e:
         logger.error(
             f"[SUMMARIZATION] Could not import truncate_to_token_limit: {e}",

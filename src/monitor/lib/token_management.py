@@ -416,7 +416,7 @@ def token_budgeter(params, input_window=100000, model_name=None):
 
     try:
         if model_name:
-            from monitor.lib.llm_utils import get_model_head
+            from monitor.lib.llm_model_utils import get_model_head
 
             # Tiktoken model prefix to encoding
             encoding_model = get_model_head(

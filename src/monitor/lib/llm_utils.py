@@ -7,7 +7,7 @@ of extraction; any future refactorings should update both caller sites as needed
 
 import logging
 import re
-import json
+
 import litellm
 
 try:
@@ -25,17 +25,43 @@ try:
 except Exception:
     rate_limiter = None
 
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from monitor import config
-from monitor.lib.tool_loading import function_descriptions
-from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.history import append_to_history_with_count
+from monitor.lib.llm_model_utils import (
+    DEFAULT_TOOL_TYPE,
+    DESCRIPTION_KEY,
+    NAME_KEY,
+    OPENAI_PREFIX,
+    PARAMETERS_PROPERTIES_KEY,
+    PARAMETERS_REQUIRED_KEY,
+    PARAMETERS_TYPE_OBJECT,
+    TYPE_KEY,
+    get_model_head,
+    get_model_tail,
+    is_reasoning_model,
+    normalize_tool_descriptors,
+    strip_openai_prefix,
+)
+from monitor.lib.llm_output_utils import (
+    build_function_call_output_item,
+    build_summarization_followup_params,
+    serialize_tool_output,
+)
+from monitor.lib.llm_usage_utils import (
+    compute_token_delta,
+    safe_extract_total_tokens,
+    truncate_to_token_limit,
+)
+from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.text_to_speech import TextToSpeech
+from monitor.lib.tool_loading import function_descriptions
 
 logger = logging.getLogger(__name__)
 
 TTS = TextToSpeech()
+
 
 class AttrDict(dict):
     """
@@ -374,228 +400,6 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
 
     return litellm.completion(**kwargs)
 
-OPENAI_PREFIX = "openai/"
-
-def strip_openai_prefix(model_name):
-    """Remove a leading 'openai/' prefix from a model name, case-insensitively.
-
-    Args:
-        model_name (str or None): The model name to normalize.
-
-    Returns:
-        str or original value: The model name with a leading 'openai/' removed
-        if present (case-insensitive). If model_name is falsy or not a str,
-        returns model_name unchanged.
-
-    Examples:
-        >>> strip_openai_prefix("openai/gpt-4")
-        'gpt-4'
-        >>> strip_openai_prefix("OpenAI/GPT-4o")
-        'GPT-4o'
-        >>> strip_openai_prefix(None) is None
-        True
-        >>> strip_openai_prefix(123)
-        123
-    """
-    if not model_name or not isinstance(model_name, str):
-        return model_name
-    lower = model_name.lower()
-    prefix = OPENAI_PREFIX
-    if lower.startswith(prefix):
-        return model_name[len(prefix) :]
-    return model_name
-
-def is_reasoning_model(model: Optional[str], prefix: Optional[str]) -> bool:
-    """Check whether a model name starts with a given reasoning prefix.
-
-    This helper performs a case-insensitive startswith check and returns True
-    only when both inputs are strings.
-
-    Args:
-        model: The model identifier to check.
-        prefix: The prefix indicating a reasoning model.
-
-    Returns:
-        bool: True if model and prefix are strings and model starts with prefix
-        (case-insensitive); otherwise False.
-    """
-    if not isinstance(model, str) or not isinstance(prefix, str):
-        return False
-    return model.lower().startswith(prefix.lower())
-
-def get_model_tail(model: str) -> str:
-    """
-    Return the substring after the last '/' in a model string.
-
-    Args:
-        model: A model identifier like "aaaa/bbbb".
-
-    Returns:
-        The part after the final slash (e.g., "bbbb"). If there is no slash,
-        returns the trimmed input. Trailing slashes are ignored.
-    """
-    s = model.strip()
-    if not s:
-        return s
-    s = s.rstrip("/")
-    return s.split("/")[-1]
-
-def get_model_head(model: str, mapping: Optional[Dict[str, Any]] = None) -> Optional[Any]:
-    """Return the mapping value for the best-matching key found in the model tail.
-
-    This helper obtains the model tail via get_model_tail(model) and performs
-    a case-insensitive substring match of each string key in `mapping`
-    against the tail. When multiple keys match, the longest key is preferred
-    (to favor more specific matches). If `mapping` is None or no keys match,
-    returns None.
-
-    Args:
-        model: Model identifier string (e.g., "openai/gpt-4o-mini").
-        mapping: Optional dictionary mapping substring keys to desired values.
-
-    Returns:
-        The value from `mapping` corresponding to the longest matching key, or
-        None when no suitable key is found.
-    """
-    if not mapping:
-        return None
-
-    try:
-        tail = get_model_tail(model) if isinstance(model, str) else str(model or "")
-    except Exception:
-        try:
-            tail = str(model)
-        except Exception:
-            return None
-
-    tail_lower = tail.lower()
-    # Collect keys that are strings and whose lowercase form is a substring of tail_lower
-    candidates = [k for k in mapping.keys() if isinstance(k, str) and k.lower() in tail_lower]
-    if not candidates:
-        return None
-
-    # Prefer longer keys to match more specific entries
-    best_key = max(candidates, key=len)
-    try:
-        return mapping.get(best_key)
-    except Exception:
-        return None
-
-TYPE_KEY = "type"
-NAME_KEY = "name"
-DESCRIPTION_KEY = "description"
-DEFAULT_TOOL_TYPE = "function"
-PARAMETERS_PROPERTIES_KEY = "properties"
-PARAMETERS_REQUIRED_KEY = "required"
-PARAMETERS_TYPE_OBJECT = "object"
-
-def normalize_tool_descriptors(tool_list):
-    """Normalize a list of tool descriptor dicts into a flat, consistent shape.
-
-    The function accepts tool descriptor entries in one of two common shapes:
-      1) Flat descriptors:
-         { 'type': 'function', 'name': 'foo', 'description': '...', 'parameters': { ... } }
-      2) Nested descriptors:
-         { 'type': 'function', 'function': { 'name': 'foo', 'description': '...', 'parameters': {...} } }
-
-    Returns a new list where each descriptor is a dict with at minimum:
-      { 'type': 'function', 'name': <str>, 'description': <str>, 'parameters': {
-            'type': 'object', 'properties': {...}, 'required': [...] (if present)
-        }
-      }
-
-    Defensive behavior:
-    - Skips non-dict entries.
-    - Skips entries without a valid string 'name'.
-    - Ensures 'parameters' is a dict; sets parameters['type'] == 'object'.
-    - Ensures parameters['properties'] exists as a dict.
-    - If 'required' exists, ensures it's a list (or converts/cleans to an empty list).
-    - Logs exceptions per-entry but continues processing other entries.
-    """
-    if not tool_list:
-        return tool_list
-
-    normalized = []
-    for idx, entry in enumerate(tool_list):
-        try:
-            if not isinstance(entry, dict):
-                logger.debug(
-                    f"Skipping non-dict tool descriptor at index {idx}: {type(entry)}"
-                )
-                continue
-
-            # Support nested 'function' wrapper
-            nested = entry.get("function") if isinstance(entry.get("function"), dict) else None
-
-            # Derive core fields with nested taking precedence
-            name = None
-            description = None
-            parameters = None
-            type_val = None
-
-            if nested:
-                name = nested.get(NAME_KEY) or entry.get(NAME_KEY)
-                description = nested.get(DESCRIPTION_KEY) or entry.get(DESCRIPTION_KEY) or ""
-                parameters = nested.get("parameters") or entry.get("parameters")
-                type_val = entry.get(TYPE_KEY) or nested.get(TYPE_KEY) or DEFAULT_TOOL_TYPE
-            else:
-                name = entry.get(NAME_KEY)
-                description = entry.get(DESCRIPTION_KEY) or entry.get("doc") or ""
-                parameters = entry.get("parameters")
-                type_val = entry.get(TYPE_KEY) or DEFAULT_TOOL_TYPE
-
-            # Validate name
-            if not name or not isinstance(name, str):
-                logger.debug(
-                    f"Skipping tool descriptor without valid name at index {idx}: {name}"
-                )
-                continue
-
-            # Ensure parameters is a dict
-            if not isinstance(parameters, dict):
-                parameters = {}
-
-            # Work on a shallow copy to avoid mutating original
-            parameters = dict(parameters)
-
-            # Ensure parameters['type'] == 'object'
-            if parameters.get(TYPE_KEY) != PARAMETERS_TYPE_OBJECT:
-                parameters[TYPE_KEY] = PARAMETERS_TYPE_OBJECT
-
-            # Ensure properties exists as a dict
-            props = parameters.get(PARAMETERS_PROPERTIES_KEY)
-            if not isinstance(props, dict):
-                parameters[PARAMETERS_PROPERTIES_KEY] = {}
-
-            # Ensure 'required' is a list if present; coerce if possible
-            if PARAMETERS_REQUIRED_KEY in parameters:
-                req = parameters.get(PARAMETERS_REQUIRED_KEY)
-                if isinstance(req, list):
-                    # fine
-                    pass
-                elif hasattr(req, "__iter__") and not isinstance(req, (str, bytes, dict)):
-                    try:
-                        parameters[PARAMETERS_REQUIRED_KEY] = list(req)
-                    except Exception:
-                        parameters[PARAMETERS_REQUIRED_KEY] = []
-                else:
-                    parameters[PARAMETERS_REQUIRED_KEY] = []
-
-            normalized.append(
-                {
-                    TYPE_KEY: type_val,
-                    NAME_KEY: name,
-                    DESCRIPTION_KEY: description or "",
-                    "parameters": parameters,
-                }
-            )
-
-        except Exception as e:
-            logger.exception(f"Error normalizing tool descriptor at index {idx}: {e}")
-            # Continue processing other entries despite the error
-            continue
-
-    return normalized
 
 ROLE_KEY = "role"
 SYSTEM_ROLE = "system"
@@ -804,189 +608,40 @@ def handle_response_errors(error, user_input=None):
 
     return None, error_msg
 
-def safe_extract_total_tokens(usage: Any) -> Optional[int]:
-    """Safely extract a canonical total token count from a usage-like object.
-
-    This helper centralizes coercion logic for the various shapes a "usage"
-    response can take across models and response formats. It attempts to
-    coerce `usage` into a non-negative integer representing total tokens.
-
-    Supported input shapes:
-    - None -> returns None
-    - int/float -> coerced to int and clamped to >= 0
-    - numeric strings -> parsed to int (or float then int) and clamped
-    - dicts -> common keys checked in order:
-        'total_tokens', 'total', 'total_used', 'usage', or a sum of
-        'prompt_tokens' + 'completion_tokens' when present.
-    - objects -> will look for attributes with the names used above and recurse
-
-    Args:
-        usage: The usage value (dict, object, number, or string).
-
-    Returns:
-        Optional[int]: The extracted total token count, or None if input was None.
-
-    Raises:
-        ValueError: If the input cannot be coerced into a token count.
-    """
-    if usage is None:
-        return None
-
-    # Direct numeric types
-    if isinstance(usage, int):
-        return max(0, usage)
-    if isinstance(usage, float):
-        try:
-            return max(0, int(usage))
-        except Exception:
-            return max(0, int(float(usage)))
-
-    # Strings that might contain numbers
-    if isinstance(usage, str):
-        usage_str = usage.strip()
-        if usage_str == "":
-            raise ValueError("Empty string provided for usage")
-        try:
-            return max(0, int(usage_str))
-        except Exception:
-            try:
-                return max(0, int(float(usage_str)))
-            except Exception:
-                raise ValueError(f"Unable to parse numeric string for usage: {usage!r}")
-
-    # Dict-like structures
-    if isinstance(usage, dict):
-        # Preferred keys in order
-        preferred = ("total_tokens", "total", "total_used", "usage", "tokens")
-        for key in preferred:
-            if key in usage and usage.get(key) is not None:
-                return safe_extract_total_tokens(usage.get(key))
-        # Fallback: sum prompt_tokens + completion_tokens
-        if "prompt_tokens" in usage or "completion_tokens" in usage:
-            try:
-                prompt = usage.get("prompt_tokens", 0) or 0
-                completion = usage.get("completion_tokens", 0) or 0
-                return max(0, int(prompt) + int(completion))
-            except Exception:
-                # fall through to error below
-                pass
-        raise ValueError(f"Unable to coerce total tokens from usage dict: {usage!r}")
-
-    # Object-like structures: attempt attribute access
-    # Common attribute names used by various SDKs
-    attr_candidates = ("total_tokens", "total", "total_used", "usage", "tokens", "prompt_tokens", "completion_tokens")
-    for attr in attr_candidates:
-        if hasattr(usage, attr):
-            try:
-                return safe_extract_total_tokens(getattr(usage, attr))
-            except Exception:
-                # try next candidate
-                continue
-
-    # Last-resort: try to coerce using __dict__ if available
-    if hasattr(usage, "__dict__"):
-        try:
-            return safe_extract_total_tokens({k: v for k, v in usage.__dict__.items()})
-        except Exception:
-            pass
-
-    raise ValueError(f"Unable to coerce total tokens from usage: {usage!r}")
-
-def compute_token_delta(current_total: Optional[Union[int, float]], previous_total: Optional[Union[int, float]]) -> int:
-    """Compute a safe, non-negative delta between two token totals.
-
-    This function centralizes the logic for computing how many new tokens were
-    consumed given a potentially new `current_total` and a prior `previous_total`.
-
-    Behavior:
-    - If current_total is None -> returns 0
-    - If previous_total is None -> returns max(0, int(current_total))
-    - Otherwise returns max(0, int(current_total) - int(previous_total))
-
-    Args:
-        current_total: The current canonical total token count (or None).
-        previous_total: The previous total token count (or None).
-
-    Returns:
-        int: Non-negative integer delta representing additional tokens used.
-    """
-    if current_total is None:
-        return 0
-    try:
-        current = int(current_total)
-    except Exception:
-        try:
-            current = int(float(current_total))
-        except Exception:
-            logger.debug(f"compute_token_delta: unable to coerce current_total={current_total!r}")
-            return 0
-
-    if previous_total is None:
-        return max(0, current)
-
-    try:
-        prev = int(previous_total)
-    except Exception:
-        try:
-            prev = int(float(previous_total))
-        except Exception:
-            logger.debug(f"compute_token_delta: unable to coerce previous_total={previous_total!r}")
-            prev = 0
-
-    return max(0, current - prev)
 
 def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = None) -> Tuple[Optional[int], int]:
     """Apply a usage update by computing the delta and updating token counters.
 
-    This convenience helper performs the following steps:
-    1. Safely extract the canonical total token count from `usage` using
-       `safe_extract_total_tokens`.
-    2. Compute a non-negative delta against `previous_total` using
-       `compute_token_delta`.
-    3. If a positive delta is observed:
-         - Attempt to call the project's `update_token_usage` to register the delta.
-         - Attempt to inform an optional rate limiter module (when available)
-           using common function names if present.
-    4. Attempt to record the canonical current total on the `config` module as
-       `CANONICAL_TOKEN_USAGE` for other parts of the system to inspect.
-
-    The helper is defensive and will log exceptions rather than raise in most
-    update-path scenarios; it will raise if the `usage` value cannot be
-    interpreted as a token count.
-
     Args:
-        usage: The usage payload (dict/object/number/string).
+        usage: The usage payload as a dict, object, number, or string.
         previous_total: Optional previous total count to compute a delta against.
 
     Returns:
-        tuple:
-            (current_total_or_none, delta_int)
-            - current_total_or_none: The canonical current total tokens (or None if input was None).
-            - delta_int: The non-negative delta that was applied (0 when none).
+        A tuple of ``(current_total_or_none, delta_int)``.
 
     Raises:
-        ValueError: If the provided `usage` cannot be coerced to a token count.
+        ValueError: If ``usage`` cannot be coerced to a token count.
     """
-    try:
-        current = safe_extract_total_tokens(usage)
-    except ValueError:
-        logger.debug("apply_usage_delta: could not extract total tokens from usage; skipping updates.")
-        raise
-
+    current = safe_extract_total_tokens(usage)
     delta = compute_token_delta(current, previous_total)
 
     if delta > 0:
-        # Update project-level token usage helper if available
         try:
-            from monitor.lib import token_management as token_management
+            from monitor.lib import token_management
+
             token_management.update_token_usage(delta)
         except Exception:
             logger.exception("apply_usage_delta: update_token_usage failed")
 
-        # Attempt to notify a rate limiter if one is available.
         if rate_limiter is not None:
-            # Try a set of common function names used across codebases.
-            candidate_names = ("add_usage", "add_tokens", "consume", "consume_tokens", "record_usage", "record")
+            candidate_names = (
+                "add_usage",
+                "add_tokens",
+                "consume",
+                "consume_tokens",
+                "record_usage",
+                "record",
+            )
             for name in candidate_names:
                 fn = getattr(rate_limiter, name, None)
                 if callable(fn):
@@ -994,303 +649,21 @@ def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = 
                         fn(delta)
                         break
                     except Exception:
-                        logger.debug(f"apply_usage_delta: rate_limiter.{name} failed", exc_info=True)
+                        logger.debug(
+                            "apply_usage_delta: rate_limiter.%s failed",
+                            name,
+                            exc_info=True,
+                        )
 
-    # Persist canonical total on config for visibility; swallow errors if not possible.
     try:
         if delta > 0:
             setattr(config, "CANONICAL_TOKEN_USAGE", current)
     except Exception:
-        logger.debug("apply_usage_delta: unable to set config.CANONICAL_TOKEN_USAGE", exc_info=True)
+        logger.debug(
+            "apply_usage_delta: unable to set config.CANONICAL_TOKEN_USAGE",
+            exc_info=True,
+        )
 
     return current, delta
 
-def truncate_to_token_limit(text: str, token_limit: int, model: Optional[str] = None) -> str:
-    """Truncate text to a given token limit.
 
-    This helper attempts to use tiktoken to perform token-aware truncation for
-    a provided model. If tiktoken is unavailable or encoding/decoding fails,
-    it falls back to a conservative character-based truncation using an
-    approximate average characters-per-token heuristic.
-
-    The function tries to preserve as much content as possible and appends
-    the sentinel string ``... [TRUNCATED to token limit <token_limit>]`` when
-    truncation occurs.
-
-    Args:
-        text (str): The input text to truncate.
-        token_limit (int): Maximum allowed token count. Non-positive values
-            will result in an empty (or sentinel-only) return.
-        model (Optional[str]): Optional model name to inform tiktoken's encoding.
-            When provided and tiktoken supports encoding_for_model, that
-            encoding will be used.
-
-    Returns:
-        str: The original text when it fits within `token_limit`, or a truncated
-            version ending with
-            ``... [TRUNCATED to token limit <token_limit>]``. The function
-            always returns a string and swallows internal errors, returning a
-            best-effort result.
-    """
-    sentinel = f"...[TRUNCATED to token limit {token_limit}]"
-    try:
-        if text is None:
-            return ""
-        if not isinstance(text, str):
-            try:
-                text = str(text)
-            except Exception:
-                return ""
-        try:
-            tok_limit = int(token_limit)
-        except Exception:
-            tok_limit = 0
-
-        if tok_limit <= 0:
-            # Nothing allowed; return sentinel only (or empty)
-            return sentinel
-
-        # Try to use tiktoken if available
-        try:
-            import tiktoken  # type: ignore
-            encoding = None
-            # Prefer encoding_for_model when a model is provided
-            if model and hasattr(tiktoken, "encoding_for_model"):
-                try:
-                    encoding = tiktoken.encoding_for_model(model)
-                except Exception:
-                    encoding = None
-            if encoding is None:
-                # Fall back to a common encoding name; this is safe for many models.
-                try:
-                    encoding = tiktoken.get_encoding("cl100k_base")
-                except Exception:
-                    encoding = None
-
-            if encoding is not None:
-                try:
-                    tokens = encoding.encode(text)
-                    if len(tokens) <= tok_limit:
-                        return text
-                    logger.warning(
-                        "Truncating text to token limit %s for model %s (original tokens=%s)",
-                        tok_limit,
-                        model,
-                        len(tokens),
-                    )
-                    # Reserve a small number of tokens for the sentinel; use 3 as requested
-                    take = max(0, tok_limit - 3)
-                    truncated_tokens = tokens[:take]
-                    try:
-                        decoded = encoding.decode(truncated_tokens)
-                        return decoded + sentinel
-                    except Exception:
-                        # If decode fails, fall back to best-effort string conversion
-                        try:
-                            partial_text = "".join(
-                                chr(t % 0x110000) for t in truncated_tokens[:max(0, min(len(truncated_tokens), 1000))]
-                            )
-                            return partial_text + sentinel
-                        except Exception:
-                            return sentinel
-                except Exception:
-                    # Fall through to character-based fallback
-                    pass
-        except Exception:
-            # tiktoken not available or failed to import; fall back below
-            pass
-
-        # Fallback: approximate char-based truncation using an average chars-per-token heuristic
-        avg_chars_per_token = 4
-        char_limit = tok_limit * avg_chars_per_token
-        if len(text) <= char_limit:
-            return text
-        logger.warning(
-            "Truncating text with character fallback to token limit %s for model %s "
-            "(original chars=%s, approx char limit=%s)",
-            tok_limit,
-            model,
-            len(text),
-            char_limit,
-        )
-        # Reserve space for sentinel
-        take_chars = max(0, char_limit - len(sentinel))
-        return text[:take_chars] + sentinel
-
-    except Exception as e:
-        logger.exception(f"truncate_to_token_limit failed: {e}")
-        try:
-            # As a final fallback, coerce to string and trim to a small size.
-            txt = "" if text is None else str(text)
-            return txt[:max(0, token_limit * 4)] + sentinel if txt else ""
-        except Exception:
-            return ""
-
-def serialize_tool_output(result_or_error) -> str:
-    """Serialize a tool function result or error into a string.
-
-    This helper attempts to create a JSON representation of the provided
-    result_or_error in a safe and portable manner. It falls back to str() or
-    repr() when JSON serialization is not possible.
-
-    Args:
-        result_or_error: The value returned by a tool/function or an Exception.
-
-    Returns:
-        str: A stable string representation suitable for embedding in messages
-             or storing alongside a function call record.
-    """
-    if result_or_error is None:
-        return ""
-
-    if isinstance(result_or_error, str):
-        return result_or_error
-
-    def _default(o):
-        try:
-            if hasattr(o, "to_dict") and callable(getattr(o, "to_dict")):
-                return o.to_dict()
-            if hasattr(o, "__dict__"):
-                return {k: v for k, v in o.__dict__.items() if not k.startswith("_")}
-            return repr(o)
-        except Exception:
-            return repr(o)
-
-    try:
-        return json.dumps(result_or_error, ensure_ascii=False, default=_default)
-    except TypeError:
-        # Try some common coercions
-        try:
-            if hasattr(result_or_error, "to_dict") and callable(getattr(result_or_error, "to_dict")):
-                return json.dumps(result_or_error.to_dict(), ensure_ascii=False, default=_default)
-            if hasattr(result_or_error, "__dict__"):
-                return json.dumps({k: v for k, v in result_or_error.__dict__.items() if not k.startswith("_")}, ensure_ascii=False, default=_default)
-        except Exception:
-            # Fall through to best-effort string coercion
-            pass
-    except Exception:
-        pass
-
-    try:
-        return str(result_or_error)
-    except Exception:
-        return repr(result_or_error)
-
-def build_function_call_output_item(call_id: str, result_or_error, serialized_output: Optional[str] = None) -> Dict[str, Any]:
-    """Build a standardized function_call_output item for a completed tool invocation.
-
-    Args:
-        call_id (str): The identifier for the function/tool call.
-        result_or_error: The value returned by the function, or an Exception
-            instance.
-        serialized_output (Optional[str]): If provided, this pre-serialized string
-            will be used as the "output" value in the returned item instead of
-            calling serialize_tool_output on result_or_error. This is useful when
-            callers already have a stable serialized representation and want to
-            avoid double-serialization or custom truncation.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing at least:
-            - "call_id": call_id (preferred)
-            - "id": call_id (legacy key, retained for compatibility)
-            - "output": serialized string of the result or error
-            - "error": optional boolean flag set to True when result_or_error
-              is an Exception
-            - "error_type": optional, the exception class name when an error
-              occurred
-            - "error_message": optional, the exception message when an error
-              occurred
-    """
-    if serialized_output is not None:
-        output_str = serialized_output
-    else:
-        output_str = serialize_tool_output(result_or_error)
-    # Include both 'call_id' (preferred) and 'id' (legacy) for compatibility.
-    item: Dict[str, Any] = {"call_id": call_id, "id": call_id, "output": output_str}
-
-    if isinstance(result_or_error, Exception):
-        try:
-            item["error"] = True
-            item["error_type"] = type(result_or_error).__name__
-            item["error_message"] = str(result_or_error)
-        except Exception:
-            # Ensure we never raise from this helper
-            logger.debug("build_function_call_output_item: failed to attach error metadata", exc_info=True)
-
-    return item
-
-def build_summarization_followup_params(
-    prev_response_id: Optional[str],
-    function_call_outputs: List[Dict[str, Any]],
-    summary_instruction: str,
-    model: str,
-    max_output_tokens: int,
-    tools: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    """Construct parameters for a summarization follow-up request.
-
-    This helper packages previous function call outputs and a human instruction
-    into a compact param set suitable for invoking a summarization or
-    aggregation model call. It performs light validation and ensures stable
-    shapes for downstream callers.
-
-    Args:
-        prev_response_id (Optional[str]): Identifier of the previous response to reference.
-        function_call_outputs (List[Dict[str, Any]]): List of function call output items,
-            typically created by build_function_call_output_item.
-        summary_instruction (str): Instruction text guiding the summarization.
-        model (str): The model name to use for the summarization step.
-        max_output_tokens (int): Maximum number of tokens to allow for summarization output.
-        tools (Optional[List[Dict[str, Any]]]): Optional tool descriptors that may assist the model.
-
-    Returns:
-        Dict[str, Any]: A parameter dictionary ready to be passed to a Responses/Completions API
-                        or to the internal orchestration layer.
-    """
-    # Defensive copies/coercions
-    fc_outputs = function_call_outputs or []
-    try:
-        # Ensure each output is a dict with expected keys
-        sanitized_outputs: List[Dict[str, Any]] = []
-        for idx, item in enumerate(fc_outputs):
-            if not isinstance(item, dict):
-                logger.debug(f"build_summarization_followup_params: coercing non-dict output at index {idx}")
-                # Attempt to coerce simple tuples or sequences
-                try:
-                    if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        coerced = {"id": item[0], "output": serialize_tool_output(item[1])}
-                        sanitized_outputs.append(coerced)
-                        continue
-                except Exception:
-                    pass
-                # Fallback: stringify the item
-                sanitized_outputs.append({"id": getattr(item, "id", f"item_{idx}"), "output": serialize_tool_output(item)})
-                continue
-            sanitized_outputs.append(item)
-    except Exception:
-        logger.exception("build_summarization_followup_params: failed to sanitize function_call_outputs; using originals")
-        sanitized_outputs = fc_outputs
-
-    params: Dict[str, Any] = {
-        "parent_response_id": prev_response_id,
-        "summary_instruction": summary_instruction,
-        "model": model,
-        "max_output_tokens": int(max_output_tokens) if max_output_tokens is not None else None,
-        "function_call_outputs": sanitized_outputs,
-    }
-
-    if tools:
-        params["tools"] = tools
-
-    # Optionally include some lightweight metadata to aid debugging/telemetry
-    try:
-        params["_meta"] = {
-            "source": "summarization_followup",
-            "tool_count": len(sanitized_outputs),
-            "model_normalized": strip_openai_prefix(model) if isinstance(model, str) else model,
-        }
-    except Exception:
-        # Non-critical; swallow errors
-        pass
-
-    return params
