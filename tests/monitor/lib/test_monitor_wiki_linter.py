@@ -14,7 +14,9 @@ from monitor.lib.monitor_wiki_linter import (
     referenced_repo_paths,
     referenced_wiki_pages,
     run_project_wiki_lint,
+    semantic_authority_claims,
     semantic_location_claims,
+    semantic_workflow_claims,
     store_latest_wiki_lint_result,
 )
 
@@ -91,6 +93,40 @@ def test_semantic_location_claims_extracts_claim_lines_with_repo_paths(tmp_path)
             "page": "ARCHITECTURE.md",
             "claim": "The authoritative implementation lives in src/monitor/lib/server.py",
             "path": "src/monitor/lib/server.py",
+        }
+    ]
+
+
+def test_semantic_authority_claims_extracts_claim_lines_with_repo_paths(tmp_path):
+    (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text(
+        "The canonical guide is docs/process/current.md\n"
+        "This line mentions docs/process/other.md but does not make a claim.\n",
+        encoding="utf-8",
+    )
+
+    assert semantic_authority_claims(tmp_path) == [
+        {
+            "page": "ARCHITECTURE.md",
+            "claim": "The canonical guide is docs/process/current.md",
+            "path": "docs/process/current.md",
+        }
+    ]
+
+
+def test_semantic_workflow_claims_extracts_claim_lines_with_repo_paths(tmp_path):
+    (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text(
+        "Build steps are in docs/build/current.md\n"
+        "This line mentions docs/build/other.md but does not make a claim.\n",
+        encoding="utf-8",
+    )
+
+    assert semantic_workflow_claims(tmp_path) == [
+        {
+            "page": "ARCHITECTURE.md",
+            "claim": "Build steps are in docs/build/current.md",
+            "path": "docs/build/current.md",
         }
     ]
 
@@ -450,6 +486,51 @@ def test_run_project_wiki_semantic_lint_reports_stale_location_claims(tmp_path):
     assert result["findings"][0]["kind"] == "semantic_stale_location_claim"
     assert result["findings"][0]["path"] == "src/monitor/lib/missing_server.py"
     assert "authoritative implementation lives in" in result["findings"][0]["claim"].lower()
+    assert "FAIL" in result["report"]
+
+
+def test_run_project_wiki_semantic_lint_reports_stale_authority_claims(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The canonical guide is docs/process/current.md\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is False
+    assert result["findings"][0]["kind"] == "semantic_stale_authority_claim"
+    assert result["findings"][0]["path"] == "docs/process/current.md"
+    assert "canonical guide" in result["findings"][0]["claim"].lower()
+    assert "FAIL" in result["report"]
+
+
+
+def test_run_project_wiki_semantic_lint_reports_stale_workflow_claims(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "Build steps are in docs/build/current.md\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is False
+    assert result["findings"][0]["kind"] == "semantic_stale_workflow_claim"
+    assert result["findings"][0]["path"] == "docs/build/current.md"
+    assert "build steps are in" in result["findings"][0]["claim"].lower()
     assert "FAIL" in result["report"]
 
 

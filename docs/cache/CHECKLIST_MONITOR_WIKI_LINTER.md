@@ -14,12 +14,14 @@ Current implementation status:
   references, missing repo-relative path references, oversized markdown pages,
   low-signal markdown pages, and orphaned markdown pages
 - semantic linting now has a narrow v1 implementation for stale
-  location/path claims in claim-bearing wiki lines
+  location/path claims, stale authority/document claims, and stale workflow
+  claims in claim-bearing wiki lines
 - `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
   modes, and latest results are stored in-process for explicit follow-up
   workflows such as `wiki_fix`
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
-  semantic stale-location findings, with apply reusing the reviewed preview
+  semantic stale-location, stale-authority, and stale-workflow findings, with
+  apply reusing the reviewed preview
 - unchecked broader semantic and workflow items below remain future work
 
 ## Structural Linting
@@ -36,6 +38,14 @@ Current implementation status:
 - [x] Define when a wiki/code contradiction is considered material.
 - [x] Ensure semantic linting prefers code over stale wiki content.
 - [x] Ensure semantic linting recommends focused updates rather than broad rewrites.
+- [x] Add `semantic_stale_authority_claim` detection for claim-bearing lines
+  with missing repo-relative paths.
+- [x] Add `semantic_stale_workflow_claim` detection for claim-bearing lines
+  with missing repo-relative paths.
+- [ ] Add `semantic_stale_ownership_claim` detection for claim-bearing lines
+  with missing repo-relative paths.
+- [x] Reuse narrow `:wiki_fix` preview/apply support for newly supported
+  semantic finding kinds that can be fixed with one localized sentence rewrite.
 
 ## Architecture
 - [ ] Decide whether to implement the linter as its own class or service.
@@ -49,6 +59,8 @@ Current implementation status:
 - [x] Decide whether structural linting can be run without semantic linting.
 - [x] Decide what output shape is preferred for findings and recommendations.
 - [x] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
+- [ ] Add explicit batch auto-fix for supported semantic finding kinds only.
+- [ ] Add a preview/apply-all workflow for supported semantic finding kinds.
 
 - [x] Decide whether structural and semantic linting should be separately invocable.
 ## Testing

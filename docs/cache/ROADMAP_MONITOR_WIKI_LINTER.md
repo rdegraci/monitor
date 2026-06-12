@@ -51,8 +51,14 @@ expansion later.
 Monitor can detect meaningful wiki staleness when deterministic checks are not enough.
 
 ### Status
-- A narrow semantic v1 implementation now exists for stale location/path claims
-  in claim-bearing wiki lines.
+- A narrow semantic v1 implementation now exists for stale location/path claims,
+  stale authority/document claims, and stale workflow claims in claim-bearing
+  wiki lines.
+- Recommended next semantic finding kinds are:
+  - `semantic_stale_ownership_claim`
+- Those next finding kinds should reuse the same path-grounded evidence model
+  and narrow `:wiki_fix` preview/apply workflow when the claim can be fixed by
+  rewriting one sentence.
 - Broader semantic contradiction coverage remains future work.
 
 ## Phase 4: Component Isolation and Configuration
@@ -84,9 +90,11 @@ The wiki-linter is useful, understandable, and optional rather than intrusive.
   invocation helper, and a built-in `:wiki_lint` command now exist.
 - `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
   modes, backed by mode-aware orchestrators.
-- A narrow semantic v1 implementation now exists for stale location/path claims
-  in claim-bearing wiki lines.
+- A narrow semantic v1 implementation now exists for stale location/path claims,
+  stale authority/document claims, and stale workflow claims in claim-bearing
+  wiki lines.
 - A narrow `:wiki_fix` workflow now exists to preview a minimal LLM-drafted
-  update for a supported semantic finding and then explicitly apply the
-  reviewed preview to disk.
+  update for a supported semantic stale-location, stale-authority, or
+  stale-workflow finding and then explicitly apply the reviewed preview to
+  disk.
 - Broader semantic UX and broader semantic coverage remain future work.

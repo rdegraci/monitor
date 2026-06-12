@@ -432,6 +432,94 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_location_claim(
     mock_completion.assert_called_once()
 
 
+@patch("monitor.lib.built_in_commands.litellm.completion")
+def test_wiki_fix_command_previews_diff_for_semantic_stale_authority_claim(
+    mock_completion,
+    tmp_path,
+    capsys,
+):
+    mock_completion.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="The authoritative document reference in this page is stale and must be updated."))]
+    )
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_path = wiki_dir / "ARCHITECTURE.md"
+    claim = "The canonical guide is docs/process/current.md"
+    page_path.write_text(f"{claim}\n", encoding="utf-8")
+    finding = {
+        "id": "semantic|ARCHITECTURE.md|docs/process/current.md|claim",
+        "kind": "semantic_stale_authority_claim",
+        "page": "ARCHITECTURE.md",
+        "path": "docs/process/current.md",
+        "claim": claim,
+        "evidence": "docs/process/current.md",
+    }
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={
+            "project_dir": str(wiki_dir),
+            "findings": [finding],
+        },
+    ):
+        result = bic.wiki_fix_command(f"llm {finding['id']}")
+
+    captured = capsys.readouterr()
+    assert result is not None
+    assert result["finding_id"] == finding["id"]
+    assert result["page"] == "ARCHITECTURE.md"
+    assert result["mode"] == "preview"
+    assert result["fix_mode"] == "llm"
+    assert "authoritative document reference" in result["replacement"]
+    assert "--- a/" in captured.out
+    assert "+++ b/" in captured.out
+    mock_completion.assert_called_once()
+
+
+@patch("monitor.lib.built_in_commands.litellm.completion")
+def test_wiki_fix_command_previews_diff_for_semantic_stale_workflow_claim(
+    mock_completion,
+    tmp_path,
+    capsys,
+):
+    mock_completion.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="The workflow document reference in this page is stale and must be updated."))]
+    )
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_path = wiki_dir / "ARCHITECTURE.md"
+    claim = "Build steps are in docs/build/current.md"
+    page_path.write_text(f"{claim}\n", encoding="utf-8")
+    finding = {
+        "id": "semantic|ARCHITECTURE.md|docs/build/current.md|claim",
+        "kind": "semantic_stale_workflow_claim",
+        "page": "ARCHITECTURE.md",
+        "path": "docs/build/current.md",
+        "claim": claim,
+        "evidence": "docs/build/current.md",
+    }
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={
+            "project_dir": str(wiki_dir),
+            "findings": [finding],
+        },
+    ):
+        result = bic.wiki_fix_command(f"llm {finding['id']}")
+
+    captured = capsys.readouterr()
+    assert result is not None
+    assert result["finding_id"] == finding["id"]
+    assert result["page"] == "ARCHITECTURE.md"
+    assert result["mode"] == "preview"
+    assert result["fix_mode"] == "llm"
+    assert "workflow document reference" in result["replacement"]
+    assert "--- a/" in captured.out
+    assert "+++ b/" in captured.out
+    mock_completion.assert_called_once()
+
+
 @patch("monitor.lib.built_in_commands.print_colored_error")
 @patch("monitor.lib.built_in_commands.litellm.completion")
 def test_wiki_fix_command_rejects_empty_llm_replacement(mock_completion, mock_error, tmp_path):

@@ -205,7 +205,7 @@ def wiki_fix_command(arg=None):
         "Draft or apply an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
         "Usage: : (or /) wiki_fix llm <finding_id>\n"
         "       : (or /) wiki_fix apply <finding_id>\n"
-        "Currently supports semantic stale location claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
+        "Currently supports semantic stale location, authority, and workflow claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
     )
     raw_arg = "" if arg is None else str(arg).strip()
     lowered_arg = raw_arg.lower()
@@ -243,9 +243,13 @@ def wiki_fix_command(arg=None):
         print_colored_error(f"Unknown wiki lint finding id: {finding_id}")
         return None
 
-    if finding.get("kind") != "semantic_stale_location_claim":
+    if finding.get("kind") not in {
+        "semantic_stale_location_claim",
+        "semantic_stale_authority_claim",
+        "semantic_stale_workflow_claim",
+    }:
         print_colored_error(
-            "wiki_fix currently supports only semantic_stale_location_claim findings."
+            "wiki_fix currently supports only semantic_stale_location_claim, semantic_stale_authority_claim, and semantic_stale_workflow_claim findings."
         )
         return None
 

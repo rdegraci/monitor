@@ -26,6 +26,14 @@ _SEMANTIC_LOCATION_CLAIM_PATTERN = re.compile(
     r"\b(lives in|implemented in|defined in|authoritative implementation)\b",
     re.IGNORECASE,
 )
+_SEMANTIC_AUTHORITY_CLAIM_PATTERN = re.compile(
+    r"\b(authoritative doc|source of truth|canonical guide|official guide)\b",
+    re.IGNORECASE,
+)
+_SEMANTIC_WORKFLOW_CLAIM_PATTERN = re.compile(
+    r"\b(instructions live in|documented in|build steps are in|test workflow is in)\b",
+    re.IGNORECASE,
+)
 
 
 def _finding(
@@ -301,6 +309,74 @@ def semantic_location_claims(project_dir: Path) -> list[dict[str, str]]:
     return claims
 
 
+def semantic_authority_claims(project_dir: Path) -> list[dict[str, str]]:
+    """Extract claim-bearing wiki sentences that assert authoritative docs.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A list of dictionaries describing semantic authority claims found in
+        wiki pages. Each dictionary contains ``page``, ``claim``, and ``path``.
+    """
+    claims: list[dict[str, str]] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        page_path = project_dir / page_name
+        page_text = page_path.read_text(encoding="utf-8")
+        for raw_line in page_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if _SEMANTIC_AUTHORITY_CLAIM_PATTERN.search(line) is None:
+                continue
+            repo_paths = _REPO_PATH_REFERENCE_PATTERN.findall(line)
+            if not repo_paths:
+                continue
+            for repo_path in repo_paths:
+                claims.append(
+                    {
+                        "page": page_name,
+                        "claim": line,
+                        "path": repo_path,
+                    }
+                )
+    return claims
+
+
+def semantic_workflow_claims(project_dir: Path) -> list[dict[str, str]]:
+    """Extract claim-bearing wiki sentences that assert workflow doc locations.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A list of dictionaries describing semantic workflow claims found in wiki
+        pages. Each dictionary contains ``page``, ``claim``, and ``path``.
+    """
+    claims: list[dict[str, str]] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        page_path = project_dir / page_name
+        page_text = page_path.read_text(encoding="utf-8")
+        for raw_line in page_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if _SEMANTIC_WORKFLOW_CLAIM_PATTERN.search(line) is None:
+                continue
+            repo_paths = _REPO_PATH_REFERENCE_PATTERN.findall(line)
+            if not repo_paths:
+                continue
+            for repo_path in repo_paths:
+                claims.append(
+                    {
+                        "page": page_name,
+                        "claim": line,
+                        "path": repo_path,
+                    }
+                )
+    return claims
+
+
 
 def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
@@ -527,7 +603,7 @@ def run_project_wiki_structural_lint(project_dir: Path) -> dict[str, Any]:
 
 
 def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
-    """Run narrow semantic wiki linting for stale location claims.
+    """Run narrow semantic wiki linting for stale path-grounded claims.
 
     Args:
         project_dir: Project wiki directory to lint.
@@ -535,8 +611,8 @@ def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
     Returns:
         A semantic wiki-lint result dictionary. The current implementation is a
         narrow v1 that detects claim-bearing wiki sentences asserting that an
-        implementation or authority lives at a repo-relative path that no longer
-        exists.
+        implementation location or authoritative project-local document lives at
+        a repo-relative path that no longer exists.
     """
     repo_root = project_dir.parent.parent
     findings: list[dict[str, str]] = []
@@ -555,6 +631,42 @@ def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
                 "claim": claim["claim"],
                 "evidence": repo_path,
                 "impact": "This stale location claim could mislead coding work about where behavior lives.",
+            }
+        )
+
+    for claim in semantic_authority_claims(project_dir):
+        repo_path = claim["path"]
+        if (repo_root / repo_path).exists():
+            continue
+        findings.append(
+            {
+                "kind": "semantic_stale_authority_claim",
+                "severity": "warning",
+                "page": claim["page"],
+                "path": repo_path,
+                "message": f"Wiki authority claim references missing path: {repo_path}",
+                "suggestion": "Update the wiki claim to reference the current authoritative document.",
+                "claim": claim["claim"],
+                "evidence": repo_path,
+                "impact": "This stale authority claim could mislead coding work about which document is authoritative.",
+            }
+        )
+
+    for claim in semantic_workflow_claims(project_dir):
+        repo_path = claim["path"]
+        if (repo_root / repo_path).exists():
+            continue
+        findings.append(
+            {
+                "kind": "semantic_stale_workflow_claim",
+                "severity": "warning",
+                "page": claim["page"],
+                "path": repo_path,
+                "message": f"Wiki workflow claim references missing path: {repo_path}",
+                "suggestion": "Update the wiki claim to reference the current workflow instructions.",
+                "claim": claim["claim"],
+                "evidence": repo_path,
+                "impact": "This stale workflow claim could mislead coding work about how to build, test, or validate changes.",
             }
         )
 
