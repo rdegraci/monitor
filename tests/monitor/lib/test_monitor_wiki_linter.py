@@ -22,7 +22,6 @@ def test_referenced_wiki_pages_returns_unique_non_index_entries(tmp_path):
     assert referenced_wiki_pages(index_path) == ["ARCHITECTURE.md", "CONVENTIONS.md"]
 
 
-
 def test_referenced_repo_paths_returns_unique_repo_relative_matches(tmp_path):
     (tmp_path / "INDEX.md").write_text(
         "See src/monitor/lib/system_prompt.py and docs/ARCHITECTURE.md and src/monitor/lib/system_prompt.py\n",
@@ -40,7 +39,6 @@ def test_referenced_repo_paths_returns_unique_repo_relative_matches(tmp_path):
     ]
 
 
-
 def test_markdown_pages_in_project_wiki_lists_direct_markdown_files(tmp_path):
     (tmp_path / "INDEX.md").write_text("index\n", encoding="utf-8")
     (tmp_path / "ARCHITECTURE.md").write_text("architecture\n", encoding="utf-8")
@@ -52,7 +50,6 @@ def test_markdown_pages_in_project_wiki_lists_direct_markdown_files(tmp_path):
     assert markdown_pages_in_project_wiki(tmp_path) == ["ARCHITECTURE.md", "INDEX.md"]
 
 
-
 def test_oversized_wiki_pages_reports_pages_exceeding_size_thresholds(tmp_path):
     (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
     (tmp_path / "ARCHITECTURE.md").write_text("line\n" * 401, encoding="utf-8")
@@ -61,10 +58,11 @@ def test_oversized_wiki_pages_reports_pages_exceeding_size_thresholds(tmp_path):
     assert oversized_wiki_pages(tmp_path) == ["ARCHITECTURE.md"]
 
 
-
 def test_low_signal_wiki_pages_reports_large_pages_with_few_signals(tmp_path):
     (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
-    (tmp_path / "ARCHITECTURE.md").write_text(("Plain paragraph with no structure.\n" * 85), encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text(
+        ("Plain paragraph with no structure.\n" * 85), encoding="utf-8"
+    )
     (tmp_path / "CONVENTIONS.md").write_text(
         "# Conventions\n## Structure\n### References\nSee src/monitor/lib/system_prompt.py and ARCHITECTURE.md\n"
         + ("Useful details.\n" * 85),
@@ -88,6 +86,15 @@ def test_lint_project_wiki_reports_missing_index(tmp_path):
     assert result["orphaned_pages"] == ["ARCHITECTURE.md"]
     assert any(finding["kind"] == "missing_index" for finding in result["findings"])
 
+    missing_index_finding = next(
+        finding for finding in result["findings"] if finding["kind"] == "missing_index"
+    )
+    assert missing_index_finding["kind"] == "missing_index"
+    assert missing_index_finding["severity"] == "warning"
+    assert missing_index_finding["page"] == "INDEX.md"
+    assert missing_index_finding["path"] == "INDEX.md"
+    assert missing_index_finding["message"]
+    assert missing_index_finding["suggestion"]
 
 
 def test_lint_project_wiki_reports_broken_references(tmp_path):
@@ -107,6 +114,17 @@ def test_lint_project_wiki_reports_broken_references(tmp_path):
     assert result["low_signal_pages"] == []
     assert any(finding["kind"] == "broken_reference" for finding in result["findings"])
 
+    broken_reference_finding = next(
+        finding
+        for finding in result["findings"]
+        if finding["kind"] == "broken_reference"
+    )
+    assert broken_reference_finding["kind"] == "broken_reference"
+    assert broken_reference_finding["severity"] == "warning"
+    assert broken_reference_finding["page"] == "INDEX.md"
+    assert broken_reference_finding["path"] == "TESTING.md"
+    assert broken_reference_finding["message"]
+    assert broken_reference_finding["suggestion"]
 
 
 def test_lint_project_wiki_reports_missing_repo_paths(tmp_path):
@@ -132,10 +150,24 @@ def test_lint_project_wiki_reports_missing_repo_paths(tmp_path):
     assert result["low_signal_pages"] == []
     assert any(finding["kind"] == "missing_repo_path" for finding in result["findings"])
 
+    missing_repo_path_finding = next(
+        finding
+        for finding in result["findings"]
+        if finding["kind"] == "missing_repo_path" and finding["path"] == "src/missing.py"
+    )
+    assert missing_repo_path_finding["kind"] == "missing_repo_path"
+    assert missing_repo_path_finding["severity"] == "warning"
+    assert missing_repo_path_finding["page"] == "INDEX.md"
+    assert missing_repo_path_finding["path"] == "src/missing.py"
+    assert missing_repo_path_finding["message"]
+    assert missing_repo_path_finding["suggestion"]
+
 
 def test_lint_project_wiki_reports_low_signal_pages(tmp_path):
     (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
-    (tmp_path / "ARCHITECTURE.md").write_text(("Plain paragraph with no structure.\n" * 85), encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text(
+        ("Plain paragraph with no structure.\n" * 85), encoding="utf-8"
+    )
 
     result = lint_project_wiki(tmp_path)
 
@@ -145,6 +177,15 @@ def test_lint_project_wiki_reports_low_signal_pages(tmp_path):
     assert result["low_signal_pages"] == ["ARCHITECTURE.md"]
     assert any(finding["kind"] == "low_signal_page" for finding in result["findings"])
 
+    low_signal_finding = next(
+        finding for finding in result["findings"] if finding["kind"] == "low_signal_page"
+    )
+    assert low_signal_finding["kind"] == "low_signal_page"
+    assert low_signal_finding["severity"] == "info"
+    assert low_signal_finding["page"] == "ARCHITECTURE.md"
+    assert low_signal_finding["path"] == "ARCHITECTURE.md"
+    assert low_signal_finding["message"]
+    assert low_signal_finding["suggestion"]
 
 
 def test_lint_project_wiki_reports_oversized_pages(tmp_path):
@@ -159,6 +200,15 @@ def test_lint_project_wiki_reports_oversized_pages(tmp_path):
     assert result["low_signal_pages"] == []
     assert any(finding["kind"] == "oversized_page" for finding in result["findings"])
 
+    oversized_finding = next(
+        finding for finding in result["findings"] if finding["kind"] == "oversized_page"
+    )
+    assert oversized_finding["kind"] == "oversized_page"
+    assert oversized_finding["severity"] == "info"
+    assert oversized_finding["page"] == "ARCHITECTURE.md"
+    assert oversized_finding["path"] == "ARCHITECTURE.md"
+    assert oversized_finding["message"]
+    assert oversized_finding["suggestion"]
 
 
 def test_lint_project_wiki_reports_orphaned_pages(tmp_path):
@@ -175,6 +225,15 @@ def test_lint_project_wiki_reports_orphaned_pages(tmp_path):
     assert result["orphaned_pages"] == ["PITFALLS.md"]
     assert any(finding["kind"] == "orphaned_page" for finding in result["findings"])
 
+    orphaned_finding = next(
+        finding for finding in result["findings"] if finding["kind"] == "orphaned_page"
+    )
+    assert orphaned_finding["kind"] == "orphaned_page"
+    assert orphaned_finding["severity"] == "info"
+    assert orphaned_finding["page"] == "PITFALLS.md"
+    assert orphaned_finding["path"] == "PITFALLS.md"
+    assert orphaned_finding["message"]
+    assert orphaned_finding["suggestion"]
 
 
 def test_lint_project_wiki_returns_ok_for_clean_wiki(tmp_path):

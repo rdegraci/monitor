@@ -52,6 +52,8 @@ It should validate:
 - Structural issues should be reported separately from semantic issues when possible.
 - Material contradictions should identify why they matter to coding tasks.
 - Recommendations should favor minimal, targeted wiki updates.
+- Structured findings should prefer stable fields such as `kind`, `severity`,
+  `page`, `path`, `message`, and `suggestion`.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main

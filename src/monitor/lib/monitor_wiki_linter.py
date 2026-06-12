@@ -22,6 +22,38 @@ _REPO_PATH_REFERENCE_PATTERN = re.compile(
 )
 
 
+def _finding(
+    *,
+    kind: str,
+    severity: str,
+    page: str,
+    path: str,
+    message: str,
+    suggestion: str,
+) -> dict[str, str]:
+    """Build a structured lint finding dictionary.
+
+    Args:
+        kind: Stable finding kind identifier.
+        severity: Severity label for the finding.
+        page: Markdown page associated with the finding.
+        path: Referenced page or repo-relative path associated with the finding.
+        message: Human-readable finding description.
+        suggestion: Human-readable remediation guidance.
+
+    Returns:
+        A structured finding dictionary with consistent keys and string values.
+    """
+    return {
+        "kind": kind,
+        "severity": severity,
+        "page": page,
+        "path": path,
+        "message": message,
+        "suggestion": suggestion,
+    }
+
+
 def referenced_wiki_pages(index_path: Path) -> list[str]:
     """Return referenced markdown page names from a wiki index file.
 
@@ -56,8 +88,23 @@ def referenced_repo_paths(project_dir: Path) -> list[str]:
         wiki markdown files, in wiki index order and then alphabetical page
         order.
     """
+    return list(referenced_repo_paths_with_pages(project_dir))
+
+
+def referenced_repo_paths_with_pages(project_dir: Path) -> dict[str, str]:
+    """Return repo-relative paths mapped to the first wiki page that referenced them.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A dictionary whose keys are de-duplicated repo-relative paths referenced
+        anywhere in the wiki markdown files and whose values are the markdown
+        page names where each path was first referenced, in wiki index order
+        and then alphabetical page order.
+    """
     if not project_dir.is_dir():
-        return []
+        return {}
 
     ordered_page_names = [_INDEX_NAME] if (project_dir / _INDEX_NAME).is_file() else []
     ordered_page_names.extend(
@@ -66,15 +113,13 @@ def referenced_repo_paths(project_dir: Path) -> list[str]:
         if page_name != _INDEX_NAME
     )
 
-    seen: set[str] = set()
-    referenced_paths: list[str] = []
+    referenced_paths: dict[str, str] = {}
     for page_name in ordered_page_names:
         page_path = project_dir / page_name
         for match in _REPO_PATH_REFERENCE_PATTERN.findall(page_path.read_text(encoding="utf-8")):
-            if match in seen:
+            if match in referenced_paths:
                 continue
-            seen.add(match)
-            referenced_paths.append(match)
+            referenced_paths[match] = page_name
     return referenced_paths
 
 
@@ -160,13 +205,16 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         ``broken_references`` (list[str]), ``missing_repo_paths`` (list[str]),
         ``oversized_pages`` (list[str]), ``low_signal_pages`` (list[str]),
         ``orphaned_pages`` (list[str]), and ``findings``
-        (list[dict[str, str]]).
+        (list[dict[str, str]]). Each finding dictionary contains the fields
+        ``kind``, ``severity``, ``page``, ``path``, ``message``, and
+        ``suggestion``.
     """
     repo_root = project_dir.parent.parent
     index_path = project_dir / _INDEX_NAME
     missing_index = not index_path.is_file()
     referenced_pages = referenced_wiki_pages(index_path)
-    referenced_paths = referenced_repo_paths(project_dir)
+    referenced_path_pages = referenced_repo_paths_with_pages(project_dir)
+    referenced_paths = list(referenced_path_pages)
     markdown_pages = markdown_pages_in_project_wiki(project_dir)
     oversized_pages = oversized_wiki_pages(project_dir)
     low_signal_pages = low_signal_wiki_pages(project_dir)
@@ -190,45 +238,69 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     findings: list[dict[str, str]] = []
     if missing_index:
         findings.append(
-            {
-                "kind": "missing_index",
-                "message": "Project wiki directory exists but INDEX.md is missing.",
-            }
+            _finding(
+                kind="missing_index",
+                severity="warning",
+                page=_INDEX_NAME,
+                path=_INDEX_NAME,
+                message="Project wiki directory exists but INDEX.md is missing.",
+                suggestion="Add INDEX.md to the project wiki directory.",
+            )
         )
     for page_name in broken_references:
         findings.append(
-            {
-                "kind": "broken_reference",
-                "message": f"INDEX.md references missing page: {page_name}",
-            }
+            _finding(
+                kind="broken_reference",
+                severity="warning",
+                page=_INDEX_NAME,
+                path=page_name,
+                message=f"INDEX.md references missing page: {page_name}",
+                suggestion=f"Create {page_name} or remove its reference from INDEX.md.",
+            )
         )
     for repo_path in missing_repo_paths:
         findings.append(
-            {
-                "kind": "missing_repo_path",
-                "message": f"Wiki references missing repo path: {repo_path}",
-            }
+            _finding(
+                kind="missing_repo_path",
+                severity="warning",
+                page=referenced_path_pages.get(repo_path, ""),
+                path=repo_path,
+                message=f"Wiki references missing repo path: {repo_path}",
+                suggestion=f"Create {repo_path} or update the wiki reference.",
+            )
         )
     for page_name in oversized_pages:
         findings.append(
-            {
-                "kind": "oversized_page",
-                "message": f"Wiki page exceeds size heuristic thresholds: {page_name}",
-            }
+            _finding(
+                kind="oversized_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page exceeds size heuristic thresholds: {page_name}",
+                suggestion="Consider splitting the page into smaller focused pages.",
+            )
         )
     for page_name in low_signal_pages:
         findings.append(
-            {
-                "kind": "low_signal_page",
-                "message": f"Wiki page appears low-signal for its size: {page_name}",
-            }
+            _finding(
+                kind="low_signal_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page appears low-signal for its size: {page_name}",
+                suggestion="Add structure, references, or actionable detail to the page.",
+            )
         )
     for page_name in orphaned_pages:
         findings.append(
-            {
-                "kind": "orphaned_page",
-                "message": f"Wiki page is not referenced from INDEX.md: {page_name}",
-            }
+            _finding(
+                kind="orphaned_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page is not referenced from INDEX.md: {page_name}",
+                suggestion=f"Reference {page_name} from INDEX.md or remove the page.",
+            )
         )
 
     return {
