@@ -712,12 +712,12 @@ MAX_REPEATED_TOOL_CALLS = 3
 # model. Read-side protection lives in LARGE_FILE_TOKEN_THRESHOLD; this
 # is the symmetric write-side guard.
 #
-# Default 8K tokens for a single serialized tool result that gets fed back
+# Default 32K tokens for a single serialized tool result that gets fed back
 # into the model loop. This is intentionally much smaller than the model
 # context window; it bounds one tool's blast radius without constraining the
 # full conversation budget. Set to 0 to disable entirely.
 # Override via YAML key TOOL_OUTPUT_TOKEN_LIMIT.
-TOOL_OUTPUT_TOKEN_LIMIT = 8_192
+TOOL_OUTPUT_TOKEN_LIMIT = 32768
 
 # Default 1 MiB (1_048_576 bytes) — large enough for legitimate writes
 # (vendored license, generated migration, lockfile up to ~1 MB), tight

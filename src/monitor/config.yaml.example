@@ -320,14 +320,14 @@ RESPONSES_API: True
 # Suggested values:
 #   4096   Tight. Will truncate most file reads > 250 lines. Risks losing
 #          context the model needs for cross-file reasoning.
-#   16384  RECOMMENDED DEFAULT. Fits most file reads under 1000 lines and
+#   16384  Fits most file reads under 1000 lines and
 #          typical ripgrep/git output, while still capping pathological
 #          outputs.
-#   32768  Roomy. Rarely truncates. Suitable for sessions that involve
+#   32768  RECOMMENDED DEFAULT. Rarely truncates. Suitable for sessions that involve
 #          reviewing large files in full.
 #   65536  Effectively unlimited for normal coding work. Lets large diff
 #          reviews through but increases prompt size proportionally.
-TOOL_OUTPUT_TOKEN_LIMIT: 16384
+TOOL_OUTPUT_TOKEN_LIMIT: 32768
 
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 
