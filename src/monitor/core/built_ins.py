@@ -38,6 +38,7 @@ from monitor.lib.built_in_commands import (
     reasoning_command,
     ttl_command,
     compact_command,
+    wiki_fix_command,
     wiki_lint_command,
 )
 from monitor.lib.tool_loading import (
@@ -541,6 +542,11 @@ def configure_built_ins() -> None:
                     "command": "wiki_lint",
                     "function": _make_callable(wiki_lint_command),
                     "description": "Run the configured project wiki linter and print a report.",
+                },
+                {
+                    "command": "wiki_fix",
+                    "function": _make_callable(wiki_fix_command),
+                    "description": "Preview a minimal wiki fix for a stored lint finding.",
                 },
                 {
                     "command": "make_commit",

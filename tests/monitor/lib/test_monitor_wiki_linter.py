@@ -6,6 +6,7 @@ import pytest
 
 from monitor.lib.monitor_wiki_linter import (
     format_wiki_lint_report,
+    latest_wiki_lint_result,
     lint_project_wiki,
     low_signal_wiki_pages,
     markdown_pages_in_project_wiki,
@@ -13,8 +14,9 @@ from monitor.lib.monitor_wiki_linter import (
     referenced_repo_paths,
     referenced_wiki_pages,
     run_project_wiki_lint,
+    semantic_location_claims,
+    store_latest_wiki_lint_result,
 )
-
 
 def test_referenced_wiki_pages_returns_unique_non_index_entries(tmp_path):
     index_path = tmp_path / "INDEX.md"
@@ -74,6 +76,23 @@ def test_low_signal_wiki_pages_reports_large_pages_with_few_signals(tmp_path):
     )
 
     assert low_signal_wiki_pages(tmp_path) == ["ARCHITECTURE.md"]
+
+
+def test_semantic_location_claims_extracts_claim_lines_with_repo_paths(tmp_path):
+    (tmp_path / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (tmp_path / "ARCHITECTURE.md").write_text(
+        "The authoritative implementation lives in src/monitor/lib/server.py\n"
+        "This line mentions src/monitor/lib/git.py but does not make a claim.\n",
+        encoding="utf-8",
+    )
+
+    assert semantic_location_claims(tmp_path) == [
+        {
+            "page": "ARCHITECTURE.md",
+            "claim": "The authoritative implementation lives in src/monitor/lib/server.py",
+            "path": "src/monitor/lib/server.py",
+        }
+    ]
 
 
 def test_lint_project_wiki_reports_missing_index(tmp_path):
@@ -412,15 +431,91 @@ def test_run_project_wiki_structural_lint_returns_mode_tagged_result(tmp_path):
     assert "PASS" in result["report"]
 
 
-def test_run_project_wiki_semantic_lint_returns_placeholder_result(tmp_path):
+def test_run_project_wiki_semantic_lint_reports_stale_location_claims(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The authoritative implementation lives in src/monitor/lib/missing_server.py\n",
+        encoding="utf-8",
+    )
+
     from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
 
-    result = run_project_wiki_semantic_lint(tmp_path)
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is False
+    assert result["findings"][0]["kind"] == "semantic_stale_location_claim"
+    assert result["findings"][0]["path"] == "src/monitor/lib/missing_server.py"
+    assert "authoritative implementation lives in" in result["findings"][0]["claim"].lower()
+    assert "FAIL" in result["report"]
+
+
+def test_run_project_wiki_semantic_lint_returns_pass_when_location_claim_path_exists(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "server.py").write_text("def create_server():\n    return None\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The authoritative implementation lives in src/monitor/lib/server.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
 
     assert result["mode"] == "semantic"
     assert result["ok"] is True
-    assert result["not_implemented"] is True
-    assert "not implemented" in result["report"].lower()
+    assert result["findings"] == []
+    assert "No semantic findings" in result["report"]
+
+
+def test_store_latest_wiki_lint_result_attaches_finding_ids_and_returns_result():
+    result = {
+        "mode": "semantic",
+        "findings": [
+            {
+                "kind": "semantic_stale_location_claim",
+                "page": "ARCHITECTURE.md",
+                "path": "src/monitor/lib/missing_server.py",
+                "claim": "The authoritative implementation lives in src/monitor/lib/missing_server.py",
+                "message": "Wiki location claim references missing path: src/monitor/lib/missing_server.py",
+                "suggestion": "Update the wiki claim.",
+            }
+        ],
+    }
+
+    stored = store_latest_wiki_lint_result(result)
+
+    assert stored["findings"][0]["id"]
+    assert stored["findings"][0]["id"] == latest_wiki_lint_result()["findings"][0]["id"]
+
+
+def test_run_project_wiki_lint_mode_stores_latest_result_with_finding_ids(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The authoritative implementation lives in src/monitor/lib/missing_server.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
+
+    result = run_project_wiki_lint_mode(wiki_dir, "semantic")
+    latest_result = latest_wiki_lint_result()
+
+    assert latest_result is not None
+    assert latest_result["mode"] == "semantic"
+    assert latest_result["findings"][0]["id"] == result["findings"][0]["id"]
+    assert "semantic_stale_location_claim" in result["report"]
 
 
 def test_run_project_wiki_lint_mode_all_combines_structural_and_semantic_results(tmp_path):

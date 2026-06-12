@@ -49,7 +49,7 @@ Current implementation status:
 - [x] Add tests for broken-link detection.
 - [x] Add tests for orphaned-page detection.
 - [x] Add tests for missing-file reference detection.
-- [ ] Add tests for semantic conflict reporting behavior.
+- [x] Add tests for semantic conflict reporting behavior.
 - [ ] Add tests for keeping the linter isolated from normal startup behavior.
 
 ## Documentation
@@ -58,6 +58,7 @@ Current implementation status:
 - [x] Document the difference between structural and semantic linting.
 - [x] Document how findings should be interpreted.
 - [x] Document whether and how it can suggest wiki updates.
+- [x] Decide that lint findings should feed a separate explicit wiki-fix workflow rather than automatic rewriting.
 
 ## Validation
 - [ ] Verify structural linting is cheap and deterministic.

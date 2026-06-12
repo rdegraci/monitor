@@ -116,5 +116,12 @@ A likely shape is:
   modes while defaulting to structural mode when no argument is provided
 - wiki-lint execution now flows through mode-aware orchestrators in
   `src/monitor/lib/monitor_wiki_linter.py`
-- semantic mode currently returns a clear placeholder result indicating that
-  semantic linting is not implemented yet
+- semantic mode now implements a narrow semantic v1 check for stale
+  location/path claims in wiki lines that assert implementation locations such
+  as `lives in`, `implemented in`, `defined in`, or `authoritative
+  implementation`
+- semantic findings are currently emitted only when those claim-bearing lines
+  cite repo-relative paths that no longer exist
+- latest wiki-lint results are now stored in-process with stable finding ids so
+  later workflows such as `:wiki_fix llm <finding_id>` can resolve one finding
+  at a time

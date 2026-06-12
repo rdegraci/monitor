@@ -117,8 +117,14 @@ free-form analysis blobs.
   the user while preserving the structured result internally.
 - `:wiki_lint` supports explicit `structural`, `semantic`, and `all` modes and
   defaults to structural mode when no argument is provided.
-- Semantic mode may initially return a clear placeholder result until semantic
-  linting is implemented.
+- Semantic mode currently implements a narrow semantic v1 check for stale
+  location/path claims in wiki text.
+- The current semantic v1 emits findings only for claim-bearing lines that use
+  phrases such as `lives in`, `implemented in`, `defined in`, or
+  `authoritative implementation` and cite repo-relative paths that no longer
+  exist.
+- Latest wiki-lint results may be stored in-process with stable finding ids so
+  explicit follow-up workflows can target one finding at a time.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main

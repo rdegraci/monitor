@@ -78,4 +78,6 @@ The wiki-linter is useful, understandable, and optional rather than intrusive.
   invocation helper, and a built-in `:wiki_lint` command now exist.
 - `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
   modes, backed by mode-aware orchestrators.
-- Semantic UX and semantic implementation remain future work.
+- A narrow semantic v1 implementation now exists for stale location/path claims
+  in claim-bearing wiki lines.
+- Broader semantic UX and broader semantic coverage remain future work.

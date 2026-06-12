@@ -1,10 +1,14 @@
 import copy
+import difflib
 import json
 import logging
 import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+import litellm
 
 from typing import Any, Dict
 
@@ -31,7 +35,7 @@ from monitor.lib.external_services import (
 # directly (e.g., tests). See the analogous note in monitor/lib/redis_utils.py.
 from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.monitor_wiki import ensure_configured_project_wiki
-from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
+from monitor.lib.monitor_wiki_linter import latest_wiki_lint_result, run_project_wiki_lint_mode
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
@@ -39,6 +43,10 @@ from monitor.lib.system_prompt import build_system_prompt, clear_project_instruc
 from monitor.lib.tool_loading import list_tools
 
 logger = logging.getLogger(__name__)
+
+_WIKI_FIX_MAX_REPLACEMENT_LINES = 3
+_WIKI_FIX_MAX_REPLACEMENT_CHARACTERS = 400
+_WIKI_FIX_MAX_DIFF_LINES = 20
 
 
 def handle_cd_command(args: str) -> str:
@@ -567,6 +575,161 @@ def wiki_lint_command(arg=None):
         logger.error("Failed to run project wiki linter: %s", e, exc_info=True)
         print_colored_error(f"Failed to run project wiki linter: {e}")
         return None
+
+
+def _wiki_fix_diff_line_count(diff_text: str) -> int:
+    """Count changed diff lines in a unified diff.
+
+    Args:
+        diff_text: Unified diff text.
+
+    Returns:
+        The number of changed lines excluding file headers and hunk markers.
+    """
+    return sum(
+        1
+        for line in diff_text.splitlines()
+        if (line.startswith("+") and not line.startswith("+++"))
+        or (line.startswith("-") and not line.startswith("---"))
+    )
+
+
+def wiki_fix_command(arg=None):
+    """Preview an LLM-assisted wiki fix for a stored lint finding.
+
+    Args:
+        arg: Required argument string in the form ``llm <finding_id>``, or a
+            help token.
+
+    Returns:
+        dict | None: A preview result containing the finding id, page, and diff
+        when a supported fix can be drafted, otherwise ``None``.
+    """
+    usage = (
+        "Preview an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
+        "Usage: : (or /) wiki_fix llm <finding_id>\n"
+        "Currently supports preview-only fixes for semantic stale location claims."
+    )
+    raw_arg = "" if arg is None else str(arg).strip()
+    lowered_arg = raw_arg.lower()
+    if lowered_arg in {"help", "?", "-h", "--help"} or not raw_arg:
+        print(usage)
+        return None
+
+    parts = raw_arg.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "llm":
+        print_colored_error("wiki_fix requires the form ':wiki_fix llm <finding_id>'.")
+        return None
+    finding_id = parts[1].strip()
+    if not finding_id:
+        print_colored_error("wiki_fix requires a finding id after 'llm'.")
+        return None
+
+    lint_result = latest_wiki_lint_result()
+    if not lint_result:
+        print("No stored wiki lint result is available. Run :wiki_lint first.")
+        return None
+
+    findings = lint_result.get("findings", [])
+    finding = next(
+        (
+            item
+            for item in findings
+            if isinstance(item, dict) and str(item.get("id", "")) == finding_id
+        ),
+        None,
+    )
+    if finding is None:
+        print_colored_error(f"Unknown wiki lint finding id: {finding_id}")
+        return None
+
+    if finding.get("kind") != "semantic_stale_location_claim":
+        print_colored_error(
+            "wiki_fix llm currently supports only semantic_stale_location_claim findings."
+        )
+        return None
+
+    project_dir = lint_result.get("project_dir", "")
+    page_name = str(finding.get("page", ""))
+    claim = str(finding.get("claim", ""))
+    path = str(finding.get("path", ""))
+    evidence = str(finding.get("evidence", path))
+    if not project_dir or not page_name or not claim or not path:
+        print_colored_error("Selected finding does not contain enough data for wiki_fix.")
+        return None
+
+    page_path = os.path.join(project_dir, page_name)
+    if not os.path.isfile(page_path):
+        print_colored_error(f"Wiki page not found: {page_path}")
+        return None
+
+    original_text = Path(page_path).read_text(encoding="utf-8")
+    if claim not in original_text:
+        print_colored_error("Could not locate the original claim text in the wiki page.")
+        return None
+
+    prompt = (
+        "You are drafting a minimal wiki update for one stale location claim. "
+        "Rewrite only the specific claim text so it no longer states the stale path as fact. "
+        "Do not rewrite the whole page. Do not add unrelated cleanup. "
+        "Return only the replacement text for the claim, with no markdown fences.\n\n"
+        f"Page: {page_name}\n"
+        f"Original claim: {claim}\n"
+        f"Missing path evidence: {evidence}\n"
+        "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
+    )
+    try:
+        response = litellm.completion(
+            model=config.MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You produce minimal, localized wiki edits only.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+    except Exception as e:
+        logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)
+        print_colored_error(f"Failed to draft wiki fix with LLM: {e}")
+        return None
+
+    replacement = (response.choices[0].message.content or "").strip()
+    if not replacement:
+        print_colored_error("LLM-assisted wiki_fix returned an empty replacement.")
+        return None
+    if len(replacement) > _WIKI_FIX_MAX_REPLACEMENT_CHARACTERS:
+        print_colored_error("LLM-assisted wiki_fix replacement is too large.")
+        return None
+    if replacement.count("\n") + 1 > _WIKI_FIX_MAX_REPLACEMENT_LINES:
+        print_colored_error("LLM-assisted wiki_fix replacement spans too many lines.")
+        return None
+    if claim == replacement:
+        print_colored_error("LLM-assisted wiki_fix did not change the targeted claim.")
+        return None
+
+    updated_text = original_text.replace(claim, replacement, 1)
+    diff_text = "".join(
+        difflib.unified_diff(
+            original_text.splitlines(keepends=True),
+            updated_text.splitlines(keepends=True),
+            fromfile=f"a/{page_path}",
+            tofile=f"b/{page_path}",
+        )
+    )
+    if _wiki_fix_diff_line_count(diff_text) > _WIKI_FIX_MAX_DIFF_LINES:
+        print_colored_error("LLM-assisted wiki_fix diff footprint is too large.")
+        return None
+    print(diff_text)
+    return {
+        "finding_id": finding_id,
+        "page": page_name,
+        "mode": "preview",
+        "fix_mode": "llm",
+        "diff": diff_text,
+        "updated_text": updated_text,
+        "replacement": replacement,
+    }
 
 
 def reasoning_command(arg: str = None) -> None:

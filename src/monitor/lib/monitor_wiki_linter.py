@@ -8,6 +8,8 @@ from typing import Any
 
 
 _INDEX_NAME = "INDEX.md"
+
+_LATEST_WIKI_LINT_RESULT: dict[str, Any] | None = None
 _MAX_PAGE_LINES = 400
 _MAX_PAGE_CHARACTERS = 20_000
 _LOW_SIGNAL_MIN_LINES = 80
@@ -19,6 +21,10 @@ _LIST_ITEM_PATTERN = re.compile(r"^(?:[-*]|\d+\.)\s", re.MULTILINE)
 _MARKDOWN_REFERENCE_PATTERN = re.compile(r"\b([A-Z][A-Z0-9_-]*\.md)\b")
 _REPO_PATH_REFERENCE_PATTERN = re.compile(
     r"(?<![\w./-])((?:src|tests|docs)/[A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_-]+)?)(?![\w./-])"
+)
+_SEMANTIC_LOCATION_CLAIM_PATTERN = re.compile(
+    r"\b(lives in|implemented in|defined in|authoritative implementation)\b",
+    re.IGNORECASE,
 )
 
 
@@ -52,6 +58,74 @@ def _finding(
         "message": message,
         "suggestion": suggestion,
     }
+
+
+def _finding_id(finding: dict[str, Any]) -> str:
+    """Build a stable identifier for a wiki-lint finding.
+
+    Args:
+        finding: Finding dictionary containing stable identifying fields.
+
+    Returns:
+        A stable string identifier derived from the finding content.
+    """
+    kind = str(finding.get("kind", ""))
+    page = str(finding.get("page", ""))
+    path = str(finding.get("path", ""))
+    claim = str(finding.get("claim", ""))
+    return "|".join([kind, page, path, claim])
+
+
+def _attach_finding_ids(result: dict[str, Any]) -> dict[str, Any]:
+    """Attach stable finding identifiers to a wiki-lint result.
+
+    Args:
+        result: Wiki-lint result dictionary.
+
+    Returns:
+        The same result dictionary with ``id`` fields attached to each finding.
+    """
+    findings = result.get("findings", [])
+    if isinstance(findings, list):
+        for finding in findings:
+            if isinstance(finding, dict):
+                finding["id"] = _finding_id(finding)
+
+    structural = result.get("structural")
+    if isinstance(structural, dict):
+        _attach_finding_ids(structural)
+
+    semantic = result.get("semantic")
+    if isinstance(semantic, dict):
+        _attach_finding_ids(semantic)
+
+    return result
+
+
+def store_latest_wiki_lint_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Store the latest wiki-lint result for later fix workflows.
+
+    Args:
+        result: Wiki-lint result dictionary to store.
+
+    Returns:
+        The stored wiki-lint result with finding identifiers attached.
+    """
+    global _LATEST_WIKI_LINT_RESULT
+
+    stored_result = _attach_finding_ids(result)
+    _LATEST_WIKI_LINT_RESULT = stored_result
+    return stored_result
+
+
+def latest_wiki_lint_result() -> dict[str, Any] | None:
+    """Return the latest stored wiki-lint result.
+
+    Returns:
+        The latest stored wiki-lint result, or ``None`` if no lint run has been
+        stored in the current process.
+    """
+    return _LATEST_WIKI_LINT_RESULT
 
 
 def referenced_wiki_pages(index_path: Path) -> list[str]:
@@ -193,6 +267,41 @@ def low_signal_wiki_pages(project_dir: Path) -> list[str]:
     return low_signal_pages
 
 
+def semantic_location_claims(project_dir: Path) -> list[dict[str, str]]:
+    """Extract claim-bearing wiki sentences that assert implementation locations.
+
+    Args:
+        project_dir: Project wiki directory containing markdown pages.
+
+    Returns:
+        A list of dictionaries describing semantic location claims found in wiki
+        pages. Each dictionary contains ``page``, ``claim``, and ``path``.
+    """
+    claims: list[dict[str, str]] = []
+    for page_name in markdown_pages_in_project_wiki(project_dir):
+        page_path = project_dir / page_name
+        page_text = page_path.read_text(encoding="utf-8")
+        for raw_line in page_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if _SEMANTIC_LOCATION_CLAIM_PATTERN.search(line) is None:
+                continue
+            repo_paths = _REPO_PATH_REFERENCE_PATTERN.findall(line)
+            if not repo_paths:
+                continue
+            for repo_path in repo_paths:
+                claims.append(
+                    {
+                        "page": page_name,
+                        "claim": line,
+                        "path": repo_path,
+                    }
+                )
+    return claims
+
+
+
 def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
 
@@ -214,6 +323,106 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
     missing_index = not index_path.is_file()
     referenced_pages = referenced_wiki_pages(index_path)
     referenced_path_pages = referenced_repo_paths_with_pages(project_dir)
+    referenced_paths = list(referenced_path_pages)
+    markdown_pages = markdown_pages_in_project_wiki(project_dir)
+    oversized_pages = oversized_wiki_pages(project_dir)
+    low_signal_pages = low_signal_wiki_pages(project_dir)
+
+    broken_references = [
+        page_name
+        for page_name in referenced_pages
+        if not (project_dir / page_name).is_file()
+    ]
+    missing_repo_paths = [
+        repo_path
+        for repo_path in referenced_paths
+        if not (repo_root / repo_path).exists()
+    ]
+    orphaned_pages = [
+        page_name
+        for page_name in markdown_pages
+        if page_name != _INDEX_NAME and page_name not in referenced_pages
+    ]
+
+    findings: list[dict[str, str]] = []
+    if missing_index:
+        findings.append(
+            _finding(
+                kind="missing_index",
+                severity="warning",
+                page=_INDEX_NAME,
+                path=_INDEX_NAME,
+                message="Project wiki directory exists but INDEX.md is missing.",
+                suggestion="Add INDEX.md to the project wiki directory.",
+            )
+        )
+    for page_name in broken_references:
+        findings.append(
+            _finding(
+                kind="broken_reference",
+                severity="warning",
+                page=_INDEX_NAME,
+                path=page_name,
+                message=f"INDEX.md references missing page: {page_name}",
+                suggestion=f"Create {page_name} or remove its reference from INDEX.md.",
+            )
+        )
+    for repo_path in missing_repo_paths:
+        findings.append(
+            _finding(
+                kind="missing_repo_path",
+                severity="warning",
+                page=referenced_path_pages.get(repo_path, ""),
+                path=repo_path,
+                message=f"Wiki references missing repo path: {repo_path}",
+                suggestion=f"Create {repo_path} or update the wiki reference.",
+            )
+        )
+    for page_name in oversized_pages:
+        findings.append(
+            _finding(
+                kind="oversized_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page exceeds size heuristic thresholds: {page_name}",
+                suggestion="Consider splitting the page into smaller focused pages.",
+            )
+        )
+    for page_name in low_signal_pages:
+        findings.append(
+            _finding(
+                kind="low_signal_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page appears low-signal for its size: {page_name}",
+                suggestion="Add structure, references, or actionable detail to the page.",
+            )
+        )
+    for page_name in orphaned_pages:
+        findings.append(
+            _finding(
+                kind="orphaned_page",
+                severity="info",
+                page=page_name,
+                path=page_name,
+                message=f"Wiki page is not referenced from INDEX.md: {page_name}",
+                suggestion=f"Reference {page_name} from INDEX.md or remove the page.",
+            )
+        )
+
+    return {
+        "ok": not findings,
+        "project_dir": str(project_dir),
+        "missing_index": missing_index,
+        "broken_references": broken_references,
+        "missing_repo_paths": missing_repo_paths,
+        "oversized_pages": oversized_pages,
+        "low_signal_pages": low_signal_pages,
+        "orphaned_pages": orphaned_pages,
+        "findings": findings,
+    }
     referenced_paths = list(referenced_path_pages)
     markdown_pages = markdown_pages_in_project_wiki(project_dir)
     oversized_pages = oversized_wiki_pages(project_dir)
@@ -418,28 +627,64 @@ def run_project_wiki_structural_lint(project_dir: Path) -> dict[str, Any]:
 
 
 def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
-    """Return a placeholder semantic wiki-lint result.
+    """Run narrow semantic wiki linting for stale location claims.
 
     Args:
         project_dir: Project wiki directory to lint.
 
     Returns:
-        A placeholder semantic wiki-lint result dictionary. Semantic linting is
-        not implemented yet, so the result reports the mode and a concise
-        informational report.
+        A semantic wiki-lint result dictionary. The current implementation is a
+        narrow v1 that detects claim-bearing wiki sentences asserting that an
+        implementation or authority lives at a repo-relative path that no longer
+        exists.
     """
-    report = (
-        "Wiki lint: NOT IMPLEMENTED\n"
-        f"Project wiki: {project_dir}\n"
-        "Semantic wiki linting is not implemented yet."
-    )
+    repo_root = project_dir.parent.parent
+    findings: list[dict[str, str]] = []
+    for claim in semantic_location_claims(project_dir):
+        repo_path = claim["path"]
+        if (repo_root / repo_path).exists():
+            continue
+        findings.append(
+            {
+                "kind": "semantic_stale_location_claim",
+                "severity": "warning",
+                "page": claim["page"],
+                "path": repo_path,
+                "message": f"Wiki location claim references missing path: {repo_path}",
+                "suggestion": "Update the wiki claim to point to the current implementation location.",
+                "claim": claim["claim"],
+                "evidence": repo_path,
+                "impact": "This stale location claim could mislead coding work about where behavior lives.",
+            }
+        )
+
+    if findings:
+        lines = [f"Wiki lint: FAIL", f"Project wiki: {project_dir}"]
+        lines.append(f"Findings: {len(findings)} (warnings: {len(findings)}, infos: 0)")
+        lines.append("")
+        lines.append("WARNING:")
+        for finding in findings:
+            lines.append(f"- kind: {finding['kind']}")
+            lines.append(
+                f"  context: page={finding['page']}, path={finding['path']}"
+            )
+            lines.append(f"  claim: {finding['claim']}")
+            lines.append(f"  message: {finding['message']}")
+            lines.append(f"  impact: {finding['impact']}")
+            lines.append(f"  suggestion: {finding['suggestion']}")
+        report = "\n".join(lines)
+    else:
+        report = (
+            f"Wiki lint: PASS\nProject wiki: {project_dir}\n"
+            "No semantic findings."
+        )
+
     return {
-        "ok": True,
+        "ok": not findings,
         "mode": "semantic",
         "project_dir": str(project_dir),
-        "findings": [],
+        "findings": findings,
         "report": report,
-        "not_implemented": True,
     }
 
 
@@ -458,10 +703,10 @@ def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
         ValueError: If ``mode`` is unsupported.
     """
     if mode == "structural":
-        return run_project_wiki_structural_lint(project_dir)
+        return store_latest_wiki_lint_result(run_project_wiki_structural_lint(project_dir))
 
     if mode == "semantic":
-        return run_project_wiki_semantic_lint(project_dir)
+        return store_latest_wiki_lint_result(run_project_wiki_semantic_lint(project_dir))
 
     if mode == "all":
         structural_result = run_project_wiki_structural_lint(project_dir)
@@ -473,7 +718,7 @@ def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
             "== Semantic ==\n"
             f"{semantic_result['report']}"
         )
-        return {
+        combined_result = {
             "ok": bool(structural_result.get("ok")) and bool(semantic_result.get("ok")),
             "mode": "all",
             "project_dir": str(project_dir),
@@ -485,5 +730,6 @@ def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
             ],
             "report": report,
         }
+        return store_latest_wiki_lint_result(combined_result)
 
     raise ValueError(f"Unsupported wiki lint mode: {mode}")
