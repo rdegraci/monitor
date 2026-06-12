@@ -28,6 +28,29 @@ The monitor-wiki linter should eventually support:
 - detect obviously oversized or orphaned wiki pages
 - detect wiki pages that are no longer reachable from the index
 
+
+### Semantic linting v1 design direction
+Semantic linting v1 should be intentionally narrow and low-noise.
+
+Initial in-scope claim types:
+- stable architecture claims
+- workflow claims that affect how developers build, test, or validate changes
+- ownership or routing claims that affect where a developer should make a
+  change
+
+Initial out-of-scope areas:
+- stylistic rewrite advice
+- broad page-quality judgments
+- speculative contradictions without explicit code or newer-doc evidence
+- aspirational or non-committal prose that is not clearly a current claim
+
+A semantic contradiction should be treated as material only when it would
+likely mislead a coding task about subsystem ownership, code location,
+authoritative docs, or validation workflow.
+
+Semantic findings should be reported only when they can cite both the wiki
+claim and the contradicting evidence from code or newer project-local docs.
+When evidence is ambiguous, semantic linting should prefer no finding.
 ### Semantic linting
 - compare stable wiki claims against the current codebase
 - detect likely stale ownership, workflow, or architecture statements
@@ -55,9 +78,10 @@ A likely shape is:
   detailed lint heuristics and workflow design in dedicated wiki-linter docs
 
 ## Open decisions
-- whether the linter should be exposed as a built-in command, internal workflow,
-  or both
-- whether structural and semantic linting should be separately invocable
+- whether discrepancy-triggered linting should be added in addition to the
+  built-in command
+- whether structural and semantic linting should be separately invocable or
+  combined behind one command with explicit mode selection
 - whether semantic linting should use a dedicated model configuration
 - how strongly the linter should recommend wiki updates versus directly writing
   them
@@ -88,4 +112,9 @@ A likely shape is:
   and a formatted report in one call
 - a built-in `:wiki_lint` command now exists to run the configured project
   wiki linter and print its report
-- no semantic drift workflow has been added yet
+- `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
+  modes while defaulting to structural mode when no argument is provided
+- wiki-lint execution now flows through mode-aware orchestrators in
+  `src/monitor/lib/monitor_wiki_linter.py`
+- semantic mode currently returns a clear placeholder result indicating that
+  semantic linting is not implemented yet

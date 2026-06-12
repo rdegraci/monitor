@@ -31,7 +31,7 @@ from monitor.lib.external_services import (
 # directly (e.g., tests). See the analogous note in monitor/lib/redis_utils.py.
 from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.monitor_wiki import ensure_configured_project_wiki
-from monitor.lib.monitor_wiki_linter import run_project_wiki_lint
+from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
@@ -519,8 +519,8 @@ def wiki_lint_command(arg=None):
 
     Args:
         arg: Optional dispatcher argument. Accepted values are ``None``,
-            empty string, or a help token (``help``, ``?``, ``-h``,
-            ``--help``). Any other non-empty value is rejected.
+            empty string, a help token (``help``, ``?``, ``-h``, ``--help``),
+            or one of ``structural``, ``semantic``, or ``all``.
 
     Returns:
         dict | None: The structured wiki-lint result dict on success, or
@@ -529,28 +529,40 @@ def wiki_lint_command(arg=None):
     """
     usage = (
         "Run the project wiki linter against the configured project wiki.\n"
-        "Usage: : (or /) wiki_lint\n"
-        "This command takes no arguments."
+        "Usage: : (or /) wiki_lint [structural|semantic|all]\n"
+        "Defaults to structural mode when no argument is provided."
     )
-
+    valid_modes = {"structural", "semantic", "all"}
     raw_arg = "" if arg is None else str(arg).strip()
-    if raw_arg.lower() in {"help", "?", "-h", "--help"}:
+    lowered_arg = raw_arg.lower()
+
+    if lowered_arg in {"help", "?", "-h", "--help"}:
         print(usage)
         return None
 
-    if raw_arg:
-        print_colored_error("wiki_lint does not accept arguments. Use ':wiki_lint' with no arguments.")
+    if not raw_arg:
+        mode = "structural"
+    elif lowered_arg in valid_modes:
+        mode = lowered_arg
+    else:
+        print_colored_error(
+            "Invalid wiki_lint mode. Use ':wiki_lint', ':wiki_lint structural', "
+            "':wiki_lint semantic', or ':wiki_lint all'."
+        )
         return None
 
     try:
         project_dir = ensure_configured_project_wiki()
         if not project_dir:
-            print("No configured project wiki is available. Configure a project wiki directory first, then run :wiki_lint again.")
+            print(
+                "No configured project wiki is available. Configure a project wiki directory first, "
+                "then run :wiki_lint again."
+            )
             return None
 
-        report = run_project_wiki_lint(project_dir)
-        print(report)
-        return report
+        result = run_project_wiki_lint_mode(project_dir, mode)
+        print(result["report"])
+        return result
     except Exception as e:
         logger.error("Failed to run project wiki linter: %s", e, exc_info=True)
         print_colored_error(f"Failed to run project wiki linter: {e}")

@@ -76,4 +76,6 @@ The wiki-linter is useful, understandable, and optional rather than intrusive.
 ### Status
 - Structured finding output, a human-readable report formatter, a simple
   invocation helper, and a built-in `:wiki_lint` command now exist.
-- Semantic UX remains future work.
+- `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
+  modes, backed by mode-aware orchestrators.
+- Semantic UX and semantic implementation remain future work.

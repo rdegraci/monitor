@@ -398,3 +398,92 @@ def run_project_wiki_lint(project_dir: Path) -> dict[str, Any]:
         **result,
         "report": report,
     }
+
+
+def run_project_wiki_structural_lint(project_dir: Path) -> dict[str, Any]:
+    """Run structural wiki linting and return a mode-tagged result.
+
+    Args:
+        project_dir: Project wiki directory to lint.
+
+    Returns:
+        A structural wiki-lint result dictionary with a ``mode`` field and a
+        formatted ``report``.
+    """
+    result = run_project_wiki_lint(project_dir)
+    return {
+        **result,
+        "mode": "structural",
+    }
+
+
+def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
+    """Return a placeholder semantic wiki-lint result.
+
+    Args:
+        project_dir: Project wiki directory to lint.
+
+    Returns:
+        A placeholder semantic wiki-lint result dictionary. Semantic linting is
+        not implemented yet, so the result reports the mode and a concise
+        informational report.
+    """
+    report = (
+        "Wiki lint: NOT IMPLEMENTED\n"
+        f"Project wiki: {project_dir}\n"
+        "Semantic wiki linting is not implemented yet."
+    )
+    return {
+        "ok": True,
+        "mode": "semantic",
+        "project_dir": str(project_dir),
+        "findings": [],
+        "report": report,
+        "not_implemented": True,
+    }
+
+
+def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
+    """Run the requested wiki-lint mode.
+
+    Args:
+        project_dir: Project wiki directory to lint.
+        mode: Requested lint mode. Supported values are ``structural``,
+            ``semantic``, and ``all``.
+
+    Returns:
+        A wiki-lint result dictionary for the requested mode.
+
+    Raises:
+        ValueError: If ``mode`` is unsupported.
+    """
+    if mode == "structural":
+        return run_project_wiki_structural_lint(project_dir)
+
+    if mode == "semantic":
+        return run_project_wiki_semantic_lint(project_dir)
+
+    if mode == "all":
+        structural_result = run_project_wiki_structural_lint(project_dir)
+        semantic_result = run_project_wiki_semantic_lint(project_dir)
+        report = (
+            "Wiki lint mode: all\n\n"
+            "== Structural ==\n"
+            f"{structural_result['report']}\n\n"
+            "== Semantic ==\n"
+            f"{semantic_result['report']}"
+        )
+        return {
+            "ok": bool(structural_result.get("ok")) and bool(semantic_result.get("ok")),
+            "mode": "all",
+            "project_dir": str(project_dir),
+            "structural": structural_result,
+            "semantic": semantic_result,
+            "findings": [
+                *structural_result.get("findings", []),
+                *semantic_result.get("findings", []),
+            ],
+            "report": report,
+        }
+
+    raise ValueError(f"Unsupported wiki lint mode: {mode}")

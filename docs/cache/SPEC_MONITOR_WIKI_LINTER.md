@@ -37,6 +37,48 @@ It should validate:
 Semantic linting may use an LLM-assisted workflow.
 
 It should validate:
+
+#### Semantic linting v1 scope
+Semantic linting v1 should stay intentionally narrow.
+
+It should focus on claims that are both stable and materially useful to coding
+work, including:
+- architecture claims about major subsystem boundaries, ownership of
+  responsibilities, or where key behaviors live
+- workflow claims about how code is built, tested, or reviewed when those
+  claims affect developer actions
+- ownership or routing claims only when they affect where a developer should
+  look or which subsystem should be changed
+
+Semantic linting v1 should avoid broad interpretation of:
+- stylistic prose quality
+- aspirational statements that are not framed as current fact
+- minor wording drift that does not change coding decisions
+- broad completeness judgments about whether a page says enough
+
+#### Material contradiction standard
+A semantic contradiction should be considered material only when a stale or
+incorrect wiki claim would likely mislead a developer about:
+- where to make a change
+- which subsystem owns a behavior
+- how to run or validate a workflow
+- which project-local document or code path is authoritative
+
+The linter should not report semantic findings for small wording differences,
+benign simplifications, or claims that cannot be grounded in current code or
+newer project-local documentation.
+
+#### Semantic evidence expectations
+Semantic linting should prefer findings backed by explicit evidence.
+
+A semantic finding should ideally include:
+- the wiki claim being evaluated
+- the code path or newer project-local document that contradicts it
+- a short explanation of why the contradiction matters to coding work
+- a narrow recommendation for updating only the affected wiki text
+
+When evidence is weak, ambiguous, or spread across too much of the codebase,
+semantic linting v1 should decline to report a finding rather than speculate.
 - whether stable architecture claims still match the codebase
 - whether workflow or ownership statements appear stale
 - whether wiki guidance materially contradicts the current code or newer docs
@@ -44,6 +86,19 @@ It should validate:
 
 ## Authority Model
 - Code and newer project-local documentation take precedence over the wiki.
+
+### Semantic finding shape for v1
+Semantic findings may extend the structural finding shape with additional
+semantic fields when needed.
+
+In addition to stable fields such as `kind`, `severity`, `page`, `path`,
+`message`, and `suggestion`, semantic findings should prefer fields such as:
+- `claim` for the wiki statement being evaluated
+- `evidence` for the contradicting code path or newer project-local document
+- `impact` for why the contradiction matters to coding work
+
+Semantic findings should remain minimal and stable rather than returning long
+free-form analysis blobs.
 - The linter should treat wiki/code conflicts as signs of likely wiki staleness.
 - The linter should prioritize detecting meaningful drift over stylistic rewrite suggestions.
 
@@ -58,8 +113,12 @@ It should validate:
   path, per-severity sections, and actionable suggestions.
 - A simple invocation helper may return both structured lint output and the
   formatted report together.
-- A built-in `:wiki_lint` command may surface the formatted report directly to
+- A built-in `:wiki_lint` command surfaces the formatted report directly to
   the user while preserving the structured result internally.
+- `:wiki_lint` supports explicit `structural`, `semantic`, and `all` modes and
+  defaults to structural mode when no argument is provided.
+- Semantic mode may initially return a clear placeholder result until semantic
+  linting is implemented.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main

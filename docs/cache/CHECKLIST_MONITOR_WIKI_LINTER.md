@@ -5,7 +5,7 @@
 - [x] Define the boundary between structural linting and semantic linting.
 - [x] Decide when the linter should run.
 - [x] Decide how linter findings should be surfaced.
-- [ ] Decide whether the linter is user-invoked, discrepancy-invoked, or both.
+- [x] Decide whether the linter is user-invoked, discrepancy-invoked, or both.
 
 Current implementation status:
 - structural linting now has an initial deterministic implementation in
@@ -24,11 +24,11 @@ Current implementation status:
 - [x] Check for low-signal wiki pages.
 
 ## Semantic Linting
-- [ ] Define what kinds of wiki claims should be compared against code.
-- [ ] Define how to detect stale architecture, workflow, and ownership statements.
-- [ ] Define when a wiki/code contradiction is considered material.
-- [ ] Ensure semantic linting prefers code over stale wiki content.
-- [ ] Ensure semantic linting recommends focused updates rather than broad rewrites.
+- [x] Define what kinds of wiki claims should be compared against code.
+- [x] Define how to detect stale architecture, workflow, and ownership statements.
+- [x] Define when a wiki/code contradiction is considered material.
+- [x] Ensure semantic linting prefers code over stale wiki content.
+- [x] Ensure semantic linting recommends focused updates rather than broad rewrites.
 
 ## Architecture
 - [ ] Decide whether to implement the linter as its own class or service.
@@ -43,6 +43,7 @@ Current implementation status:
 - [x] Decide what output shape is preferred for findings and recommendations.
 - [ ] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 
+- [x] Decide whether structural and semantic linting should be separately invocable.
 ## Testing
 - [x] Add tests for structural lint checks.
 - [x] Add tests for broken-link detection.
@@ -52,11 +53,11 @@ Current implementation status:
 - [ ] Add tests for keeping the linter isolated from normal startup behavior.
 
 ## Documentation
-- [ ] Document the purpose of the wiki-linter.
-- [ ] Document when it should be run.
-- [ ] Document the difference between structural and semantic linting.
+- [x] Document the purpose of the wiki-linter.
+- [x] Document when it should be run.
+- [x] Document the difference between structural and semantic linting.
 - [x] Document how findings should be interpreted.
-- [ ] Document whether and how it can suggest wiki updates.
+- [x] Document whether and how it can suggest wiki updates.
 
 ## Validation
 - [ ] Verify structural linting is cheap and deterministic.

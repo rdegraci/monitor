@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from monitor.lib.monitor_wiki_linter import (
     format_wiki_lint_report,
     lint_project_wiki,
@@ -386,3 +388,68 @@ def test_run_project_wiki_lint_for_failing_wiki_returns_findings_and_fail_report
     assert "FAIL" in result["report"]
     assert "src/missing.py" in result["report"]
     assert "ARCHITECTURE.md" in result["report"]
+
+
+def test_run_project_wiki_structural_lint_returns_mode_tagged_result(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "system_prompt.py").write_text("PROMPT = 'ok'\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/monitor/lib/system_prompt.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text("architecture\n", encoding="utf-8")
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_structural_lint
+
+    result = run_project_wiki_structural_lint(wiki_dir)
+
+    assert result["mode"] == "structural"
+    assert result["ok"] is True
+    assert "PASS" in result["report"]
+
+
+def test_run_project_wiki_semantic_lint_returns_placeholder_result(tmp_path):
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(tmp_path)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is True
+    assert result["not_implemented"] is True
+    assert "not implemented" in result["report"].lower()
+
+
+def test_run_project_wiki_lint_mode_all_combines_structural_and_semantic_results(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "system_prompt.py").write_text("PROMPT = 'ok'\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/monitor/lib/system_prompt.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text("architecture\n", encoding="utf-8")
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
+
+    result = run_project_wiki_lint_mode(wiki_dir, "all")
+
+    assert result["mode"] == "all"
+    assert result["ok"] is True
+    assert result["structural"]["mode"] == "structural"
+    assert result["semantic"]["mode"] == "semantic"
+    assert "== Structural ==" in result["report"]
+    assert "== Semantic ==" in result["report"]
+
+
+def test_run_project_wiki_lint_mode_rejects_unsupported_mode(tmp_path):
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
+
+    with pytest.raises(ValueError, match="Unsupported wiki lint mode"):
+        run_project_wiki_lint_mode(tmp_path, "unknown")

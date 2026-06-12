@@ -182,11 +182,11 @@ def test_wiki_lint_command_help_behavior(capsys):
     bic.wiki_lint_command("help")
     captured = capsys.readouterr()
     assert "wiki_lint" in captured.out
-    assert "lint" in captured.out.lower()
+    assert "structural|semantic|all" in captured.out
 
 
 @patch("monitor.lib.built_in_commands.print_colored_error")
-def test_wiki_lint_command_rejects_unexpected_arguments(mock_error):
+def test_wiki_lint_command_rejects_invalid_mode(mock_error):
     bic.wiki_lint_command("unexpected")
     mock_error.assert_called_once()
 
@@ -201,7 +201,7 @@ def test_wiki_lint_command_returns_none_when_wiki_not_configured(mock_ensure, ca
     mock_ensure.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.run_project_wiki_lint")
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
 @patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
 def test_wiki_lint_command_prints_report_and_returns_structured_result(
     mock_ensure,
@@ -210,6 +210,7 @@ def test_wiki_lint_command_prints_report_and_returns_structured_result(
 ):
     mock_ensure.return_value = "/tmp/wiki"
     sample_result = {
+        "mode": "structural",
         "report": "Wiki lint report\n- issue 1",
         "issues": [{"path": "page.md", "message": "issue 1"}],
     }
@@ -221,4 +222,116 @@ def test_wiki_lint_command_prints_report_and_returns_structured_result(
     assert result == sample_result
     assert "Wiki lint report" in captured.out
     mock_ensure.assert_called_once()
-    mock_run.assert_called_once_with("/tmp/wiki")
+    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_defaults_to_structural_mode(
+    mock_ensure,
+    mock_run,
+    capsys,
+):
+    mock_ensure.return_value = "/tmp/wiki"
+    mock_run.return_value = {"mode": "structural", "report": "Wiki lint report\nPASS"}
+
+    result = bic.wiki_lint_command("")
+
+    captured = capsys.readouterr()
+    assert result["mode"] == "structural"
+    assert "Wiki lint report" in captured.out
+    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_accepts_semantic_mode(
+    mock_ensure,
+    mock_run,
+    capsys,
+):
+    mock_ensure.return_value = "/tmp/wiki"
+    mock_run.return_value = {"mode": "semantic", "report": "Wiki lint report\nPASS"}
+
+    result = bic.wiki_lint_command("semantic")
+
+    captured = capsys.readouterr()
+    assert result["mode"] == "semantic"
+    assert "Wiki lint report" in captured.out
+    mock_run.assert_called_once_with("/tmp/wiki", "semantic")
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_accepts_all_mode(
+    mock_ensure,
+    mock_run,
+    capsys,
+):
+    mock_ensure.return_value = "/tmp/wiki"
+    mock_run.return_value = {"mode": "all", "report": "Wiki lint report\nPASS"}
+
+    result = bic.wiki_lint_command("all")
+
+    captured = capsys.readouterr()
+    assert result["mode"] == "all"
+    assert "Wiki lint report" in captured.out
+    mock_run.assert_called_once_with("/tmp/wiki", "all")
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
+def test_configure_built_ins_does_not_run_wiki_lint_during_registration(mock_run):
+    with patch("monitor.core.built_ins.append_function_to_built_ins"):
+        built_ins.configure_built_ins()
+
+    mock_run.assert_not_called()
+
+
+def test_execute_built_in_function_runs_wiki_lint_only_on_explicit_invocation():
+    from monitor.lib import built_ins_utils
+
+    built_ins.configure_built_ins()
+
+    with patch(
+        "monitor.lib.built_in_commands.ensure_configured_project_wiki",
+        return_value="/tmp/wiki",
+    ) as mock_ensure, patch(
+        "monitor.lib.built_in_commands.run_project_wiki_lint_mode",
+        return_value={"mode": "structural", "report": "Wiki lint: PASS"},
+    ) as mock_run:
+        built_ins_utils.execute_built_in_function(":help")
+        mock_ensure.assert_not_called()
+        mock_run.assert_not_called()
+
+        built_ins_utils.execute_built_in_function(":wiki_lint")
+
+
+    mock_ensure.assert_called_once()
+    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+
+@patch("monitor.lib.built_in_commands.print_colored_error")
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode", side_effect=RuntimeError("boom"))
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_returns_none_and_prints_error_on_linter_failure(
+    mock_ensure,
+    mock_run,
+    mock_error,
+):
+    mock_ensure.return_value = "/tmp/wiki"
+
+    result = bic.wiki_lint_command("")
+
+    assert result is None
+    mock_ensure.assert_called_once()
+    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+    mock_error.assert_called_once()
+
+
+def test_wiki_lint_command_accepts_none_argument(capsys):
+    with patch("monitor.lib.built_in_commands.ensure_configured_project_wiki", return_value=None) as mock_ensure:
+        result = bic.wiki_lint_command()
+
+    captured = capsys.readouterr()
+    assert result is None
+    assert "No configured project wiki is available" in captured.out
+    mock_ensure.assert_called_once()
