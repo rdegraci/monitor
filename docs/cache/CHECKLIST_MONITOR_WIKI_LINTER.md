@@ -18,6 +18,8 @@ Current implementation status:
 - `:wiki_lint` now supports explicit `structural`, `semantic`, and `all`
   modes, and latest results are stored in-process for explicit follow-up
   workflows such as `wiki_fix`
+- `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
+  semantic stale-location findings, with apply reusing the reviewed preview
 - unchecked broader semantic and workflow items below remain future work
 
 ## Structural Linting
@@ -46,7 +48,7 @@ Current implementation status:
 - [x] Decide whether the linter is exposed through a built-in command.
 - [x] Decide whether structural linting can be run without semantic linting.
 - [x] Decide what output shape is preferred for findings and recommendations.
-- [ ] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
+- [x] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 
 - [x] Decide whether structural and semantic linting should be separately invocable.
 ## Testing

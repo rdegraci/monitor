@@ -123,3 +123,8 @@ A likely shape is:
 - latest wiki-lint results are now stored in-process with stable finding ids so
   later workflows such as `:wiki_fix llm <finding_id>` can resolve one finding
   at a time
+- `:wiki_fix` now supports previewing a narrow LLM-drafted wiki update for a
+  supported semantic stale-location finding and then applying that reviewed
+  draft to disk with `:wiki_fix apply <finding_id>`
+- apply mode now reuses the exact stored preview rather than regenerating text
+  at apply time

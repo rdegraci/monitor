@@ -65,6 +65,8 @@ from monitor.lib.built_ins_wiki_utils import (
     WIKI_FIX_MAX_DIFF_LINES,
     WIKI_FIX_MAX_REPLACEMENT_CHARACTERS,
     WIKI_FIX_MAX_REPLACEMENT_LINES,
+    latest_wiki_fix_preview,
+    store_latest_wiki_fix_preview,
     wiki_fix_diff_line_count,
 )
 from monitor.lib.colors import print_yellow
@@ -188,20 +190,22 @@ def wiki_lint_command(arg=None):
 
 
 def wiki_fix_command(arg=None):
-    """Preview an LLM-assisted wiki fix for a stored lint finding.
+    """Draft or apply an LLM-assisted wiki fix for a stored lint finding.
 
     Args:
-        arg: Required argument string in the form ``llm <finding_id>``, or a
-            help token.
+        arg: Required argument string in the form ``llm <finding_id>`` or
+            ``apply <finding_id>``, or a help token.
 
     Returns:
-        dict | None: A preview result containing the finding id, page, and diff
-        when a supported fix can be drafted, otherwise ``None``.
+        dict | None: A preview or apply result containing the finding id, page,
+        and diff when a supported fix can be drafted or written, otherwise
+        ``None``.
     """
     usage = (
-        "Preview an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
+        "Draft or apply an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
         "Usage: : (or /) wiki_fix llm <finding_id>\n"
-        "Currently supports preview-only fixes for semantic stale location claims."
+        "       : (or /) wiki_fix apply <finding_id>\n"
+        "Currently supports semantic stale location claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
     )
     raw_arg = "" if arg is None else str(arg).strip()
     lowered_arg = raw_arg.lower()
@@ -210,12 +214,15 @@ def wiki_fix_command(arg=None):
         return None
 
     parts = raw_arg.split(maxsplit=1)
-    if len(parts) != 2 or parts[0].lower() != "llm":
-        print_colored_error("wiki_fix requires the form ':wiki_fix llm <finding_id>'.")
+    if len(parts) != 2 or parts[0].lower() not in {"llm", "apply"}:
+        print_colored_error(
+            "wiki_fix requires the form ':wiki_fix llm <finding_id>' or ':wiki_fix apply <finding_id>'."
+        )
         return None
+    action = parts[0].lower()
     finding_id = parts[1].strip()
     if not finding_id:
-        print_colored_error("wiki_fix requires a finding id after 'llm'.")
+        print_colored_error(f"wiki_fix requires a finding id after '{action}'.")
         return None
 
     lint_result = latest_wiki_lint_result()
@@ -238,7 +245,7 @@ def wiki_fix_command(arg=None):
 
     if finding.get("kind") != "semantic_stale_location_claim":
         print_colored_error(
-            "wiki_fix llm currently supports only semantic_stale_location_claim findings."
+            "wiki_fix currently supports only semantic_stale_location_claim findings."
         )
         return None
 
@@ -261,65 +268,114 @@ def wiki_fix_command(arg=None):
         print_colored_error("Could not locate the original claim text in the wiki page.")
         return None
 
-    prompt = (
-        "You are drafting a minimal wiki update for one stale location claim. "
-        "Rewrite only the specific claim text so it no longer states the stale path as fact. "
-        "Do not rewrite the whole page. Do not add unrelated cleanup. "
-        "Return only the replacement text for the claim, with no markdown fences.\n\n"
-        f"Page: {page_name}\n"
-        f"Original claim: {claim}\n"
-        f"Missing path evidence: {evidence}\n"
-        "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
-    )
-    try:
-        response = litellm.completion(
-            model=config.MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You produce minimal, localized wiki edits only.",
-                },
-                {"role": "user", "content": prompt},
-            ],
+    if action == "llm":
+        prompt = (
+            "You are drafting a minimal wiki update for one stale location claim. "
+            "Rewrite only the specific claim text so it no longer states the stale path as fact. "
+            "Do not rewrite the whole page. Do not add unrelated cleanup. "
+            "Return only the replacement text for the claim, with no markdown fences.\n\n"
+            f"Page: {page_name}\n"
+            f"Original claim: {claim}\n"
+            f"Missing path evidence: {evidence}\n"
+            "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
         )
-    except Exception as e:
-        logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)
-        print_colored_error(f"Failed to draft wiki fix with LLM: {e}")
+        try:
+            response = litellm.completion(
+                model=config.MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You produce minimal, localized wiki edits only.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+        except Exception as e:
+            logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)
+            print_colored_error(f"Failed to draft wiki fix with LLM: {e}")
+            return None
+
+        replacement = (response.choices[0].message.content or "").strip()
+        if not replacement:
+            print_colored_error("LLM-assisted wiki_fix returned an empty replacement.")
+            return None
+        if len(replacement) > WIKI_FIX_MAX_REPLACEMENT_CHARACTERS:
+            print_colored_error("LLM-assisted wiki_fix replacement is too large.")
+            return None
+        if replacement.count("\n") + 1 > WIKI_FIX_MAX_REPLACEMENT_LINES:
+            print_colored_error("LLM-assisted wiki_fix replacement spans too many lines.")
+            return None
+        if claim == replacement:
+            print_colored_error("LLM-assisted wiki_fix did not change the targeted claim.")
+            return None
+
+        updated_text = original_text.replace(claim, replacement, 1)
+        diff_text = "".join(
+            difflib.unified_diff(
+                original_text.splitlines(keepends=True),
+                updated_text.splitlines(keepends=True),
+                fromfile=f"a/{page_path}",
+                tofile=f"b/{page_path}",
+            )
+        )
+        if wiki_fix_diff_line_count(diff_text) > WIKI_FIX_MAX_DIFF_LINES:
+            print_colored_error("LLM-assisted wiki_fix diff footprint is too large.")
+            return None
+
+        preview_result = store_latest_wiki_fix_preview(
+            {
+                "finding_id": finding_id,
+                "page": page_name,
+                "mode": "preview",
+                "fix_mode": "llm",
+                "diff": diff_text,
+                "updated_text": updated_text,
+                "replacement": replacement,
+                "page_path": page_path,
+                "claim": claim,
+            }
+        )
+        print(diff_text)
+        return preview_result
+
+    preview_result = latest_wiki_fix_preview(finding_id)
+    if not preview_result:
+        print_colored_error(
+            "No stored wiki_fix preview is available for that finding. Run ':wiki_fix llm <finding_id>' first."
+        )
         return None
 
-    replacement = (response.choices[0].message.content or "").strip()
-    if not replacement:
-        print_colored_error("LLM-assisted wiki_fix returned an empty replacement.")
+    preview_page = str(preview_result.get("page", ""))
+    preview_claim = str(preview_result.get("claim", ""))
+    preview_updated_text = str(preview_result.get("updated_text", ""))
+    preview_diff = str(preview_result.get("diff", ""))
+    preview_replacement = str(preview_result.get("replacement", ""))
+    preview_page_path = str(preview_result.get("page_path", page_path))
+    if preview_page != page_name or preview_claim != claim or not preview_updated_text or not preview_diff:
+        print_colored_error(
+            "Stored wiki_fix preview is incomplete or no longer matches the selected finding. Run ':wiki_fix llm <finding_id>' again."
+        )
         return None
-    if len(replacement) > WIKI_FIX_MAX_REPLACEMENT_CHARACTERS:
-        print_colored_error("LLM-assisted wiki_fix replacement is too large.")
+    if original_text == preview_updated_text:
+        print_colored_error("The wiki page already matches the stored wiki_fix preview.")
         return None
-    if replacement.count("\n") + 1 > WIKI_FIX_MAX_REPLACEMENT_LINES:
-        print_colored_error("LLM-assisted wiki_fix replacement spans too many lines.")
-        return None
-    if claim == replacement:
-        print_colored_error("LLM-assisted wiki_fix did not change the targeted claim.")
+    expected_original_text = original_text.replace(preview_replacement, claim, 1)
+    if expected_original_text != original_text and claim not in original_text:
+        print_colored_error(
+            "The wiki page changed after preview generation. Run ':wiki_fix llm <finding_id>' again before applying."
+        )
         return None
 
-    updated_text = original_text.replace(claim, replacement, 1)
-    diff_text = "".join(
-        difflib.unified_diff(
-            original_text.splitlines(keepends=True),
-            updated_text.splitlines(keepends=True),
-            fromfile=f"a/{page_path}",
-            tofile=f"b/{page_path}",
-        )
-    )
-    if wiki_fix_diff_line_count(diff_text) > WIKI_FIX_MAX_DIFF_LINES:
-        print_colored_error("LLM-assisted wiki_fix diff footprint is too large.")
-        return None
-    print(diff_text)
+    Path(preview_page_path).write_text(preview_updated_text, encoding="utf-8")
+    print(preview_diff)
+    print(f"Applied wiki fix to {preview_page_path}")
     return {
         "finding_id": finding_id,
         "page": page_name,
-        "mode": "preview",
+        "mode": "apply",
         "fix_mode": "llm",
-        "diff": diff_text,
-        "updated_text": updated_text,
-        "replacement": replacement,
+        "diff": preview_diff,
+        "updated_text": preview_updated_text,
+        "replacement": preview_replacement,
+        "page_path": preview_page_path,
     }

@@ -86,4 +86,7 @@ The wiki-linter is useful, understandable, and optional rather than intrusive.
   modes, backed by mode-aware orchestrators.
 - A narrow semantic v1 implementation now exists for stale location/path claims
   in claim-bearing wiki lines.
+- A narrow `:wiki_fix` workflow now exists to preview a minimal LLM-drafted
+  update for a supported semantic finding and then explicitly apply the
+  reviewed preview to disk.
 - Broader semantic UX and broader semantic coverage remain future work.

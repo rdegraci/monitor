@@ -342,6 +342,7 @@ def test_wiki_fix_command_help_behavior(capsys):
     captured = capsys.readouterr()
     assert "wiki_fix" in captured.out
     assert "llm <finding_id>" in captured.out
+    assert "apply <finding_id>" in captured.out
 
 
 def test_wiki_fix_command_requires_stored_lint_result(capsys):
@@ -513,6 +514,75 @@ def test_wiki_fix_command_rejects_unchanged_llm_replacement(mock_completion, moc
         return_value={"project_dir": str(wiki_dir), "findings": [finding]},
     ):
         result = bic.wiki_fix_command(f"llm {finding['id']}")
+
+    assert result is None
+    mock_error.assert_called_once()
+
+
+@patch("monitor.lib.built_in_commands.litellm.completion")
+def test_wiki_fix_command_apply_writes_previewed_text_to_disk(
+    mock_completion,
+    tmp_path,
+    capsys,
+):
+    replacement = "The implementation location described here is stale and must be updated."
+    mock_completion.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content=replacement))]
+    )
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_path = wiki_dir / "ARCHITECTURE.md"
+    claim = "The authoritative implementation lives in src/monitor/lib/missing_server.py"
+    page_path.write_text(f"Before\n{claim}\nAfter\n", encoding="utf-8")
+    finding = {
+        "id": "semantic|ARCHITECTURE.md|src/monitor/lib/missing_server.py|claim",
+        "kind": "semantic_stale_location_claim",
+        "page": "ARCHITECTURE.md",
+        "path": "src/monitor/lib/missing_server.py",
+        "claim": claim,
+        "evidence": "src/monitor/lib/missing_server.py",
+    }
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={"project_dir": str(wiki_dir), "findings": [finding]},
+    ):
+        preview_result = bic.wiki_fix_command(f"llm {finding['id']}")
+        result = bic.wiki_fix_command(f"apply {finding['id']}")
+
+    captured = capsys.readouterr()
+    assert preview_result is not None
+    assert result is not None
+    assert result["mode"] == "apply"
+    assert result["page_path"] == str(page_path)
+    assert result["replacement"] == preview_result["replacement"]
+    assert "Applied wiki fix" in captured.out
+    assert replacement in page_path.read_text(encoding="utf-8")
+    assert claim not in page_path.read_text(encoding="utf-8")
+    mock_completion.assert_called_once()
+
+
+@patch("monitor.lib.built_in_commands.print_colored_error")
+def test_wiki_fix_command_apply_requires_stored_preview(mock_error, tmp_path):
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_path = wiki_dir / "ARCHITECTURE.md"
+    claim = "The authoritative implementation lives in src/monitor/lib/missing_server.py"
+    page_path.write_text(f"{claim}\n", encoding="utf-8")
+    finding = {
+        "id": "semantic|ARCHITECTURE.md|src/monitor/lib/missing_server.py|claim-no-preview",
+        "kind": "semantic_stale_location_claim",
+        "page": "ARCHITECTURE.md",
+        "path": "src/monitor/lib/missing_server.py",
+        "claim": claim,
+        "evidence": "src/monitor/lib/missing_server.py",
+    }
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={"project_dir": str(wiki_dir), "findings": [finding]},
+    ):
+        result = bic.wiki_fix_command(f"apply {finding['id']}")
 
     assert result is None
     mock_error.assert_called_once()

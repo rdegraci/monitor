@@ -125,6 +125,11 @@ free-form analysis blobs.
   exist.
 - Latest wiki-lint results may be stored in-process with stable finding ids so
   explicit follow-up workflows can target one finding at a time.
+- A built-in `:wiki_fix` workflow may support previewing a narrow LLM-drafted
+  wiki update for one finding and then explicitly applying that reviewed draft
+  to disk.
+- The apply step should prefer reusing the exact reviewed preview rather than
+  regenerating new text at apply time.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main
@@ -176,4 +181,8 @@ free-form analysis blobs.
   cite repo-relative paths that no longer exist
 - `:wiki_lint` now supports `structural`, `semantic`, and `all` modes and
   stores latest findings in-process for explicit follow-up workflows
+- `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
+  semantic stale-location findings
+- `:wiki_fix apply <finding_id>` now reuses the exact previously previewed
+  draft and writes that reviewed change to disk
 - broader semantic drift detection remains future work
