@@ -4,7 +4,7 @@
 - [x] Define the purpose of the wiki-linter separately from monitor-wiki provisioning.
 - [x] Define the boundary between structural linting and semantic linting.
 - [x] Decide when the linter should run.
-- [ ] Decide how linter findings should be surfaced.
+- [x] Decide how linter findings should be surfaced.
 - [ ] Decide whether the linter is user-invoked, discrepancy-invoked, or both.
 
 Current implementation status:
@@ -40,7 +40,7 @@ Current implementation status:
 ## Workflow and UX
 - [ ] Decide whether the linter is exposed through a built-in command.
 - [ ] Decide whether structural linting can be run without semantic linting.
-- [ ] Decide what output shape is preferred for findings and recommendations.
+- [x] Decide what output shape is preferred for findings and recommendations.
 - [ ] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 
 ## Testing
@@ -55,7 +55,7 @@ Current implementation status:
 - [ ] Document the purpose of the wiki-linter.
 - [ ] Document when it should be run.
 - [ ] Document the difference between structural and semantic linting.
-- [ ] Document how findings should be interpreted.
+- [x] Document how findings should be interpreted.
 - [ ] Document whether and how it can suggest wiki updates.
 
 ## Validation

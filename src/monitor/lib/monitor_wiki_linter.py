@@ -314,3 +314,68 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         "orphaned_pages": orphaned_pages,
         "findings": findings,
     }
+
+
+def format_wiki_lint_report(result: dict[str, Any]) -> str:
+    """Format a human-readable report for a wiki lint result.
+
+    Args:
+        result: Wiki lint result dictionary produced by ``lint_project_wiki``.
+
+    Returns:
+        A stable, human-readable text report that summarizes the lint outcome
+        and renders findings grouped by severity.
+    """
+    ok = bool(result.get("ok"))
+    findings = result.get("findings", [])
+    project_dir = str(result.get("project_dir", ""))
+
+    lines = [f"Wiki lint: {'PASS' if ok else 'FAIL'}", f"Project wiki: {project_dir}"]
+
+    if not findings:
+        lines.append("No findings. Wiki structure looks good.")
+        return "\n".join(lines)
+
+    warning_count = sum(1 for finding in findings if finding.get("severity") == "warning")
+    info_count = sum(1 for finding in findings if finding.get("severity") == "info")
+    lines.append(f"Findings: {len(findings)} (warnings: {warning_count}, infos: {info_count})")
+
+    severities = [str(finding.get("severity", "")) for finding in findings]
+    other_severities = sorted(
+        {severity for severity in severities if severity not in {"warning", "info"}}
+    )
+
+    ordered_severities: list[str] = []
+    if "warning" in severities:
+        ordered_severities.append("warning")
+    if "info" in severities:
+        ordered_severities.append("info")
+    ordered_severities.extend(other_severities)
+
+    for severity in ordered_severities:
+        lines.append("")
+        lines.append(f"{severity.upper()}:")
+        for finding in findings:
+            if finding.get("severity") != severity:
+                continue
+            kind = str(finding.get("kind", ""))
+            page = str(finding.get("page", ""))
+            path = str(finding.get("path", ""))
+            message = str(finding.get("message", ""))
+            suggestion = str(finding.get("suggestion", ""))
+
+            context_parts: list[str] = []
+            if page:
+                context_parts.append(f"page={page}")
+            if path and path != page:
+                context_parts.append(f"path={path}")
+            elif path and not page:
+                context_parts.append(f"path={path}")
+
+            lines.append(f"- kind: {kind}")
+            if context_parts:
+                lines.append(f"  context: {', '.join(context_parts)}")
+            lines.append(f"  message: {message}")
+            lines.append(f"  suggestion: {suggestion}")
+
+    return "\n".join(lines)

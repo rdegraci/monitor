@@ -59,8 +59,6 @@ A likely shape is:
   or both
 - whether structural and semantic linting should be separately invocable
 - whether semantic linting should use a dedicated model configuration
-- what user-facing report format is most useful for discrepancy reports beyond
-  the current structured finding fields
 - how strongly the linter should recommend wiki updates versus directly writing
   them
 
@@ -84,4 +82,6 @@ A likely shape is:
   pages, low-signal markdown pages, and orphaned markdown pages
 - structural findings now use stable fields including `kind`, `severity`,
   `page`, `path`, `message`, and `suggestion`
+- a human-readable report formatter now exists for PASS/FAIL summaries,
+  per-severity grouping, and actionable suggestions
 - no built-in command or semantic drift workflow has been added yet

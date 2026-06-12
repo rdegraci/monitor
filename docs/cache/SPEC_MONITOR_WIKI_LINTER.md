@@ -54,6 +54,8 @@ It should validate:
 - Recommendations should favor minimal, targeted wiki updates.
 - Structured findings should prefer stable fields such as `kind`, `severity`,
   `page`, `path`, `message`, and `suggestion`.
+- A human-readable report format should summarize PASS/FAIL status, project
+  path, per-severity sections, and actionable suggestions.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main

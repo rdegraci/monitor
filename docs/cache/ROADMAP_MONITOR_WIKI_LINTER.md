@@ -72,3 +72,7 @@ Define how the linter is invoked and how users consume its findings.
 
 ### Outcome
 The wiki-linter is useful, understandable, and optional rather than intrusive.
+
+### Status
+- Structured finding output and a human-readable report formatter now exist.
+- Explicit invocation and semantic UX remain future work.

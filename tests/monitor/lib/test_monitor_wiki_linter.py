@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from monitor.lib.monitor_wiki_linter import (
+    format_wiki_lint_report,
     lint_project_wiki,
     low_signal_wiki_pages,
     markdown_pages_in_project_wiki,
@@ -260,3 +261,65 @@ def test_lint_project_wiki_returns_ok_for_clean_wiki(tmp_path):
     assert result["low_signal_pages"] == []
     assert result["orphaned_pages"] == []
     assert result["findings"] == []
+
+
+def test_format_wiki_lint_report_for_clean_wiki_shows_pass_and_no_findings(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "system_prompt.py").write_text("PROMPT = 'ok'\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/monitor/lib/system_prompt.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text("architecture\n", encoding="utf-8")
+
+    result = lint_project_wiki(wiki_dir)
+    report = format_wiki_lint_report(result)
+
+    assert "PASS" in report
+    assert str(Path(wiki_dir)) in report
+    assert "No findings" in report
+
+
+def test_format_wiki_lint_report_for_mixed_findings_shows_fail_counts_and_sections(
+    tmp_path,
+):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (repo_root / "src").mkdir()
+    (repo_root / "src" / "existing.py").write_text("print('ok')\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/existing.py and src/missing.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        ("Plain paragraph with no structure.\n" * 85), encoding="utf-8"
+    )
+
+    result = lint_project_wiki(wiki_dir)
+    report = format_wiki_lint_report(result)
+
+    assert result["ok"] is False
+    assert any(finding["severity"] == "warning" for finding in result["findings"])
+    assert any(finding["severity"] == "info" for finding in result["findings"])
+    assert "FAIL" in report
+    assert "warning" in report.lower()
+    assert "info" in report.lower()
+    assert "src/missing.py" in report
+    assert "ARCHITECTURE.md" in report
+    assert "suggest" in report.lower()
+
+    warning_index = report.lower().index("warning")
+    info_index = report.lower().index("info")
+    assert warning_index < info_index
+
+    warning_count = sum(
+        1 for finding in result["findings"] if finding["severity"] == "warning"
+    )
+    info_count = sum(1 for finding in result["findings"] if finding["severity"] == "info")
+    assert str(warning_count) in report
+    assert str(info_count) in report
