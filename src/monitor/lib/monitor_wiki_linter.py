@@ -379,3 +379,22 @@ def format_wiki_lint_report(result: dict[str, Any]) -> str:
             lines.append(f"  suggestion: {suggestion}")
 
     return "\n".join(lines)
+
+
+def run_project_wiki_lint(project_dir: Path) -> dict[str, Any]:
+    """Run the wiki linter and attach a formatted report.
+
+    Args:
+        project_dir: Project wiki directory to lint.
+
+    Returns:
+        A dictionary containing the full result from ``lint_project_wiki`` plus
+        a ``report`` key with the formatted text produced by
+        ``format_wiki_lint_report``.
+    """
+    result = lint_project_wiki(project_dir)
+    report = format_wiki_lint_report(result)
+    return {
+        **result,
+        "report": report,
+    }

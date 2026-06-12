@@ -38,8 +38,8 @@ Current implementation status:
 - [ ] Keep the linter separated from the normal code-writing path.
 
 ## Workflow and UX
-- [ ] Decide whether the linter is exposed through a built-in command.
-- [ ] Decide whether structural linting can be run without semantic linting.
+- [x] Decide whether the linter is exposed through a built-in command.
+- [x] Decide whether structural linting can be run without semantic linting.
 - [x] Decide what output shape is preferred for findings and recommendations.
 - [ ] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 

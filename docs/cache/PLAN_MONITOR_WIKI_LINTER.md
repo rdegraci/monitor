@@ -84,4 +84,8 @@ A likely shape is:
   `page`, `path`, `message`, and `suggestion`
 - a human-readable report formatter now exists for PASS/FAIL summaries,
   per-severity grouping, and actionable suggestions
-- no built-in command or semantic drift workflow has been added yet
+- a simple invocation helper now exists to return both structured lint output
+  and a formatted report in one call
+- a built-in `:wiki_lint` command now exists to run the configured project
+  wiki linter and print its report
+- no semantic drift workflow has been added yet

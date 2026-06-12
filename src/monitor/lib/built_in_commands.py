@@ -30,6 +30,8 @@ from monitor.lib.external_services import (
 # to avoid a module-load cycle when something imports ``monitor.lib.history``
 # directly (e.g., tests). See the analogous note in monitor/lib/redis_utils.py.
 from monitor.lib.keyboard import configure_function_key_insertions
+from monitor.lib.monitor_wiki import ensure_configured_project_wiki
+from monitor.lib.monitor_wiki_linter import run_project_wiki_lint
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
@@ -511,6 +513,50 @@ def print_tools_command(arg=None):
         print(f"  Active: {info['active']}")
         print("-" * 40)
 
+
+def wiki_lint_command(arg=None):
+    """Run the configured project wiki linter.
+
+    Args:
+        arg: Optional dispatcher argument. Accepted values are ``None``,
+            empty string, or a help token (``help``, ``?``, ``-h``,
+            ``--help``). Any other non-empty value is rejected.
+
+    Returns:
+        dict | None: The structured wiki-lint result dict on success, or
+        ``None`` when showing help, when no project wiki is configured,
+        when arguments are invalid, or when an error occurs.
+    """
+    usage = (
+        "Run the project wiki linter against the configured project wiki.\n"
+        "Usage: : (or /) wiki_lint\n"
+        "This command takes no arguments."
+    )
+
+    raw_arg = "" if arg is None else str(arg).strip()
+    if raw_arg.lower() in {"help", "?", "-h", "--help"}:
+        print(usage)
+        return None
+
+    if raw_arg:
+        print_colored_error("wiki_lint does not accept arguments. Use ':wiki_lint' with no arguments.")
+        return None
+
+    try:
+        project_dir = ensure_configured_project_wiki()
+        if not project_dir:
+            print("No configured project wiki is available. Configure a project wiki directory first, then run :wiki_lint again.")
+            return None
+
+        report = run_project_wiki_lint(project_dir)
+        print(report)
+        return report
+    except Exception as e:
+        logger.error("Failed to run project wiki linter: %s", e, exc_info=True)
+        print_colored_error(f"Failed to run project wiki linter: {e}")
+        return None
+
+
 def reasoning_command(arg: str = None) -> None:
     """
     Change the reasoning effort level at runtime.
@@ -554,6 +600,7 @@ def reasoning_command(arg: str = None) -> None:
             pass
     except Exception as e:
         print_colored_error(f"Could not set reasoning effort: {e}")
+
 
 def _ttl_minutes_from_api_value(api_value):
     """Convert Anthropic's ``cache_control.ttl`` string ("5m" or "1h") to an
@@ -1359,6 +1406,7 @@ def llm_command(arg: str = None) -> None:
             for k, v in mapping.items():
                 print(f"  {k:16} -> {v}")
         print("Usage: : (or /) llm <modelname>. See ':llm help' or '/llm help'.")
+
 
 def compact_command(arg: str | None = None) -> None:
     """Manually run the same partial-preserve compaction flow used automatically.

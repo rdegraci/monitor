@@ -38,6 +38,7 @@ from monitor.lib.built_in_commands import (
     reasoning_command,
     ttl_command,
     compact_command,
+    wiki_lint_command,
 )
 from monitor.lib.tool_loading import (
     add_db_tools,
@@ -535,6 +536,11 @@ def configure_built_ins() -> None:
                     "command": "dev_mode",
                     "function": _make_callable(dev_mode_command),
                     "description": "Switch to development mode.",
+                },
+                {
+                    "command": "wiki_lint",
+                    "function": _make_callable(wiki_lint_command),
+                    "description": "Run the configured project wiki linter and print a report.",
                 },
                 {
                     "command": "make_commit",

@@ -10,6 +10,7 @@ from monitor.lib.monitor_wiki_linter import (
     oversized_wiki_pages,
     referenced_repo_paths,
     referenced_wiki_pages,
+    run_project_wiki_lint,
 )
 
 
@@ -323,3 +324,65 @@ def test_format_wiki_lint_report_for_mixed_findings_shows_fail_counts_and_sectio
     info_count = sum(1 for finding in result["findings"] if finding["severity"] == "info")
     assert str(warning_count) in report
     assert str(info_count) in report
+
+
+def test_run_project_wiki_lint_for_clean_wiki_returns_ok_and_pass_report(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "system_prompt.py").write_text("PROMPT = 'ok'\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/monitor/lib/system_prompt.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text("architecture\n", encoding="utf-8")
+
+    result = run_project_wiki_lint(wiki_dir)
+
+    assert result["ok"] is True
+    assert result["missing_index"] is False
+    assert result["broken_references"] == []
+    assert result["missing_repo_paths"] == []
+    assert result["oversized_pages"] == []
+    assert result["low_signal_pages"] == []
+    assert result["orphaned_pages"] == []
+    assert result["findings"] == []
+    assert "report" in result
+    assert "PASS" in result["report"]
+
+
+def test_run_project_wiki_lint_for_failing_wiki_returns_findings_and_fail_report(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (repo_root / "src").mkdir()
+    (repo_root / "src" / "existing.py").write_text("print('ok')\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text(
+        "See ARCHITECTURE.md and src/existing.py and src/missing.py\n",
+        encoding="utf-8",
+    )
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        ("Plain paragraph with no structure.\n" * 85), encoding="utf-8"
+    )
+
+    result = run_project_wiki_lint(wiki_dir)
+
+    assert result["ok"] is False
+    assert "missing_index" in result
+    assert "broken_references" in result
+    assert "missing_repo_paths" in result
+    assert "oversized_pages" in result
+    assert "low_signal_pages" in result
+    assert "orphaned_pages" in result
+    assert "findings" in result
+    assert "report" in result
+    assert result["missing_index"] is False
+    assert result["broken_references"] == []
+    assert result["missing_repo_paths"] == ["src/missing.py"]
+    assert result["oversized_pages"] == []
+    assert result["low_signal_pages"] == ["ARCHITECTURE.md"]
+    assert "FAIL" in result["report"]
+    assert "src/missing.py" in result["report"]
+    assert "ARCHITECTURE.md" in result["report"]

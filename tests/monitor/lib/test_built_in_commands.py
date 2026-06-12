@@ -150,6 +150,16 @@ class TestConfigureBuiltIns(unittest.TestCase):
         reload_func("test")
         mock_reload.assert_called_once_with("test")
 
+    @patch('monitor.core.built_ins.append_function_to_built_ins')
+    def test_wiki_lint_command_registration(self, mock_append):
+        registrations = []
+        mock_append.side_effect = lambda reg: registrations.append(reg)
+
+        built_ins.configure_built_ins()
+
+        found = [r for r in registrations if r.get("command") == "wiki_lint"]
+        self.assertEqual(len(found), 1, "Should register wiki_lint exactly once")
+
 
 def test_execute_built_in_function_accepts_slash_prefix_and_preserves_raw_args():
     from monitor.lib import built_ins_utils
@@ -166,3 +176,49 @@ def test_execute_built_in_function_accepts_slash_prefix_and_preserves_raw_args()
         original_entry["function"] = original_function
 
     mock_handler.assert_called_once_with("spaced   args")
+
+
+def test_wiki_lint_command_help_behavior(capsys):
+    bic.wiki_lint_command("help")
+    captured = capsys.readouterr()
+    assert "wiki_lint" in captured.out
+    assert "lint" in captured.out.lower()
+
+
+@patch("monitor.lib.built_in_commands.print_colored_error")
+def test_wiki_lint_command_rejects_unexpected_arguments(mock_error):
+    bic.wiki_lint_command("unexpected")
+    mock_error.assert_called_once()
+
+
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki", return_value=None)
+def test_wiki_lint_command_returns_none_when_wiki_not_configured(mock_ensure, capsys):
+    result = bic.wiki_lint_command("")
+    captured = capsys.readouterr()
+
+    assert result is None
+    assert captured.out.strip()
+    mock_ensure.assert_called_once()
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint")
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_prints_report_and_returns_structured_result(
+    mock_ensure,
+    mock_run,
+    capsys,
+):
+    mock_ensure.return_value = "/tmp/wiki"
+    sample_result = {
+        "report": "Wiki lint report\n- issue 1",
+        "issues": [{"path": "page.md", "message": "issue 1"}],
+    }
+    mock_run.return_value = sample_result
+
+    result = bic.wiki_lint_command("")
+
+    captured = capsys.readouterr()
+    assert result == sample_result
+    assert "Wiki lint report" in captured.out
+    mock_ensure.assert_called_once()
+    mock_run.assert_called_once_with("/tmp/wiki")

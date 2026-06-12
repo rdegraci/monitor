@@ -74,5 +74,6 @@ Define how the linter is invoked and how users consume its findings.
 The wiki-linter is useful, understandable, and optional rather than intrusive.
 
 ### Status
-- Structured finding output and a human-readable report formatter now exist.
-- Explicit invocation and semantic UX remain future work.
+- Structured finding output, a human-readable report formatter, a simple
+  invocation helper, and a built-in `:wiki_lint` command now exist.
+- Semantic UX remains future work.

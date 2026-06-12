@@ -56,6 +56,10 @@ It should validate:
   `page`, `path`, `message`, and `suggestion`.
 - A human-readable report format should summarize PASS/FAIL status, project
   path, per-severity sections, and actionable suggestions.
+- A simple invocation helper may return both structured lint output and the
+  formatted report together.
+- A built-in `:wiki_lint` command may surface the formatted report directly to
+  the user while preserving the structured result internally.
 
 ## Component Isolation
 - The wiki-linter should be implemented as a separate component from the main
