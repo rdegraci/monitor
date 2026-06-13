@@ -64,7 +64,7 @@ Current implementation status:
 - [x] Decide whether structural linting can be run without semantic linting.
 - [x] Decide what output shape is preferred for findings and recommendations.
 - [x] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
-- [ ] Add explicit batch auto-fix for supported semantic finding kinds only.
+- [x] Add explicit batch auto-fix for supported semantic finding kinds only.
 - [x] Add a preview/apply-all workflow for supported semantic finding kinds.
 
 - [x] Decide whether structural and semantic linting should be separately invocable.

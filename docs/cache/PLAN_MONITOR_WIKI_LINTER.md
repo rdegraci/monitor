@@ -134,6 +134,9 @@ A likely shape is:
   `src/monitor/lib/monitor_wiki_linter.py`
 - semantic mode now implements a narrow semantic v1 check for stale
   location/path claims in wiki lines that assert implementation locations such
+- `:wiki_fix` now also supports explicit `auto_all` to preview then apply all
+  supported semantic findings in one batch command while still ignoring
+  unsupported finding kinds
   as `lives in`, `implemented in`, `defined in`, or `authoritative
   implementation`
 - semantic mode now also implements stale authority/document claim detection

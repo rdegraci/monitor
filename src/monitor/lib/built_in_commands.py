@@ -391,14 +391,14 @@ def wiki_fix_command(arg=None):
     Args:
         arg: Required argument string in one of the forms
             ``llm <finding_id>``, ``apply <finding_id>``, ``llm_all``,
-            ``apply_all``, or a help token.
+            ``apply_all``, ``auto_all``, or a help token.
 
     Returns:
         dict | None: A preview or apply result for single-finding commands, or
-        a summary dict with counts and per-finding results for ``llm_all`` and
-        ``apply_all``. Returns ``None`` when showing help, when no latest lint
-        result is available, when arguments are invalid, or when a guardrail
-        prevents the requested operation.
+        a summary dict with counts and per-finding results for ``llm_all``,
+        ``apply_all``, and ``auto_all``. Returns ``None`` when showing help,
+        when no latest lint result is available, when arguments are invalid,
+        or when a guardrail prevents the requested operation.
     """
     usage = (
         "Draft or apply an LLM-assisted wiki fix for findings from the latest wiki lint run.\n"
@@ -406,9 +406,11 @@ def wiki_fix_command(arg=None):
         "       : (or /) wiki_fix apply <finding_id>\n"
         "       : (or /) wiki_fix llm_all\n"
         "       : (or /) wiki_fix apply_all\n"
+        "       : (or /) wiki_fix auto_all\n"
         "Currently supports semantic stale location, authority, workflow, and ownership claims. "
         "'llm' previews a diff, 'apply' saves a stored preview for one finding, 'llm_all' previews "
-        "all supported findings, and 'apply_all' applies stored previews for all supported findings."
+        "all supported findings, 'apply_all' applies stored previews for all supported findings, "
+        "and 'auto_all' previews then applies all supported findings in one explicit batch command."
     )
     raw_arg = "" if arg is None else str(arg).strip()
     lowered_arg = raw_arg.lower()
@@ -439,6 +441,23 @@ def wiki_fix_command(arg=None):
             "supported_count": len(supported_findings),
             "previewed_count": len(preview_results),
             "results": preview_results,
+        }
+
+    if lowered_arg == "auto_all":
+        preview_all_result = wiki_fix_command("llm_all")
+        if preview_all_result is None:
+            return None
+        apply_all_result = wiki_fix_command("apply_all")
+        if apply_all_result is None:
+            return None
+        return {
+            "mode": "auto_all",
+            "fix_mode": "llm",
+            "supported_count": len(supported_findings),
+            "previewed_count": preview_all_result.get("previewed_count", 0),
+            "applied_count": apply_all_result.get("applied_count", 0),
+            "preview_results": preview_all_result.get("results", []),
+            "apply_results": apply_all_result.get("results", []),
         }
 
     if lowered_arg == "apply_all":
@@ -477,7 +496,7 @@ def wiki_fix_command(arg=None):
     if len(parts) != 2 or parts[0].lower() not in {"llm", "apply"}:
         print_colored_error(
             "wiki_fix requires one of ':wiki_fix llm <finding_id>', ':wiki_fix apply <finding_id>', "
-            "':wiki_fix llm_all', or ':wiki_fix apply_all'."
+            "':wiki_fix llm_all', ':wiki_fix apply_all', or ':wiki_fix auto_all'."
         )
         return None
     action = parts[0].lower()

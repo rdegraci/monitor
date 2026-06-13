@@ -352,6 +352,12 @@ def test_wiki_fix_command_help_behavior_mentions_batch_modes(capsys):
     assert "apply_all" in captured.out
 
 
+
+def test_wiki_fix_command_help_behavior_mentions_auto_mode(capsys):
+    bic.wiki_fix_command("help")
+    captured = capsys.readouterr()
+    assert "auto_all" in captured.out
+
 def test_wiki_fix_command_requires_stored_lint_result(capsys):
     with patch("monitor.lib.built_in_commands.latest_wiki_lint_result", return_value=None):
         result = bic.wiki_fix_command("llm some-id")
@@ -910,5 +916,69 @@ def test_wiki_fix_command_apply_all_applies_all_supported_previews(
     assert len(result["results"]) == 2
     assert location_claim not in page_one.read_text(encoding="utf-8")
     assert workflow_claim not in page_two.read_text(encoding="utf-8")
+    assert "Applied wiki fix" in captured.out
+    assert mock_completion.call_count == 2
+
+
+@patch("monitor.lib.built_in_commands.litellm.completion")
+def test_wiki_fix_command_auto_all_previews_then_applies_supported_findings(
+    mock_completion,
+    tmp_path,
+    capsys,
+):
+    mock_completion.side_effect = [
+        MagicMock(choices=[MagicMock(message=MagicMock(content="The implementation location in this page is stale and must be updated."))]),
+        MagicMock(choices=[MagicMock(message=MagicMock(content="The workflow document reference in this page is stale and must be updated."))]),
+    ]
+    wiki_dir = tmp_path / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    page_one = wiki_dir / "ARCHITECTURE.md"
+    page_two = wiki_dir / "BUILD.md"
+    location_claim = "The authoritative implementation lives in src/monitor/lib/missing_server.py"
+    workflow_claim = "Build steps are in docs/build/current.md"
+    page_one.write_text(f"Before\n{location_claim}\nAfter\n", encoding="utf-8")
+    page_two.write_text(f"Before\n{workflow_claim}\nAfter\n", encoding="utf-8")
+    findings = [
+        {
+            "id": "semantic|ARCHITECTURE.md|src/monitor/lib/missing_server.py|claim-auto",
+            "kind": "semantic_stale_location_claim",
+            "page": "ARCHITECTURE.md",
+            "path": "src/monitor/lib/missing_server.py",
+            "claim": location_claim,
+            "evidence": "src/monitor/lib/missing_server.py",
+        },
+        {
+            "id": "broken|ARCHITECTURE.md|OTHER.md|claim-auto",
+            "kind": "broken_reference",
+            "page": "ARCHITECTURE.md",
+            "path": "OTHER.md",
+        },
+        {
+            "id": "semantic|BUILD.md|docs/build/current.md|claim-auto",
+            "kind": "semantic_stale_workflow_claim",
+            "page": "BUILD.md",
+            "path": "docs/build/current.md",
+            "claim": workflow_claim,
+            "evidence": "docs/build/current.md",
+        },
+    ]
+
+    with patch(
+        "monitor.lib.built_in_commands.latest_wiki_lint_result",
+        return_value={"project_dir": str(wiki_dir), "findings": findings},
+    ):
+        result = bic.wiki_fix_command("auto_all")
+
+    captured = capsys.readouterr()
+    assert result is not None
+    assert result["mode"] == "auto_all"
+    assert result["supported_count"] == 2
+    assert result["previewed_count"] == 2
+    assert result["applied_count"] == 2
+    assert len(result["preview_results"]) == 2
+    assert len(result["apply_results"]) == 2
+    assert location_claim not in page_one.read_text(encoding="utf-8")
+    assert workflow_claim not in page_two.read_text(encoding="utf-8")
+    assert captured.out.count("--- a/") == 4
     assert "Applied wiki fix" in captured.out
     assert mock_completion.call_count == 2
