@@ -3,7 +3,7 @@
 Covers:
 - Default counter value is 0.
 - H: format with 0 compactions: "H:<count>" (tight, no space).
-- H: format with N>0 compactions: "H:<count> (N)" — suffix follows the count.
+- H: format with N>0 compactions: "H:(N) <count>" — (N) is a PREFIX.
 - :reset_history clears the counter.
 """
 
@@ -46,7 +46,7 @@ def test_h_indicator_no_parens_when_zero(monkeypatch):
 
 def test_h_indicator_includes_parens_when_nonzero(monkeypatch):
     """Once at least one compaction has fired this session, the H: indicator
-    should display 'H:<count> (N)'."""
+    should display the count with a '(N)' compaction PREFIX: 'H:(N) <count>'."""
     from monitor.lib.display_output import format_prompt_display
 
     monkeypatch.setattr(config, "SESSION_COMPACTION_COUNT", 2, raising=False)
@@ -58,7 +58,7 @@ def test_h_indicator_includes_parens_when_nonzero(monkeypatch):
         model="openai/gpt-5.4-mini",
     )
 
-    assert "H:124 (2)" in output
+    assert "H:(2) 124" in output
 
 
 def test_reset_history_clears_compaction_count(monkeypatch):

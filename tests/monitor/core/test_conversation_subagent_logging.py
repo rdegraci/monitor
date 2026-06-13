@@ -23,7 +23,11 @@ def test_conversation_triggers_subagent_logging(monkeypatch):
     with patch("monitor.lib.subagent_logging.append_interaction") as mock_append:
         # Ensure MONITOR_AGENT env enables agent behavior
         monkeypatch.setenv("MONITOR_AGENT", "1")
-        monitor.config.AGENT = True
+        # Use monkeypatch so config.AGENT is RESTORED after this test. A bare
+        # `config.AGENT = True` leaks the agent flag into the global config and
+        # pollutes later tests — notably memory-tool / prepend behavior, which
+        # is now gated on config.AGENT (sub-agents are walled off from memory).
+        monkeypatch.setattr(monitor.config, "AGENT", True)
         # Also patch process_response_by_type to a no-op to avoid deep processing
         monkeypatch.setattr(conversation, "process_response_by_type", lambda *a, **k: "OK")
 

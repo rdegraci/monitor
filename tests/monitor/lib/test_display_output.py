@@ -192,15 +192,16 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertIn("]", result)  # End bracket of prompt
 
     def test_history_tokens_rendered_as_suffix_on_H(self):
-        # H:<count> (<compactions>) <history_tokens>t — the retained-history
-        # token size (cost-relevant baseline re-sent each request).
+        # H:(<compactions>) <count> (<history_tokens>) — compaction count is a
+        # PREFIX; the retained-history token size (cost-relevant baseline
+        # re-sent each request) is a parenthesized suffix with no "t".
         with patch.object(display_output.config, "SESSION_COMPACTION_COUNT", 1):
             result = format_prompt_display(
                 conversation_count=29, tokens_remaining=909916,
                 context_remaining=909916, context_budget=922000,
                 history_tokens=12084,
             )
-        self.assertIn("H:29 (1) 12084t", result)
+        self.assertIn("H:(1) 29 (12084)", result)
 
     def test_rt_shows_last_turn_round_trips(self):
         # RT: reflects the LAST TURN_ROUND_TRIPS bucket, not the sum.

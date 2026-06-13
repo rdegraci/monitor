@@ -5,9 +5,14 @@ import logging
 from monitor import config
 
 
-def test_default_tool_output_token_limit_is_8192() -> None:
-    """Verify the module default matches the intended per-tool output cap."""
-    assert config.TOOL_OUTPUT_TOKEN_LIMIT == 8_192
+def test_default_tool_output_token_limit_is_32768() -> None:
+    """Verify the module default matches the intended per-tool output cap.
+
+    The default is 32K (see config.TOOL_OUTPUT_TOKEN_LIMIT and the matching
+    config.yaml.example key) — a per-tool blast-radius guard, intentionally much
+    smaller than the model context window.
+    """
+    assert config.TOOL_OUTPUT_TOKEN_LIMIT == 32_768
 
 
 def test_yaml_loader_accepts_valid_tool_output_token_limit() -> None:
