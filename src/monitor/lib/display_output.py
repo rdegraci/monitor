@@ -395,17 +395,18 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         parts.append(f"L:{l_count}")
     # H indicator: "H:<count>" — the retained-history message count (tight, no
     # space after colon, to match C:/R:/U:/L:). When one or more auto-compactions
-    # have fired this session, a "(N)" suffix follows: "H:<count> (N)" — surfacing
-    # compaction activity at a glance. Finally, when history_tokens is supplied,
-    # the retained-history TOKEN size is appended as "<n>t" — that's the context
-    # actually re-sent each request (system prompt + kept messages), i.e. the
-    # cost-relevant baseline. Example: "H:29 (1) 12084t".
+    # have fired this session, a "(N)" PREFIX leads, right after the colon:
+    # "H:(N) <count>" — surfacing compaction activity at a glance. Finally, when
+    # history_tokens is supplied, the retained-history TOKEN size follows in
+    # parens "(<n>)" — that's the context actually re-sent each request (system
+    # prompt + kept messages), i.e. the cost-relevant baseline.
+    # Example: "H:(1) 29 (12084)"; with no compactions: "H:36 (16561)".
     _compaction_count = getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
-    _compaction_suffix = f" ({_compaction_count})" if _compaction_count > 0 else ""
+    _compaction_prefix = f"({_compaction_count}) " if _compaction_count > 0 else ""
     _history_tokens_suffix = ""
     if isinstance(history_tokens, (int, float)) and history_tokens >= 0:
-        _history_tokens_suffix = f" {int(history_tokens)}t"
-    parts.append(f"H:{tch_count}{_compaction_suffix}{_history_tokens_suffix}{extra_history_str}")
+        _history_tokens_suffix = f" ({int(history_tokens)})"
+    parts.append(f"H:{_compaction_prefix}{tch_count}{_history_tokens_suffix}{extra_history_str}")
 
     # RT: model round-trips in the previous turn (last TURN_ROUND_TRIPS bucket).
     # Read alongside P:: high RT + high P → many generations; low RT + high P →
