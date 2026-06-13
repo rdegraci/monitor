@@ -381,6 +381,30 @@ SUMMARY_TWITTER: False  # Enable Twitter/X summaries (requires EXTERNAL_SERVICES
 REDIS_HOST: localhost
 MEMORY_SERVICES: False
 
+# Redis memory TTLs (seconds) and prompt-injection cap. Sized to span a working
+# session rather than expire mid-task:
+#   MEMORY_SHORT_TTL  Ambient/auto-captured writes (SemanticStore). 3600 = 1h —
+#                     outlasts the current task, clears within the session.
+#   MEMORY_LONG_TTL   Explicit "remember this" writes (update_memory tool).
+#                     14400 = 4h — outlasts the whole session with margin but
+#                     expires overnight, so the next day starts clean.
+#   MEMORY_CONTEXT_MAX_ENTRIES  Max stored memories prepended into the prompt
+#                     each turn (newest first). Caps the per-turn token cost of
+#                     the "Previous conversation context:" block. 0 = uncapped.
+# These are working-memory TTLs, NOT durable storage — they all expire. For
+# facts that must persist indefinitely, that's a different mechanism.
+MEMORY_SHORT_TTL: 3600
+MEMORY_LONG_TTL: 14400
+MEMORY_CONTEXT_MAX_ENTRIES: 20
+
+# Sub-agent memory sharing. The Redis memory pool is global (one keyspace, no
+# session/project scoping), so by DEFAULT sub-agents (monitor --agent) are walled
+# off from it: no memory read/write tools and no prepended memory context, so a
+# sub-agent can neither read your pool nor write noise back into it. The code
+# default is off, so leaving this commented = walled off. One-step opt-in:
+# uncomment the line below and set it True to let sub-agents share memory.
+# SUBAGENT_MEMORY_SERVICES: false
+
 NON_INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/non_interactive_commands.json  # Path to non-interactive commands JSON definition
 INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/interactive_commands.json # Path to interactive commands JSON definition
 

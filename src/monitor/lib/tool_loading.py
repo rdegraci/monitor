@@ -316,28 +316,6 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
         {
             "type": "function",
             "function": {
-                "name": "save_to_memory",
-                "description": "DEPRECATED — prefer update_memory. Save a value under the given key for later recall in this session.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string", "description": "Short descriptive key to store the value under."},
-                        "value": {"type": "string", "description": "The value to remember."},
-                        "ttl": {"type": "integer", "description": "How long to remember it, in seconds. ~900 (15 min) for short-term, up to ~1800 (30 min) for longer-lived facts."}
-                    },
-                    "required": ["key", "value", "ttl"]
-                }
-            }
-        }
-    )
-
-    add_tool(
-        tool_descriptions,
-        gemini_tool_descriptions,
-        tool_state,
-        {
-            "type": "function",
-            "function": {
                 "name": "read_from_memory",
                 "description": "Recall a previously remembered fact by its key. Keys are visible in the 'Previous conversation context:' system message that's prepended to every user turn — each stored entry there is rendered as 'Key: conversation:<timestamp>\\nUser: ...\\nResponse: ...' so you can copy the Key value directly. If you need to enumerate keys without reading content, use fetch_memory_keys_as_json. The 'conversation:' namespace prefix is handled automatically.",
                 "parameters": {
@@ -359,7 +337,7 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             "type": "function",
             "function": {
                 "name": "update_memory",
-                "description": "Remember an exchange so it can be recalled later in this session (canonical 'remember this' tool — prefer this over save_to_memory). Use when the user asks you to remember something, or when a fact stated in this turn (a preference, a project detail, context) will likely matter later but won't naturally be carried in the conversation history. Pass the user's statement as user_input and your acknowledgement/response as response; the key is derived automatically.",
+                "description": "Remember an exchange so it can be recalled later in this session (the canonical 'remember this' tool). Use when the user asks you to remember something, or when a fact stated in this turn (a preference, a project detail, context) will likely matter later but won't naturally be carried in the conversation history. Pass the user's statement as user_input and your acknowledgement/response as response; the key is derived automatically.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -416,7 +394,6 @@ def remove_memory_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dic
     remove_tool(tool_descriptions, tool_state, "fetch_memory_keys_as_json")
     remove_tool(tool_descriptions, tool_state, "update_memory")
     remove_tool(tool_descriptions, tool_state, "read_from_memory")
-    remove_tool(tool_descriptions, tool_state, "save_to_memory")
     remove_tool(tool_descriptions, tool_state, "delete_from_memory")
 
 def add_db_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):

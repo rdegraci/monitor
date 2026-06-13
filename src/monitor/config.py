@@ -451,6 +451,23 @@ MODEL_INPUT_WINDOW = None
 CONVERSATION_MAX_SIZE = None
 RATE_LIMITING_CONFIG = None
 MEMORY_SERVICES = None
+# Redis memory TTLs (seconds). SHORT backs ambient auto-captures (SemanticStore);
+# LONG backs explicit "remember this" writes (update_memory). Sized to span a
+# working session: SHORT (1h) outlasts a task, LONG (4h) outlasts the whole
+# session with margin but expires overnight so the next day starts clean.
+# Overridable in config.yaml. MEMORY_CONTEXT_MAX_ENTRIES caps how many stored
+# memories get prepended into the prompt each turn (cost guard); 0 = uncapped.
+MEMORY_SHORT_TTL = 3600
+MEMORY_LONG_TTL = 14400
+MEMORY_CONTEXT_MAX_ENTRIES = 20
+# Sub-agent memory sharing. The Redis memory pool is global (one keyspace, no
+# session/project scoping), so sub-agents (monitor --agent) are walled off from
+# it by DEFAULT (False): they get no memory read/write tools and no prepended
+# memory context, so they can't read or pollute your pool. The gates live in
+# core.tools.configure_tools and redis_utils.prepend_memory_to_history. To let
+# sub-agents participate in shared memory it's a one-step opt-in: set
+# SUBAGENT_MEMORY_SERVICES: true in your appdir config.yaml.
+SUBAGENT_MEMORY_SERVICES = False
 STARTUP_TIME = None
 HISTORY_FILE = None
 CONVERSATION_HISTORY = []
@@ -744,6 +761,8 @@ def configure_globals():
     global EXTERNAL_SERVICES, MEMORY_SERVICES
     global INTERACTIVE_COMMANDS_PATH, NON_INTERACTIVE_COMMANDS_PATH
     global REDIS_HOST, PREFERENCE_PROMPT_FILE
+    global MEMORY_SHORT_TTL, MEMORY_LONG_TTL, MEMORY_CONTEXT_MAX_ENTRIES
+    global SUBAGENT_MEMORY_SERVICES
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -854,6 +873,10 @@ def configure_globals():
     SUMMARY_TWITTER = yaml_config.get("SUMMARY_TWITTER", False)
 
     MEMORY_SERVICES = yaml_config.get("MEMORY_SERVICES", False)
+    MEMORY_SHORT_TTL = yaml_config.get("MEMORY_SHORT_TTL", 3600)
+    MEMORY_LONG_TTL = yaml_config.get("MEMORY_LONG_TTL", 14400)
+    MEMORY_CONTEXT_MAX_ENTRIES = yaml_config.get("MEMORY_CONTEXT_MAX_ENTRIES", 20)
+    SUBAGENT_MEMORY_SERVICES = yaml_config.get("SUBAGENT_MEMORY_SERVICES", False)
     # NOTE: Local Ollama config previously lived here and powered :query's
     # client-side RAG path. That path has been replaced by embedcodeserv's
     # /analyze endpoint (which runs Ollama server-side). The ``ollama``

@@ -20,7 +20,20 @@ from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPT
 
 def configure_tools():
     add_weather_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
-    add_memory_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+
+    # Wall sub-agents off from the shared Redis memory pool by default. The pool
+    # is global (one keyspace, no session/project scoping), so a sub-agent with
+    # memory tools could read the orchestrator's memories and write noise back
+    # into the pool that later surfaces in the main session. Skip the tools when
+    # running as a sub-agent unless SUBAGENT_MEMORY_SERVICES is explicitly on.
+    # getattr default False means the gate holds even with the config commented
+    # out. (The matching read/prepend path is gated in prepend_memory_to_history.)
+    if config.AGENT and not getattr(config, "SUBAGENT_MEMORY_SERVICES", False):
+        logger.info(
+            "Sub-agent: memory tools gated off (SUBAGENT_MEMORY_SERVICES is off)."
+        )
+    else:
+        add_memory_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
 
     # TC-3: dispatch on the model's provider prefix. Anthropic and openai
     # have incompatible editor-tool catalogs; Gemini uses GEMINI_TOOL_DESCRIPTIONS

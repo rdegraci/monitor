@@ -481,21 +481,32 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
         return False, -2
 
 
+# Sentinel for "TTL argument omitted". Distinct from None, which is a real,
+# meaningful value here ("persist with no expiry"). An omitted ttl resolves to
+# the configured per-tier default; ttl=None still means never-expire.
+_TTL_UNSET = object()
+
+
 @with_redis_retry()
 def save_to_memory(
-    key: str, value: str, ttl: Optional[int] = 900
+    key: str, value: str, ttl=_TTL_UNSET
 ) -> Union[str, None]:
     """
-    Deprecated: Use update_memory instead.
+    Internal helper for ambient/keyed memory writes (e.g. SemanticStore
+    auto-capture). NOT exposed to the LLM — the canonical model-facing
+    "remember this" tool is update_memory. Thin wrapper that stores a keyed
+    entry with the SHORT TTL (config.MEMORY_SHORT_TTL) when no ttl is given.
 
     Args:
         key (str): The Redis key.
         value (str): Value to save.
-        ttl (Optional[int]): Time to live for the key in seconds.
+        ttl: Seconds to live. Omitted → config.MEMORY_SHORT_TTL; None → no expiry.
 
     Returns:
         Union[str, None]: Result message or None on failure.
     """
+    if ttl is _TTL_UNSET:
+        ttl = getattr(config, "MEMORY_SHORT_TTL", 3600)
     logger.debug(
         "Entering save_to_memory with key=%s, value=(omitted), ttl=%s", key, ttl
     )
@@ -507,7 +518,7 @@ def update_memory(
     user_input: str,
     response: str = "",
     key: Optional[str] = None,
-    ttl: Optional[int] = 1800,
+    ttl=_TTL_UNSET,
 ) -> Union[str, None]:
     """
     Save a value in Redis under the specified key.
@@ -517,11 +528,14 @@ def update_memory(
         user_input (str): The user's input to be stored.
         response (str, optional): The system's response to be stored.
         key (Optional[str], optional): The Redis key under which the value is stored. If None, a timestamped key is generated.
-        ttl (Optional[int], optional): Time in seconds after which the key should expire. Defaults to 30 minutes (1800 seconds).
+        ttl (optional): Seconds after which the key expires. Omitted → the LONG
+            default (config.MEMORY_LONG_TTL); None → no expiry (persist forever).
 
     Returns:
         Union[str, None]: String message describing the operation result or None on failure.
     """
+    if ttl is _TTL_UNSET:
+        ttl = getattr(config, "MEMORY_LONG_TTL", 14400)
     logger.debug(
         "Entering update_memory with user_input=%s, response=%s, key=%s, ttl=%s",
         (user_input[:40] + "...") if user_input and len(user_input) > 40 else user_input,
@@ -789,6 +803,15 @@ def prepend_memory_to_history() -> None:
                 "Unable to prepend memory to history. No MEMORY_SERVICES."
             )
             return
+        # Sub-agents are walled off from the shared (global, unscoped) memory
+        # pool by default — don't inject the orchestrator's memories into a
+        # sub-agent's context. Mirrors the tool gate in core.tools.configure_tools.
+        # getattr default False keeps the gate holding with the config commented out.
+        if config.AGENT and not getattr(config, "SUBAGENT_MEMORY_SERVICES", False):
+            logger.debug(
+                "prepend_memory_to_history short-circuit: sub-agent, memory sharing off."
+            )
+            return
         client = get_redis_client()
         if client is None:
             logger.debug(
@@ -797,6 +820,22 @@ def prepend_memory_to_history() -> None:
             return
         logger.debug("Prepending memory to history")
         keys = fetch_memory_for_context()
+        # Cap how many stored memories get injected into the prompt. keys are
+        # newest-first (fetch_memory_for_context sorts by timestamp desc), so
+        # slicing keeps the most recent. This bounds the per-turn token cost of
+        # the "Previous conversation context:" block — without it, a long-lived
+        # memory store grows the prompt unboundedly every turn. 0/None = uncapped.
+        # Note: only the PREPEND path is capped; :memories and
+        # fetch_memory_keys_as_json still enumerate everything.
+        cap = getattr(config, "MEMORY_CONTEXT_MAX_ENTRIES", 20)
+        if isinstance(cap, int) and cap > 0 and len(keys) > cap:
+            logger.info(
+                "Capping prepended memory: %d stored, injecting newest %d "
+                "(raise MEMORY_CONTEXT_MAX_ENTRIES to widen)",
+                len(keys),
+                cap,
+            )
+            keys = keys[:cap]
         memory_entries = []
 
         for key in keys:
