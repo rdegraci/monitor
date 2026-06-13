@@ -284,6 +284,15 @@ REASONING_EFFORT: medium
 # failed turns just continue at REASONING_EFFORT).
 ESCALATE_REASONING_ON_TOOL_FAILURE: true
 
+# Continuity reasoning bump. A short confirmation ("Sounds good. Proceed.")
+# that follows a substantive proposal — the previous assistant reply contained
+# real code or a diff — reasons at "high" for that execution turn, instead of
+# dropping to the default tier. Prose-only plans (no code/diff) do NOT trigger
+# it. One-way. Heads-up: this bumps your EXECUTION turn, usually the
+# highest-cost / highest-tool-round-trip turn, so it trades tokens for
+# execution quality. Defaults on; set false to disable.
+CONTINUITY_REASONING_BUMP: true
+
 # Commit-message generation can use its own model and reasoning settings.
 # Leave these unset to fall back to MODEL / REASONING_EFFORT /
 # REASONING_MAX_COMPLETION_TOKENS.

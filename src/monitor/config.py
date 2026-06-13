@@ -634,6 +634,14 @@ CURRENT_TURN_REASONING_OVERRIDE = None
 # lib/reasoning_escalation.py and the hook in core/tooling.handle_tool_call.
 # Overridable in config.yaml.
 ESCALATE_REASONING_ON_TOOL_FAILURE = True
+# Continuity reasoning bump. When True, a short confirmation ("Sounds good.
+# Proceed.") that follows a substantive proposal (the previous assistant reply
+# contained real code or a diff) reasons at "high" for that execution turn —
+# closing the gap where "proceed" otherwise runs at the default tier. One-way.
+# NOTE: this bumps your EXECUTION turn (typically the highest tool-round-trip,
+# highest-cost turn), so it trades tokens for execution quality. See
+# lib/reasoning_heuristic.detect_continuation_bump. Overridable in config.yaml.
+CONTINUITY_REASONING_BUMP = True
 # Cost-indicator color thresholds (USD). P (this turn) and W per-turn
 # average get colored when they exceed these values: green (uncolored,
 # default) → yellow → red. Defaults are calibrated for gpt-5.4 base /
@@ -772,7 +780,7 @@ def configure_globals():
     global MEMORY_SHORT_TTL, MEMORY_LONG_TTL, MEMORY_CONTEXT_MAX_ENTRIES
     global SUBAGENT_MEMORY_SERVICES
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
-    global ESCALATE_REASONING_ON_TOOL_FAILURE
+    global ESCALATE_REASONING_ON_TOOL_FAILURE, CONTINUITY_REASONING_BUMP
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
@@ -910,6 +918,7 @@ def configure_globals():
     ESCALATE_REASONING_ON_TOOL_FAILURE = yaml_config.get(
         "ESCALATE_REASONING_ON_TOOL_FAILURE", True
     )
+    CONTINUITY_REASONING_BUMP = yaml_config.get("CONTINUITY_REASONING_BUMP", True)
     COMMIT_MODEL = yaml_config.get("COMMIT_MODEL")
     COMMIT_REASONING_EFFORT = yaml_config.get("COMMIT_REASONING_EFFORT")
     COMMIT_REASONING_MAX_COMPLETION_TOKENS = yaml_config.get(

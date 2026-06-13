@@ -979,17 +979,35 @@ def prepare_query_context(user_prompt):
     # for every LLM call within this user turn (including tool-chain
     # follow-ups).
     try:
-        from monitor.lib.reasoning_heuristic import detect_reasoning_bump
+        from monitor.lib.reasoning_heuristic import (
+            detect_reasoning_bump,
+            detect_continuation_bump,
+        )
         config.CURRENT_TURN_REASONING_OVERRIDE = None
         bump = detect_reasoning_bump(
             user_prompt, getattr(config, "REASONING_EFFORT", None)
         )
+        reason = "matched complexity signals"
+        # Continuity bump: if the message itself carried no complexity signal,
+        # check whether it's a short confirmation following a substantive
+        # proposal (code/diff) — the execution turn for that proposal.
+        if not bump and getattr(config, "CONTINUITY_REASONING_BUMP", True):
+            cont = detect_continuation_bump(
+                user_prompt,
+                config.CONVERSATION_HISTORY,
+                getattr(config, "REASONING_EFFORT", None),
+            )
+            if cont:
+                bump = cont
+                reason = "short confirmation after a substantive proposal"
         if bump:
             config.CURRENT_TURN_REASONING_OVERRIDE = bump
             logger.info(
-                "Auto-bumped reasoning effort to %s for this turn (matched complexity signals).",
+                "Auto-bumped reasoning effort to %s for this turn (%s).",
                 bump,
+                reason,
             )
+            print(f"{yellow}[reasoning → {bump}] {reason}{reset}")
     except Exception:
         logger.exception("Reasoning auto-bump heuristic failed; continuing with default effort.")
 

@@ -606,6 +606,7 @@ def handle_tool_call(response, _depth=0):
                     "Tool failure detected; escalated reasoning effort to high "
                     "for the remainder of this turn."
                 )
+                print(f"{yellow}[reasoning → high] tool failure detected{reset}")
     except Exception:
         logger.exception(
             "Reasoning escalation check failed; continuing at current effort."
