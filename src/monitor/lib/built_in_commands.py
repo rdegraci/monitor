@@ -98,6 +98,14 @@ max_tokens_command.__globals__["config"] = config
 
 logger = logging.getLogger(__name__)
 
+_SUPPORTED_WIKI_FIX_KINDS = {
+    "semantic_stale_location_claim",
+    "semantic_stale_authority_claim",
+    "semantic_stale_workflow_claim",
+    "semantic_stale_ownership_claim",
+}
+
+
 def print_tools_command(arg=None):
     from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, TOOL_STATE
 
@@ -189,72 +197,37 @@ def wiki_lint_command(arg=None):
         return None
 
 
-def wiki_fix_command(arg=None):
-    """Draft or apply an LLM-assisted wiki fix for a stored lint finding.
+def _supported_wiki_fix_findings(lint_result):
+    """Return supported wiki-fix findings from the latest lint result.
 
     Args:
-        arg: Required argument string in the form ``llm <finding_id>`` or
-            ``apply <finding_id>``, or a help token.
+        lint_result: The latest wiki lint result dict.
 
     Returns:
-        dict | None: A preview or apply result containing the finding id, page,
-        and diff when a supported fix can be drafted or written, otherwise
-        ``None``.
+        list[dict]: Findings whose ``kind`` is currently supported by
+        ``wiki_fix``.
     """
-    usage = (
-        "Draft or apply an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
-        "Usage: : (or /) wiki_fix llm <finding_id>\n"
-        "       : (or /) wiki_fix apply <finding_id>\n"
-        "Currently supports semantic stale location, authority, workflow, and ownership claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
-    )
-    raw_arg = "" if arg is None else str(arg).strip()
-    lowered_arg = raw_arg.lower()
-    if lowered_arg in {"help", "?", "-h", "--help"} or not raw_arg:
-        print(usage)
-        return None
+    findings = lint_result.get("findings", []) if isinstance(lint_result, dict) else []
+    return [
+        item
+        for item in findings
+        if isinstance(item, dict) and item.get("kind") in _SUPPORTED_WIKI_FIX_KINDS
+    ]
 
-    parts = raw_arg.split(maxsplit=1)
-    if len(parts) != 2 or parts[0].lower() not in {"llm", "apply"}:
-        print_colored_error(
-            "wiki_fix requires the form ':wiki_fix llm <finding_id>' or ':wiki_fix apply <finding_id>'."
-        )
-        return None
-    action = parts[0].lower()
-    finding_id = parts[1].strip()
-    if not finding_id:
-        print_colored_error(f"wiki_fix requires a finding id after '{action}'.")
-        return None
 
-    lint_result = latest_wiki_lint_result()
-    if not lint_result:
-        print("No stored wiki lint result is available. Run :wiki_lint first.")
-        return None
+def _draft_wiki_fix_preview_for_finding(lint_result, finding):
+    """Draft and store one wiki-fix preview for a supported finding.
 
-    findings = lint_result.get("findings", [])
-    finding = next(
-        (
-            item
-            for item in findings
-            if isinstance(item, dict) and str(item.get("id", "")) == finding_id
-        ),
-        None,
-    )
-    if finding is None:
-        print_colored_error(f"Unknown wiki lint finding id: {finding_id}")
-        return None
+    Args:
+        lint_result: The latest wiki lint result dict.
+        finding: A supported finding dict from that lint result.
 
-    if finding.get("kind") not in {
-        "semantic_stale_location_claim",
-        "semantic_stale_authority_claim",
-        "semantic_stale_workflow_claim",
-        "semantic_stale_ownership_claim",
-    }:
-        print_colored_error(
-            "wiki_fix currently supports only semantic_stale_location_claim, semantic_stale_authority_claim, semantic_stale_workflow_claim, and semantic_stale_ownership_claim findings."
-        )
-        return None
-
+    Returns:
+        dict | None: The stored preview result dict on success, otherwise
+        ``None`` after printing a user-facing error.
+    """
     project_dir = lint_result.get("project_dir", "")
+    finding_id = str(finding.get("id", ""))
     page_name = str(finding.get("page", ""))
     claim = str(finding.get("claim", ""))
     path = str(finding.get("path", ""))
@@ -273,76 +246,102 @@ def wiki_fix_command(arg=None):
         print_colored_error("Could not locate the original claim text in the wiki page.")
         return None
 
-    if action == "llm":
-        prompt = (
-            "You are drafting a minimal wiki update for one stale location claim. "
-            "Rewrite only the specific claim text so it no longer states the stale path as fact. "
-            "Do not rewrite the whole page. Do not add unrelated cleanup. "
-            "Return only the replacement text for the claim, with no markdown fences.\n\n"
-            f"Page: {page_name}\n"
-            f"Original claim: {claim}\n"
-            f"Missing path evidence: {evidence}\n"
-            "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
+    prompt = (
+        "You are drafting a minimal wiki update for one stale location claim. "
+        "Rewrite only the specific claim text so it no longer states the stale path as fact. "
+        "Do not rewrite the whole page. Do not add unrelated cleanup. "
+        "Return only the replacement text for the claim, with no markdown fences.\n\n"
+        f"Page: {page_name}\n"
+        f"Original claim: {claim}\n"
+        f"Missing path evidence: {evidence}\n"
+        "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
+    )
+    try:
+        response = litellm.completion(
+            model=config.MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You produce minimal, localized wiki edits only.",
+                },
+                {"role": "user", "content": prompt},
+            ],
         )
-        try:
-            response = litellm.completion(
-                model=config.MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You produce minimal, localized wiki edits only.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            )
-        except Exception as e:
-            logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)
-            print_colored_error(f"Failed to draft wiki fix with LLM: {e}")
-            return None
+    except Exception as e:
+        logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)
+        print_colored_error(f"Failed to draft wiki fix with LLM: {e}")
+        return None
 
-        replacement = (response.choices[0].message.content or "").strip()
-        if not replacement:
-            print_colored_error("LLM-assisted wiki_fix returned an empty replacement.")
-            return None
-        if len(replacement) > WIKI_FIX_MAX_REPLACEMENT_CHARACTERS:
-            print_colored_error("LLM-assisted wiki_fix replacement is too large.")
-            return None
-        if replacement.count("\n") + 1 > WIKI_FIX_MAX_REPLACEMENT_LINES:
-            print_colored_error("LLM-assisted wiki_fix replacement spans too many lines.")
-            return None
-        if claim == replacement:
-            print_colored_error("LLM-assisted wiki_fix did not change the targeted claim.")
-            return None
+    replacement = (response.choices[0].message.content or "").strip()
+    if not replacement:
+        print_colored_error("LLM-assisted wiki_fix returned an empty replacement.")
+        return None
+    if len(replacement) > WIKI_FIX_MAX_REPLACEMENT_CHARACTERS:
+        print_colored_error("LLM-assisted wiki_fix replacement is too large.")
+        return None
+    if replacement.count("\n") + 1 > WIKI_FIX_MAX_REPLACEMENT_LINES:
+        print_colored_error("LLM-assisted wiki_fix replacement spans too many lines.")
+        return None
+    if claim == replacement:
+        print_colored_error("LLM-assisted wiki_fix did not change the targeted claim.")
+        return None
 
-        updated_text = original_text.replace(claim, replacement, 1)
-        diff_text = "".join(
-            difflib.unified_diff(
-                original_text.splitlines(keepends=True),
-                updated_text.splitlines(keepends=True),
-                fromfile=f"a/{page_path}",
-                tofile=f"b/{page_path}",
-            )
+    updated_text = original_text.replace(claim, replacement, 1)
+    diff_text = "".join(
+        difflib.unified_diff(
+            original_text.splitlines(keepends=True),
+            updated_text.splitlines(keepends=True),
+            fromfile=f"a/{page_path}",
+            tofile=f"b/{page_path}",
         )
-        if wiki_fix_diff_line_count(diff_text) > WIKI_FIX_MAX_DIFF_LINES:
-            print_colored_error("LLM-assisted wiki_fix diff footprint is too large.")
-            return None
+    )
+    if wiki_fix_diff_line_count(diff_text) > WIKI_FIX_MAX_DIFF_LINES:
+        print_colored_error("LLM-assisted wiki_fix diff footprint is too large.")
+        return None
 
-        preview_result = store_latest_wiki_fix_preview(
-            {
-                "finding_id": finding_id,
-                "page": page_name,
-                "mode": "preview",
-                "fix_mode": "llm",
-                "diff": diff_text,
-                "updated_text": updated_text,
-                "replacement": replacement,
-                "page_path": page_path,
-                "claim": claim,
-            }
-        )
-        print(diff_text)
-        return preview_result
+    preview_result = store_latest_wiki_fix_preview(
+        {
+            "finding_id": finding_id,
+            "page": page_name,
+            "mode": "preview",
+            "fix_mode": "llm",
+            "diff": diff_text,
+            "updated_text": updated_text,
+            "replacement": replacement,
+            "page_path": page_path,
+            "claim": claim,
+        }
+    )
+    print(diff_text)
+    return preview_result
 
+
+def _apply_stored_wiki_fix_preview_for_finding(lint_result, finding):
+    """Apply one stored wiki-fix preview for a supported finding.
+
+    Args:
+        lint_result: The latest wiki lint result dict.
+        finding: A supported finding dict from that lint result.
+
+    Returns:
+        dict | None: The apply result dict on success, otherwise ``None`` after
+        printing a user-facing error.
+    """
+    finding_id = str(finding.get("id", ""))
+    page_name = str(finding.get("page", ""))
+    claim = str(finding.get("claim", ""))
+    project_dir = lint_result.get("project_dir", "")
+    path = str(finding.get("path", ""))
+    if not project_dir or not page_name or not claim or not path:
+        print_colored_error("Selected finding does not contain enough data for wiki_fix.")
+        return None
+
+    page_path = os.path.join(project_dir, page_name)
+    if not os.path.isfile(page_path):
+        print_colored_error(f"Wiki page not found: {page_path}")
+        return None
+
+    original_text = Path(page_path).read_text(encoding="utf-8")
     preview_result = latest_wiki_fix_preview(finding_id)
     if not preview_result:
         print_colored_error(
@@ -384,3 +383,128 @@ def wiki_fix_command(arg=None):
         "replacement": preview_replacement,
         "page_path": preview_page_path,
     }
+
+
+def wiki_fix_command(arg=None):
+    """Draft or apply LLM-assisted wiki fixes for stored lint findings.
+
+    Args:
+        arg: Required argument string in one of the forms
+            ``llm <finding_id>``, ``apply <finding_id>``, ``llm_all``,
+            ``apply_all``, or a help token.
+
+    Returns:
+        dict | None: A preview or apply result for single-finding commands, or
+        a summary dict with counts and per-finding results for ``llm_all`` and
+        ``apply_all``. Returns ``None`` when showing help, when no latest lint
+        result is available, when arguments are invalid, or when a guardrail
+        prevents the requested operation.
+    """
+    usage = (
+        "Draft or apply an LLM-assisted wiki fix for findings from the latest wiki lint run.\n"
+        "Usage: : (or /) wiki_fix llm <finding_id>\n"
+        "       : (or /) wiki_fix apply <finding_id>\n"
+        "       : (or /) wiki_fix llm_all\n"
+        "       : (or /) wiki_fix apply_all\n"
+        "Currently supports semantic stale location, authority, workflow, and ownership claims. "
+        "'llm' previews a diff, 'apply' saves a stored preview for one finding, 'llm_all' previews "
+        "all supported findings, and 'apply_all' applies stored previews for all supported findings."
+    )
+    raw_arg = "" if arg is None else str(arg).strip()
+    lowered_arg = raw_arg.lower()
+    if lowered_arg in {"help", "?", "-h", "--help"} or not raw_arg:
+        print(usage)
+        return None
+
+    lint_result = latest_wiki_lint_result()
+    if not lint_result:
+        print("No stored wiki lint result is available. Run :wiki_lint first.")
+        return None
+
+    findings = lint_result.get("findings", [])
+    supported_findings = _supported_wiki_fix_findings(lint_result)
+
+    if lowered_arg == "llm_all":
+        preview_results = []
+        for finding in findings:
+            if not isinstance(finding, dict) or finding.get("kind") not in _SUPPORTED_WIKI_FIX_KINDS:
+                continue
+            preview_result = _draft_wiki_fix_preview_for_finding(lint_result, finding)
+            if preview_result is None:
+                return None
+            preview_results.append(preview_result)
+        return {
+            "mode": "preview_all",
+            "fix_mode": "llm",
+            "supported_count": len(supported_findings),
+            "previewed_count": len(preview_results),
+            "results": preview_results,
+        }
+
+    if lowered_arg == "apply_all":
+        missing_preview_finding_id = None
+        for finding in findings:
+            if not isinstance(finding, dict) or finding.get("kind") not in _SUPPORTED_WIKI_FIX_KINDS:
+                continue
+            finding_id = str(finding.get("id", ""))
+            if not latest_wiki_fix_preview(finding_id):
+                missing_preview_finding_id = finding_id
+                break
+        if missing_preview_finding_id is not None:
+            print_colored_error(
+                "No stored wiki_fix preview is available for supported finding "
+                f"{missing_preview_finding_id}. Run ':wiki_fix llm_all' first."
+            )
+            return None
+
+        apply_results = []
+        for finding in findings:
+            if not isinstance(finding, dict) or finding.get("kind") not in _SUPPORTED_WIKI_FIX_KINDS:
+                continue
+            apply_result = _apply_stored_wiki_fix_preview_for_finding(lint_result, finding)
+            if apply_result is None:
+                return None
+            apply_results.append(apply_result)
+        return {
+            "mode": "apply_all",
+            "fix_mode": "llm",
+            "supported_count": len(supported_findings),
+            "applied_count": len(apply_results),
+            "results": apply_results,
+        }
+
+    parts = raw_arg.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() not in {"llm", "apply"}:
+        print_colored_error(
+            "wiki_fix requires one of ':wiki_fix llm <finding_id>', ':wiki_fix apply <finding_id>', "
+            "':wiki_fix llm_all', or ':wiki_fix apply_all'."
+        )
+        return None
+    action = parts[0].lower()
+    finding_id = parts[1].strip()
+    if not finding_id:
+        print_colored_error(f"wiki_fix requires a finding id after '{action}'.")
+        return None
+
+    finding = next(
+        (
+            item
+            for item in findings
+            if isinstance(item, dict) and str(item.get("id", "")) == finding_id
+        ),
+        None,
+    )
+    if finding is None:
+        print_colored_error(f"Unknown wiki lint finding id: {finding_id}")
+        return None
+
+    if finding.get("kind") not in _SUPPORTED_WIKI_FIX_KINDS:
+        print_colored_error(
+            "wiki_fix currently supports only semantic_stale_location_claim, semantic_stale_authority_claim, semantic_stale_workflow_claim, and semantic_stale_ownership_claim findings."
+        )
+        return None
+
+    if action == "llm":
+        return _draft_wiki_fix_preview_for_finding(lint_result, finding)
+
+    return _apply_stored_wiki_fix_preview_for_finding(lint_result, finding)

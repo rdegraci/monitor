@@ -155,8 +155,11 @@ A likely shape is:
   supported semantic stale-location, stale-authority, stale-workflow, or
   stale-ownership finding and then applying that reviewed draft to disk with
   `:wiki_fix apply <finding_id>`
+- `:wiki_fix` now also supports explicit `llm_all` and `apply_all` workflows
+  for all supported semantic findings from the latest stored lint result
 - apply mode now reuses the exact stored preview rather than regenerating text
-  at apply time
+  at apply time, both for one-finding and all-findings workflows
 - ownership/routing validation coverage now includes existing-path PASS,
-  non-claim ignore behavior, alternate phrase detection, and ownership
-  `:wiki_fix apply` coverage in targeted tests
+  non-claim ignore behavior, alternate phrase detection, ownership
+  `:wiki_fix apply` coverage, and batch `wiki_fix` workflow coverage in
+  targeted tests

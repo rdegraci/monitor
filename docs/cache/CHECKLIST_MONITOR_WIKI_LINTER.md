@@ -22,6 +22,8 @@ Current implementation status:
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
   semantic stale-location, stale-authority, stale-workflow, and
   stale-ownership findings, with apply reusing the reviewed preview
+- `:wiki_fix` now also supports explicit `llm_all` and `apply_all` workflows
+  for supported semantic findings from the latest stored lint result
 - ownership/routing validation coverage now includes existing-path PASS,
   non-claim ignore behavior, and alternate phrase detection in semantic lint
   tests, plus `:wiki_fix apply` coverage for ownership findings
@@ -63,7 +65,7 @@ Current implementation status:
 - [x] Decide what output shape is preferred for findings and recommendations.
 - [x] Decide whether wiki updates are only suggested or may be applied in a dedicated workflow.
 - [ ] Add explicit batch auto-fix for supported semantic finding kinds only.
-- [ ] Add a preview/apply-all workflow for supported semantic finding kinds.
+- [x] Add a preview/apply-all workflow for supported semantic finding kinds.
 
 - [x] Decide whether structural and semantic linting should be separately invocable.
 ## Testing
@@ -76,6 +78,7 @@ Current implementation status:
   existing-path PASS behavior, non-claim ignore behavior, and alternate
   ownership phrase detection.
 - [x] Add tests for ownership `:wiki_fix apply` behavior.
+- [x] Add tests for `:wiki_fix llm_all` and `:wiki_fix apply_all` behavior.
 - [x] Add tests for keeping the linter isolated from normal startup behavior.
 
 ## Documentation

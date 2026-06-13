@@ -159,6 +159,9 @@ free-form analysis blobs.
 - A built-in `:wiki_fix` workflow may support previewing a narrow LLM-drafted
   wiki update for one finding and then explicitly applying that reviewed draft
   to disk.
+- A built-in `:wiki_fix` workflow may also support explicit `llm_all` and
+  `apply_all` operations for all supported semantic findings from the latest
+  stored lint result.
 - The apply step should prefer reusing the exact reviewed preview rather than
   regenerating new text at apply time.
 
@@ -216,9 +219,12 @@ free-form analysis blobs.
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
   semantic stale-location, stale-authority, stale-workflow, and
   stale-ownership findings
+- `:wiki_fix` now also supports explicit `llm_all` and `apply_all` operations
+  for all supported semantic findings from the latest stored lint result
 - `:wiki_fix apply <finding_id>` now reuses the exact previously previewed
   draft and writes that reviewed change to disk
 - targeted ownership/routing validation now covers existing-path PASS,
-  non-claim ignore behavior, alternate phrase detection, and ownership
-  `:wiki_fix apply` behavior in targeted tests
+  non-claim ignore behavior, alternate phrase detection, ownership
+  `:wiki_fix apply` behavior, and batch `wiki_fix` workflow behavior in
+  targeted tests
 - broader semantic drift detection remains future work
