@@ -157,3 +157,6 @@ A likely shape is:
   `:wiki_fix apply <finding_id>`
 - apply mode now reuses the exact stored preview rather than regenerating text
   at apply time
+- ownership/routing validation coverage now includes existing-path PASS,
+  non-claim ignore behavior, alternate phrase detection, and ownership
+  `:wiki_fix apply` coverage in targeted tests

@@ -205,7 +205,7 @@ def wiki_fix_command(arg=None):
         "Draft or apply an LLM-assisted wiki fix for a finding from the latest wiki lint run.\n"
         "Usage: : (or /) wiki_fix llm <finding_id>\n"
         "       : (or /) wiki_fix apply <finding_id>\n"
-        "Currently supports semantic stale location, authority, and workflow claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
+        "Currently supports semantic stale location, authority, workflow, and ownership claims. 'llm' previews a diff and 'apply' saves the drafted change to disk."
     )
     raw_arg = "" if arg is None else str(arg).strip()
     lowered_arg = raw_arg.lower()

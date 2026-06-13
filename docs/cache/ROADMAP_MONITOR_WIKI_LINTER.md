@@ -95,4 +95,7 @@ The wiki-linter is useful, understandable, and optional rather than intrusive.
   update for a supported semantic stale-location, stale-authority,
   stale-workflow, or stale-ownership finding and then explicitly apply the
   reviewed preview to disk.
+- Targeted validation now covers ownership/routing existing-path PASS,
+  non-claim ignore behavior, alternate phrase detection, and ownership
+  `:wiki_fix apply` behavior.
 - Broader semantic UX and broader semantic coverage remain future work.

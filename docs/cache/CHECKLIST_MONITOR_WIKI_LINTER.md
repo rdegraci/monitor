@@ -22,6 +22,9 @@ Current implementation status:
 - `:wiki_fix` now supports `llm` preview mode and `apply` mode for supported
   semantic stale-location, stale-authority, stale-workflow, and
   stale-ownership findings, with apply reusing the reviewed preview
+- ownership/routing validation coverage now includes existing-path PASS,
+  non-claim ignore behavior, and alternate phrase detection in semantic lint
+  tests, plus `:wiki_fix apply` coverage for ownership findings
 - unchecked broader semantic and workflow items below remain future work
 
 ## Structural Linting
@@ -69,6 +72,10 @@ Current implementation status:
 - [x] Add tests for orphaned-page detection.
 - [x] Add tests for missing-file reference detection.
 - [x] Add tests for semantic conflict reporting behavior.
+- [x] Add tests for ownership/routing semantic detection coverage, including
+  existing-path PASS behavior, non-claim ignore behavior, and alternate
+  ownership phrase detection.
+- [x] Add tests for ownership `:wiki_fix apply` behavior.
 - [x] Add tests for keeping the linter isolated from normal startup behavior.
 
 ## Documentation

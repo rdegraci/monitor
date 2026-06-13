@@ -218,4 +218,7 @@ free-form analysis blobs.
   stale-ownership findings
 - `:wiki_fix apply <finding_id>` now reuses the exact previously previewed
   draft and writes that reviewed change to disk
+- targeted ownership/routing validation now covers existing-path PASS,
+  non-claim ignore behavior, alternate phrase detection, and ownership
+  `:wiki_fix apply` behavior in targeted tests
 - broader semantic drift detection remains future work

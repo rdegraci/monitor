@@ -579,6 +579,70 @@ def test_run_project_wiki_semantic_lint_returns_pass_when_location_claim_path_ex
     assert "No semantic findings" in result["report"]
 
 
+def test_run_project_wiki_semantic_lint_returns_pass_when_ownership_claim_path_exists(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "ownership_router.py").write_text("OWNER = 'monitor'\n", encoding="utf-8")
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "Changes belong in src/monitor/lib/ownership_router.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is True
+    assert result["findings"] == []
+    assert "No semantic findings" in result["report"]
+
+
+def test_run_project_wiki_semantic_lint_ignores_non_claim_lines_with_repo_paths(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "Reference: src/monitor/lib/ownership_router.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is True
+    assert result["findings"] == []
+    assert "No semantic findings" in result["report"]
+
+
+def test_run_project_wiki_semantic_lint_reports_alternate_ownership_phrase(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_dir = repo_root / "docs" / "cache"
+    wiki_dir.mkdir(parents=True)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "This area is owned by src/monitor/lib/owners.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir)
+
+    assert result["mode"] == "semantic"
+    assert result["ok"] is False
+    assert result["findings"][0]["kind"] == "semantic_stale_ownership_claim"
+    assert result["findings"][0]["path"] == "src/monitor/lib/owners.py"
+    assert "owned by" in result["findings"][0]["claim"].lower()
+
+
 def test_store_latest_wiki_lint_result_attaches_finding_ids_and_returns_result():
     result = {
         "mode": "semantic",
