@@ -626,6 +626,14 @@ PROJECT_WIKI_IDENTITY_PATH = None
 # at the next user turn (set or cleared in prepare_query_context). Also
 # cleared by set_model and :reset_history because it's turn-scoped state.
 CURRENT_TURN_REASONING_OVERRIDE = None
+# Error-driven reasoning escalation. When True, a tool result that looks like a
+# failure (test/build/lint error, traceback, non-zero exit) escalates
+# reasoning_effort to "high" for the remainder of that user turn — so the model
+# reasons harder about the fix only when there's proven trouble. One-way and
+# pay-for-what-you-use (no cost on turns that don't fail). See
+# lib/reasoning_escalation.py and the hook in core/tooling.handle_tool_call.
+# Overridable in config.yaml.
+ESCALATE_REASONING_ON_TOOL_FAILURE = True
 # Cost-indicator color thresholds (USD). P (this turn) and W per-turn
 # average get colored when they exceed these values: green (uncolored,
 # default) → yellow → red. Defaults are calibrated for gpt-5.4 base /
@@ -764,6 +772,7 @@ def configure_globals():
     global MEMORY_SHORT_TTL, MEMORY_LONG_TTL, MEMORY_CONTEXT_MAX_ENTRIES
     global SUBAGENT_MEMORY_SERVICES
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
+    global ESCALATE_REASONING_ON_TOOL_FAILURE
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
@@ -897,6 +906,9 @@ def configure_globals():
     REASONING_EFFORT = yaml_config.get("REASONING_EFFORT", "medium")
     REASONING_MAX_COMPLETION_TOKENS = yaml_config.get(
         "REASONING_MAX_COMPLETION_TOKENS", 25000
+    )
+    ESCALATE_REASONING_ON_TOOL_FAILURE = yaml_config.get(
+        "ESCALATE_REASONING_ON_TOOL_FAILURE", True
     )
     COMMIT_MODEL = yaml_config.get("COMMIT_MODEL")
     COMMIT_REASONING_EFFORT = yaml_config.get("COMMIT_REASONING_EFFORT")

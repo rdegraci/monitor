@@ -275,6 +275,15 @@ REASONING_MODEL_PREFIX: openai/gpt-5
 # without editing this file.
 REASONING_EFFORT: medium
 
+# Error-driven reasoning escalation (reactive fallback). When a tool result
+# looks like a failure — a test/build/lint error, a Python traceback, a
+# non-zero exit — reasoning_effort is bumped to "high" for the REST of that
+# user turn, so the model reasons harder about the fix. One-way (never
+# downgrades) and pay-for-what-you-use: turns that don't fail cost nothing
+# extra. Reset at the next user turn. Defaults on; set false to disable (then
+# failed turns just continue at REASONING_EFFORT).
+ESCALATE_REASONING_ON_TOOL_FAILURE: true
+
 # Commit-message generation can use its own model and reasoning settings.
 # Leave these unset to fall back to MODEL / REASONING_EFFORT /
 # REASONING_MAX_COMPLETION_TOKENS.

@@ -484,11 +484,18 @@ def handle_tool_call(response, _depth=0):
         process_response_by_finish_reason,
         update_conversation_history,
     )
+    from monitor.lib.reasoning_escalation import looks_like_failure
 
     logger.debug("Handling tool call (depth=%d)...", _depth)
 
     # Extract tool calls
     tool_calls = extract_tool_calls(response)
+
+    # Error-driven reasoning escalation: track whether any tool output this
+    # round looks like a failure (test/build/lint error, traceback, non-zero
+    # exit). If so, after the loop we bump reasoning to "high" for the next
+    # completion(s) this turn so the model reasons harder about the fix.
+    turn_failure_detected = False
 
     # Process each tool call
     for tool_call in tool_calls:
@@ -566,8 +573,43 @@ def handle_tool_call(response, _depth=0):
                 tool_call_id, e, exc_info=True,
             )
 
+        # Scan both the error string and the tool's own output for failure
+        # signals — a test runner can "succeed" as a tool (error is None) while
+        # its stdout reports failing tests.
+        if not turn_failure_detected and (
+            looks_like_failure(error) or looks_like_failure(result)
+        ):
+            turn_failure_detected = True
+
         if error:
             continue
+
+    # Error-driven reasoning escalation. If any tool result this round looked
+    # like a failure, bump reasoning_effort to "high" for the remaining
+    # completions this turn so the model reasons harder about the fix. One-way
+    # (never downgrades) and reset per user turn in prepare_query_context, so it
+    # naturally stays high until the turn ends. Read by llm_utils via
+    # CURRENT_TURN_REASONING_OVERRIDE. Gated by ESCALATE_REASONING_ON_TOOL_FAILURE.
+    try:
+        if turn_failure_detected and getattr(
+            config, "ESCALATE_REASONING_ON_TOOL_FAILURE", True
+        ):
+            from monitor.lib.reasoning_escalation import should_escalate
+
+            current_effort = (
+                getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+                or getattr(config, "REASONING_EFFORT", None)
+            )
+            if should_escalate(current_effort):
+                config.CURRENT_TURN_REASONING_OVERRIDE = "high"
+                logger.info(
+                    "Tool failure detected; escalated reasoning effort to high "
+                    "for the remainder of this turn."
+                )
+    except Exception:
+        logger.exception(
+            "Reasoning escalation check failed; continuing at current effort."
+        )
 
     # Get second response from LLM (token usage is recorded by get_llm_completion via monitor.lib.token_management)
     second_response, error = get_llm_completion()
