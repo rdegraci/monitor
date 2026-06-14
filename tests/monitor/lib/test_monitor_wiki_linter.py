@@ -715,3 +715,84 @@ def test_run_project_wiki_lint_mode_rejects_unsupported_mode(tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported wiki lint mode"):
         run_project_wiki_lint_mode(tmp_path, "unknown")
+
+
+def _appdir_style_layout(tmp_path):
+    """Build a production-style layout where the wiki lives apart from the repo.
+
+    Mirrors the real appdir layout: the wiki is at
+    ``appdir/monitor/monitor-wiki/<slug>`` while the project source lives in a
+    separate repository tree, so ``wiki_dir.parent.parent`` is NOT the repo root.
+    """
+    repo_root = tmp_path / "realrepo"
+    source_dir = repo_root / "src" / "monitor" / "lib"
+    source_dir.mkdir(parents=True)
+    (source_dir / "app.py").write_text("print('exists')\n", encoding="utf-8")
+
+    wiki_dir = tmp_path / "appdir" / "monitor" / "monitor-wiki" / "slug"
+    wiki_dir.mkdir(parents=True)
+    return repo_root, wiki_dir
+
+
+def test_lint_project_wiki_resolves_repo_paths_against_explicit_repo_root(tmp_path):
+    repo_root, wiki_dir = _appdir_style_layout(tmp_path)
+    (wiki_dir / "INDEX.md").write_text(
+        "See src/monitor/lib/app.py and src/monitor/lib/gone.py\n",
+        encoding="utf-8",
+    )
+
+    result = lint_project_wiki(wiki_dir, repo_root)
+
+    # The real file resolves against the passed repo root and is NOT flagged;
+    # only the genuinely-missing path is reported.
+    assert result["missing_repo_paths"] == ["src/monitor/lib/gone.py"]
+
+
+def test_lint_project_wiki_without_repo_root_misresolves_appdir_layout(tmp_path):
+    repo_root, wiki_dir = _appdir_style_layout(tmp_path)
+    (wiki_dir / "INDEX.md").write_text(
+        "See src/monitor/lib/app.py\n",
+        encoding="utf-8",
+    )
+
+    # Without an explicit repo root the fallback uses wiki_dir.parent.parent,
+    # which is not the repo in the appdir layout, so the real path is missed.
+    result = lint_project_wiki(wiki_dir)
+
+    assert result["missing_repo_paths"] == ["src/monitor/lib/app.py"]
+
+
+def test_run_project_wiki_semantic_lint_honors_explicit_repo_root(tmp_path):
+    repo_root, wiki_dir = _appdir_style_layout(tmp_path)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The CLI entry point is implemented in src/monitor/lib/app.py\n"
+        "Routing is owned by src/monitor/lib/gone.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_semantic_lint
+
+    result = run_project_wiki_semantic_lint(wiki_dir, repo_root)
+
+    assert result["ok"] is False
+    paths = {finding["path"] for finding in result["findings"]}
+    assert paths == {"src/monitor/lib/gone.py"}
+
+
+def test_run_project_wiki_lint_mode_threads_repo_root(tmp_path):
+    repo_root, wiki_dir = _appdir_style_layout(tmp_path)
+    (wiki_dir / "INDEX.md").write_text("See ARCHITECTURE.md\n", encoding="utf-8")
+    (wiki_dir / "ARCHITECTURE.md").write_text(
+        "The authoritative implementation lives in src/monitor/lib/app.py\n",
+        encoding="utf-8",
+    )
+
+    from monitor.lib.monitor_wiki_linter import run_project_wiki_lint_mode
+
+    result = run_project_wiki_lint_mode(wiki_dir, "semantic", repo_root)
+
+    # The claim points at a real file under the explicit repo root, so the
+    # semantic pass is clean.
+    assert result["ok"] is True
+    assert result["findings"] == []

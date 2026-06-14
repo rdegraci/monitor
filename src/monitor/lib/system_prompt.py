@@ -337,18 +337,44 @@ def _project_wiki_additional_page_blocks() -> str:
 
 
 def _project_wiki_prompt_block() -> str:
-    """Return a concise prompt block for substantive project wiki content.
+    """Return a prompt block describing the configured project wiki.
+
+    Always surfaces the wiki directory location when a project wiki is
+    configured and provisioned for the session — even before ``INDEX.md`` has
+    substantive content — so the model can populate or update the wiki from a
+    cold start. Without this pointer the appdir path is unknowable to the model
+    until the wiki is already populated, a chicken-and-egg gap for first-time
+    population. When the wiki has substantive content, the block additionally
+    includes a compact INDEX excerpt and up to two referenced page excerpts.
 
     Returns:
-        A prompt snippet containing the configured project wiki entry point,
-        compact index content, and up to two additional referenced wiki page
-        excerpts, or an empty string when no substantive wiki content is
-        available.
+        A prompt snippet pointing at the project wiki location (plus index and
+        referenced-page excerpts when substantive content exists), or an empty
+        string when no project wiki is configured or provisioning fails.
     """
     index_path = configured_project_wiki_index_path()
-    excerpt = _project_wiki_excerpt()
-    if index_path is None or not excerpt:
+    if index_path is None:
         return ""
+
+    # Provision lazily. If the wiki directory cannot be created, surface
+    # nothing rather than pointing the model at an unusable path, and keep
+    # system-prompt construction non-fatal.
+    if ensure_configured_project_wiki() is None:
+        return ""
+
+    excerpt = _project_wiki_excerpt()
+    if not excerpt:
+        # Placeholder (non-substantive) wiki: surface only the location so a
+        # request like "update the wiki for this repo" can resolve the appdir
+        # target without the path being knowable any other way.
+        return (
+            "\n--- Project wiki ---\n\n"
+            f"This project's wiki lives at `{index_path.parent}` "
+            f"(entry point `{index_path}`). It is currently empty; populate "
+            "INDEX.md to activate it. When asked to create or update this "
+            "project's wiki, write files there.\n"
+        )
+
     additional_pages = _project_wiki_additional_page_blocks()
     return (
         "\n--- Project wiki ---\n\n"

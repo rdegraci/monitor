@@ -65,8 +65,13 @@ from monitor.lib.built_ins_wiki_utils import (
     WIKI_FIX_MAX_DIFF_LINES,
     WIKI_FIX_MAX_REPLACEMENT_CHARACTERS,
     WIKI_FIX_MAX_REPLACEMENT_LINES,
+    WIKI_INIT_MAX_DRAFT_CHARACTERS,
+    WIKI_INIT_MAX_DRAFT_LINES,
+    build_repo_orientation_context,
     latest_wiki_fix_preview,
+    latest_wiki_init_draft,
     store_latest_wiki_fix_preview,
+    store_latest_wiki_init_draft,
     wiki_fix_diff_line_count,
 )
 from monitor.lib.colors import print_yellow
@@ -83,7 +88,11 @@ from monitor.lib.external_services import (
 # to avoid a module-load cycle when something imports ``monitor.lib.history``
 # directly (e.g., tests). See the analogous note in monitor/lib/redis_utils.py.
 from monitor.lib.keyboard import configure_function_key_insertions
-from monitor.lib.monitor_wiki import ensure_configured_project_wiki
+from monitor.lib.monitor_wiki import (
+    configured_project_wiki_index_path,
+    ensure_configured_project_wiki,
+    has_substantive_configured_project_wiki,
+)
 from monitor.lib.monitor_wiki_linter import latest_wiki_lint_result, run_project_wiki_lint_mode
 from monitor.lib.preferences import open_preferences_editor
 from monitor.lib.summarizers import summarize_conversation_for_linkedin
@@ -142,6 +151,194 @@ def print_tools_command(arg=None):
         print("-" * 40)
 
 
+def _strip_markdown_fences(text):
+    """Strip a single wrapping markdown code fence from LLM output.
+
+    Args:
+        text: Raw text that may be wrapped in a leading ```` ``` ```` fence.
+
+    Returns:
+        The text with one surrounding fenced block removed, if present.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _apply_wiki_init_draft(index_path, arg_parts):
+    """Write the last drafted INDEX.md for the configured project wiki.
+
+    Args:
+        index_path: Resolved configured project wiki ``INDEX.md`` path.
+        arg_parts: Lowercased argument tokens following ``apply``.
+
+    Returns:
+        dict | None: An apply result dict on success, otherwise ``None`` after
+        printing a user-facing message.
+    """
+    if len(arg_parts) > 1 and arg_parts[1] != "force":
+        print_colored_error("wiki_init apply takes no argument other than 'force'.")
+        return None
+    force = len(arg_parts) > 1 and arg_parts[1] == "force"
+
+    draft = latest_wiki_init_draft()
+    if not draft or not draft.get("content"):
+        print_colored_error("No drafted INDEX.md is available. Run ':wiki_init' first.")
+        return None
+    if str(draft.get("index_path", "")) != str(index_path):
+        print_colored_error(
+            "The stored draft targets a different project wiki. Run ':wiki_init' again."
+        )
+        return None
+    if has_substantive_configured_project_wiki() and not force:
+        print_colored_error(
+            "INDEX.md already has substantive content. "
+            "Re-run with ':wiki_init apply force' to overwrite it."
+        )
+        return None
+
+    try:
+        Path(index_path).write_text(draft["content"], encoding="utf-8")
+    except OSError as e:
+        logger.error("Failed to write project wiki INDEX.md: %s", e, exc_info=True)
+        print_colored_error(f"Failed to write project wiki INDEX.md: {e}")
+        return None
+
+    print(f"Wrote drafted INDEX.md to {index_path}")
+    return {
+        "mode": "apply",
+        "index_path": str(index_path),
+        "written": True,
+        "forced": force,
+    }
+
+
+def wiki_init_command(arg=None):
+    """Draft, and optionally write, a project-aware wiki ``INDEX.md``.
+
+    Performs a quick, deterministic repository orientation pass (top-level
+    layout, manifest files, README head), asks the LLM to draft a compact
+    ``INDEX.md`` from that context, and either previews it or writes it to the
+    configured project wiki.
+
+    Args:
+        arg: Dispatcher argument. ``None``/empty or ``preview`` drafts and
+            prints without writing; ``apply`` writes the last draft (refusing to
+            clobber substantive content); ``apply force`` overwrites substantive
+            content; a help token prints usage.
+
+    Returns:
+        dict | None: A draft preview dict, an apply result dict, or ``None``
+        when showing help, when no project wiki is configured, when arguments
+        are invalid, or when a guardrail prevents the operation.
+    """
+    usage = (
+        "Draft an INDEX.md for the configured project wiki from a quick repository orientation pass.\n"
+        "Usage: : (or /) wiki_init              Draft and print the proposed INDEX.md (no write).\n"
+        "       : (or /) wiki_init apply         Write the last draft (refuses if the wiki already has real content).\n"
+        "       : (or /) wiki_init apply force   Overwrite an existing substantive INDEX.md with the last draft.\n"
+        "Drafting is LLM-assisted and grounded in the repository manifest, README, and top-level layout. "
+        "Review and edit the result; wiki content is yours to own."
+    )
+    raw_arg = "" if arg is None else str(arg).strip()
+    lowered = raw_arg.lower()
+    if lowered in {"help", "?", "-h", "--help"}:
+        print(usage)
+        return None
+
+    try:
+        project_dir = ensure_configured_project_wiki()
+        if not project_dir:
+            print(
+                "No configured project wiki is available. Start Monitor inside a project, "
+                "then run :wiki_init again."
+            )
+            return None
+
+        index_path = configured_project_wiki_index_path()
+        if index_path is None:
+            print_colored_error("Could not resolve the project wiki INDEX.md path.")
+            return None
+
+        if lowered.startswith("apply"):
+            return _apply_wiki_init_draft(index_path, lowered.split())
+
+        if raw_arg and lowered != "preview":
+            print_colored_error(
+                "wiki_init accepts no argument (draft), 'apply', or 'apply force'."
+            )
+            return None
+
+        identity_path = getattr(config, "PROJECT_WIKI_IDENTITY_PATH", None)
+        if not identity_path:
+            print_colored_error("No project identity is configured for wiki drafting.")
+            return None
+
+        orientation = build_repo_orientation_context(identity_path)
+        prompt = (
+            "You are drafting a compact INDEX.md for a project wiki. This is a curated, "
+            "high-signal knowledge layer for the project below - NOT a mirror of the source tree. "
+            "Use these sections as a starting structure: Overview, Architecture, Conventions, Pitfalls. "
+            "Keep it concise (well under 120 lines). Capture durable, orienting knowledge only: what the "
+            "project is, its major subsystems and boundaries, notable conventions, and likely pitfalls. "
+            "Where useful, reference real repo-relative paths (e.g. src/...) so they can be validated later. "
+            "Do not invent paths, dependencies, or facts not supported by the context. "
+            "Return only the markdown for INDEX.md, with no surrounding code fences.\n\n"
+            "Repository orientation context:\n"
+            f"{orientation}"
+        )
+        try:
+            response = litellm.completion(
+                model=config.MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You write compact, high-signal project wiki indexes.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+        except Exception as e:
+            logger.error("Failed to draft wiki INDEX with LLM: %s", e, exc_info=True)
+            print_colored_error(f"Failed to draft wiki INDEX with LLM: {e}")
+            return None
+
+        content = _strip_markdown_fences(response.choices[0].message.content or "")
+        if not content:
+            print_colored_error("LLM-assisted wiki_init returned an empty draft.")
+            return None
+        if len(content) > WIKI_INIT_MAX_DRAFT_CHARACTERS:
+            print_colored_error("LLM-assisted wiki_init draft is too large; keep the wiki compact.")
+            return None
+        if content.count("\n") + 1 > WIKI_INIT_MAX_DRAFT_LINES:
+            print_colored_error("LLM-assisted wiki_init draft spans too many lines; keep the wiki compact.")
+            return None
+        if "#" not in content:
+            print_colored_error("LLM-assisted wiki_init draft does not look like markdown.")
+            return None
+
+        draft = store_latest_wiki_init_draft(
+            {
+                "mode": "preview",
+                "index_path": str(index_path),
+                "content": content,
+            }
+        )
+        print(content)
+        print()
+        print(f"Drafted INDEX.md for {index_path} (not yet written).")
+        print("Review it, then run ':wiki_init apply' to write it.")
+        return draft
+    except Exception as e:
+        logger.error("Failed to run wiki_init: %s", e, exc_info=True)
+        print_colored_error(f"Failed to run wiki_init: {e}")
+        return None
+
+
 def wiki_lint_command(arg=None):
     """Run the configured project wiki linter.
 
@@ -188,7 +385,9 @@ def wiki_lint_command(arg=None):
             )
             return None
 
-        result = run_project_wiki_lint_mode(project_dir, mode)
+        identity_path = getattr(config, "PROJECT_WIKI_IDENTITY_PATH", None)
+        repo_root = Path(identity_path) if identity_path else None
+        result = run_project_wiki_lint_mode(project_dir, mode, repo_root)
         print(result["report"])
         return result
     except Exception as e:

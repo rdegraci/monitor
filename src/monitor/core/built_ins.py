@@ -39,6 +39,7 @@ from monitor.lib.built_in_commands import (
     ttl_command,
     compact_command,
     wiki_fix_command,
+    wiki_init_command,
     wiki_lint_command,
 )
 from monitor.lib.tool_loading import (
@@ -537,6 +538,11 @@ def configure_built_ins() -> None:
                     "command": "dev_mode",
                     "function": _make_callable(dev_mode_command),
                     "description": "Switch to development mode.",
+                },
+                {
+                    "command": "wiki_init",
+                    "function": _make_callable(wiki_init_command),
+                    "description": "Draft a project-aware INDEX.md for the configured project wiki.",
                 },
                 {
                     "command": "wiki_lint",

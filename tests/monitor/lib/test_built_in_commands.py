@@ -222,7 +222,7 @@ def test_wiki_lint_command_prints_report_and_returns_structured_result(
     assert result == sample_result
     assert "Wiki lint report" in captured.out
     mock_ensure.assert_called_once()
-    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+    mock_run.assert_called_once_with("/tmp/wiki", "structural", None)
 
 
 @patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
@@ -240,7 +240,7 @@ def test_wiki_lint_command_defaults_to_structural_mode(
     captured = capsys.readouterr()
     assert result["mode"] == "structural"
     assert "Wiki lint report" in captured.out
-    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+    mock_run.assert_called_once_with("/tmp/wiki", "structural", None)
 
 
 @patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
@@ -258,7 +258,7 @@ def test_wiki_lint_command_accepts_semantic_mode(
     captured = capsys.readouterr()
     assert result["mode"] == "semantic"
     assert "Wiki lint report" in captured.out
-    mock_run.assert_called_once_with("/tmp/wiki", "semantic")
+    mock_run.assert_called_once_with("/tmp/wiki", "semantic", None)
 
 
 @patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
@@ -276,7 +276,25 @@ def test_wiki_lint_command_accepts_all_mode(
     captured = capsys.readouterr()
     assert result["mode"] == "all"
     assert "Wiki lint report" in captured.out
-    mock_run.assert_called_once_with("/tmp/wiki", "all")
+    mock_run.assert_called_once_with("/tmp/wiki", "all", None)
+
+
+@patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
+@patch("monitor.lib.built_in_commands.ensure_configured_project_wiki")
+def test_wiki_lint_command_passes_identity_path_as_repo_root(
+    mock_ensure,
+    mock_run,
+    capsys,
+):
+    from pathlib import Path
+
+    mock_ensure.return_value = "/tmp/wiki"
+    mock_run.return_value = {"mode": "structural", "report": "Wiki lint report\nPASS"}
+
+    with patch.object(bic.config, "PROJECT_WIKI_IDENTITY_PATH", "/real/repo/root"):
+        bic.wiki_lint_command("")
+
+    mock_run.assert_called_once_with("/tmp/wiki", "structural", Path("/real/repo/root"))
 
 
 @patch("monitor.lib.built_in_commands.run_project_wiki_lint_mode")
@@ -306,7 +324,7 @@ def test_execute_built_in_function_runs_wiki_lint_only_on_explicit_invocation():
         built_ins_utils.execute_built_in_function(":wiki_lint")
 
     mock_ensure.assert_called_once()
-    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+    mock_run.assert_called_once_with("/tmp/wiki", "structural", None)
 
 
 @patch("monitor.lib.built_in_commands.print_colored_error")
@@ -323,7 +341,7 @@ def test_wiki_lint_command_returns_none_and_prints_error_on_linter_failure(
 
     assert result is None
     mock_ensure.assert_called_once()
-    mock_run.assert_called_once_with("/tmp/wiki", "structural")
+    mock_run.assert_called_once_with("/tmp/wiki", "structural", None)
     mock_error.assert_called_once()
 
 
@@ -982,3 +1000,171 @@ def test_wiki_fix_command_auto_all_previews_then_applies_supported_findings(
     assert captured.out.count("--- a/") == 4
     assert "Applied wiki fix" in captured.out
     assert mock_completion.call_count == 2
+
+
+def _wiki_init_env(tmp_path, monkeypatch):
+    """Configure a tmp repo + appdir wiki and return (repo, wiki_dir, index)."""
+    repo = tmp_path / "realrepo"
+    (repo / "src" / "monitor").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text('[project]\nname = "monitor3"\n', encoding="utf-8")
+    (repo / "README.md").write_text("# monitor3\nAn LLM harness.\n", encoding="utf-8")
+
+    wiki_dir = tmp_path / "appdir" / "monitor-wiki" / "slug"
+    wiki_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(bic.config, "PROJECT_WIKI_IDENTITY_PATH", str(repo))
+    monkeypatch.setattr(bic.config, "PROJECT_WIKI_PATH", str(wiki_dir))
+    monkeypatch.setattr(bic.config, "MODEL", "test-model")
+    return repo, wiki_dir, wiki_dir / "INDEX.md"
+
+
+_WIKI_INIT_DRAFT = "# Project Wiki Index\n\n## Overview\n- monitor3 is an LLM harness; see src/monitor.\n"
+
+
+def test_wiki_init_command_help_behavior(capsys):
+    result = bic.wiki_init_command("help")
+
+    captured = capsys.readouterr()
+    assert result is None
+    assert "wiki_init" in captured.out
+    assert "apply" in captured.out
+
+
+def test_wiki_init_command_no_project_wiki(monkeypatch, capsys):
+    monkeypatch.setattr(bic.config, "PROJECT_WIKI_PATH", None)
+    result = bic.wiki_init_command("")
+
+    captured = capsys.readouterr()
+    assert result is None
+    assert "No configured project wiki" in captured.out
+
+
+def test_wiki_init_command_preview_drafts_without_writing(tmp_path, monkeypatch, capsys):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+
+    with patch.object(bic, "litellm") as mock_litellm:
+        mock_litellm.completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
+        )
+        result = bic.wiki_init_command("")
+
+    captured = capsys.readouterr()
+    assert result is not None
+    assert result["mode"] == "preview"
+    assert "monitor3 is an LLM harness" in captured.out
+    # The on-disk INDEX.md is still the auto-provisioned placeholder, not the draft.
+    assert "monitor3 is an LLM harness" not in index.read_text(encoding="utf-8")
+
+
+def test_wiki_init_command_strips_code_fences(tmp_path, monkeypatch):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+    fenced = "```markdown\n" + _WIKI_INIT_DRAFT + "```\n"
+
+    with patch.object(bic, "litellm") as mock_litellm:
+        mock_litellm.completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=fenced))]
+        )
+        result = bic.wiki_init_command("")
+
+    assert result["content"].startswith("# Project Wiki Index")
+    assert "```" not in result["content"]
+
+
+def test_wiki_init_command_apply_writes_when_placeholder(tmp_path, monkeypatch, capsys):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+
+    with patch.object(bic, "litellm") as mock_litellm:
+        mock_litellm.completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
+        )
+        bic.wiki_init_command("")
+        result = bic.wiki_init_command("apply")
+
+    captured = capsys.readouterr()
+    assert result["mode"] == "apply"
+    assert result["written"] is True
+    assert result["forced"] is False
+    assert "monitor3 is an LLM harness" in index.read_text(encoding="utf-8")
+    assert "Wrote drafted INDEX.md" in captured.out
+
+
+def test_wiki_init_command_apply_refuses_when_substantive_without_force(
+    tmp_path, monkeypatch
+):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+    index.write_text(
+        "# Project Wiki Index\n\n## Overview\n- Hand-written, important content.\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(bic, "litellm") as mock_litellm, patch.object(
+        bic, "print_colored_error"
+    ) as mock_error:
+        mock_litellm.completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
+        )
+        bic.wiki_init_command("")
+        result = bic.wiki_init_command("apply")
+
+    assert result is None
+    mock_error.assert_called_once()
+    # Existing content is preserved.
+    assert "Hand-written, important content." in index.read_text(encoding="utf-8")
+
+
+def test_wiki_init_command_apply_force_overwrites_substantive(tmp_path, monkeypatch):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+    index.write_text(
+        "# Project Wiki Index\n\n## Overview\n- Old content.\n", encoding="utf-8"
+    )
+
+    with patch.object(bic, "litellm") as mock_litellm:
+        mock_litellm.completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
+        )
+        bic.wiki_init_command("")
+        result = bic.wiki_init_command("apply force")
+
+    assert result["forced"] is True
+    text = index.read_text(encoding="utf-8")
+    assert "monitor3 is an LLM harness" in text
+    assert "Old content." not in text
+
+
+def test_wiki_init_command_apply_without_draft_errors(tmp_path, monkeypatch):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+
+    with patch.object(bic, "latest_wiki_init_draft", return_value=None), patch.object(
+        bic, "print_colored_error"
+    ) as mock_error:
+        result = bic.wiki_init_command("apply")
+
+    assert result is None
+    mock_error.assert_called_once()
+
+
+def test_wiki_init_command_rejects_invalid_arg(tmp_path, monkeypatch):
+    repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
+
+    with patch.object(bic, "print_colored_error") as mock_error:
+        result = bic.wiki_init_command("bogus")
+
+    assert result is None
+    mock_error.assert_called_once()
+
+
+def test_build_repo_orientation_context_is_bounded_and_high_signal(tmp_path):
+    from monitor.lib.built_ins_wiki_utils import build_repo_orientation_context
+
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    (repo / "README.md").write_text("# x\nhello\n", encoding="utf-8")
+
+    context = build_repo_orientation_context(repo)
+
+    assert "Top-level entries:" in context
+    assert "src/" in context
+    assert "pyproject.toml" in context
+    assert "README.md" in context
+    assert len(context) <= 8100  # bounded

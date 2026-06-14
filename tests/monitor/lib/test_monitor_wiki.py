@@ -28,7 +28,15 @@ def fake_appdir(monkeypatch, tmp_path):
         "user_config_dir",
         lambda _app_name: str(appdir_root),
     )
-    yield
+    # Snapshot frozen session wiki globals so tests that call
+    # configure_project_wiki_paths() do not leak state into other test modules.
+    saved_path = config.PROJECT_WIKI_PATH
+    saved_identity = config.PROJECT_WIKI_IDENTITY_PATH
+    try:
+        yield
+    finally:
+        config.PROJECT_WIKI_PATH = saved_path
+        config.PROJECT_WIKI_IDENTITY_PATH = saved_identity
 
 
 def test_resolve_project_identity_path_uses_repo_root(tmp_path):

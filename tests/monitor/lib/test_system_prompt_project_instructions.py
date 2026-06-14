@@ -196,15 +196,28 @@ def test_build_system_prompt_includes_up_to_two_additional_wiki_pages(tmp_path):
     assert "TESTING.md:" not in out
 
 
-def test_build_system_prompt_omits_project_wiki_pointer_for_starter_only_wiki(tmp_path):
+def test_build_system_prompt_includes_wiki_location_for_starter_only_wiki(tmp_path):
     (tmp_path / "MONITOR.md").write_text("PROJ\n")
     (tmp_path / "MONITOR_CONVENTIONS.md").write_text("CONV\n")
     configure_runtime_prompt_paths(tmp_path)
     configure_project_wiki_paths(tmp_path)
 
+    # Point at a fresh tmp wiki dir so provisioning writes the placeholder
+    # there (not into the real appdir) and the wiki stays non-substantive.
+    project_wiki_dir = tmp_path / "appdir" / "monitor-wiki" / "starter"
+    project_wiki_dir.mkdir(parents=True)
+    config.PROJECT_WIKI_PATH = str(project_wiki_dir)
+
     out = build_system_prompt()
 
-    assert "--- Project wiki ---" not in out
+    # The location pointer is present even with only the starter template, so
+    # the model can populate the wiki from a cold start...
+    assert "--- Project wiki ---" in out
+    assert "currently empty" in out
+    assert str(project_wiki_dir) in out
+    # ...but no substantive index/page content is injected yet.
+    assert "Index excerpt:" not in out
+    assert "Project wiki context is available for this session" not in out
 
 
 

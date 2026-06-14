@@ -415,11 +415,16 @@ def semantic_ownership_claims(project_dir: Path) -> list[dict[str, str]]:
     return claims
 
 
-def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
+def lint_project_wiki(project_dir: Path, repo_root: Path | None = None) -> dict[str, Any]:
     """Run structural lint checks for a project wiki directory.
 
     Args:
         project_dir: Project wiki directory to lint.
+        repo_root: Repository root used to resolve repo-relative path
+            references. When ``None``, falls back to ``project_dir.parent.parent``
+            for backward compatibility with in-repo wiki layouts; production
+            callers should pass the frozen project identity path because the
+            wiki lives under appdir, not under the repository.
 
     Returns:
         A dictionary containing the lint result with these keys:
@@ -431,7 +436,7 @@ def lint_project_wiki(project_dir: Path) -> dict[str, Any]:
         ``kind``, ``severity``, ``page``, ``path``, ``message``, and
         ``suggestion``.
     """
-    repo_root = project_dir.parent.parent
+    repo_root = Path(repo_root) if repo_root is not None else project_dir.parent.parent
     index_path = project_dir / _INDEX_NAME
     missing_index = not index_path.is_file()
     referenced_pages = referenced_wiki_pages(index_path)
@@ -603,18 +608,20 @@ def format_wiki_lint_report(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run_project_wiki_lint(project_dir: Path) -> dict[str, Any]:
+def run_project_wiki_lint(project_dir: Path, repo_root: Path | None = None) -> dict[str, Any]:
     """Run the wiki linter and attach a formatted report.
 
     Args:
         project_dir: Project wiki directory to lint.
+        repo_root: Repository root for resolving repo-relative references. See
+            ``lint_project_wiki`` for fallback behavior.
 
     Returns:
         A dictionary containing the full result from ``lint_project_wiki`` plus
         a ``report`` key with the formatted text produced by
         ``format_wiki_lint_report``.
     """
-    result = lint_project_wiki(project_dir)
+    result = lint_project_wiki(project_dir, repo_root)
     report = format_wiki_lint_report(result)
     return {
         **result,
@@ -622,28 +629,36 @@ def run_project_wiki_lint(project_dir: Path) -> dict[str, Any]:
     }
 
 
-def run_project_wiki_structural_lint(project_dir: Path) -> dict[str, Any]:
+def run_project_wiki_structural_lint(
+    project_dir: Path, repo_root: Path | None = None
+) -> dict[str, Any]:
     """Run structural wiki linting and return a mode-tagged result.
 
     Args:
         project_dir: Project wiki directory to lint.
+        repo_root: Repository root for resolving repo-relative references. See
+            ``lint_project_wiki`` for fallback behavior.
 
     Returns:
         A structural wiki-lint result dictionary with a ``mode`` field and a
         formatted ``report``.
     """
-    result = run_project_wiki_lint(project_dir)
+    result = run_project_wiki_lint(project_dir, repo_root)
     return {
         **result,
         "mode": "structural",
     }
 
 
-def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
+def run_project_wiki_semantic_lint(
+    project_dir: Path, repo_root: Path | None = None
+) -> dict[str, Any]:
     """Run narrow semantic wiki linting for stale path-grounded claims.
 
     Args:
         project_dir: Project wiki directory to lint.
+        repo_root: Repository root for resolving repo-relative references. See
+            ``lint_project_wiki`` for fallback behavior.
 
     Returns:
         A semantic wiki-lint result dictionary. The current implementation is a
@@ -651,7 +666,7 @@ def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
         implementation location or authoritative project-local document lives at
         a repo-relative path that no longer exists.
     """
-    repo_root = project_dir.parent.parent
+    repo_root = Path(repo_root) if repo_root is not None else project_dir.parent.parent
     findings: list[dict[str, str]] = []
     for claim in semantic_location_claims(project_dir):
         repo_path = claim["path"]
@@ -755,13 +770,17 @@ def run_project_wiki_semantic_lint(project_dir: Path) -> dict[str, Any]:
     }
 
 
-def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
+def run_project_wiki_lint_mode(
+    project_dir: Path, mode: str, repo_root: Path | None = None
+) -> dict[str, Any]:
     """Run the requested wiki-lint mode.
 
     Args:
         project_dir: Project wiki directory to lint.
         mode: Requested lint mode. Supported values are ``structural``,
             ``semantic``, and ``all``.
+        repo_root: Repository root for resolving repo-relative references. See
+            ``lint_project_wiki`` for fallback behavior.
 
     Returns:
         A wiki-lint result dictionary for the requested mode.
@@ -770,14 +789,18 @@ def run_project_wiki_lint_mode(project_dir: Path, mode: str) -> dict[str, Any]:
         ValueError: If ``mode`` is unsupported.
     """
     if mode == "structural":
-        return store_latest_wiki_lint_result(run_project_wiki_structural_lint(project_dir))
+        return store_latest_wiki_lint_result(
+            run_project_wiki_structural_lint(project_dir, repo_root)
+        )
 
     if mode == "semantic":
-        return store_latest_wiki_lint_result(run_project_wiki_semantic_lint(project_dir))
+        return store_latest_wiki_lint_result(
+            run_project_wiki_semantic_lint(project_dir, repo_root)
+        )
 
     if mode == "all":
-        structural_result = run_project_wiki_structural_lint(project_dir)
-        semantic_result = run_project_wiki_semantic_lint(project_dir)
+        structural_result = run_project_wiki_structural_lint(project_dir, repo_root)
+        semantic_result = run_project_wiki_semantic_lint(project_dir, repo_root)
         report = (
             "Wiki lint mode: all\n\n"
             "== Structural ==\n"
