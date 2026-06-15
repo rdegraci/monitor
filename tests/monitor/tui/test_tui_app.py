@@ -517,6 +517,21 @@ def test_ctrl_c_clears_input_then_exits_when_idle(stub_backend):
     assert app._stop.is_set()
 
 
+def test_ctrl_c_does_not_quit_mid_turn_for_tui_parity(stub_backend):
+    """Post-submit Ctrl-C in TUI is conservative: do not quit or corrupt turn state."""
+    app = tui_app.MonitorTUI()
+    app.app.invalidate = lambda: None
+    app._exit_called = []
+    app.app.exit = lambda *a, **k: app._exit_called.append(True)
+    app.processing = True
+
+    app._ctrl_c_action()
+
+    assert app._exit_called == []
+    assert "can't cancel it yet" in "".join(app._chunks)
+    assert app.processing is True
+
+
 def test_model_switch_applied_after_turn(stub_backend, monkeypatch):
     calls = []
 

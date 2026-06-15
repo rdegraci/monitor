@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -250,6 +251,81 @@ class TestTooling(unittest.TestCase):
         mock_get_llm_completion.assert_called()
         mock_process_response_by_finish_reason.assert_called()
         mock_update_conversation_history.assert_called()
+
+    @patch("monitor.core.tooling.create_tool_result_message")
+    @patch("monitor.core.tooling.execute_tool_call")
+    @patch("monitor.core.tooling.config")
+    def test_handle_tool_call_preserves_partial_protocol_state_on_followup_error(
+        self,
+        mock_config,
+        mock_execute_tool_call,
+        mock_create_tool_result_message,
+    ):
+        """Once assistant/tool protocol state is committed, follow-up failure must not pop it."""
+        history = [{"role": "user", "content": "question"}]
+        mock_config.CONVERSATION_HISTORY = history
+        mock_config.MAX_TOOL_CALL_DEPTH = 8
+        mock_config.MAX_REPEATED_TOOL_CALLS = 3
+        mock_config.SESSION_TOOL_CALL_COUNT = 0
+        mock_config.SESSION_LOOP_DETECTOR_TRIPS = 0
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        role="assistant",
+                        content=None,
+                        tool_calls=[
+                            {
+                                "id": "tc1",
+                                "type": "function",
+                                "function": {"name": "ok", "arguments": "{}"},
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+        mock_execute_tool_call.return_value = ("tool output", None)
+        mock_create_tool_result_message.return_value = {
+            "role": "tool",
+            "content": "tool output",
+            "tool_call_id": "tc1",
+        }
+
+        def append_side_effect(message, *_a, **_k):
+            history.append(message)
+
+        with patch("monitor.core.conversation.append_to_history_with_count") as mock_append, patch(
+            "monitor.core.conversation.get_llm_completion", return_value=(None, "HTTP 500")
+        ), patch("monitor.core.conversation.extract_tool_calls") as mock_extract:
+            mock_append.side_effect = append_side_effect
+            mock_extract.side_effect = lambda _response: append_side_effect(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "tc1",
+                            "type": "function",
+                            "function": {"name": "ok", "arguments": "{}"},
+                        }
+                    ],
+                }
+            ) or [
+                {
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {"name": "ok", "arguments": "{}"},
+                }
+            ]
+            result = tooling.handle_tool_call(response)
+
+        self.assertIn("encountered an error while processing the tool response", result)
+        self.assertEqual(history[0], {"role": "user", "content": "question"})
+        self.assertEqual(history[1]["role"], "assistant")
+        self.assertEqual(history[1]["tool_calls"][0]["id"], "tc1")
+        self.assertEqual(history[2]["role"], "tool")
+        self.assertEqual(history[2]["tool_call_id"], "tc1")
 
 
 if __name__ == "__main__":

@@ -31,10 +31,10 @@ def _make_response(finish_reason):
 
 @pytest.fixture(autouse=True)
 def isolated_history(monkeypatch):
-    """Each refusal test mutates config.CONVERSATION_HISTORY and
-    config.TURN_COSTS_USD — give every test a fresh, predictable slate."""
+    """Each refusal test mutates config conversation ledgers; isolate them."""
     monkeypatch.setattr(monitor.config, "CONVERSATION_HISTORY", [], raising=False)
     monkeypatch.setattr(monitor.config, "TURN_COSTS_USD", [], raising=False)
+    monkeypatch.setattr(monitor.config, "TURN_ROUND_TRIPS", [], raising=False)
     yield
 
 
@@ -60,12 +60,14 @@ def test_refusal_pops_user_bucket_in_lockstep_with_user_message():
         {"role": "user", "content": "asks something refused"},
     ]
     monitor.config.TURN_COSTS_USD[:] = [0.12, 0.18, 0.0]
+    monitor.config.TURN_ROUND_TRIPS[:] = [1, 2, 0]
 
     process_response_by_finish_reason(_make_response("refusal"))
 
     # Bucket invariant: the orphan 0.0 bucket is popped. Prior bucket costs
     # are untouched.
     assert monitor.config.TURN_COSTS_USD == [0.12, 0.18]
+    assert monitor.config.TURN_ROUND_TRIPS == [1, 2]
 
 
 def test_content_filter_refusal_also_pops_bucket():
@@ -79,10 +81,12 @@ def test_content_filter_refusal_also_pops_bucket():
         {"role": "user", "content": "filtered"},
     ]
     monitor.config.TURN_COSTS_USD[:] = [0.05, 0.0]
+    monitor.config.TURN_ROUND_TRIPS[:] = [1, 0]
 
     process_response_by_finish_reason(_make_response("content_filter"))
 
     assert monitor.config.TURN_COSTS_USD == [0.05]
+    assert monitor.config.TURN_ROUND_TRIPS == [1]
 
 
 def test_safety_refusal_also_pops_bucket():
@@ -93,10 +97,12 @@ def test_safety_refusal_also_pops_bucket():
         {"role": "user", "content": "unsafe"},
     ]
     monitor.config.TURN_COSTS_USD[:] = [0.0]
+    monitor.config.TURN_ROUND_TRIPS[:] = [0]
 
     process_response_by_finish_reason(_make_response("safety"))
 
     assert monitor.config.TURN_COSTS_USD == []
+    assert monitor.config.TURN_ROUND_TRIPS == []
 
 
 def test_no_pop_when_history_doesnt_end_in_user_message():
@@ -110,12 +116,14 @@ def test_no_pop_when_history_doesnt_end_in_user_message():
         {"role": "assistant", "content": "partial reply"},
     ]
     monitor.config.TURN_COSTS_USD[:] = [0.42]
+    monitor.config.TURN_ROUND_TRIPS[:] = [1]
 
     process_response_by_finish_reason(_make_response("refusal"))
 
     # Bucket cost preserved because no user message was popped — the
     # refusal handler only pops if last message is role=user.
     assert monitor.config.TURN_COSTS_USD == [0.42]
+    assert monitor.config.TURN_ROUND_TRIPS == [1]
 
 
 def test_empty_bucket_list_pop_is_safe():
@@ -127,7 +135,9 @@ def test_empty_bucket_list_pop_is_safe():
     monitor.config.CONVERSATION_HISTORY[:] = [{"role": "user", "content": "x"}]
     # Bucket list is empty (out-of-sync with history).
     monitor.config.TURN_COSTS_USD[:] = []
+    monitor.config.TURN_ROUND_TRIPS[:] = [0]
 
     # Must not raise.
     process_response_by_finish_reason(_make_response("refusal"))
     assert monitor.config.TURN_COSTS_USD == []
+    assert monitor.config.TURN_ROUND_TRIPS == []

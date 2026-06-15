@@ -303,6 +303,15 @@ def process_response_by_finish_reason(response):
                     logger.debug(
                         "Failed to pop TURN_COSTS_USD bucket on refusal", exc_info=True
                     )
+                try:
+                    round_trips = getattr(config, "TURN_ROUND_TRIPS", None)
+                    if isinstance(round_trips, list) and round_trips:
+                        round_trips.pop()
+                        config.TURN_ROUND_TRIPS = round_trips
+                except Exception:
+                    logger.debug(
+                        "Failed to pop TURN_ROUND_TRIPS bucket on refusal", exc_info=True
+                    )
                 logger.debug("Removed user message that caused refusal from conversation history")
 
             # If there's an assistant message that was also added, remove it too

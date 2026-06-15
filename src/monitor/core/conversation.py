@@ -321,11 +321,17 @@ def query(user_prompt):
     logger.debug("Processing user query...")
 
     # Prepare the conversation context
-    prepare_query_context(user_prompt)
+    rollback_state = prepare_query_context(user_prompt)
 
     # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
     response, error = get_llm_initial_completion()
     if error:
+        rollback_uncommitted_user_turn(rollback_state)
+        return ConversationResult.ERROR
+
+    if response is None or not getattr(response, "choices", None):
+        rollback_uncommitted_user_turn(rollback_state)
+        logger.error("Initial LLM completion returned no choices; rolled back uncommitted user turn.")
         return ConversationResult.ERROR
 
     # Get response message
@@ -930,6 +936,68 @@ def handle_token_limit(max_token_count=None, total_token_count=None):
     return new_token_count
 
 
+def rollback_uncommitted_user_turn(rollback_state=None) -> bool:
+    """Rollback the most recently appended uncommitted user turn.
+
+    This helper removes the exact user message appended for the current turn,
+    along with its synchronized per-turn ledgers, when a turn aborts before any
+    assistant or tool protocol state is committed. If the stored rollback state
+    no longer matches the tail of history, no mutation is applied.
+
+    Args:
+        rollback_state (dict | None): Metadata describing the just-appended user
+            turn. Expected keys are ``history_length`` and ``message_content``.
+
+    Returns:
+        bool: True when the tracked uncommitted user turn was removed,
+            otherwise False.
+    """
+    history = getattr(config, "CONVERSATION_HISTORY", None)
+    if not isinstance(history, list) or not history:
+        return False
+
+    if not isinstance(rollback_state, dict):
+        return False
+
+    expected_length = rollback_state.get("history_length")
+    expected_content = rollback_state.get("message_content")
+    if not isinstance(expected_length, int) or expected_length <= 0:
+        return False
+
+    if len(history) != expected_length:
+        logger.info("Skip rollback because conversation history length changed.")
+        return False
+
+    last_message = history[-1]
+    if not isinstance(last_message, dict) or last_message.get("role") != "user":
+        return False
+
+    if last_message.get("content") != expected_content:
+        logger.info("Skip rollback because trailing user turn no longer matches tracked state.")
+        return False
+
+    history.pop()
+
+    try:
+        turn_costs = getattr(config, "TURN_COSTS_USD", None)
+        if isinstance(turn_costs, list) and turn_costs:
+            turn_costs.pop()
+            config.TURN_COSTS_USD = turn_costs
+    except Exception:
+        logger.debug("Failed to rollback TURN_COSTS_USD for uncommitted user turn", exc_info=True)
+
+    try:
+        round_trips = getattr(config, "TURN_ROUND_TRIPS", None)
+        if isinstance(round_trips, list) and round_trips:
+            round_trips.pop()
+            config.TURN_ROUND_TRIPS = round_trips
+    except Exception:
+        logger.debug("Failed to rollback TURN_ROUND_TRIPS for uncommitted user turn", exc_info=True)
+
+    logger.info("Rolled back tracked uncommitted user turn from conversation history.")
+    return True
+
+
 def prepare_query_context(user_prompt):
     """Prepares and appends the user's prompt to the conversation context.
 
@@ -948,7 +1016,7 @@ def prepare_query_context(user_prompt):
         user_prompt (str): The raw user prompt text to add to the conversation.
 
     Returns:
-        None: This function mutates `config.CONVERSATION_HISTORY` and summary timing state.
+        dict: Rollback metadata for the just-appended user turn.
     """
     # PLAN 8a (async harvest): fold any completed/failed background sub-agent
     # notices into the prefix queue (on the MAIN thread) before it is drained
@@ -1012,8 +1080,9 @@ def prepare_query_context(user_prompt):
         logger.exception("Reasoning auto-bump heuristic failed; continuing with default effort.")
 
     prepend_memory_to_history()
+    model_text = build_prefixed_model_text(user_prompt)
     append_conversation_history(
-        build_prefixed_model_text(user_prompt),
+        model_text,
         config.CONVERSATION_HISTORY,
         update_conversation_logs,
         handle_token_limit,  # This will use live config.MAX_TOKEN_COUNT
@@ -1025,7 +1094,10 @@ def prepare_query_context(user_prompt):
         post_social_media_summaries,
         logger,
     )
-    # No return value needed; config.last_summary_time is updated by append_conversation_history.
+    return {
+        "history_length": len(config.CONVERSATION_HISTORY),
+        "message_content": model_text,
+    }
 
 
 def conversation_history_command(arg, page_size=DEFAULT_PAGE_SIZE):

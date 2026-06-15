@@ -23,6 +23,136 @@ class TestConversation(unittest.TestCase):
         mock_process.assert_called_once_with("direct", fake_response, "msg")
         self.assertEqual(result, "FINAL RESULT")
 
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_initial_completion_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Initial LLM failure rolls back the just-appended uncommitted user turn."""
+        rollback_state = {"history_length": 3, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "HTTP 403")
+
+        result = conversation.query("user input")
+
+        mock_prepare.assert_called_once_with("user input")
+        mock_llm_init.assert_called_once()
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_cancelled_user_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Cancelled in-flight initial request rolls back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "Cancelled by user")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_missing_choices_response(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Malformed initial response with no choices also rolls back the tracked turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (MagicMock(choices=[]), None)
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_provider_auth_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Authentication/provider auth failures roll back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "HTTP 401")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_rate_limit_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Rate-limit failures roll back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "HTTP 429")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_server_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Server-side provider failures roll back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "HTTP 500")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_timeout_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Timeout failures roll back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "request timeout")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
+    @patch("monitor.core.conversation.rollback_uncommitted_user_turn")
+    @patch("monitor.core.conversation.get_llm_initial_completion")
+    @patch("monitor.core.conversation.prepare_query_context")
+    def test_query_rolls_back_uncommitted_turn_on_network_error(
+        self, mock_prepare, mock_llm_init, mock_rollback
+    ):
+        """Network failures roll back the tracked uncommitted turn."""
+        rollback_state = {"history_length": 2, "message_content": "user input"}
+        mock_prepare.return_value = rollback_state
+        mock_llm_init.return_value = (None, "Network unreachable")
+
+        result = conversation.query("user input")
+
+        mock_rollback.assert_called_once_with(rollback_state)
+        self.assertEqual(result, conversation.ConversationResult.ERROR)
+
     @patch("monitor.core.conversation.config", new=MagicMock(MAX_TOKEN_COUNT=1048576))
     def test_handle_token_limit(self):
         """handle_token_limit respects MAX_TOKEN_COUNT when smaller than estimate."""
@@ -37,6 +167,69 @@ class TestConversation(unittest.TestCase):
                 conversation.prepare_query_context("foo")
                 mock_prepend.assert_called_once()
                 mock_append.assert_called_once()
+
+    def test_rollback_uncommitted_user_turn_removes_user_and_ledgers(self):
+        """Rollback removes the trailing user turn and synchronized ledgers."""
+        fake_config = MagicMock()
+        fake_config.CONVERSATION_HISTORY = [{"role": "user", "content": "hello"}]
+        fake_config.TURN_COSTS_USD = [0.0]
+        fake_config.TURN_ROUND_TRIPS = [0]
+
+        rollback_state = {"history_length": 1, "message_content": "hello"}
+
+        with patch("monitor.core.conversation.config", new=fake_config):
+            rolled_back = conversation.rollback_uncommitted_user_turn(rollback_state)
+
+        self.assertTrue(rolled_back)
+        self.assertEqual(fake_config.CONVERSATION_HISTORY, [])
+        self.assertEqual(fake_config.TURN_COSTS_USD, [])
+        self.assertEqual(fake_config.TURN_ROUND_TRIPS, [])
+
+    def test_rollback_uncommitted_user_turn_ignores_non_user_tail(self):
+        """Rollback is a no-op when the history tail is not a user message."""
+        fake_config = MagicMock()
+        fake_config.CONVERSATION_HISTORY = [{"role": "assistant", "content": "hi"}]
+        fake_config.TURN_COSTS_USD = [0.25]
+        fake_config.TURN_ROUND_TRIPS = [1]
+
+        rollback_state = {"history_length": 1, "message_content": "hello"}
+
+        with patch("monitor.core.conversation.config", new=fake_config):
+            rolled_back = conversation.rollback_uncommitted_user_turn(rollback_state)
+
+        self.assertFalse(rolled_back)
+        self.assertEqual(
+            fake_config.CONVERSATION_HISTORY,
+            [{"role": "assistant", "content": "hi"}],
+        )
+        self.assertEqual(fake_config.TURN_COSTS_USD, [0.25])
+        self.assertEqual(fake_config.TURN_ROUND_TRIPS, [1])
+
+    def test_rollback_uncommitted_user_turn_ignores_changed_history_state(self):
+        """Rollback is a no-op when history no longer matches the tracked user turn."""
+        fake_config = MagicMock()
+        fake_config.CONVERSATION_HISTORY = [
+            {"role": "user", "content": "older"},
+            {"role": "user", "content": "newer"},
+        ]
+        fake_config.TURN_COSTS_USD = [0.1, 0.0]
+        fake_config.TURN_ROUND_TRIPS = [1, 0]
+
+        rollback_state = {"history_length": 1, "message_content": "older"}
+
+        with patch("monitor.core.conversation.config", new=fake_config):
+            rolled_back = conversation.rollback_uncommitted_user_turn(rollback_state)
+
+        self.assertFalse(rolled_back)
+        self.assertEqual(
+            fake_config.CONVERSATION_HISTORY,
+            [
+                {"role": "user", "content": "older"},
+                {"role": "user", "content": "newer"},
+            ],
+        )
+        self.assertEqual(fake_config.TURN_COSTS_USD, [0.1, 0.0])
+        self.assertEqual(fake_config.TURN_ROUND_TRIPS, [1, 0])
 
     @patch("monitor.core.conversation.clear_screen")
     def test_conversation_history_command_empty(self, mock_clear):
