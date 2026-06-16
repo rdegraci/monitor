@@ -192,21 +192,25 @@ def clear_project_instructions_cache():
 
 
 def configure_runtime_prompt_paths(startup_cwd):
-    """Resolve per-project overrides for MONITOR.md and MONITOR_CONVENTIONS.md
-    from ``startup_cwd``. Called once at app startup; the result is frozen for
-    the rest of the session so an interactive :cd does NOT swap which prompt
-    file is read. Pass ``None`` to clear any prior override (mainly for tests).
+    """Resolve per-project overrides for AGENTS.md, MONITOR.md, and
+    MONITOR_CONVENTIONS.md from ``startup_cwd``.
+
+    Called once at app startup; the result is frozen for the rest of the
+    session so an interactive :cd does NOT swap which prompt files are read.
+    Pass ``None`` to clear any prior override (mainly for tests).
 
     Resolution order:
-      MONITOR.md         : <cwd>/MONITOR.md → <cwd>/build/MONITOR.md →
-                            <cwd>/AGENTS.md → appdir copy
-      MONITOR_CONVENTIONS.md : <cwd>/MONITOR_CONVENTIONS.md →
-                            <cwd>/build/MONITOR_CONVENTIONS.md → appdir copy
+      If <cwd>/AGENTS.md exists:
+        instructions        : <cwd>/AGENTS.md
+        coding conventions  : skipped
+      Else:
+        MONITOR.md         : <cwd>/MONITOR.md → <cwd>/build/MONITOR.md →
+                              appdir copy
+        MONITOR_CONVENTIONS.md : <cwd>/MONITOR_CONVENTIONS.md →
+                              <cwd>/build/MONITOR_CONVENTIONS.md → appdir copy
 
-    AGENTS.md (the emerging cross-tool agent-instructions convention) is
-    accepted as a fallback ONLY for MONITOR.md. The conventions file is
-    monitor-specific so there is no AGENTS equivalent. The monitor-specific
-    name beats the cross-tool name within each location chain.
+    AGENTS.md is authoritative when present in the active startup scope. In
+    that case, MONITOR.md and MONITOR_CONVENTIONS.md are not read.
 
     Args:
         startup_cwd: The directory captured at process start (typically
@@ -220,14 +224,19 @@ def configure_runtime_prompt_paths(startup_cwd):
         return
 
     cwd = Path(startup_cwd)
-    _OVERRIDE_INSTRUCTIONS_PATH = _resolve_override(
-        cwd,
-        ["MONITOR.md", "build/MONITOR.md", "AGENTS.md"],
-    )
-    _OVERRIDE_CODING_CONVENTIONS_PATH = _resolve_override(
-        cwd,
-        ["MONITOR_CONVENTIONS.md", "build/MONITOR_CONVENTIONS.md"],
-    )
+    agents_path = _resolve_override(cwd, ["AGENTS.md"])
+    if agents_path is not None:
+        _OVERRIDE_INSTRUCTIONS_PATH = agents_path
+        _OVERRIDE_CODING_CONVENTIONS_PATH = None
+    else:
+        _OVERRIDE_INSTRUCTIONS_PATH = _resolve_override(
+            cwd,
+            ["MONITOR.md", "build/MONITOR.md"],
+        )
+        _OVERRIDE_CODING_CONVENTIONS_PATH = _resolve_override(
+            cwd,
+            ["MONITOR_CONVENTIONS.md", "build/MONITOR_CONVENTIONS.md"],
+        )
     # The resolved paths just changed; invalidate the cached content so the
     # next build_system_prompt loads from the (possibly new) sources.
     clear_project_instructions_cache()

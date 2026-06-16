@@ -5,9 +5,10 @@ TRUST MODEL (see also: monitor.lib.macros docstring)
 ``tcl_macro_expand`` invokes ``tkinter.Tcl().eval(...)`` on macro bodies, which
 is full Tcl code execution — not a sandboxed templating language. Tcl scripts
 can ``exec`` shell commands, touch the filesystem, and read environment
-variables. Treat any macros file or runtime-added macro as executable code,
-not configuration. This is the single boundary to gate if you ever need to
-expand macros from a less-trusted source.
+variables. When ``tkinter`` is unavailable, non-Tcl macros continue to work,
+but Tcl macro expansion is unavailable. Treat any macros file or runtime-added
+macro as executable code, not configuration. This is the single boundary to
+gate if you ever need to expand macros from a less-trusted source.
 """
 
 import json
@@ -211,12 +212,14 @@ def update_macros(store, macros):
 def recursive_macro_expand(macro, values, delim_open, delim_close, delim_escape):
     """Recursively expand macros within an expression using configurable delimiters.
 
-    Now supports special TCL macro syntax: a macro string of the form (/tcl ...), with
-    optional whitespace, will have its "..." body recursively expanded for further
-    macros, then evaluated as TCL code using an embedded interpreter. Output from
-    'puts' will be used as the result of the macro substitution. TCL macro expansion
-    result is then substituted into enclosing macros as usual. If TCL execution fails,
-    the error message is reported as [TCL ERROR: ...].
+    Supports Tcl macro syntax in two forms: `{{tcl ...}}` inside macro
+    delimiters, and bare `tcl ...` at the start of a fully expanded macro
+    value. The Tcl body is executed in an embedded interpreter, and output
+    captured via `puts` is used as the substitution result. Macro expansion is
+    not performed inside the Tcl code body itself; the body is executed largely
+    as written after delimiter-literal unescaping. If Tcl evaluation cannot run
+    or fails, expansion returns a `[TCL ERROR: ...]` marker string describing
+    the failure.
 
     Also supports bare 'tcl ...' form at the beginning of a macro value, without need for
     surrounding parens.

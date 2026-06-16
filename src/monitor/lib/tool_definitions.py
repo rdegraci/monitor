@@ -52,7 +52,9 @@ from monitor.lib.todo import add_todo, list_todos, update_todo, delete_todo, cle
 
 TOOL_STATE = {}
 
-# Dictionary of available LLM tool/functions for various tasks
+# Callable registry keyed by tool name. Entries here are executable
+# implementations; separate description catalogs control which tools are
+# exposed to a given provider/model.
 AVAILABLE_TOOLS = {
     "get_current_weather": get_current_weather,
     "save_to_memory": save_to_memory,
@@ -91,9 +93,9 @@ AVAILABLE_TOOLS = {
     "text_file_str_replace_in_file": text_file_str_replace_in_file,
     "text_file_insert_text_at_line": text_file_insert_text_at_line,
     "bulk_replace_in_files": bulk_replace_in_files,
-    # Anthropic-native editor tool dispatcher (both names route through the
-    # same dispatcher; the model emits one or the other depending on which
-    # native gate matched at configure_tools time).
+    # Anthropic-native editor dispatcher. Both names map to the same
+    # implementation in the callable registry, while configure_tools()
+    # decides which tool name, if any, is exposed for the active model.
     "str_replace_based_edit_tool": str_replace_based_edit_tool,
     "str_replace_editor": str_replace_based_edit_tool,
     "add_todo": add_todo,
@@ -106,6 +108,9 @@ AVAILABLE_TOOLS = {
     "agent_list": agent_list,
     "agent_logfile": agent_logfile,
     "agent_send": agent_send,
+# Gemini uses a separate tool-description catalog shape (`{name, description,
+# parameters}`), distinct from the nested OpenAI/LiteLLM-style entries in
+# TOOL_DESCRIPTIONS.
     "agent_gather": agent_gather,
     "make_directory": make_directory
 }

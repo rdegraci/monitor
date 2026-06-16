@@ -160,11 +160,8 @@ def _safe_register(mapping: Dict[str, Callable[..., Any]]) -> None:
     the registration flow.
 
     Args:
-        mapping: A dictionary containing:
-            - "command": The command string to be registered.
-            - "function": The callable to execute for the command.
-            - "description": A human-readable description of the command.
-            - "group_description": The descriptive label for the command group.
+        mapping: A built-in command descriptor, typically containing
+            `command`, `function`, `description`, and `group_description`.
     """
     try:
         append_function_to_built_ins(mapping)
@@ -222,7 +219,7 @@ def next_steps_command(arg: Any = None) -> None:
     if not text:
         print_colored_error(
             "Usage: : (or /) next_steps <branch> [<main_branch>]\n"
-            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, the repository default branch is auto-detected.\n'
             "Examples:\n"
             "  :next_steps my-feature\n"
             "  :next_steps my-feature main\n"
@@ -238,7 +235,7 @@ def next_steps_command(arg: Any = None) -> None:
     else:
         print_colored_error(
             "Usage: : (or /) next_steps <branch> [<main_branch>]\n"
-            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, "master" is used.\n'
+            'Description: Suggest next steps based on commit analysis. If <main_branch> is omitted, the repository default branch is auto-detected.\n'
             "Examples:\n"
             "  :next_steps my-feature\n"
             "  :next_steps my-feature main\n"
@@ -290,7 +287,8 @@ def configure_built_ins() -> None:
     """
     Register all built-in commands required by the application.
 
-    The function is idempotent and can be called multiple times safely.
+    This function can be called multiple times, but it appends registrations
+    to the built-ins registry and does not deduplicate existing entries.
     """
     command_groups: List[Dict[str, Any]] = [
         {

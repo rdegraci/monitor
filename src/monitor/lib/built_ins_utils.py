@@ -108,7 +108,9 @@ def append_function_to_built_ins(
     Append a new built-in command definition to the list.
 
     Args:
-        new_dict: A dictionary with keys 'command', 'description', and 'function'.
+        new_dict: A built-in command descriptor dictionary. It typically
+            includes `command`, `description`, and `function`, and may also
+            include metadata such as `group_description`.
         arr: The list to which the new command will be appended.
 
     Raises:

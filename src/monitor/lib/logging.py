@@ -6,7 +6,7 @@ This module configures logging by reading logging-related globals defined in mon
 LOG_BACKUP_COUNT, CONSOLE_LOGGING_ENABLED, LOG_ENCODING). These globals may be absent; in
 that case documented defaults are applied and a warning is emitted.
 
-REQUIRED GLOBALS in monitor.config:
+EXPECTED GLOBALS in monitor.config:
     - LOGGING_LEVEL: Logging level as string or int, e.g., 'INFO', 'DEBUG', or 20, etc.
     - LOG_FILE_PATH: String path to the log file. This path may contain '{pid}' which will
       be replaced with the current process PID. If not present, the PID will be injected by
@@ -20,9 +20,10 @@ OPTIONAL GLOBALS (defaults will be used if not provided):
     - CONSOLE_LOGGING_ENABLED: Bool, enable console logging. Default: True
     - LOG_ENCODING: 'utf-8'
 
-Any missing required globals will result in a warning and use of safest sensible defaults.
-This file MUST NOT attempt to read config.yaml, guess configuration, or set its own hardcoded
-defaults except as specified above.
+Any missing expected globals will result in a warning and use of safest sensible defaults.
+This file does not read config.yaml directly. It consumes logging-related globals from
+monitor.config and falls back to a small built-in default logging configuration when those
+globals are missing or empty.
 
 No test code or run-on-main logic will be present in this file.
 """
@@ -166,20 +167,23 @@ def _inject_pid_into_logfile_path(log_path, pid=None):
 
 def configure_logging():
     """
-    Configures the root logger using logging-related globals from monitor.config.
-    Uses documented defaults for missing fields and logs warnings for any missing globals.
+    Configure the root logger using logging-related globals from monitor.config.
 
-    The log file path will include the process PID: if the file path contains '{pid}', it will be replaced.
-    Otherwise, the PID will be injected between the filename and extension automatically. This avoids file
-    conflicts when running multiple instances.
+    Missing fields are replaced with documented defaults and logged as warnings.
+    The log file path includes the process PID: if the file path contains
+    '{pid}', it is replaced; otherwise the PID is injected between the
+    filename and extension automatically. This avoids file conflicts when
+    running multiple instances.
 
-    This function is idempotent and safe to call more than once. It removes all existing root handlers.
+    This function is idempotent and safe to call more than once. It removes
+    all existing root handlers before reconfiguring them.
 
-    Required globals in monitor.config:
+    Expected globals in monitor.config:
         - LOGGING_LEVEL (str | int)
         - LOG_FILE_PATH (str)
     Optional globals:
-        - LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT, CONSOLE_LOGGING_ENABLED, LOG_ENCODING
+        - LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
+          CONSOLE_LOGGING_ENABLED, LOG_ENCODING
     """
     log_cfg = _load_logging_config()
 

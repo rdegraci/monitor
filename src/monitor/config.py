@@ -90,11 +90,13 @@ def _safe_expanduser(path):
 
 def find_config_file(filename):
     """
-    Search for 'filename' in system (site) config dir first, then in user config dir.
-    If found in both, return the user config dir version.
-    If found only in site config dir, return that.
-    If not found in either, raise FileNotFoundError.
-    All file/directory existence checks are IO and errors are always logged and raised.
+    Search for `filename` in both user and site config locations.
+
+    If the file exists in the user config directory, return that path.
+    Otherwise return the site config path if present. If the file does not
+    exist in either location, raise FileNotFoundError.
+
+    All file/directory existence checks are IO and errors are logged and raised.
     """
     try:
         site_config_dir = appdirs.site_config_dir("monitor")

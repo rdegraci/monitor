@@ -1,6 +1,6 @@
 # MONITOR_CONVENTIONS.md
 
-This is the **global fallback** loaded when the startup directory has no project-local `MONITOR_CONVENTIONS.md`. Resolution order at startup: `<cwd>/MONITOR_CONVENTIONS.md` → `<cwd>/build/MONITOR_CONVENTIONS.md` → this packaged copy (via `appdir/monitor/MONITOR_CONVENTIONS.md`). The `build/` fallback lets a build pipeline generate a project-specific copy without touching the repo root. The path is read once at startup and frozen for the session — `:cd` later does not re-resolve.
+This is the **global fallback** loaded when the startup directory has no authoritative project-local `AGENTS.md` and no project-local `MONITOR_CONVENTIONS.md`. Resolution order at startup is: if `<cwd>/AGENTS.md` exists, project-local `MONITOR_CONVENTIONS.md` is not read; otherwise `<cwd>/MONITOR_CONVENTIONS.md` → `<cwd>/build/MONITOR_CONVENTIONS.md` → this packaged copy (via `appdir/monitor/MONITOR_CONVENTIONS.md`). The `build/` fallback lets a build pipeline generate a project-specific copy without touching the repo root. The path is read once at startup and frozen for the session — `:cd` later does not re-resolve.
 
 ## Language-agnostic change hygiene
 

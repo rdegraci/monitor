@@ -1,6 +1,6 @@
 # MONITOR.md
 
-This is the **global fallback** loaded when the startup directory has no project-local override. Resolution order at startup: `<cwd>/MONITOR.md` → `<cwd>/build/MONITOR.md` → `<cwd>/AGENTS.md` → this packaged copy (via `appdir/monitor/MONITOR.md`). `AGENTS.md` is the emerging cross-tool agent-instructions convention; monitor reads it so repos that already maintain one for other tools (Codex CLI, etc.) work without a separate file. Monitor-specific names beat the cross-tool name within the chain. The `build/` fallback lets a build pipeline generate a project-specific copy without touching the repo root. The path is read once at startup and frozen for the session — `:cd` later does not re-resolve.
+This is the **global fallback** loaded when the startup directory has no authoritative project-local `AGENTS.md` and no project-local `MONITOR.md` override. Resolution order at startup is: `<cwd>/AGENTS.md` → `<cwd>/MONITOR.md` → `<cwd>/build/MONITOR.md` → this packaged copy (via `appdir/monitor/MONITOR.md`). `AGENTS.md` is the authoritative cross-tool agent-instructions convention; when it exists in the startup scope, Monitor does not read project-local `MONITOR.md` or `MONITOR_CONVENTIONS.md`. The `build/` fallback lets a build pipeline generate a project-specific copy without touching the repo root. The path is read once at startup and frozen for the session — `:cd` later does not re-resolve.
 
 ## Working principle
 

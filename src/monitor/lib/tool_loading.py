@@ -93,7 +93,7 @@ def add_tool(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: 
         tool_descriptions (List[Dict[str, Any]]): List of tool descriptions
         gemini_tool_descriptions (List[Dict[str, Any]]): List of gemini tool descriptions
         tool_state (Dict[str, bool]): Tool state dictionary
-        tool_definition (Dict[str, Any]): Tool definition following the standard format
+        tool_definition (Dict[str, Any]): Tool definition in the shared nested format used by this helper (`{"type": ..., "function": {...}}`). The same definition is appended to both catalogs.
         
     Returns:
         bool: True if tool was added successfully, False otherwise
@@ -124,7 +124,7 @@ def add_tool(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: 
 
 def remove_tool(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool], tool_name: str) -> bool:
     """
-    Remove a tool definition from the available tools.
+    Remove a tool definition from the provided tool descriptions list and clear its entry from tool_state.
     
     Args:
         tool_descriptions (List[Dict[str, Any]]): List of tool descriptions
@@ -152,7 +152,7 @@ def inject_openai_properties(function_array: List[Dict[str, Any]]) -> List[Dict[
     Create OpenAI-compatible function descriptions by injecting required properties.
     
     Args:
-        function_array: List of function descriptions in Anthropic format
+        function_array: List of tool descriptions in the shared nested format (`{"type": "function", "function": {...}}`).
         
     Returns:
         List of function descriptions with OpenAI-specific properties added

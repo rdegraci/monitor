@@ -162,25 +162,23 @@ def test_agents_md_used_when_no_monitor_md_anywhere(tmp_path):
     assert system_prompt._load_runtime_instructions() == "FROM_AGENTS_MD\n"
 
 
-def test_root_monitor_md_wins_over_agents_md(tmp_path):
-    """When both <cwd>/MONITOR.md and <cwd>/AGENTS.md exist, the
-    monitor-specific name beats the cross-tool name — the user explicitly
-    chose to author a MONITOR.md."""
+def test_agents_md_is_authoritative_over_monitor_md(tmp_path):
+    """When <cwd>/AGENTS.md exists, it is authoritative and MONITOR.md must
+    not be read."""
     (tmp_path / "MONITOR.md").write_text("FROM_ROOT_MONITOR\n")
     (tmp_path / "AGENTS.md").write_text("FROM_AGENTS_MD\n")
     system_prompt.configure_runtime_prompt_paths(tmp_path)
-    assert system_prompt._load_runtime_instructions() == "FROM_ROOT_MONITOR\n"
+    assert system_prompt._load_runtime_instructions() == "FROM_AGENTS_MD\n"
 
 
-def test_build_monitor_md_wins_over_agents_md(tmp_path):
-    """build/MONITOR.md is monitor-specific even though it's in a deeper
-    folder; it should win over a root AGENTS.md. Per spec: 'monitor-specific
-    name beats cross-tool name within the chain.'"""
+def test_agents_md_is_authoritative_over_build_monitor_md(tmp_path):
+    """When <cwd>/AGENTS.md exists, it is authoritative and build/MONITOR.md
+    must not be read."""
     (tmp_path / "build").mkdir()
     (tmp_path / "build" / "MONITOR.md").write_text("FROM_BUILD_MONITOR\n")
     (tmp_path / "AGENTS.md").write_text("FROM_AGENTS_MD\n")
     system_prompt.configure_runtime_prompt_paths(tmp_path)
-    assert system_prompt._load_runtime_instructions() == "FROM_BUILD_MONITOR\n"
+    assert system_prompt._load_runtime_instructions() == "FROM_AGENTS_MD\n"
 
 
 def test_build_agents_md_is_not_read(tmp_path):
@@ -196,11 +194,13 @@ def test_build_agents_md_is_not_read(tmp_path):
     assert out.strip()
 
 
-def test_agents_md_does_not_override_conventions(tmp_path):
-    """AGENTS.md is general agent guidance, not code conventions; it must
-    not be picked up for the MONITOR_CONVENTIONS.md chain."""
+def test_agents_md_suppresses_monitor_conventions(tmp_path):
+    """When <cwd>/AGENTS.md exists, MONITOR_CONVENTIONS.md must not be read
+    from project overrides."""
+    (tmp_path / "MONITOR_CONVENTIONS.md").write_text("FROM_CONVENTIONS\n")
     (tmp_path / "AGENTS.md").write_text("FROM_AGENTS_MD\n")
     system_prompt.configure_runtime_prompt_paths(tmp_path)
     conventions = system_prompt._load_runtime_coding_conventions()
+    assert "FROM_CONVENTIONS" not in conventions
     assert "FROM_AGENTS_MD" not in conventions
     assert conventions.strip()

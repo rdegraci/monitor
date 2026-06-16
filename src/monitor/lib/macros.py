@@ -2,10 +2,11 @@
 
 TRUST MODEL
 -----------
-The macros subsystem supports a {{tcl ...}} form that evaluates arbitrary Tcl
-code in a tkinter.Tcl() interpreter on the host. Tcl is *not* a sandboxed
-templating language; it can `exec` shell commands, read/write files, open
-sockets, and read environment variables.
+The macros subsystem supports Tcl evaluation in both `{{tcl ...}}` macro
+expressions and macro values that begin with bare `tcl ...`. Both forms
+evaluate arbitrary Tcl code in a tkinter.Tcl() interpreter on the host. Tcl is
+*not* a sandboxed templating language; it can `exec` shell commands,
+read/write files, open sockets, and read environment variables.
 
 Implications:
 - ``macros.json`` is effectively executable code. Treat it with the same trust
@@ -14,7 +15,8 @@ Implications:
   not accept Tcl macros from network input.
 - Macros added at runtime via ``<key=value`` (``add_macro_definition``) are
   also unsandboxed. Anything the user types after ``<key=`` becomes
-  executable on next expansion if it uses the ``tcl`` form.
+  executable on expansion if the resulting macro body is recognized as Tcl,
+  including either ``{{tcl ...}}`` or bare ``tcl ...`` forms.
 - PRIVATE_MACRO_VALUES in this module are the only macros that cannot be
   overridden by user input (precedence: PUBLIC < file < EPHEMERAL < PRIVATE).
 

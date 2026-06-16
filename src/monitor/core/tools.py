@@ -92,7 +92,7 @@ def configure_tools():
     else:
         logger.warning(
             "configure_tools: unrecognized provider prefix %r for MODEL=%r; "
-            "leaving editor-tool catalog in its current state",
+            "provider-specific editor-tool configuration was skipped, so any existing editor-tool catalog entries were left unchanged",
             provider, config.MODEL,
         )
 
