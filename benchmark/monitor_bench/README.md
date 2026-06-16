@@ -86,6 +86,150 @@ Pass the file to the report renderer for a markdown summary table:
 python -m benchmark.monitor_bench.report results/run-1780540158.json
 ```
 
+To compare two runs directly and see what improved or regressed, use the
+compare helper:
+
+```bash
+# Minimal compare
+python -m benchmark.monitor_bench.compare before.json after.json
+
+# Show only regressions
+python -m benchmark.monitor_bench.compare before.json after.json --only-regressions
+
+# Focus on one task and include unchanged output
+python -m benchmark.monitor_bench.compare before.json after.json --task seeded_bugfix_multistep --show-unchanged
+
+# Sort task sections by the largest cost delta
+python -m benchmark.monitor_bench.compare before.json after.json --sort-by cost
+
+# Emit markdown for a PR comment
+python -m benchmark.monitor_bench.compare before.json after.json --format markdown
+
+# Emit machine-readable JSON for automation
+python -m benchmark.monitor_bench.compare before.json after.json --format json
+
+# Ignore tiny cost and duration shifts as noise
+python -m benchmark.monitor_bench.compare before.json after.json \
+  --cost-delta-threshold 0.002 \
+  --duration-delta-threshold 0.5
+```
+
+## Recommended workflow
+
+A practical day-to-day benchmark loop looks like this:
+
+1. Run a baseline benchmark before your change.
+2. Save the resulting `results/run-*.json` path.
+3. Make your code change.
+4. Run the benchmark again after the change.
+5. Compare the two runs with `benchmark.monitor_bench.compare`.
+6. If the compare output shows a regression or an unexpected mixed result,
+   inspect the failing task with `benchmark.monitor_bench.inspect`.
+
+Example end-to-end workflow:
+
+```bash
+# 1) Capture a baseline run
+python -m benchmark.monitor_bench.runner --tasks memory todo
+# suppose this writes results/run-1000.json
+
+# 2) Make your code change, then run again
+python -m benchmark.monitor_bench.runner --tasks memory todo
+# suppose this writes results/run-2000.json
+
+# 3) Compare the runs
+python -m benchmark.monitor_bench.compare results/run-1000.json results/run-2000.json
+
+# 4) Focus on regressions only
+python -m benchmark.monitor_bench.compare results/run-1000.json results/run-2000.json --only-regressions
+
+# 5) Inspect one regressed task in detail
+python -m benchmark.monitor_bench.inspect results/run-2000.json --task seeded_bugfix_multistep --failed-only
+```
+
+### When to use each helper
+
+- Use `runner.py` to generate a fresh benchmark run.
+- Use `report.py` to summarize one run for a PR or quick snapshot.
+- Use `compare.py` to decide whether a change improved or regressed behavior.
+- Use `inspect.py` to debug why a specific sample or task failed.
+
+### Recommended compare habits
+
+- Compare runs with the same task filter and sample count when possible.
+- Start with the default text output to get the headline result quickly.
+- Use `--only-regressions` first when evaluating risky changes.
+- Use `--format markdown` when pasting the result into a PR.
+- Use `--format json` for automation or follow-on analysis.
+- Add thresholds when tiny cost or duration shifts are creating noise.
+- Treat missing/new tasks as a suite-change signal, not just a performance
+  signal.
+
+### Interpreting compare output
+
+- **Improvement** means correctness improved, or correctness held steady while
+  efficiency improved.
+- **Regression** means correctness worsened, or correctness held steady while
+  efficiency worsened.
+- **Mixed** means the result needs judgment — for example, pass rate improved
+  but cost or tool calls worsened enough to matter.
+- **Unchanged** means the deltas were effectively zero or below your configured
+  thresholds.
+
+### Compare JSON schema
+
+`python -m benchmark.monitor_bench.compare ... --format json` emits a
+structured payload intended for automation and follow-on analysis.
+
+Top-level keys:
+
+- `before_path`: path string passed for the baseline run
+- `after_path`: path string passed for the candidate run
+- `thresholds`: active threshold configuration used for classification
+- `overall_classification`: overall compare label
+- `overall_metrics`: list of metric delta objects in compare display order
+- `tasks`: filtered and sorted task comparison objects
+- `missing_tasks`: task names present only in the before run
+- `new_tasks`: task names present only in the after run
+
+Each metric object contains:
+
+- `label`: one of `pass`, `cost`, `tools`, `loops`, `duration`
+- `before`: baseline value or `null`
+- `after`: candidate value or `null`
+- `lower_is_better`: whether decreases are improvements for this metric
+- `threshold`: threshold applied to this metric
+- `classification`: `improvement`, `regression`, or `unchanged`
+
+Each task object contains:
+
+- `task`: task name
+- `classification`: task-level compare label
+- `before`: aggregated per-task summary from the before run
+- `after`: aggregated per-task summary from the after run
+- `metrics`: metric delta objects for that task
+- `before_pass_summary`: formatted pass summary string
+- `after_pass_summary`: formatted pass summary string
+
+This JSON format is intended to be stable enough for lightweight automation,
+but it should still be treated as an internal developer tool output rather than
+an external public API contract.
+
+For post-run debugging, use the inspection helper to get a per-sample view of
+failures, final assistant answers, stderr tails, and traceback excerpts without
+manually opening the raw JSON:
+
+```bash
+# Show only failed samples
+python -m benchmark.monitor_bench.inspect results/run-1780540158.json --failed-only
+
+# Focus on one task
+python -m benchmark.monitor_bench.inspect results/run-1780540158.json --task seeded_bugfix_multistep
+
+# Include serialized conversation history
+python -m benchmark.monitor_bench.inspect results/run-1780540158.json --task seeded_bugfix_multistep --show-history
+```
+
 ## What the numbers mean
 
 The runner reports four signals per task / per tag / overall:
