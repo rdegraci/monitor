@@ -1,126 +1,114 @@
-# Internal Commands: llm< and directive<
+# Internal Commands: `llm<` and `directive<`
 
-The authoritative implementation for these internal commands lives in src/monitor/core/commands.py.
+The authoritative implementation for these commands lives in `src/monitor/core/commands.py`.
 
-This document describes two internal REPL commands available in Monitor that help combine local environment data with LLM reasoning: `llm<` and `directive<`.
+This document reflects the current code behavior.
 
-For context on how to author and store directive files, see docs/DIRECTIVES.md (it explains the directives directory and an example directive).
+## Overview
 
----
+Monitor currently defines two internal commands in `INTERNAL_COMMANDS`:
+- `llm<`
+- `directive<`
 
-## llm< — run shell code, send output to the LLM
+These are not normal built-ins registered through `configure_built_ins()`. They are handled by the internal-command execution path in `src/monitor/core/commands.py`.
 
-Purpose
+## `llm<`
 
-- `llm<` executes local shell code (non-interactively), captures stdout, and sends the captured text (or a user-supplied prompt that references it) to Monitor's LLM pipeline.
-- Useful for immediate, ad-hoc workflows that combine local diagnostics or file content with LLM analysis.
+### Purpose
+`llm<` runs shell code locally, captures stdout, and forwards the resulting text into Monitor's model pipeline.
 
-Syntax
+### Current syntax
+```text
+llm< <shell_code>
+llm< <shell_code> >llm <user_prompt>
+```
 
-- Basic: llm< "<shell_code>"
-- With a user prompt: llm< "<shell_code>" >llm "<user_prompt>"
-- With placeholder: llm< "<shell_code>" >llm "<instruction using ${result} to refer to stdout>"
+Examples:
+```text
+llm< "git status"
+llm< "git diff HEAD~1..HEAD" >llm "Review this diff: ${result}"
+llm< "sed -n '1,120p' src/monitor/core/commands.py" >llm "Explain this code: ${result}"
+```
 
-Notes on quoting
+### Current behavior
+The implementation:
+1. parses the command line using `shlex` when possible
+2. detects an optional literal `>llm` delimiter
+3. runs the shell portion through `run_subprocess(...)` with shell execution enabled
+4. captures stdout
+5. assembles model input
+6. calls `query(...)`
+7. displays the result via the normal display path
 
-- Wrap the shell_code in quotes if it contains spaces, pipes, or characters that the shell might interpret.
-- When passing >llm with a prompt containing spaces or special chars, quote it as well.
+### Prompt assembly rules
+- if `>llm` is omitted, stdout becomes the full model input
+- if a prompt is present and contains `${result}`, stdout replaces that placeholder
+- if a prompt is present without `${result}`, the prompt is followed by stdout
 
-Execution behavior
+### Failure behavior
+- if shell execution fails, the error is surfaced and the LLM call is skipped
+- if the assembled input is empty, Monitor warns and skips the LLM call
 
-1. Monitor parses the command. If the literal `>llm` token is present the command is split into `shell_code` and `user_prompt`. Otherwise the whole remainder is treated as `shell_code`. Monitor's parser uses shlex.split (POSIX) for tokenization; if tokenization fails for edge cases the implementation falls back to a robust substring split on the literal '>llm'. Ensure you quote shell_code and prompts correctly to avoid unexpected splitting.
-2. `shell_code` is executed with run_subprocess in a non-interactive shell; stdout, stderr and exit_code are captured.
-3. If the exit code indicates failure, `llm<` surfaces stderr and logs an error. The LLM call may be skipped depending on error handling.
-4. If there is a user_prompt and it contains `${result}`, that placeholder is replaced with stdout. If there is a user_prompt without `${result}`, Monitor concatenates the prompt and stdout.
-5. The assembled input is passed to `query(...)` (the canonical LLM entrypoint) and output is shown via the usual display pipeline.
+### Security note
+`llm<` executes local shell code and sends captured output into the model pipeline. Do not use it with untrusted shell input or sensitive output unless you understand the consequences.
 
-Security and safety
+Unlike general internal commands such as `directive<`, `llm<` does not use the `zsh -c "source ~/.zshrc && ..."` execution path.
 
-- `llm<` executes code on your machine. Do not run untrusted shell commands.
-- The shell output is sent to the LLM provider (may be an external service). Do not send secrets or private data.
-- Prefer using small, targeted commands (head/sed) to limit tokens and cost.
+## `directive<`
 
-Best practices
+### Purpose
+`directive<` loads a directive file from `config.DIRECTIVES_DIR`, prepends parameter lines, and forwards the resulting text to the model pipeline.
 
-- Use `${result}` in your prompt to make intent explicit.
-- Limit output size using head/sed/cut when necessary.
-- Request structured output (JSON) for machine parsing when appropriate.
-- Use explicit roles and clear instructions (e.g., "You are a senior engineer... return JSON list of issues...").
+### Current syntax
+```text
+directive< <file_name> <param1> <param2> <param3> <param4> <param5>
+```
 
-Examples
+Example:
+```text
+directive< greet.prompt Alice "Acme Corp"
+```
 
-1) Quick system diagnostic + recommendation
+### Current behavior
+The internal command definition builds a shell function that:
+1. resolves `<file_name>` under `config.DIRECTIVES_DIR`
+2. emits:
+   - `param1=...`
+   - `param2=...`
+   - `param3=...`
+   - `param4=...`
+   - `param5=...`
+3. concatenates the full directive file contents
+4. returns the combined text
+5. sends that combined text to the model pipeline because the command is marked `internalize_to_llm=True`
 
-    llm< "df -h; free -m" >llm "Given the disk and memory stats below (${result}), recommend steps to free disk space and tune memory for a small service. Return a short checklist."
+### Current details worth knowing
+- up to five positional parameters are supported
+- missing parameters are emitted as blank assignments
+- there is no client-side template substitution inside the directive file
+- the model sees plain text containing the `paramN=` lines followed by the file body
+- `directive<` uses the general internal-command shell path, which runs via `zsh -c` after sourcing `~/.zshrc`
 
-2) Review last commit diff
+### Failure behavior
+If the directive file cannot be read, the shell command returns an error and the output is not sent to the LLM.
 
-    llm< "git diff HEAD~1..HEAD" >llm "Analyze this diff (${result}). List top 3 potential correctness issues and suggested fixes in bullets."
+## Difference between internal commands and built-ins
 
-3) Explain a function from a file (only lines 100–160)
+These commands are different from built-ins such as `commands`, `macros`, or `wiki_lint`.
 
-    llm< "sed -n '100,160p' src/monitor/core/commands.py" >llm "Explain the purpose of this code segment and list edge cases. Use ${result} to refer to the code excerpt."
+- built-ins are registered in `src/monitor/core/built_ins.py`
+- internal commands are defined in `src/monitor/core/commands.py`
 
-Troubleshooting
+`llm<` and `directive<` therefore participate in a different routing path from ordinary built-ins.
 
-- If the command produces no stdout, you’ll get an empty input to the LLM; check the executed shell command.
-- If the shell command fails, inspect the error in stderr which is surfaced by Monitor.
-- If output is too large for your chosen model, trim it or summarize before sending.
+## Related files
+- `src/monitor/core/commands.py`
+- `src/monitor/core/query_service.py`
+- `src/monitor/lib/command_utils.py`
+- `docs/DIRECTIVES.md`
 
----
+## Practical guidance
 
-## directive< — load a file from the directives directory and send it to the LLM
+Use `llm<` when you want live local shell output analyzed.
 
-Purpose
-
-- `directive<` is a lighter-weight internal command for sending the contents of a file from your configured `DIRECTIVES_DIR` to the LLM, along with up to five parameter lines.
-- It is suitable for ad-hoc prompt reuse where you keep prompt templates as text files.
-
-Syntax
-
-    directive< <file_name> <param1> <param2> <param3> <param4> <param5>
-
-Behavior
-
-- The command emits five parameter lines (param1..param5) in the form `paramN=value` (unused parameters are emitted as empty, e.g., param4=) followed by the entire contents of the requested file.
-- The combined text is then internalized and sent to Monitor’s LLM pipeline.
-- There is no client-side variable substitution; the LLM sees the parameter lines and the file text and is expected to interpret the parameters.
-- The requested file is read from config.DIRECTIVES_DIR, and the directive-handling implementation lives in src/monitor/core/commands.py.
-
-Security and safety
-
-- Files in `DIRECTIVES_DIR` are read and their contents are sent to the LLM. Do not store secrets in directive files.
-- Validate and control permissions of the directives directory.
-
-Example: simple greeting directive (two parameters)
-
-1) Save the following file as `greet_directive.txt` in your directives directory (for example `~/.config/monitor/directives/greet_directive.txt`):
-
-    # greet_directive.txt
-
-    You are an assistant that produces a friendly business greeting. Use the parameters provided above (param1 and param2) to customize the result.
-
-    - param1: recipient name
-    - param2: company or organization name
-
-    Instructions:
-    1) Greet the person using param1.
-    2) Mention param2 as the organization and offer a helpful one-sentence suggestion relevant to a business contact.
-    3) Provide the output as a short, professional message.
-
-2) Run it in the Monitor REPL
-
-    directive< greet_directive.txt Alice "Acme Corp"
-
-Monitor internally sends the following to the LLM:
-
-    param1=Alice
-    param2=Acme Corp
-    <contents of greet_directive.txt>
-
-The LLM’s response is shown via Monitor’s display pipeline and logged to the conversation logs.
-
-When to prefer directive< vs. llm<
-
-- Use `llm<` when you need to capture dynamic local output (command results, file snippets, diagnostics) and combine it with a specific LLM instruction.
-- Use `directive<` when you have a reusable plain-text prompt/template saved in the directives directory that you want to re-run with simple parameter bindings.
+Use `directive<` when you want to reuse prompt files stored under the configured directives directory.

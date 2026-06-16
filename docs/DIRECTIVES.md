@@ -1,84 +1,94 @@
-# Using directive< in Monitor
+# Using `directive<` in Monitor
 
-This document describes the built-in interactive internal command `directive<` and how to use it to load and send directive files (prompt templates or instruction files) to the LLM from the directives directory.
+This document describes the current `directive<` internal command.
 
-Location
+The implementation lives in `src/monitor/core/commands.py`.
 
-- Default directives directory is configured via the `DIRECTIVES_DIR` setting in your `config.yaml` and loaded into `config.DIRECTIVES_DIR` at runtime.
-  - Example default (packaged): `~/.config/monitor/directives` or `~/Library/Application Support/monitor/directives` depending on OS.
-- Place your directive files (plain text files) in that directory (or a subdirectory) so the `directive<` command can find them.
+## What it does
 
-What `directive<` does
+`directive<` reads a file from `config.DIRECTIVES_DIR`, emits up to five `paramN=` lines, appends the file content, and sends the resulting text into Monitor's model pipeline.
 
-- `directive< <file_name> <param1> <param2> <param3> <param4> <param5>` is an internal REPL command.
-- It reads the requested file from the configured directives directory and prints up to five `paramN=value` lines followed by the file contents.
-- The combined textual output (parameter lines + file content) is then internalized and sent to Monitor's internal LLM pipeline (equivalent to the user pasting that text into the REPL and sending it to the LLM).
-- The command is implemented as an "internal" command and the result returned by the LLM is displayed using the Monitor display pipeline.
+It is an internal command, not a built-in registered through `configure_built_ins()`.
 
-Usage notes
+## Current syntax
 
-- Up to five parameters are supported. If you pass fewer, the missing param lines will be blank.
-- Note: Monitor will still emit up to five `paramN=` lines; any unused parameters will be emitted as empty assignments (for example `param3=`).
-- The directive file is treated as plain text. The LLM will see the parameter lines followed by the file text and should interpret the parameters accordingly.
-- The command does not perform client-side variable substitution. If you rely on parameter substitution, include clear markers or ask the LLM to treat the preceding `paramN` lines as variables.
+```text
+directive< <file_name> <param1> <param2> <param3> <param4> <param5>
+```
 
-Security and safety
+Only the file name is required.
 
-- Files in the directives directory are read and their entire contents are sent to the LLM. Do NOT store secrets (API keys, passwords, private data) in those files.
-- Only place directives you trust into the configured `DIRECTIVES_DIR` and ensure directory permissions are appropriate for your environment.
-- Where possible prefer structured DSPy-style directives (see project docs) for safer, auditable pipelines. `directive<` is useful for ad-hoc prompts but is not a secure execution environment.
+Example:
+```text
+directive< greet.prompt Alice "Acme Corp"
+```
 
-What happens
+## Current execution model
 
-- The `directive<` internal command prints the parameter lines:
+The command definition in `src/monitor/core/commands.py` builds a shell function that:
+- validates that a file name was provided
+- resolves the file under `config.DIRECTIVES_DIR`
+- prints:
+  - `param1=...`
+  - `param2=...`
+  - `param3=...`
+  - `param4=...`
+  - `param5=...`
+- concatenates the entire file contents
+- returns the combined text to the internal command pipeline
 
-    param1=Alice
-    param2=Acme Corp
+Because the command is marked `internalize_to_llm=True`, successful output is then sent to the active model flow.
 
-  followed by the full contents of `greet_directive.txt`.
+## Where directive files live
 
-- The combined text is presented to the LLM. The LLM should read the param lines as variable bindings and generate an output that uses them.
+The directory is configured through `DIRECTIVES_DIR` in config and surfaced as `config.DIRECTIVES_DIR` at runtime.
 
-- Monitor then shows the LLM's reply via the usual display pipeline and logs the input and result to the conversation log.
+The package seeding path in `src/monitor/__main__.py` currently creates example directive files such as:
+- `directives/echo.prompt`
+- `directives/greet.prompt`
 
-- If the directive file cannot be read (for example due to missing file or permission errors), Monitor will surface the underlying stderr message and skip sending the directive to the LLM.
+## Important current behavior
 
-Example: create and use a directive that accepts two parameters
+- up to five parameters are supported
+- if fewer parameters are supplied, blank `paramN=` lines are still emitted
+- there is no client-side variable substitution inside the directive file
+- the model receives plain text and must interpret the `paramN=` lines itself
+- this command runs through the internal-command shell path, which executes via `zsh -c` after sourcing `~/.zshrc`
+- this `~/.zshrc` behavior is specific to the general internal-command execution path and should not be assumed for `llm<`
 
-1) Create a directive file
+## Example
 
-Save the following file as `greet_directive.txt` inside your Monitor directives directory (for example: `~/Library/Application Support/monitor/directives/greet_directive.txt`):
+Suppose `greet.prompt` contains:
 
-"""
-# greet_directive.txt
+```text
+Write a short professional greeting using param1 as the person and param2 as the company.
+```
 
-You are an assistant that produces a friendly business greeting. Use the parameters provided above (param1 and param2) to customize the result.
+Then this command:
 
-- param1: recipient name
-- param2: company or organization name
+```text
+directive< greet.prompt Alice "Acme Corp"
+```
 
-Instructions:
-1) Greet the person using param1.
-2) Mention param2 as the organization and offer a helpful one-sentence suggestion relevant to a business contact.
-3) Provide the output as a short, professional message.
+causes Monitor to send text equivalent to:
 
-Example expected output:
-"Hello Alice, great to connect with you at Acme Corp. I recommend we schedule a 15-minute call to review next steps."
-"""
+```text
+param1=Alice
+param2=Acme Corp
+param3=
+param4=
+param5=
+Write a short professional greeting using param1 as the person and param2 as the company.
+```
 
-2) Invoke it in the Monitor REPL
+## Failure behavior
 
-From the interactive Monitor prompt, run:
+If the file is missing or unreadable, the shell command returns an error and the output is not forwarded to the model.
 
-    directive< greet_directive.txt Alice "Acme Corp"
+## Security note
 
-(You can pass the company name in quotes if it contains spaces.)
+Directive files are sent to the model as-is. Do not store secrets in them.
 
-Tips for authoring directives
-
-- Include a short header describing expected parameters and the required output shape. The LLM will benefit from explicit instructions.
-- Keep directives concise; large directives will increase token usage and cost.
-
-Implementation
-
-- Contributors looking for the authoritative implementation should consult src/monitor/core/commands.py and the INTERNAL_COMMANDS entry for the `directive<` internal command.
+## Related docs
+- `docs/INTERNAL_COMMANDS.md`
+- `docs/GETTING_STARTED.md`

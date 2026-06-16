@@ -1,309 +1,187 @@
-# MACROS_README.md
-
 # Macro Programming Guide
 
-This document explains how macros work in this app, with concise, accurate, and runnable examples. It covers pure (string) macros and TCL-backed macros, file locations and defaults, configuration options, built-in commands for editing and reloading macros, and short troubleshooting steps.
+This guide reflects the current macro system in the codebase.
 
-## Table of Contents
-1. Overview
-2. File locations and format
-3. Delimiters and escaping
-4. Pure macros (string substitution)
-5. TCL macros (embedded TCL evaluation)
-6. Built-ins: editing, reloading, listing
-7. API hooks and tests
-8. Troubleshooting
+## Main files
 
----
+Macro behavior is primarily implemented in:
+- `src/monitor/lib/macros.py`
+- `src/monitor/lib/macro_utils.py`
 
-## 1. Overview
-There are two macro flavors:
+## Macro sources and precedence
 
-- Pure macros: simple string values that may reference other macros using the configured delimiters.
-- TCL macros: macro values whose body begins with the token `tcl` and which are passed to an embedded TCL interpreter for evaluation. Important: macro references like `{{other_macro}}` are NOT automatically expanded inside TCL bodies by default. The macro engine only unescapes escaped delimiters inside TCL bodies; it does not perform recursive macro expansion there. If you need macro data inside TCL code, expand it before creating the TCL body or use the programmatic APIs described below.
+The current runtime layers macro values in this precedence order:
+1. public built-in macros
+2. file-defined macros
+3. ephemeral runtime macros
+4. private built-in macros
 
-Notes on recognition:
-- By default the macro system recognizes TCL macros when the macro's value begins with the token `tcl` either inside the macro delimiters (e.g., `{{tcl ...}}`) or using the legacy/alternate parenthesis form `(tcl ...)`. The engine also recognizes a bare macro value that begins with the characters `tcl ` (legacy/alternate usage). See the TCL section for examples and details.
+Because later updates win, private built-ins have the highest precedence and cannot be overridden by user-defined macros.
 
----
+## Macro storage
 
-## 2. File locations and format
+Persistent macros are loaded from the configured macro file, typically `macros.json` under the user config directory.
 
-- Macros are stored in JSON format in `macros.json`.
-- Default location: `~/.config/monitor/macros.json`.
-- On first run the application will copy the packaged default `macros.json` into that location; see `src/monitor/__main__.py` for the copy-on-first-run behavior.
-- The file now supports reserved display-metadata sections alongside executable macro entries.
+At startup and reload time, Monitor loads:
+- executable macro entries
+- optional metadata from reserved keys
 
-Example `macros.json` file (JSON):
-```
-{
-  "_trust_model": "This file is executable, not configuration.",
-  "_groups": {
-    "git": {
-      "title": "Git",
-      "description": "Repository, branch, and commit helper macros.",
-      "order": 210
-    },
-    "analysis": {
-      "title": "Analysis",
-      "description": "Macros for review, planning, and code analysis.",
-      "order": 220
-    }
-  },
-  "_macro_meta": {
-    "branch": {
-      "group": "git",
-      "title": "Current branch",
-      "description": "Returns the current git branch name."
-    },
-    "review_changes": {
-      "group": "analysis",
-      "title": "Review source changes",
-      "description": "Examines modified files and reports possible issues."
-    }
-  },
-  "branch": "{{tcl if {[catch {exec git branch --show-current} b]} {puts \"(not in git)\"} else {puts $b}}}",
-  "review_changes": "Source code files have been updated. {{do_diff}} then examine each source file noted in the diff."
-}
+Reserved metadata keys currently include:
+- `_groups`
+- `_macro_meta`
+
+Top-level keys beginning with `_` are treated as metadata, not executable macros.
+
+## Runtime-added macros
+
+Users can add ephemeral macros during a session with:
+
+```text
+<key=value
 ```
 
-Reserved top-level keys:
-- `_groups`: Display-only group metadata keyed by group id.
-- `_macro_meta`: Display-only per-macro metadata keyed by macro name.
-- Any top-level key beginning with `_` is treated as metadata and is not loaded into the executable runtime macro dictionary.
+These are stored in `EPHEMERAL_MACRO_VALUES` and do not persist across application restarts.
 
-Group metadata shape:
-- `title`: Optional human-readable group heading.
-- `description`: Optional text shown under the group heading.
-- `order`: Optional numeric sort order. Lower values appear first.
+## Default delimiters
 
-Per-macro metadata shape:
-- `group`: Optional group id. Defaults to `file` for file-defined macros.
-- `title`: Optional human-readable macro title. Defaults to the macro name.
-- `description`: Optional display description. Defaults to an empty string.
+The current default delimiter config is:
 
-Notes:
-- Executable macros remain flat top-level string entries. Runtime expansion behavior is unchanged.
-- Keys and executable values must be valid JSON strings.
-- TCL macros are represented as strings whose value begins with `tcl` inside the configured delimiters (the default shown above uses `{{` and `}}`). Legacy parenthesis-style TCL macros such as `(tcl ...)` are also supported for backwards compatibility.
-- Legacy flat `macros.json` files without `_groups` or `_macro_meta` remain valid.
-
----
-
-## 3. Delimiters and escaping
-
-- Default delimiters: `{{` and `}}`.
-- Legacy/alternate supported delimiter form: `(` and `)`. Parentheses remain supported for backwards compatibility and some examples show the legacy form.
-- Default escape character: backslash `\`.
-- To write a literal delimiter inside macro text or a TCL body you can escape it with `\` (for example `\{{` or `\}}` for the default delimiters, or `\(` and `\)` for the legacy parentheses).
-- Delimiters are configurable via the app configuration `config.yaml` using the `macro_delimiters` setting. Example in `config.yaml`:
-```
+```yaml
 macro_delimiters:
   open: "{{"
   close: "}}"
   escape: "\\"
 ```
 
-Behavior summary:
-- Pure macro bodies: `{{macro_name}}` occurrences are expanded by the macro engine when using the default delimiters. If you use the legacy parentheses delimiter, `(macro_name)` occurrences are expanded accordingly.
-- TCL macro bodies: the text within `{{tcl ... }}` or `(tcl ...)` is passed largely as is to the embedded TCL interpreter. The macro engine does not perform macro substitutions inside TCL bodies by default; only escaped delimiters are unescaped so the TCL code can contain literal delimiter characters.
+Examples:
 
----
-
-## 4. Pure macros (string substitution)
-
-Definition example (in JSON):
-```
-{
-  "morning_macro": "Good morning!",
-  "user_name": "Alex",
-  "greet_user": "Hello, {{user_name}}!",
-  "day": "Wednesday",
-  "schedule": "Your meeting is scheduled for {{day}}."
-}
+```text
+<proj=~/projects/monitor
+cd {{proj}}
 ```
 
-Expansions:
-- Expanding `{{morning_macro}}` → `Good morning!`
-- Expanding `{{greet_user}}` → `Hello, Alex!`
-- Expanding `{{schedule}}` → `Your meeting is scheduled for Wednesday.`
+## Visible macro catalog and metadata
 
-Notes:
-- Pure macros can nest and reference each other using the configured delimiters.
-- Watch for cycles; recursive loops will either be detected or will cause uncontrolled behavior depending on configuration.
-- The helper `recursive_macro_expand` (see `src/monitor/lib/macro_utils.py`) prints intermediate expansions via `print_blue` as a side effect; this can be useful for debugging expansion order and values.
+`macros.py` builds a grouped macro catalog for display.
 
-Legacy-parenthesis example:
-```
-{
-  "paren_example": "(greet_user)",
-  "greet_user": "Hello, {{user_name}}!"
-}
-```
-In environments that still use legacy parentheses, `(greet_user)` will be recognized and expanded as well.
+Display metadata can define:
+- macro title
+- macro description
+- macro usage
+- macro group
 
----
+Group metadata can define:
+- title
+- description
+- order
 
-## 5. TCL macros (embedded TCL evaluation)
+This grouped catalog is what the `macros` built-in displays.
 
-TCL macros are executed in an embedded TCL interpreter. The result sent back to the macro system is the output written by `puts` (standard output of the TCL code). TCL macros require the Python build to include Tcl/Tk bindings (usually provided by `tkinter`). If your environment lacks tkinter or Tcl support, TCL macros will not run.
+## Built-in public macros
 
-Key points:
-- Macro expansion is NOT performed inside TCL bodies by default. If you put `{{other_macro}}` inside the TCL body, it will be treated as literal text unless you explicitly expand it before creating the TCL macro string.
-- The macro engine will unescape escaped delimiters inside TCL bodies to allow literal delimiter characters.
-- Both the delimiter-enclosed forms `{{tcl ...}}` and legacy parenthesis form `(tcl ...)` are recognized as TCL macros. In addition, a bare macro value that begins with `tcl ` is also treated as TCL code in legacy/alternate scenarios. Prefer the delimiter-enclosed `{{tcl ...}}` form for clarity.
-- Use valid TCL syntax. Examples below are runnable TCL code snippets.
+The current codebase ships public macros such as:
+- `do_diff`
+- `create_git_entry`
+- `rank_examine`
+- `diff`
+- `diff_previous`
+- `xdiff`
+- `plan`
+- `wdyt`
 
-Runnable examples (as JSON entries):
+Private built-ins also exist for internal behavior and are intentionally hidden from normal macro listings.
 
-Math calculation (default delimiters):
-```
-"math_macro": "{{tcl set a 6; set b 3; puts [expr {$a * $b + 2}]}}"
-```
-Expanding `{{math_macro}}` yields:
-```
-20
-```
+## Recursive expansion
 
-Date / time (default delimiters):
-```
-"date_macro": "{{tcl puts [clock format [clock seconds] -format \"%Y-%m-%d\"]}}"
-```
-Expanding `{{date_macro}}` yields (example):
-```
-2024-06-08
-```
+`recursive_macro_expand(...)` in `macro_utils.py` performs nested macro expansion using the configured delimiters.
 
-Legacy parenthesis form (also supported):
-```
-"legacy_math": "(tcl set a 6; set b 3; puts [expr {$a * $b + 2}])"
-```
-Expanding `(legacy_math)` yields:
-```
-20
-```
+The implementation includes:
+- delimiter-aware recursive parsing
+- escape handling
+- cycle/iteration protection
+- Tcl macro detection and execution
 
-Bare 'tcl ' form (legacy/alternate recognition):
-```
-"bare_tcl": "tcl puts \"Hello from bare tcl\""
-```
-If treated as a TCL macro by legacy handling, expanding the corresponding macro may yield:
-```
-Hello from bare tcl
-```
+## Tcl-backed macros
 
-Conditional logic (demonstrates using flags from the JSON, but note: references to other macros will not be expanded automatically inside the TCL body):
-```
-"is_prod": "0",
-"show_env": "{{tcl if {0 == 1} {puts \"Production\"} else {puts \"Development\"}}"
-```
-Expanding `{{show_env}}` yields:
-```
-Development
-```
+The current macro system supports Tcl execution.
 
-String manipulation:
-If you want to operate on a pure macro value inside TCL, do one of:
-- Expand the pure macro before the TCL macro is constructed (preferred if the value is static).
-- Or pass the data into TCL through an external path your app provides (see API hooks below).
+Important security property:
+- Tcl macros are executable host-side code
+- they are not a sandboxed template format
+- they should be treated like trusted local code
 
-Example (expanding before creating the TCL body):
-```
-"repeated": "foo   bar   baz",
-"squash_spaces": "{{tcl set s \"foo   bar   baz\"; regsub -all { +} $s { } result; puts $result}}"
-```
-Expanding `{{squash_spaces}}` yields:
-```
-foo bar baz
-```
+The Tcl interpreter is loaded lazily so environments without Tk bindings can still use non-Tcl macros.
 
-Important: Do not rely on automatic expansion of `{{repeated}}` inside the TCL string; perform substitution outside the TCL body or use programmatic lookup.
+## Current Tcl forms
 
-TCL runtime requirements:
-- The embedded TCL interpreter is provided by the host via Tcl/Tk (commonly accessible via Python's `tkinter` module). Ensure `tkinter` is available in your runtime environment to use TCL macros.
+The code recognizes Tcl-style macro content using forms such as:
+- `{{tcl ...}}`
+- bare leading `tcl ...` in certain paths
 
----
+The Tcl body is evaluated with a cached `tkinter.Tcl()` interpreter. Macro expansion is not performed inside the Tcl code body itself; the body is executed largely as written after delimiter-literal unescaping.
 
-## 6. Built-ins: editing, reloading, listing
+## Listing macros
 
-Interactive built-in commands available in the app shell:
+The built-in:
 
-- Edit macros file:
-```
-:edit_macros
-```
-This opens the `macros.json` file in the configured editor (see app settings). On save, changes are not applied until reload.
-
-- Reload macros:
-```
-:reload_macros
-```
-This re-reads `~/.config/monitor/macros.json` and updates the runtime macro store.
-
-- List macros:
-```
+```text
 macros
 ```
-(or the equivalent built-in command named `macros`) — lists visible macros grouped by display metadata. The output reflects display precedence for visible macros: built-in public macros, then file-defined macros, then runtime macros. Private/internal macros remain hidden from the standard listing.
 
-Grouped listing behavior:
-- Group headings come from `_groups` metadata when present.
-- Macros are shown with their name, a source label such as `built-in`, `file`, or `runtime`, and optional title and description text.
-- If a macro has no metadata, fallback display behavior is used: the title defaults to the macro name, the description defaults to empty, and the group defaults to `file` for file-defined macros or the built-in/runtime default for those sources.
-- If a group has no metadata, its heading falls back to a titleized form of the group id.
-- When the same visible macro name exists in multiple visible sources, the later-precedence source is shown in the grouped display.
+renders grouped visible macros with metadata-derived headings and descriptions.
 
-Examples:
-- Run `:edit_macros` to modify your JSON file.
-- Then run `:reload_macros` to apply your changes without restarting the whole application.
-- Run `macros` to browse the current grouped macro catalog.
+It uses a pager when available.
 
----
+## Editing and reloading
 
-## 7. API hooks and tests
+Current related built-ins include:
+- `edit_macros`
+- `reload_macros`
 
-Programmatic helpers you may use or inspect:
-- `load_additional_macros` in `src/monitor/lib/macro_utils.py`: helper to load extra macro definitions into the runtime store.
-- `update_macros` in `src/monitor/lib/macro_utils.py`: helper to replace or merge macro definitions at runtime.
-- `recursive_macro_expand` in `src/monitor/lib/macro_utils.py`: expands nested macros; note that this helper prints intermediate expansions using `print_blue` as a side effect, which can aid debugging.
+`edit_macros` opens the configured macro file in the user's editor.
 
-See the implementation and unit tests for examples and expected behaviors:
-- Implementation: `src/monitor/lib/macro_utils.py`
-- Tests: `tests/test_macro_utils.py`
+`reload_macros` reloads the macro file into the runtime store.
 
-These show canonical usage patterns, edge cases, and how the macro engine treats TCL bodies and delimiter escaping.
+## Practical examples
 
----
+### Persistent macro in `macros.json`
 
-## 8. Troubleshooting (short)
+```json
+{
+  "proj": "~/projects/monitor",
+  "go_proj": "cd {{proj}}"
+}
+```
 
-- TCL macros produce `[TCL ERROR: ...]` in the expansion:
-  - Check your TCL syntax in the macro value.
-  - Ensure `tkinter` / Tcl bindings are available in your Python runtime.
-  - Run the TCL body in a standalone TCL interpreter to validate.
+### Runtime macro
 
-- Empty or placeholder TCL bodies:
-  - `{{tcl }}` or `(tcl ...)` with no `puts` output will expand to an empty string. Add a `puts` to emit the desired text.
+```text
+<branch_prompt=Summarize the current branch state
+```
 
-- Delimiter problems:
-  - If your macro text contains delimiter characters, escape them with the configured escape character (default `\`). For default delimiters, escape `{{` and `}}` as `\{{` and `\}}`. For legacy parentheses, escape `\(` and `\)`.
-  - Verify `config.yaml` `macro_delimiters` if you have nonstandard delimiters.
+### Using a macro
 
-- JSON errors:
-  - Invalid `macros.json` (malformed JSON) will prevent the file from loading. Use a JSON validator and ensure proper quoting/escaping.
+```text
+{{branch_prompt}}
+```
 
-- Need to use a macro value inside TCL:
-  - Expand the value before embedding it in the TCL macro string, or use the APIs in `macro_utils.py` to provide data to the TCL environment. Do not assume automatic in-TCL macro expansion.
+## Contributor guidance
 
-- Debugging expansions:
-  - The library helper `recursive_macro_expand` prints expansion steps using `print_blue`. Use this to trace how nested expansions are performed.
+If you change macro behavior, review both:
+- `macros.py` for state, precedence, listing, and runtime integration
+- `macro_utils.py` for parsing and expansion semantics
 
----
+Be especially careful with:
+- precedence ordering
+- recursive expansion termination
+- Tcl execution safety
+- metadata loading compatibility
 
-For more advanced examples and the authoritative code for macro handling, consult:
-- `src/monitor/__main__.py` (copy-on-first-run behavior and default file location)
-- `src/monitor/lib/macro_utils.py` (loading/updating macros and helpers)
-- `src/monitor/config.py` (default delimiter settings and configuration handling)
-- `tests/test_macro_utils.py` (unit tests demonstrating expected behaviors)
+## Summary
 
-End of guide.
+The current macro system supports:
+- persistent JSON-backed macros
+- ephemeral session macros
+- grouped metadata-driven listings
+- nested delimiter-based expansion
+- executable Tcl-backed macros for trusted environments

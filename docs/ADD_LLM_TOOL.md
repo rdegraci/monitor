@@ -1,172 +1,175 @@
-# Repo-Accurate Guide: Adding an LLM-Callable Tool (Concise)
+# Adding an LLM-Callable Tool
 
-This concise guide shows the canonical pattern used in this repository to register LLM-callable tools (functions). It focuses on the recommended add_tool(...) flow, explicit callable registration in AVAILABLE_TOOLS, model-specific conversion helpers, invocation behavior, testing notes, and a final checklist.
+This guide reflects the current tool registration structure in the repository.
 
-## Key files
-- src/monitor/core/tools.py         — implement tool callables here
-- src/monitor/lib/tool_definitions.py — TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, AVAILABLE_TOOLS, TOOL_STATE
-- src/monitor/lib/tool_loading.py  — add_tool(...), inject_openai_properties(...), inject_anthropic_properties(...)
-- src/monitor/core/tooling.py      — parse_function_args(...), configure_tools()
-- src/monitor/config.py            — calls configure_tools() at startup
+## Primary files
 
-## Principles (brief)
-- Use add_tool(...) to register descriptions and update TOOL_STATE. It centralizes validation and normalization.
-- add_tool(...) does NOT install the Python callable into AVAILABLE_TOOLS. Install the callable explicitly (AVAILABLE_TOOLS[name] = callable).
-- Use inject_openai_properties(...) and inject_anthropic_properties(...) when creating model-specific payloads from TOOL_DESCRIPTIONS.
-- parse_function_args(...) converts JSON-string arguments from model responses into dicts and normalizes arguments before calling the callable.
+Current tool registration spans these files:
+- `src/monitor/lib/tool_definitions.py`
+- `src/monitor/lib/tool_loading.py`
+- `src/monitor/core/tools.py`
+- `src/monitor/core/tooling.py`
 
-## Canonical example: add_tool + explicit callable registration
+## Current architecture
 
-Prepare the tool in src/monitor/core/tools.py (example implementation):
-    def add(a: int, b: int) -> int:
-        """
-        Add two integers and return the result.
-        Validate inputs inside the function as needed.
-        """
-        return int(a) + int(b)
+### Callable registry
+`src/monitor/lib/tool_definitions.py` defines `AVAILABLE_TOOLS`, the runtime mapping from tool name to Python callable.
 
-Register descriptions and state via add_tool, then explicitly install the callable:
-    from monitor.core.tools import add
-    from monitor.lib.tool_definitions import (
-        TOOL_DESCRIPTIONS,
-        GEMINI_TOOL_DESCRIPTIONS,
-        AVAILABLE_TOOLS,
-        TOOL_STATE,
-    )
-    from monitor.lib.tool_loading import add_tool
+### Tool descriptions
+The same module also defines:
+- `TOOL_DESCRIPTIONS`
+- `GEMINI_TOOL_DESCRIPTIONS`
+- `TOOL_STATE`
 
-    tool_def = {
+### Provider/model configuration
+`src/monitor/core/tools.py` decides which tool descriptions should be active for the current provider/model configuration.
+
+### Execution
+`src/monitor/core/tooling.py` parses tool args and executes tools from `AVAILABLE_TOOLS`.
+
+## Step 1: implement the Python callable
+
+Place the callable in an appropriate module.
+
+Many tool callables currently live in `monitor.lib`, though some registrations point to core or adjacent modules.
+
+Example:
+
+```python
+def add(a: int, b: int) -> int:
+    return int(a) + int(b)
+```
+
+For statically defined tools, most current entries are wired directly into the literal `AVAILABLE_TOOLS` dictionary.
+
+For helper-driven or conditional tool families, the codebase also uses registration helpers in `src/monitor/lib/tool_loading.py` such as `add_tool(...)`. In those paths, make sure both the description catalogs and the runtime callable registry stay in sync.
+
+## Step 2: add the callable to `AVAILABLE_TOOLS`
+
+In `src/monitor/lib/tool_definitions.py`, register the callable:
+
+```python
+AVAILABLE_TOOLS["add"] = add
+```
+
+In practice, most existing tools are added directly in the literal `AVAILABLE_TOOLS` dictionary.
+
+## Step 3: add a tool description
+
+Add an OpenAI-style tool description to `TOOL_DESCRIPTIONS`.
+
+Example shape:
+
+```python
+{
+    "type": "function",
+    "function": {
         "name": "add",
-        "description": {
-            "type": "function",
-            "function": {
-                "name": "add",
-                "description": "Add two integers and return their sum.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "a": {"type": "integer", "description": "First number"},
-                        "b": {"type": "integer", "description": "Second number"},
-                    },
-                    "required": ["a", "b"],
-                },
-            }
-        },
-        "gemini_description": {
-            "name": "add",
-            "description": "Add two integers and return their sum.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "integer", "description": "First number"},
-                    "b": {"type": "integer", "description": "Second number"},
-                },
-                "required": ["a", "b"],
+        "description": "Add two integers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "integer"},
+                "b": {"type": "integer"},
             },
+            "required": ["a", "b"],
         },
-        # Optional convenience pointer. add_tool will NOT install this into AVAILABLE_TOOLS.
-        "callable": add,
-    }
+    },
+}
+```
 
-    ok = add_tool(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE, tool_def)
-    if not ok:
-        raise RuntimeError("add_tool failed to register 'add'")
+If Gemini-specific descriptions matter, also add the corresponding entry to `GEMINI_TOOL_DESCRIPTIONS`.
 
-    # Explicitly register the callable so the runtime can call it.
-    AVAILABLE_TOOLS["add"] = add
+## Step 4: decide whether the tool should always exist or be configured conditionally
 
-Notes:
-- Check add_tool's return value and fail fast if registration is invalid.
-- Keep callable installation explicit for traceability and testability.
+Some tools are defined statically in `tool_definitions.py`.
 
-## Invocation flow used by the tooling layer
+Others are conditionally added or removed through helpers in `src/monitor/lib/tool_loading.py` and `src/monitor/core/tools.py`.
 
-Typical runtime flow:
-    from monitor.lib.tool_definitions import AVAILABLE_TOOLS
-    from monitor.core.tooling import parse_function_args
+Examples of conditional tool families in the current codebase:
+- weather tools
+- memory tools
+- DB tools
+- modeling tools
+- provider-neutral deterministic edit tools
+- Anthropic-native editor tools
+- OpenAI editor tools
 
-    # model_response example:
-    # {"name": "add", "arguments": "{\"a\": 3, \"b\": 5}"}
-    name = model_response["name"]
-    raw_args = model_response["arguments"]
-    kwargs = parse_function_args(raw_args)  # returns dict {"a": 3, "b": 5}
-    # Tooling should verify TOOL_STATE[name] if required by runtime policy
-    result = AVAILABLE_TOOLS[name](**kwargs)
+If your tool belongs to a conditional family, add helper registration logic in `tool_loading.py` and make sure `configure_tools()` in `core/tools.py` enables it under the correct conditions.
 
-parse_function_args behavior (summary):
-- If input is a JSON string, parse into dict.
-- If already a mapping, return as dict.
-- Normalize minor types where reasonable (e.g., numeric strings -> numbers) but prefer explicit checks in the tool.
+## Step 5: understand current provider behavior
 
-## Model-specific helper usage
+`configure_tools()` currently branches by provider prefix:
+- `anthropic`
+- `openai`
+- `gemini`
+- `xai`
 
-Convert TOOL_DESCRIPTIONS into the provider-specific "functions/tools" payloads.
+This is especially important for editing tools because provider-specific edit catalogs differ.
 
-OpenAI example:
-    from monitor.lib.tool_loading import inject_openai_properties
-    from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS
+If your new tool is provider-neutral, it can usually be exposed to all providers.
 
-    openai_functions = inject_openai_properties(TOOL_DESCRIPTIONS)
-    # Pass openai_functions into OpenAI SDK as the `functions=` parameter.
+If it depends on a provider-specific protocol or schema, integrate it carefully into the relevant branch.
 
-Anthropic example:
-    from monitor.lib.tool_loading import inject_anthropic_properties
-    from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS
+## Step 6: argument parsing behavior
 
-    anthropic_tools = inject_anthropic_properties(TOOL_DESCRIPTIONS)
-    # Use anthropic_tools as required by Anthropic APIs.
+`src/monitor/core/tooling.py` currently uses `parse_function_args(...)`.
 
-Reminder: confirm the exact signatures of inject_openai_properties and inject_anthropic_properties in src/monitor/lib/tool_loading.py.
+That means tool arguments may arrive as:
+- a JSON string that must be parsed
+- an already-parsed mapping
 
-## Succinct testing tips
+Tools should expect validated keyword arguments by the time the actual callable is invoked, but defensive input validation in the tool itself is still recommended.
 
-- Unit tests should monkeypatch tool_definitions.AVAILABLE_TOOLS and TOOL_STATE:
-    import pytest
-    from monitor.lib import tool_definitions
-    from monitor.core import tooling
+## Step 7: consider safety behavior
 
-    @pytest.fixture
-    def patch_available_tools(monkeypatch):
-        fake = {}
-        monkeypatch.setattr(tool_definitions, "AVAILABLE_TOOLS", fake)
-        monkeypatch.setattr(tool_definitions, "TOOL_STATE", {})
-        return fake
+If your tool:
+- writes files
+- mutates state
+- has large outputs
+- should be blocked for sub-agents
 
-    def test_parse_function_args_with_json_string():
-        raw = '{"a": 1, "b": 2}'
-        parsed = tooling.parse_function_args(raw)
-        assert isinstance(parsed, dict)
-        assert parsed["a"] == 1 and parsed["b"] == 2
+then it may need to be integrated into the safety rails in `src/monitor/core/tooling.py`.
 
-    def test_invocation_flow_with_callable(patch_available_tools):
-        def stub_add(a, b):
-            return a + b
-        patch_available_tools["add"] = stub_add
-        tool_definitions.TOOL_STATE["add"] = "active"
-        model_response = {"name": "add", "arguments": '{"a": 3, "b": 5}'}
-        kwargs = tooling.parse_function_args(model_response["arguments"])
-        result = patch_available_tools[model_response["name"]](**kwargs)
-        assert result == 8
+Examples already handled there include:
+- write-guarded tool lists
+- delegated write scope enforcement
+- tool-call loop detection
+- large file token throttling
 
-- For IO operations, use tmp_path and isolate side-effects.
-- For network calls, prefer responses/requests-mock/respx rather than patching internals.
-- Test both JSON-encoded argument strings and already-parsed dicts.
-- Assert TOOL_STATE behavior when your runtime depends on it.
-- Restore global state in teardown or rely on monkeypatch fixtures.
+If the tool is write-capable, review:
+- `WRITE_GUARDED_TOOLS`
+- `WRITE_TARGET_EXTRACTORS`
 
-## Small security & reliability reminders
-- Validate inputs inside the tool function for safety.
-- Rate-limit or throttle heavy tools and enforce max_tokens / max_bytes where appropriate.
-- Log/audit any tool that mutates state or sensitive data.
-- For modify operations, require permission checks and create a backup or audit trail.
+## Example of current deterministic edit tools
 
-## Final concise checklist
-- [ ] Implement the Python callable in src/monitor/core/tools.py.
-- [ ] Use add_tool(...) to register descriptions and update TOOL_STATE; check its return value.
-- [ ] Explicitly set AVAILABLE_TOOLS["your_tool_name"] = your_callable.
-- [ ] Use inject_openai_properties(...) / inject_anthropic_properties(...) when building model payloads.
-- [ ] Ensure configure_tools() runs at startup (src/monitor/config.py).
-- [ ] Add unit tests that monkeypatch AVAILABLE_TOOLS and TOOL_STATE and test parse_function_args behavior.
-- [ ] Add audit logging and input validation for mutating or high-cost tools.
+The repository already includes tool registrations for:
+- `text_file_or_directory_view`
+- `text_file_create`
+- `text_file_str_replace_in_file`
+- `text_file_insert_text_at_line`
+- `bulk_replace_in_files`
+- `modify_source_code`
 
-End of concise guide.
+These provide good examples of:
+- callable registration
+- description shape
+- safety integration
+- provider-conditioned exposure
+
+## Testing guidance
+
+For a new tool, add tests that cover:
+- successful invocation
+- bad argument handling
+- failure reporting
+- any provider-specific registration behavior
+- safety integration, if applicable
+
+Relevant existing test areas include tool execution, deterministic editors, bulk replace, and built-in command registration.
+
+## Related files
+- `src/monitor/lib/tool_definitions.py`
+- `src/monitor/lib/tool_loading.py`
+- `src/monitor/core/tools.py`
+- `src/monitor/core/tooling.py`

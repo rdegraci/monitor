@@ -1,182 +1,300 @@
-# Monitor System Architecture (2024 Update - Modular, Auditable, Extensible)
+# Monitor System Architecture
 
-Monitor is a secure, modular, LLM-powered developer assistant for automation, productivity, and AI/data science workflows, emphasizing robust auditability, modular integration, and resilience. Its design ensures maintainability and clarity for new contributors and supports advanced operation modes, extensibility, and high-trace compliance.
+This document summarizes the current Monitor architecture based on the code under `src/monitor/`.
 
-===============================================================================
-Key File / Module Table
-===============================================================================
-| File / Module            | Role / Responsibility                                            |
-|--------------------------|-----------------------------------------------------------------|
-| app.py                   | Main entry point: orchestrates CLI/event loop and HTTP server;   |
-|                          | initializes logging, core modules, registries, session handling, |
-|                          | signal cleanup, extensibility. app.py initializes the Flask app |
-|                          | via the factory in src/monitor/lib/server.py for server mode.    |
-| core/conversation.py     | Conversational event/chat loop abstractions for CLI and API.     |
-| core/command_processing.py| Aggregates command dispatch, routing, safety checks (built-ins, |
-|                          | system shell, macros).                                          |
-| core/built_ins.py        | Source of built-in commands and system-level operations.         |
-| lib/macros.py            | Macro registration, expansion, parameterization, automation.     |
-| core/query_service.py    | Broker for LLM, tool, and macro queries—drives routing between   |
-|                          | CLI, LLM, macros, and core logic.                               |
-| config.py / config.yaml     | Configuration profiles: model options, limits, credentials, etc. |
-| logs/                    | Centralized, session-aware, rolling and audit logs; logs are     |
-|                          | written to configured paths and created at runtime.              |
-===============================================================================
+## Top-level layout
 
-===============================================================================
-High-Level Architecture Diagram (ASCII)
-===============================================================================
-                +-------------------------+
-                |        app.py           |
-                |-------------------------|
-                | - CLI loop (interactive)|
-                | - HTTP server (Flask)   |
-                | - Registers, initializes|
-                |   and manages           |
-                |   modules and logs      |
-                +--------+----------------+
-                         |
-         -------------------------------------------
-         |                    |                    |
-+----------------+  +-------------------+  +---------------------+
-|  core/         |  |    core/          |  |     core/           |
-|  conversation  |  | command_processing|  |  query_service      |
-+----------------+  +-------------------+  +---------------------+
-         |   (handles event/chat loop)   |            ^
-         +---------------+--------------+            |
-                         |                           |
-                +-------------------+                |
-                |      core/        |                |
-                |    built_ins      |    +---------------------+
-                +-------------------+    |   lib/macros        |
-                    (CLI macros,         +---------------------+
-                    tools registry,      | macro registration, |
-                    base commands)       | expansion, hooks,   |
-                                          | tool registry  |
-                                           +-------------------+
-===============================================================================
+Primary packages:
+- `src/monitor/`
+- `src/monitor/core/`
+- `src/monitor/lib/`
+- `src/monitor/tui/`
+- `src/monitor_oop/`
 
-## 1. Top-Level System Summary
+The main production CLI path described here is the `monitor` package, with entrypoints in:
+- `src/monitor/__main__.py`
+- `src/monitor/app.py`
 
-Monitor consists of orchestrated Python modules with tight audit, session, and security controls. The **entry point is always `app.py`**, which determines the system mode (interactive CLI via prompt_toolkit or HTTP server via Flask), initializes modular registries, config, logging, context, macro hooks, and sets up graceful signal handling and session cleanup.
+## Startup flow
 
-**Key Features:**
-- Modular core (`core/`) and integration layer (`lib/`), registered and bootstrapped in `app.py`
-- All command registration/dispatch flows through centralized registries and handler maps: `core.built_ins`, `lib.macros`, `core.command_processing`
-- Dual-mode operation: **Interactive CLI Loop** or **HTTP API Server** (each with observability, audit, and graceful shutdown)
-- **Conversation abstraction:** `core/conversation.py` manages dynamic chat/event loop, session context, and interactivity for both CLI and server modes
-- **API Broker:** `core/query_service.py` provides LLM and tool brokering (mediates requests in both CLI and server)
-- **Extensibility:** via server APIs, CLI/command registry, macro/hooks integration, and tool registry—all secured and auditable
+### `src/monitor/__main__.py`
+This module ensures user config files exist, then calls `monitor.app.main()`.
 
-## 2. Dual-Mode Operation
+It seeds files such as:
+- `config.yaml`
+- `macros.json`
+- `preferences.prompt`
+- `model_config.json`
+- `interactive_commands.json`
+- `non_interactive_commands.json`
+- directive prompt files under `directives/`
 
-**A. Interactive CLI Loop**
-- Invoked by default via `app.py` (unless --server flag or env specified)
-- Uses prompt_toolkit for multiline, syntax-highlighted input, context cues, and live macro expansion
-- Handles registration of built-ins, macros, and command processors
-- Event/chat loop controlled by `core/conversation.py`—with command processing mediated via `core.command_processing`
-- Logs all actions (session, audit, error) in timestamped/rotating logs under `logs/` that are written to configured paths and created at runtime
-- Session and signal handlers: session ID, Ctrl+C/BREAK event cleanup, graceful exit with final audit logging
-- CLI entrypoint: conversation.chat() in core/conversation.py is the main interactive entrypoint for the CLI mode
+### `src/monitor/app.py`
+This is the main runtime entrypoint for the classic Monitor application. It:
+- parses CLI flags
+- loads model config and environment globals
+- starts logging
+- configures subsystems
+- freezes startup-time prompt and wiki paths
+- registers built-ins and macros
+- launches one of:
+  - REPL chat loop
+  - Flask server mode
+  - script mode
+  - TUI mode
 
-**B. HTTP Server API**
-- Enabled by `--server` flag in `app.py`; app.py initializes the Flask app via the factory in src/monitor/lib/server.py for stateless API endpoints
-- Server endpoints and their routing are defined in src/monitor/lib/server.py; app.py calls into that factory (e.g., server.create_flask_server()) and manages process/thread-level integration
-- Exposes endpoints for:
-    - Submitting commands/queries for processing
-    - Fetching conversation/context state
-    - Extending backend via custom API requests (extensions/tools)
-    - Health, metrics, and logging endpoints
-- All queries/requests routed via `core/query_service.py` broker, ensuring tool/macro/core command mediation
-- Server shutdowns handled with registered Flask and app signal handlers; logs persisted across sessions
+Supported CLI flags currently include:
+- `--server`
+- `--port`
+- `--model`
+- `--reset-config`
+- `--force`
+- `--models`
+- `--version`
+- `--debug`
+- `--script`
+- `--agent`
+- `--tui`
 
-## 3. Central File Roles (Expanded)
+## Major runtime modes
 
-- **`app.py`:**
-    - Always the entry point—sets up logger, config, context/memory, CLI/server mode selection, macro/command registration, tool registry installation
-    - Encapsulates the main CLI entrypoint (calls conversation.chat() in core/conversation.py), sets up Flask API in server mode via the server factory
-    - Handles all signal trapping (SIGINT/SIGTERM), session teardown and persistent artifact/summary emission
+### 1. Interactive REPL
+Default mode when no other special flag is provided.
 
-- **`core/conversation.py`:**
-    - Abstracts chat loop and event model for both CLI and API, managing session context, prompt rendering, and context window
-    - Securely handles user input processing, message threading, and interaction state for both live and programmatic entry
+Key pieces:
+- `monitor.core.conversation.chat()`
+- `monitor.core.command_processing`
+- built-ins from `monitor.core.built_ins`
+- macros from `monitor.lib.macros`
 
-- **`core/command_processing.py`:**
-    - Responsible for command routing: dispatches inputs to:
-        - Built-ins—registered in `core.built_ins`
-        - Macro hooks—registered in `lib.macros`
-        - Shell/system commands—safely checked and executed
-    - Contains safety validation, privilege checks, and error handling boundaries
+### 2. Script mode
+`--script` runs commands from a file, one non-empty non-comment line at a time, through the same conversation input pipeline used by the REPL.
 
-- **`core/built_ins.py`:**
-    - Defines core built-in commands and tool behaviors (ls, cat, git, Python eval, etc.)
-    - All registered via centralized registry in app/bootstrap
+### 3. Server mode
+`--server` launches a Flask development server built in `src/monitor/lib/server.py`.
 
-- **`lib/macros.py`:**
-    - Macro engine: macro registration, parameter parsing, scriptable/LLM-assisted expansion
-    - Macro registry can be extended live via CLI or config; supports hooks into command processing
+Current API surface includes:
+- `POST /cli`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
 
-- **`core/query_service.py`:**
-    - Central broker for tool/integration queries and LLM activity
-    - Mediates between CLI/server, macros, and integrations—ensures all actions are auditable
+If `MONITOR_SERVER_API_KEY` is set, `/v1/*` endpoints require Bearer auth.
 
-- **`config.py` / `config.yaml`:**
-    - Configuration for tools, LLMs, logging, limits, credentials, persistent memory, summarization
-    - Some runtime components (for example, macro definitions and certain registries that are primarily runtime data structures) support explicit runtime reload mechanisms. These are implemented as explicit "reload" hooks or re-initialization entrypoints (for example, a configure_tools / registry re-run path) that refresh registry state, macro definitions, and related runtime data without restarting the whole process. This capability is limited to refreshing runtime-configurable data and registry entries; it does not provide process-level code hot-reload (you cannot dynamically replace arbitrary Python modules or change the process-executed code across the entire running process). See lib/macros.py for macro registration and available reload hooks, and app.py for registry initialization and configure_tools re-run entrypoints and patterns for safe runtime refresh.
+The server is wrapped with `SingleRequestMiddleware`, which serializes requests with a process-local lock.
 
-- **Logging and Auditing (`logs/`):**
-    - Central session-log, full audit trace (commands, LLM, errors) in session-aware log files
-    - Rotating logs, real-time streaming, replayable audit trail
-    - Logger is initialized in `app.py` and used system-wide; logs are written to configured paths and created at runtime
+### 4. TUI mode
+`--tui` launches the full-screen terminal UI in `src/monitor/tui/app.py` after the normal startup configuration path has run.
 
-## 4. Chat Loop and Server API—Details
+### 5. Agent mode
+`--agent` enables sub-agent behavior by setting `config.AGENT = True`, which affects tool availability and write restrictions.
 
-**Chat Loop (`core/conversation.py`):**
-- Orchestrates prompt_toolkit CLI interactive sessions, context-tracking, and event-based input handling
-- Receives user/LLM input, feeding into command processor and macro registry
-- Supports output capture, error injection, context trimming, summarization, and token window management
-- Underpins both standalone CLI and server-interactive API chat endpoints
-- Entry point for interactive sessions: conversation.chat()
+## Core package responsibilities
 
-**Server API (Flask integration):**
-- Server endpoints live in src/monitor/lib/server.py as a Flask app factory; app.py initializes the Flask app via that factory
-- Each API query/event is dispatched via the same brokers and registries used by CLI mode
-- State, logs, audit, and context history are uniform across CLI and server
-- API extensibility: register new endpoints as modules under `lib/`, integrating via the command/macro registry
+### `src/monitor/core/conversation.py`
+Conversation orchestration for the interactive experience, including prompt flow, history updates, query execution, and tool-call integration.
 
-**Query Broker (`core/query_service.py`):**
-- Unified entry point for LLM/tool invocation, macro expansion, summarization, intent inference
-- Handles rate-limiting, error mediation, context possession, and logging for every tool/LLM action
+### `src/monitor/core/command_processing.py`
+Input routing and command classification between shell-like commands, built-ins, internals, and model flows.
 
-===============================================================================
-Extensibility Points
-===============================================================================
-- **Core Registry:** Register new built-ins (core.built_ins), macros (lib.macros), or tools (via tool registry)
-- **Macro Engine:** Programmatically define/extend macros (lib.macros), register automation, post-processing hooks
-- **Server API:** Extend via additional Flask endpoints (integrate via app.py/lib/), or expose new HTTP-facing services
-- **CLI Tools:** Register/hook new commands at startup/session-init via app.py or hot-reload logic
-- **Hooks and Extensions:** All tool/macro/command registration flows are centralized for audit and context
-===============================================================================
+### `src/monitor/core/commands.py`
+Defines terminal-command registries and internal commands such as:
+- `llm<`
+- `directive<`
 
-## 5. Session Audit, Logging, and Cleanup
+It also loads interactive and non-interactive command definitions from JSON files.
 
-- **Logging:** All system, CLI, tool, LLM, and error events are timestamped. Log sessions are rolling, replayable, and redactable; debug/audit mode controls verbosity and retention policy. Logs are written to configured paths and created at runtime.
-- **Signal Handling / Session Teardown:**
-    - Robust SIGINT/SIGTERM catchers for CLI and server
-    - Ensures context summaries, log finalization, and any temporary state/artifacts are cleaned on shutdown
-    - Session audit and error logs closed and made available at run completion
-- **Memory and Context:**
-    - Proactive context trimming, summarization via LLMs as needed (see config)
-    - Optional persistent context/memory layers (Redis or file-backed store) for long-term recall
+### `src/monitor/core/built_ins.py`
+Registers built-in commands through `configure_built_ins()`.
 
-===============================================================================
-For architecture diagrams, maintainers’ docs, and up-to-date developer best practices: see README.md or contact the current maintainers.
-===============================================================================
+Current built-ins include utility, persistence, diagnostics, response helper, data, indexing, workflow, wiki, and social commands.
 
-Where to look in the code:
-- core/conversation.py -> conversation.chat
-- src/monitor/lib/server.py -> server.create_flask_server
-- core/command_processing.py -> core.command_processing.process_command
-- core/query_service.py -> core.query_service
+Notable built-ins include:
+- `commands`
+- `history`
+- `llm`
+- `reasoning`
+- `ttl`
+- `max_tokens`
+- `macros`
+- `tasks`
+- `clear_tasks`
+- `compact`
+- `dump_metrics`
+- `wiki_init`
+- `wiki_lint`
+- `wiki_fix`
+- `rg`
+- `agent`
 
-===============================================================================
+### `src/monitor/core/tooling.py`
+Executes LLM tool calls, parses tool arguments, applies rate limiting, appends tool results into conversation history, and enforces several runtime safety rails.
+
+Current safety-related behavior includes:
+- nested tool-call depth cap via `MAX_TOOL_CALL_DEPTH`
+- repeated-call loop detection via `MAX_REPEATED_TOOL_CALLS`
+- write-tool blocking/scoping for sub-agents
+- special handling for high-token file and directory operations
+
+### `src/monitor/core/tools.py`
+Configures which tool descriptions are exposed for the active provider/model. It dynamically selects between provider-neutral edit tools and provider-specific edit tool variants.
+
+## Tool architecture
+
+### Runtime callable registry
+`src/monitor/lib/tool_definitions.py` defines:
+- `AVAILABLE_TOOLS`
+- `TOOL_DESCRIPTIONS`
+- `GEMINI_TOOL_DESCRIPTIONS`
+- `TOOL_STATE`
+
+This is the core registry for model-callable tools.
+
+### Tool loading helpers
+`src/monitor/lib/tool_loading.py` provides helper functions for:
+- adding and removing tools
+- provider-specific tool-description transforms
+- weather, memory, DB, modeling, and editing tool registration
+
+Current provider-specific handling includes:
+- Anthropic tool adaptation via `inject_anthropic_properties()`
+- OpenAI tool adaptation via `inject_openai_properties()`
+- Gemini-specific parallel description catalog
+
+## Editing tool stack
+
+Monitor currently exposes multiple file-edit pathways:
+
+### Provider-neutral deterministic tools
+Registered by `add_text_file_neutral_tools()`:
+- `text_file_or_directory_view`
+- `text_file_create`
+- `text_file_str_replace_in_file`
+- `text_file_insert_text_at_line`
+
+### Mechanical multi-file editing
+- `bulk_replace_in_files`
+
+### Fallback natural-language editing
+- `modify_source_code`
+
+### Anthropic-native edit tool aliases
+Depending on model/provider configuration, Monitor can also expose:
+- `str_replace_based_edit_tool`
+- `str_replace_editor`
+
+## Macro system
+
+### `src/monitor/lib/macros.py`
+Owns macro state, loading, and display behavior.
+
+Macro sources are layered with precedence:
+1. public built-ins
+2. file-defined macros
+3. ephemeral runtime macros
+4. private built-ins
+
+Visible macros are grouped for display with metadata support.
+
+### `src/monitor/lib/macro_utils.py`
+Provides stateless helpers for:
+- loading macro JSON
+- loading macro metadata
+- updating macro stores
+- recursive expansion
+- Tcl-backed macro expansion
+
+Important security property:
+- Tcl macros are executable host-side code, not a sandboxed template system
+
+## HTTP server architecture
+
+`src/monitor/lib/server.py` adapts Monitor into a local OpenAI-style API.
+
+Key behavior:
+- converts OpenAI-style chat messages into a single Monitor command
+- invokes `internalize_command()`
+- formats output as JSON or SSE
+- supports serialized request handling through middleware
+- warns when binding to non-localhost addresses
+
+## Config system
+
+`src/monitor/config.py` is the main configuration loader and global runtime state module.
+
+It is responsible for:
+- locating config files
+- loading YAML and model JSON config
+- environment loading from `.env`
+- global state initialization
+- subsystem bootstrapping
+- logging configuration
+- model switching at runtime
+
+Important runtime-controlled features in config include:
+- model mappings and windows
+- rate limiting
+- memory service flags
+- reasoning behavior
+- compaction and token budgeting
+- server mode and agent mode
+- sub-agent orchestration limits
+- write-access policy for sub-agents
+- tool output and file write caps
+
+## Agent orchestration
+
+Monitor supports sub-agents through tools and runtime config.
+
+Relevant tools:
+- `agent_create`
+- `agent_list`
+- `agent_send`
+- `agent_gather`
+- `agent_logfile`
+- `agent_kill`
+
+Relevant config/runtime controls include:
+- `MONITOR_ENABLE_AGENT_ORCHESTRATION`
+- `MONITOR_AGENT_DEPTH`
+- `MONITOR_AGENT_MAX_DEPTH`
+- `MONITOR_AGENT_MAX_BREADTH`
+- `MONITOR_AGENT_MAX_TOTAL`
+- `MONITOR_AGENT_HEARTBEAT_TIMEOUT`
+- `MONITOR_AGENT_IDLE_TIMEOUT`
+- `SUBAGENT_WRITE_ACCESS`
+- `SUBAGENT_MEMORY_SERVICES`
+
+Sub-agent write behavior is explicitly constrained in tooling, especially for write-capable tools.
+
+## Wiki support
+
+Monitor includes project-wiki support under `src/monitor/lib/monitor_wiki.py` and built-ins for:
+- `wiki_init`
+- `wiki_lint`
+- `wiki_fix`
+
+At startup, `configure_project_wiki_paths(startup_cwd)` freezes wiki identity/context for the session.
+
+## Observability and logs
+
+Logging setup originates in `config.py` and `monitor.lib.logging`.
+
+The app creates:
+- an application log file
+- a per-process conversation log file
+
+Conversation logs include the PID in the filename.
+
+## OOP package note
+
+The repository also contains `src/monitor_oop/`, which appears to be a separate or emerging architecture path. It includes its own `__main__.py`, core services, and presentation stack. The rest of this document focuses on the currently wired `monitor` runtime path used by `python -m monitor`.
+
+## Architecture summary
+
+At a high level:
+1. `__main__` ensures config assets exist.
+2. `app.py` loads config, logging, and subsystems.
+3. built-ins, macros, tools, and prompt/wiki context are configured.
+4. Monitor runs in REPL, script, server, TUI, or agent-oriented mode.
+5. `core/` orchestrates conversation, command routing, and tool invocation.
+6. `lib/` provides integrations, persistence, server adapters, macros, tools, and utilities.
