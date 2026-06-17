@@ -26,7 +26,7 @@ creating near-duplicate task notes.
 - [ ] Verify representative long coding workflows stay comfortably below the
       configured depth limit.
 - [ ] Identify and document common failure patterns in long tool-call chains.
-- [ ] Add benchmark scenarios specific to long-horizon coding loops.
+- [x] Add benchmark scenarios specific to long-horizon coding loops (`docs/cache/BENCHMARKS_LONG_HORIZON.md`).
 
 ## 2. Agent orchestration availability
 - [x] `agent_create` exists.
@@ -116,9 +116,14 @@ creating near-duplicate task notes.
 ## 10. Near-term implementation order
 - [x] Add a practical operator guide for bounded orchestration usage.
 - [ ] Improve visibility into active background work.
-- [ ] Add benchmark tasks for representative long-horizon coding workflows.
+- [x] Add benchmark tasks for representative long-horizon coding workflows (`docs/cache/BENCHMARKS_LONG_HORIZON.md`).
 - [ ] Add stronger tests for persistent-agent follow-up flows.
 - [ ] Tighten async completion notice formatting and length discipline.
+- [x] Add a benchmark gaps summary (`docs/cache/BENCHMARK_GAPS_LONG_HORIZON.md`).
+- [x] Add a benchmark execution queue (`docs/cache/BENCHMARK_EXECUTION_QUEUE_LONG_HORIZON.md`).
+- [x] Add a long-horizon docs index (`docs/cache/INDEX_LONG_HORIZON.md`).
+- [x] Add a benchmark execution playbook (`docs/cache/BENCHMARK_PLAYBOOK_LONG_HORIZON.md`).
+- [x] Add persistent-agent follow-up benchmark execution scaffolding (`docs/cache/BENCHMARK_RUN_LONG_HORIZON_SCENARIO_6_PROFILE_B_EXAMPLE.md`).
 - [ ] Document failure-handling patterns for partial delegated success/failure.
 - [ ] Document researcher-vs-worker mode explicitly.
 
@@ -131,7 +136,7 @@ creating near-duplicate task notes.
 - [ ] Stronger delegated-write observability.
 - [ ] Better observability surfaces for long-running work.
 - [ ] Delegated cost accounting.
-- [ ] Better benchmarking of multi-turn, multi-agent coding tasks.
+- [x] Better benchmarking of multi-turn, multi-agent coding tasks (`docs/cache/BENCHMARKS_LONG_HORIZON.md`, `docs/cache/BENCHMARK_RUN_TEMPLATE_LONG_HORIZON.md`).
 
 ## 12. Highest-value changes for autonomous coding quality
 - [ ] Durable checkpoints and resume semantics.

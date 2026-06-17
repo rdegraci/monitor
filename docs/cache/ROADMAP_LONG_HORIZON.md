@@ -300,3 +300,5 @@ The roadmap should therefore focus first on:
 - only then widening the autonomy envelope.
 
 Phase 1 operator guidance now lives in `docs/LONG_HORIZON_OPERATOR_GUIDE.md`.
+Phase 2 benchmark planning now lives in `docs/cache/BENCHMARKS_LONG_HORIZON.md`.
+Long-horizon doc navigation now lives in `docs/cache/INDEX_LONG_HORIZON.md`.
