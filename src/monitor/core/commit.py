@@ -7,6 +7,7 @@ import tempfile
 import litellm
 
 from monitor import config
+from monitor.lib.llm_utils import is_reasoning_model
 from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged
@@ -57,6 +58,11 @@ def _get_commit_generation_config():
         getattr(config, "COMMIT_REASONING_MAX_COMPLETION_TOKENS", None)
         or getattr(config, "REASONING_MAX_COMPLETION_TOKENS", None)
     )
+    print(
+        "Resolved commit config: "
+        f"model={model!r}, reasoning_effort={effort!r}, "
+        f"reasoning_max_completion_tokens={token_cap!r}"
+    )
     return {
         "model": model,
         "reasoning_effort": effort,
@@ -98,14 +104,15 @@ def _build_commit_completion_kwargs(
 
 
 def _should_use_reasoning_kwargs(model):
-    """Return whether the commit model should receive reasoning parameters."""
-    prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
-    return (
-        isinstance(prefix, str)
-        and prefix
-        and isinstance(model, str)
-        and model.lower().startswith(prefix.lower())
-    )
+    """Return whether the commit model should receive reasoning parameters.
+
+    Args:
+        model: The candidate model name.
+
+    Returns:
+        bool: True when the model should receive reasoning-specific kwargs.
+    """
+    return is_reasoning_model(model, getattr(config, "REASONING_MODEL_PREFIX", None))
 
 
 def make_commit_command(arg=None, print_func=print):

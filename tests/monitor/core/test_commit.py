@@ -1,7 +1,8 @@
-import unittest
-from unittest.mock import patch, MagicMock
-import monitor.core.commit as commit
 import importlib
+import unittest
+from unittest.mock import MagicMock, patch
+
+import monitor.core.commit as commit
 
 
 class TestCommitCommand(unittest.TestCase):
@@ -101,6 +102,30 @@ class TestCommitCommand(unittest.TestCase):
         # Uses a stateless completion, not the history-mutating query().
         self.assertFalse(hasattr(commit, "query"))
         self.assertTrue(mock_completion.called)
+
+    @patch("monitor.core.commit.litellm.completion")
+    @patch("monitor.core.commit.build_commit_message_query_input")
+    def test_get_suggested_commit_message_uses_commit_reasoning_overrides(
+        self, mock_build, mock_completion
+    ):
+        """Commit generation should honor commit-specific reasoning overrides."""
+        mock_build.return_value = "query_input"
+        message = MagicMock()
+        message.content = "Suggested commit"
+        mock_completion.return_value.choices = [MagicMock(message=message)]
+
+        with patch.object(commit.config, "COMMIT_MODEL", "openai/gpt-5.4"), patch.object(
+            commit.config, "COMMIT_REASONING_EFFORT", "high"
+        ), patch.object(
+            commit.config, "COMMIT_REASONING_MAX_COMPLETION_TOKENS", 8000
+        ), patch.object(commit.config, "REASONING_MODEL_PREFIX", "openai/gpt-5"):
+            result = commit.get_suggested_commit_message("diff --git ...")
+
+        self.assertEqual(result, "Suggested commit")
+        kwargs = mock_completion.call_args.kwargs
+        self.assertEqual(kwargs.get("model"), "openai/gpt-5.4")
+        self.assertEqual(kwargs.get("reasoning_effort"), "high")
+        self.assertEqual(kwargs.get("max_completion_tokens"), 8000)
 
     @patch("os.unlink")
     @patch("monitor.core.commit.subprocess.run")
