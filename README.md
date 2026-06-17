@@ -451,6 +451,7 @@ Key source areas:
 
 See the docs for contributor workflows:
 
+- [`docs/BENCHMARK_USAGE.md`](docs/BENCHMARK_USAGE.md)
 - [`docs/ADD_BUILT_IN.md`](docs/ADD_BUILT_IN.md)
 - [`docs/ADD_LLM_TOOL.md`](docs/ADD_LLM_TOOL.md)
 - [`docs/MACROS_README.md`](docs/MACROS_README.md)

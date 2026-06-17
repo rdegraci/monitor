@@ -109,23 +109,53 @@ Please also summarize:
 ## Prompt customization checklist
 
 Before running, replace placeholders with concrete details:
-- [ ] feature area identified
-- [ ] desired behavior stated clearly
-- [ ] test surface identified
-- [ ] targeted verification command known
-- [ ] prompt reviewed for realism and bounded scope
+- [x] feature area identified
+- [x] desired behavior stated clearly
+- [x] test surface identified
+- [x] targeted verification command known
+- [x] prompt reviewed for realism and bounded scope
+
+## Repo-specific recommended task
+
+Use the `benchmark.monitor_bench.compare` surface for this fixture.
+
+Why this task fits:
+- it is a moderate feature in an already active benchmark subsystem,
+- it naturally spans multiple related files,
+- it has focused unit-test coverage,
+- it is bounded enough to complete in one session,
+- it does not require orchestration.
+
+Recommended feature request:
+- add task/tag filtering support to `python -m benchmark.monitor_bench.compare`
+  for missing/new task reporting so compare output can be narrowed to a chosen
+  tag or tag substring,
+- preserve existing comparison behavior for unfiltered runs,
+- update text, markdown, and JSON renderers consistently,
+- add or update tests covering filter behavior and output semantics.
+
+Suggested file surface:
+- `benchmark/monitor_bench/compare.py`
+- `benchmark/monitor_bench/README.md`
+- `tests/benchmark/test_compare.py`
+
+Suggested verification command:
+- `pytest tests/benchmark/test_compare.py`
 
 ## Example concrete prompt
 
-Use this only as a pattern, not as a required repository-specific task.
+Use this prompt for the real repo-specific run unless the benchmark owner swaps
+in a different concrete task of similar scope.
 
 ```text
 Implement a moderate multi-file feature in this repository.
 
 Requirements:
-- Update the existing CLI output path so that a user-facing summary includes a
-  clearly labeled status section and a concise totals section.
+- Update `benchmark.monitor_bench.compare` so compare output can be filtered by
+  task tag or tag substring when reviewing benchmark runs.
 - Preserve existing architecture and repository conventions.
+- Update all relevant output paths consistently, including text, markdown, and
+  JSON rendering where applicable.
 - Update or add tests that verify the new behavior.
 - Run targeted verification and summarize the outcome.
 

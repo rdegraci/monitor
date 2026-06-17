@@ -111,5 +111,12 @@ When reprioritizing, preserve a note explaining why the order changed.
 ## Current assessment
 
 All currently planned benchmark runs are documentation-ready.
-The main remaining work is execution and evidence capture, not additional
-framework design.
+In addition:
+- Scenario 1 and Scenario 2 now have repo-specific fixture guidance,
+- the Scenario 1 nominated repo task has already been implemented in code,
+- the general `monitor_bench` workflow has been exercised successfully in-repo,
+- a concise primary benchmark usage guide now exists at
+  `docs/BENCHMARK_USAGE.md`.
+
+The main remaining work is still long-horizon execution and evidence capture,
+not additional framework design.

@@ -50,6 +50,11 @@ If you are new to the long-horizon docs, read in this order:
 
 ### Benchmark planning and execution
 
+- `docs/BENCHMARK_USAGE.md`
+  - concise primary guide for running, inspecting, and comparing repository
+    benchmark runs,
+  - useful before diving into the long-horizon cache docs.
+
 - `docs/cache/BENCHMARKS_LONG_HORIZON.md`
   - defines the Phase 2 benchmark plan,
   - lists scenarios, metrics, runtime profiles, and exit criteria.

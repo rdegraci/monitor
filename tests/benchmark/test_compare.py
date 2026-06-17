@@ -361,6 +361,62 @@ def test_compare_runs_pass_rate_improvement_becomes_mixed_with_thresholded_regre
     assert comparison["tasks"][0].classification == "mixed"
 
 
+def test_compare_runs_tag_filter_limits_scope_to_matching_tasks():
+    before = _run(
+        _result("alpha", 0, True, tags=["memory"], cost=0.50, tool_calls=5),
+        _result("beta", 0, True, tags=["todo"], cost=0.10, tool_calls=1),
+    )
+    after = _run(
+        _result("alpha", 0, True, tags=["memory"], cost=0.10, tool_calls=1),
+        _result("beta", 0, True, tags=["todo"], cost=0.50, tool_calls=5),
+    )
+
+    comparison = compare.compare_runs(before, after, tag_filter="memory")
+
+    assert [task.task for task in comparison["tasks"]] == ["alpha"]
+    assert comparison["missing_tasks"] == []
+    assert comparison["new_tasks"] == []
+    assert comparison["overall_classification"] == "improvement"
+
+
+def test_compare_runs_tag_filter_matches_substrings():
+    before = _run(
+        _result("alpha", 0, True, tags=["memory-cache"], cost=0.40, tool_calls=4),
+        _result("beta", 0, True, tags=["todo"], cost=0.20, tool_calls=2),
+    )
+    after = _run(
+        _result("alpha", 0, True, tags=["memory-cache"], cost=0.10, tool_calls=1),
+        _result("beta", 0, True, tags=["todo"], cost=0.20, tool_calls=2),
+    )
+
+    comparison = compare.compare_runs(before, after, tag_filter="cache")
+
+    assert [task.task for task in comparison["tasks"]] == ["alpha"]
+    assert comparison["overall_classification"] == "improvement"
+
+
+def test_render_compare_json_respects_tag_filter():
+    before = _run(
+        _result("alpha", 0, True, tags=["memory"], cost=0.50, tool_calls=5),
+        _result("beta", 0, True, tags=["todo"], cost=0.10, tool_calls=1),
+    )
+    after = _run(
+        _result("alpha", 0, True, tags=["memory"], cost=0.10, tool_calls=1),
+        _result("beta", 0, True, tags=["todo"], cost=0.50, tool_calls=5),
+    )
+
+    comparison = compare.compare_runs(before, after, tag_filter="memory")
+    payload = compare.render_compare_json(
+        comparison,
+        before_path="before.json",
+        after_path="after.json",
+    )
+
+    parsed = json.loads(payload)
+    assert [task["task"] for task in parsed["tasks"]] == ["alpha"]
+    assert parsed["overall_classification"] == "improvement"
+
+
 def test_compare_runs_pass_rate_regression_still_dominates_when_efficiency_improves():
     before = _run(
         _result("alpha", 0, True, cost=0.60, tool_calls=8),

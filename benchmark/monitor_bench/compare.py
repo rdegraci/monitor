@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from benchmark.monitor_bench.report import aggregate
 
+_TAGS_KEY = "tags"
+
 MetricName = Literal["pass", "cost", "tools", "loops", "duration"]
 Classification = Literal["improvement", "regression", "mixed", "unchanged"]
 OutputFormat = Literal["text", "markdown", "json"]
@@ -270,10 +272,71 @@ def _classify_summary(
     return "unchanged"
 
 
+def _task_matches_tag_filter(
+    task_name: str,
+    run: Dict[str, Any],
+    tag_filter: Optional[str],
+) -> bool:
+    """Return whether a task matches the optional tag filter.
+
+    Args:
+        task_name: Task name being considered for compare rendering.
+        run: Raw benchmark run dictionary containing per-sample results.
+        tag_filter: Optional tag or tag-substring filter.
+
+    Returns:
+        ``True`` when no tag filter is active or when at least one sample for the
+        task contains a matching tag substring.
+    """
+    if not tag_filter:
+        return True
+
+    for result in run.get("results", []):
+        if result.get("task") != task_name:
+            continue
+        for tag in result.get(_TAGS_KEY, []):
+            if isinstance(tag, str) and tag_filter in tag:
+                return True
+    return False
+
+
+def _filter_run_to_tag(
+    run: Dict[str, Any],
+    tag_filter: Optional[str],
+) -> Dict[str, Any]:
+    """Return a shallow-copied run narrowed to tasks matching ``tag_filter``.
+
+    Args:
+        run: Raw benchmark run dictionary.
+        tag_filter: Optional tag or tag-substring filter.
+
+    Returns:
+        Run dictionary with ``results`` filtered to tasks whose samples include a
+        matching tag. When no filter is provided, returns the original run.
+    """
+    if not tag_filter:
+        return run
+
+    matching_tasks = {
+        result.get("task")
+        for result in run.get("results", [])
+        if _task_matches_tag_filter(str(result.get("task")), run, tag_filter)
+    }
+    filtered_results = [
+        result
+        for result in run.get("results", [])
+        if result.get("task") in matching_tasks
+    ]
+    filtered_run = dict(run)
+    filtered_run["results"] = filtered_results
+    return filtered_run
+
+
 def compare_runs(
     before_run: Dict[str, Any],
     after_run: Dict[str, Any],
     thresholds: CompareThresholds = CompareThresholds(),
+    tag_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compare two raw benchmark run dictionaries.
 
@@ -281,10 +344,14 @@ def compare_runs(
         before_run: Parsed run JSON representing the baseline behavior.
         after_run: Parsed run JSON representing the candidate behavior.
         thresholds: Active comparison thresholds.
+        tag_filter: Optional tag or tag-substring filter applied before
+            aggregation and comparison.
 
     Returns:
         Dictionary containing the aggregated summaries and per-task comparisons.
     """
+    before_run = _filter_run_to_tag(before_run, tag_filter)
+    after_run = _filter_run_to_tag(after_run, tag_filter)
     before_summary = aggregate(before_run)
     after_summary = aggregate(after_run)
     before_tasks = before_summary["per_task"]
@@ -951,6 +1018,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Filter to one exact task name.",
     )
     parser.add_argument(
+        "--tag",
+        type=str,
+        default=None,
+        help="Filter compare input to tasks whose samples include a matching tag substring.",
+    )
+    parser.add_argument(
         "--show-unchanged",
         action="store_true",
         help="Include unchanged tasks in the task sections.",
@@ -1012,7 +1085,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     before_run = json.loads(args.before_json.read_text())
     after_run = json.loads(args.after_json.read_text())
-    comparison = compare_runs(before_run, after_run, thresholds=thresholds)
+    comparison = compare_runs(
+        before_run,
+        after_run,
+        thresholds=thresholds,
+        tag_filter=args.tag,
+    )
 
     if args.format == "text":
         output = render_compare_report(

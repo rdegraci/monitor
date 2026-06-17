@@ -110,6 +110,7 @@ creating near-duplicate task notes.
 - [x] Long-horizon behavior spec exists (`SPEC_LONG_HORIZON.md`).
 - [x] Adjacent orchestration cache docs have been refreshed for consistency.
 - [x] Add a practical operator setup guide for long-horizon usage (`docs/LONG_HORIZON_OPERATOR_GUIDE.md`).
+- [x] Add a primary benchmark usage guide under `docs/` (`docs/BENCHMARK_USAGE.md`).
 - [ ] Add a contributor guide for extending long-horizon support safely.
 - [ ] Summarize stable conclusions into primary docs under `docs/` when ready.
 

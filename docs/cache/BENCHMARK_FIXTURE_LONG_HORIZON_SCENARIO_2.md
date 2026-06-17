@@ -119,23 +119,60 @@ Please also summarize:
 ## Prompt customization checklist
 
 Before running, replace placeholders with concrete details:
-- [ ] failure surface identified
-- [ ] reproducer or inspection path identified
-- [ ] likely search area bounded
-- [ ] targeted verification command known
-- [ ] delegation opportunity identified if applicable
-- [ ] prompt reviewed for realism and bounded scope
+- [x] failure surface identified
+- [x] reproducer or inspection path identified
+- [x] likely search area bounded
+- [x] targeted verification command known
+- [x] delegation opportunity identified if applicable
+- [x] prompt reviewed for realism and bounded scope
+
+## Repo-specific recommended task
+
+Use the `benchmark.monitor_bench.runner` history-ingestion path for this
+fixture.
+
+Why this task fits:
+- it is a realistic investigate-then-fix workflow in an active subsystem,
+- the likely bug surface spans runner behavior plus test expectations,
+- the likely root cause requires reading both implementation and tests,
+- the fix should stay bounded to a few files,
+- there is an obvious optional delegation opportunity: background audit of
+  related history consumers or adjacent transcript assumptions.
+
+Recommended bug shape:
+- investigate whether `run_one_sample()` should validate that the parsed
+  `conversation` payload from `:dump_history` is actually a list before passing
+  it through to graders and result serialization,
+- if malformed history payloads can leak through as non-list values, apply a
+  focused fix that normalizes or rejects invalid shapes consistently,
+- update tests so malformed history envelopes are handled explicitly and do not
+  masquerade as valid transcript data.
+
+Suggested file surface:
+- `benchmark/monitor_bench/runner.py`
+- `tests/benchmark/test_runner.py`
+- optionally `benchmark/monitor_bench/README.md` if behavior needs documenting
+
+Suggested verification command:
+- `pytest tests/benchmark/test_runner.py`
+
+Suggested optional delegation:
+- audit whether any other benchmark helpers assume `conversation_history` is a
+  list and summarize whether the same malformed-shape issue could affect
+  `inspect.py`, `report.py`, or `compare.py` consumers.
 
 ## Example concrete prompt
 
-Use this only as a pattern, not as a required repository-specific task.
+Use this prompt for the real repo-specific run unless the benchmark owner swaps
+in a different concrete bug of similar scope.
 
 ```text
 Investigate and fix a concrete bug in this repository.
 
 Requirements:
-- Reproduce or inspect the failure in an existing test or output path where a
-  status or summary result is being classified incorrectly.
+- Inspect the benchmark history-ingestion path in `benchmark.monitor_bench.runner`
+  and determine whether malformed `:dump_history` payloads can be accepted as if
+  they were valid conversation-history lists.
 - Determine the most likely root cause before making edits.
 - Apply a focused fix that preserves existing architecture and repository conventions.
 - Update or add tests if needed.
@@ -145,7 +182,7 @@ Expectations:
 - Create and maintain an explicit todo plan.
 - Investigate before editing.
 - Use bounded sub-agent delegation only if it materially helps with an
-  independent background search or audit.
+  independent background audit of adjacent history consumers.
 - Keep changes focused and production-ready.
 
 Please also summarize:

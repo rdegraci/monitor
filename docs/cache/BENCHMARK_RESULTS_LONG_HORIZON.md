@@ -22,9 +22,17 @@ Use this file to:
 
 ## Status
 
-Current state: benchmark planning and execution scaffolding exist.
+Current state:
+- benchmark planning and execution scaffolding exist,
+- Scenario 1 and Scenario 2 fixtures have been made repo-specific,
+- the Scenario 1 nominated repo task has been implemented in code,
+- the benchmark runner has been exercised successfully in-repo,
+- no long-horizon Phase 2 run record has been completed yet.
 
-Executed benchmark runs recorded here: none yet.
+Executed benchmark runs recorded here:
+- no long-horizon run record has been completed yet.
+- however, the general `monitor_bench` pipeline has now been exercised
+  successfully as a repository benchmark workflow.
 
 Planned first runs:
 - `LH-S1-A-001` → `docs/cache/BENCHMARK_RUN_LONG_HORIZON_SCENARIO_1_PROFILE_A.md`

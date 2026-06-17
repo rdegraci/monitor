@@ -147,6 +147,11 @@ The benchmark suite should include at least the following scenario classes.
 
 ### Scenario 1 — single-session multi-file feature
 
+**Status update:**
+The first repo-specific fixture for this scenario now targets the
+`benchmark.monitor_bench.compare` surface, and the nominated initial repo task
+for that fixture has already been implemented in code.
+
 **Purpose:**
 Validate plan creation, multi-step implementation, verification, and completion
 without relying on delegation.
@@ -168,6 +173,11 @@ without relying on delegation.
 - Profile B
 
 ### Scenario 2 — investigate-then-fix bug workflow
+
+**Status update:**
+The first repo-specific fixture for this scenario now targets the
+`benchmark.monitor_bench.runner` history-ingestion path with a concrete bug
+investigation shape, but the nominated repo task has not yet been implemented.
 
 **Purpose:**
 Validate whether Monitor can sustain a realistic debugging flow instead of

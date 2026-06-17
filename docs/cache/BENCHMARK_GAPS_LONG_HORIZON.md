@@ -35,7 +35,9 @@ The following benchmark-supporting artifacts now exist:
 - example run records for Scenarios 1 through 7,
 - planned real-run records for Scenarios 1 through 7,
 - concrete fixture definitions for Scenarios 1 through 7,
-- long-horizon documentation index.
+- repo-specific fixture guidance for Scenarios 1 and 2,
+- long-horizon documentation index,
+- a primary benchmark usage guide in `docs/BENCHMARK_USAGE.md`.
 
 In other words, the documentation framework for Phase 2 is substantially
 complete.
@@ -43,14 +45,19 @@ complete.
 ### What is not yet complete in evidence form
 
 The following still need real execution work:
-- actual benchmark runs,
+- actual long-horizon benchmark runs,
 - completed run records with real observations,
-- verification outputs tied to real runs,
+- verification outputs tied to real long-horizon runs,
 - real delegated outcome data,
-- measured tool-call and timing data,
+- measured tool-call and timing data captured in the long-horizon run records,
 - aggregated evidence in the results index,
 - recurring bottleneck summaries based on observed runs,
 - roadmap implications grounded in actual benchmark evidence.
+
+Important nuance:
+- the repository benchmark pipeline itself has now been exercised successfully,
+  so the biggest remaining evidence gap is scenario-level long-horizon coverage,
+  not basic benchmark operability.
 
 In other words, the main remaining gap is **execution evidence**, not planning.
 

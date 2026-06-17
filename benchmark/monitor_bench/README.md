@@ -6,6 +6,9 @@ state, `:dump_metrics` JSON, and `:dump_history` JSON. Designed for "did
 my change make Monitor better or worse?" — not for publishing
 comparison scores.
 
+For a concise user-facing run/view/compare guide, see
+`docs/BENCHMARK_USAGE.md`.
+
 ## How it works
 
 Each task lives at `tasks/<task_name>/task.py` and exports:
@@ -99,6 +102,9 @@ python -m benchmark.monitor_bench.compare before.json after.json --only-regressi
 # Focus on one task and include unchanged output
 python -m benchmark.monitor_bench.compare before.json after.json --task seeded_bugfix_multistep --show-unchanged
 
+# Narrow compare input to tasks tagged with "memory"
+python -m benchmark.monitor_bench.compare before.json after.json --tag memory
+
 # Sort task sections by the largest cost delta
 python -m benchmark.monitor_bench.compare before.json after.json --sort-by cost
 
@@ -159,6 +165,8 @@ python -m benchmark.monitor_bench.inspect results/run-2000.json --task seeded_bu
 - Compare runs with the same task filter and sample count when possible.
 - Start with the default text output to get the headline result quickly.
 - Use `--only-regressions` first when evaluating risky changes.
+- Use `--tag <substring>` when you want to compare only one task family such as
+  `memory`, `todo`, or another shared tag.
 - Use `--format markdown` when pasting the result into a PR.
 - Use `--format json` for automation or follow-on analysis.
 - Add thresholds when tiny cost or duration shifts are creating noise.
