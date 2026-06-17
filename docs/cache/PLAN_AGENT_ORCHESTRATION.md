@@ -1,385 +1,262 @@
-# Design Note: Sub-agent Frame Protocol & Terminal Bridge
+# Design Note: Sub-agent Frame Protocol, Terminal Bridge, and Async Harvest
 
-> Scope: `src/monitor/` only. This is a design spec, not implemented code.
-> It pins down the two riskiest pieces of the agent-orchestration plan —
-> the wire protocol and the thread→event-loop bridge — plus the
-> state-ownership rule that keeps both race-free.
+> Scope: `src/monitor/` only. This is a working design note for the current
+> orchestration architecture. Unlike the older draft, this version is aligned
+> with the code that now exists in `src/monitor/`.
 
-## What a subagent is
+## Status summary
 
-**A subagent is an instance of the monitor app itself, launched in `--agent`
-mode** (the `--agent` CLI flag, which sets `config.AGENT = True` —
-`app.py:272`, `app.py:354`). Orchestration = a parent monitor process spawns
-`monitor --agent` children (inside detached GNU screen sessions) that dial back
-to the orchestrator over an AF_UNIX socket. Because subagents share the entire
-codebase, they can be taught the frame protocol below by reusing existing code
-— the orchestrator and the subagent are the same program in two roles. This is
-what makes orchestration *real* rather than cosmetic log-scraping.
+Agent orchestration is no longer speculative. The following core pieces exist:
 
-## Background
+- `src/monitor/lib/agent_protocol.py`
+- `src/monitor/lib/agent_listener.py`
+- `src/monitor/lib/agent_reporter.py`
+- `src/monitor/lib/agent_orchestrator.py`
+- `src/monitor/core/agent_tools.py`
+- `src/monitor/lib/screen_handler.py`
+- `src/monitor/core/conversation.py`
 
-Agent orchestration already exists in partial form in `src/monitor/`:
+Sub-agents are real `monitor --agent` children running in detached GNU screen
+sessions, reporting back to the parent orchestrator over an AF_UNIX socket.
 
-- `agent_create` / `agent_send` / `agent_list` / `agent_logfile` / `agent_kill`
-  are LLM-callable tools (`src/monitor/core/agent_tools.py`, exposed via
-  `src/monitor/lib/tool_definitions.py` — schemas at `~682-749`).
-- Sub-agents are detached **GNU screen** sessions. `spawn.py` already calls
-  `create_interactive_subagent`, which returns a **`status_socket`**, and
-  `_start_orchestrator_poller` already spins up an `OrchestratorPoller` +
-  `queue.Queue` + background thread (`spawn.py:120-206`).
-- The orchestrator registry registers each session under **multiple keys**
-  (`session_name`, `token`, `screen_token`, `screen`) — `spawn.py:190`.
+## What a sub-agent is
 
-### What `:agent create` already does (and the two gaps)
+A sub-agent is an instance of the monitor app launched in `--agent` mode.
 
-`:agent create <prompt>` → `agent_create(prompt)` →
-`ScreenHandler.create_interactive_subagent(prompt)`. This path is ~90% wired
-toward the intended behavior:
+Creation flow:
+- `agent_create(...)`
+- `ScreenHandler.create_interactive_subagent(...)`
+- `python -m monitor --agent`
+- child receives `MONITOR_AGENT_SOCKET`, `MONITOR_AGENT_ID`, depth metadata,
+  lifecycle metadata, and optional delegated-write metadata
+- child starts `agent_reporter.from_env()` and emits frames back to the parent
 
-- Launches a real app instance via
-  `screen -S <name> -dm env MONITOR_AGENT_DEPTH=<curr+1> [MONITOR_AGENT_MAX_DEPTH=…] python -m monitor`
-  (`screen_handler.py:364`). ✅
-- Propagates and ceiling-checks depth. ✅
-- Creates a per-session socket path `<name>.sock`. ✅
-- Starts an `OrchestratorPoller`. ✅
-- Injects the prompt after waiting for `"Monitor ready!"`, then `stuff`s it in. ✅
-
-**Two concrete gaps remain — this is the actual net-new work:**
-
-1. **Spawn side:** `self.monitor_cmd` defaults to `["python", "-m", "monitor"]`
-   (`screen_handler.py:75`) — it does **not** include `--agent`, so the child
-   currently runs as a normal interactive monitor, not an agent-mode instance.
-   Fix: add `--agent` to the command, and hand the child its socket path (e.g.
-   `MONITOR_AGENT_SOCKET=<name>.sock` in the same `env` list that already
-   carries the depth vars).
-2. **Child side:** `--agent` is currently a near-noop — `app.py:354` only sets
-   `config.AGENT=True` and logs. The **reporting client** (connect to the
-   socket, emit framed `status`/`stdout`/`result` frames) still needs to be
-   built into the `config.AGENT` startup path. It can reuse the existing
-   AF_UNIX client idiom at `screen_handler.py:667`.
-
-Gating (config, not CLI flags — `src/monitor/config.py`):
-
-- `MONITOR_ENABLE_AGENT_ORCHESTRATION` (default `False`) — master switch;
-  gates `agent_create` and `agent_send` only.
-- `MONITOR_AGENT_DEPTH` (default `0`) — current recursion depth.
-- `MONITOR_AGENT_MAX_DEPTH` (default `1`) — depth ceiling.
-
-So the architecture below is largely a matter of *committing* to a direction
-the code is already crawling toward.
+This makes orchestration real rather than cosmetic log scraping.
 
 ## Architectural decision: screen + AF_UNIX hybrid
 
-Keep **screen** as the process/PTY substrate (free detach/attach, logfiles,
-survival across orchestrator restarts) and use **AF_UNIX** as the structured
-control/status channel. A sub-agent that participates in orchestration must be
-a *cooperative* process that dials back on the socket and speaks the frame
-protocol below. The legacy `screen -dm` + `-X stuff` path (`spawn.py:135-145`)
-is fire-and-forget and cannot participate — that's an acceptable second tier.
+The current architecture keeps:
+- **screen** as the process and PTY substrate,
+- **AF_UNIX** as the structured control and reporting channel.
 
-Two framings from the plan are corrected here and must stay corrected in code
-and UI:
+This preserves:
+- detach and attach behavior,
+- logfiles,
+- independent child process lifetime,
+- structured result transport.
 
-1. **"Transaction security" is conversation-history rollback, not world
-   rollback.** Process isolation gives independent memory scopes, but
-   sub-agents run file tools that mutate the filesystem; killing a crashed
-   agent does not undo committed side effects.
-2. **Failure detection is socket-disconnect, not POSIX exit code.** A
-   screen-detached child is reparented; you cannot reliably `waitpid` it.
+## Frame protocol
 
----
+The implementation uses a length-prefixed framed protocol over AF_UNIX
+`SOCK_STREAM`.
 
-## Part 1 — Frame Protocol
+Each frame carries a versioned envelope including:
+- `v`
+- `type`
+- `agent_id`
+- `seq`
+- `ts`
+- `body`
 
-### Transport
-- **AF_UNIX, `SOCK_STREAM`**, one socket file per orchestrator (the listener),
-  short path (mind the ~104-byte `sun_path` limit — e.g.
-  `$XDG_RUNTIME_DIR/m3-<pid>.sock`, not deep in appdir).
-- Perms: socket dir `0700`, socket `0600`. Optionally verify peer uid via
-  `SO_PEERCRED` (Linux) / `LOCAL_PEERCRED` (macOS) on accept.
-- Direction is **asymmetric**: child→orchestrator carries status/output/result;
-  orchestrator→child carries only control (cancel/shutdown).
+The protocol supports at least these frame types:
+- `hello`
+- `status`
+- `stdout`
+- `result`
+- `error`
+- `exit`
+- `heartbeat`
+- `cancel`
 
-### Framing (the part SOCK_STREAM forces on you)
-Stream sockets do not preserve message boundaries, so every frame is:
+Key implementation modules:
+- `src/monitor/lib/agent_protocol.py`
+- `src/monitor/lib/agent_listener.py`
+- `src/monitor/lib/agent_reporter.py`
 
-```
-┌────────────┬───────────────────────────┐
-│ uint32 BE  │  JSON body (length bytes)  │   ← length-prefixed
-│  length    │                            │
-└────────────┴───────────────────────────┘
-```
+## Orchestrator state ownership
 
-4-byte big-endian length prefix + UTF-8 JSON body. Length-prefix beats
-newline-delimited because agent output legitimately contains newlines. Cap a
-frame at ~1 MiB; reject oversize as a protocol error (prevents a runaway child
-OOM-ing the orchestrator).
+The orchestrator owns a lock-guarded shared registry in
+`src/monitor/lib/agent_orchestrator.py`.
 
-### Envelope
-Every frame body shares one envelope so the reader can dispatch before caring
-about type:
+Tracked state includes:
+- per-agent frame history,
+- latest status,
+- result payloads,
+- error payloads,
+- terminal state,
+- dirty disconnect state,
+- last-frame timestamps,
+- last-activity timestamps,
+- pending terminal output,
+- pending next-turn injections,
+- breadth and total spawn accounting.
 
-```json
-{
-  "v": 1,                    // protocol version — reject mismatches loudly
-  "type": "status",          // see table below
-  "agent_id": "a3f9",        // stable ID, NOT list index
-  "seq": 42,                 // monotonic per agent; gap = lost frame
-  "ts": 1733270400.12,       // child-side stamp
-  "body": { }                // type-specific
-}
-```
+This registry is the source of truth for:
+- live toolbar status,
+- pending prompt-adjacent output,
+- `agent_gather(...)`,
+- next-turn async completion injection,
+- heartbeat timeout reaping,
+- idle reaping of persistent agents.
 
-### Frame types
+## Terminal bridge
 
-| `type` | Direction | `body` | Semantics |
-|---|---|---|---|
-| `hello` | child→orch | `{depth, cmd, pid, name}` | First frame after connect. Registers the agent; carries inherited `MONITOR_AGENT_DEPTH`. Orchestrator rejects if depth ≥ `MONITOR_AGENT_MAX_DEPTH`. |
-| `status` | child→orch | `{label}` | Micro-status for the toolbar (e.g. `"Running linter"`). **Coalescing**: only the latest matters — older unread `status` frames may be dropped. |
-| `stdout` | child→orch | `{chunk}` | A block of output to surface above the prompt line. Ordered by `seq`. |
-| `result` | child→orch | `{ok, summary, data?}` | Terminal success payload. Exactly one per agent on the happy path. |
-| `error` | child→orch | `{kind, message, recoverable}` | Structured failure the child *chose* to report. |
-| `exit` | child→orch | `{code}` | Clean shutdown notice; child closes after. |
-| `heartbeat` | child→orch | `{}` | Liveness ping every N seconds (see failure model). |
-| `cancel` | orch→child | `{reason}` | Cooperative cancel request. |
+The interactive bridge is implemented for the codebase's actual synchronous
+`session.prompt(...)` model.
 
-### Lifecycle & failure model
+Relevant path:
+- `src/monitor/core/conversation.py` via `_prompt_with_agent_bridge(...)`
 
-```
-connect ──► hello ──► (status | stdout)* ──► result | error ──► exit ──► close
-```
+Behavior:
+- when no agents are active, prompting is effectively plain prompt behavior,
+- when agents are active, a bottom toolbar renders live status,
+- buffered agent output is drained above the next prompt,
+- prompt corruption is avoided by not allowing arbitrary reader-thread output
+  to print directly into the live input flow.
 
-The **authoritative failure signal is socket disconnect**, not an exit code:
+The TUI path drains agent output separately in `src/monitor/tui/app.py`.
 
-- Clean termination = `result`/`error` then `exit` then FD closes. Record the
-  outcome, no rollback.
-- **Dirty disconnect** = FD closes *without* a prior `exit` frame, **or**
-  `heartbeat` lapses past timeout → treat the agent as crashed → fire the
-  **conversation-history rollback** for that agent's correlation id.
-- Be precise in docs and UI: this rollback restores *conversation/history
-  state*, not filesystem side effects. True world-rollback would require
-  per-agent worktree isolation — out of scope for this protocol.
+## Async result harvest
 
----
+The orchestration model is **fire-and-continue by default**.
 
-## Part 2 — Thread → prompt_toolkit Bridge
+That means:
+- `agent_create(...)` returns immediately,
+- the main orchestrator keeps helping the user,
+- terminal sub-agent outcomes are queued for later use,
+- the next relevant orchestrator turn can receive background completion notices.
 
-> **Important correction from the original draft.** This codebase does **not**
-> run prompt_toolkit via `app.run_async()` on a loop we own. `get_input` uses
-> the **synchronous, blocking** `session.prompt(...)` (`conversation.py:473`),
-> and prompt_toolkit is already the established input layer (`PromptSession`,
-> custom lexer, keybindings — `core/conversation.py`). There is therefore **no
-> persistent asyncio loop** for the orchestrator to schedule onto; an event
-> loop exists only *during* each blocking `.prompt()` call. The bridge below is
-> rewritten for that reality. (The earlier "single-writer on the loop thread,
-> no locks" model assumed `run_async` and does **not** apply here.)
+Implemented path:
+- `agent_orchestrator.drain_pending_injections()`
+- `conversation._fold_agent_injections_into_prefixes()`
+- `config.enqueue_next_llm_prefix(...)`
 
-### The hazard
-Socket frames arrive on **plain reader threads**, while the main thread is
-either (a) blocked inside `session.prompt(...)` or (b) synchronously processing
-a command / calling the LLM. Touching the prompt_toolkit `Application` or stdout
-from a reader thread corrupts the display. The bridge must make background
-output safe *during* a prompt, and must not lose frames that arrive *between*
-prompts (when no event loop is running at all).
+This is a crucial architectural point: background results are consumed in two
+ways:
+1. surfaced to the human operator,
+2. folded into the orchestrator's next LLM turn.
 
-### Components & ownership
+## Failure model
 
-```
-   ┌─────────────────────────────────────────────────────────────┐
-   │ Main thread (synchronous)                                     │
-   │   • session.prompt(...) under patch_stdout()  ← during input  │
-   │   • command processing / LLM call             ← between inputs│
-   │                                                               │
-   │   reads (under lock):  status map  +  pending-output queue    │
-   │   • bottom_toolbar callable renders status map                │
-   │   • flush pending blocks via run_in_terminal (prompt active)  │
-   │     or plain print() just before the next prompt              │
-   └───────────────▲───────────────────────────────────────────────┘
-                   │ writes (under lock)
-   ┌───────────────┴──────┐   ┌──────────────────┐
-   │ accept thread        │   │ reader thread /N  │  ← parse frames,
-   │ (listens on socket)  │──►│ one per agent     │     update shared state
-   └──────────────────────┘   └──────────────────┘
-```
+The failure model is based on honest terminal classification, not silent
+assumption.
 
-### The bridge rule (blocking-prompt model → lock-guarded shared state)
-There is no loop thread to funnel onto, so the discipline is instead:
+Current behaviors include:
+- reported `error` frame -> failure,
+- dirty disconnect -> failure,
+- never-connected child that times out heartbeat -> failure,
+- timeout during gather -> pending,
+- clean terminal result -> success.
 
-- Reader threads parse frames and update **lock-guarded shared state**: a
-  `status` map (latest-wins per agent) and a bounded **pending-output queue**
-  for `stdout`/`result` blocks. They do **not** print directly.
-- **During a prompt:** the prompt runs inside `patch_stdout()`, which makes it
-  safe for a small flusher to emit buffered blocks via `run_in_terminal(...)`
-  (or `print()` under the patch) without corrupting the cursor. If an
-  `Application` is live, a reader may request a redraw via
-  `get_app().invalidate()` for the toolbar — guarded so it's a no-op when no
-  app is running.
-- **Between prompts:** no event loop exists, so frames simply accumulate in the
-  shared state and are flushed/printed right before the next `.prompt()` call.
+Relevant code paths:
+- `src/monitor/lib/agent_orchestrator.py`
+- `src/monitor/core/agent_tools.py`
 
-A single lock protects the status map + pending-output queue (the accept thread
-also needs it for the connection list). This is less elegant than the
-`run_async` single-writer model but is the correct fit for blocking `.prompt()`
-— and `patch_stdout` is purpose-built for exactly this "print from background
-threads while a prompt is active" case.
+Important clarification:
+- failure handling is about **conversation and orchestration truthfulness**,
+  not filesystem rollback.
+- a delegated failure does **not** imply repo state rollback.
 
-### Three display concerns, three mechanisms
+## Lifecycle policy
 
-1. **Toolbar micro-statuses** — `bottom_toolbar` is a callable that reads the
-   (lock-guarded) status map. Reader threads update the map; the toolbar
-   re-renders on the next prompt-toolkit refresh, nudged by
-   `get_app().invalidate()` when an app is live.
-2. **Block output (`stdout`/`result`)** — buffered into the pending-output
-   queue, flushed via `run_in_terminal(...)` under the active `patch_stdout()`
-   during a prompt, or printed just before the next prompt when idle. Pushes a
-   completed block *above* the live prompt line without slicing the cursor.
-3. **Prompt input** — unaffected; `session.prompt()` keeps reading keys. Reader
-   threads only mutate shared state under the lock, never the input buffer.
+The lifecycle model now exists in code.
 
-### Backpressure & coalescing
-- The pending-output queue is **bounded**. On full, drop-and-count `status`
-  updates (only the latest matters per agent), but never drop
-  `result`/`error`/`exit`.
-- Status coalesces in the shared map: the latest `seq` per agent is all the
-  toolbar ever needs.
+### One-shot by default
+Sub-agents are one-shot by default.
 
-### Index resolution (the dual-index footgun, bridged)
-The registry is keyed by **stable `agent_id`**. The numeric `:agent <n>` index
-is **never stored** — it's resolved to an `agent_id` at command-parse time
-against a snapshot of the current list. A kill that removes an agent therefore
-can't silently re-point a stale index.
+Mechanism:
+- spawner sets `MONITOR_AGENT_ONE_SHOT=1` unless `persistent=True`
+- child reporter exposes `one_shot`
+- conversation loop reports the result and exits when the one-shot task turn is
+  complete
 
----
+### Persistent opt-in
+Persistent agents are explicit:
+- `agent_create(..., persistent=True)`
+- follow-up via `agent_send(...)`
+- explicit cleanup via `agent_kill(...)`
 
-## Part 3 — LLM Result Channel
+### Safety net
+Persistent agents are protected by:
+- heartbeat monitoring,
+- idle timeout,
+- idle reaping.
 
-> Part 2 routes subagent output to the **human terminal** (toolbar, output
-> blocks). Part 3 is a **distinct, second consumer** of the *same* frames: the
-> orchestrator **LLM's token context**. This is what turns "spawns processes"
-> into "an LLM that orchestrates." Implemented in roadmap Phase 8; specified
-> here so the design is whole.
+## Spawn caps and bounded autonomy
 
-### The model: ASYNC fire-and-continue (not blocking gather)
+Bounded autonomy is enforced in code.
 
-> **Design decision (2026-06-04).** The interactive UX is **fire-and-forget
-> background agents**: spawning returns immediately and the human keeps working
-> / keeps instructing the orchestrator while agents run. A **blocking** gather
-> that waits inside the turn is explicitly NOT the default — it freezes the
-> REPL (you can't instruct the orchestrator meanwhile, and keystrokes typed
-> during the wait are buffered by the terminal and replayed into the next
-> prompt, causing surprise submissions). Blocking is demoted to an explicit
-> escape hatch.
+Current default limits:
+- `MONITOR_ENABLE_AGENT_ORCHESTRATION = False`
+- `MONITOR_AGENT_MAX_DEPTH = 1`
+- `MONITOR_AGENT_MAX_BREADTH = 1`
+- `MONITOR_AGENT_MAX_TOTAL = 1`
 
-An LLM turn is request→response, but a subagent runs asynchronously for
-seconds-to-minutes. Rather than block the turn, **the spawn returns instantly
-and results flow back later** — into the human's view live, and into the
-orchestrator LLM's *next* turn.
+This means the default system is conservative by design.
 
-### Two consumers, one frame stream
-The same `status`/`stdout`/`result`/`error`/`exit` frames feed two sinks:
+## Delegated write policy
 
-```
-              ┌─► Part 2: human terminal (live-flush above prompt + toolbar)
-frames ───────┤
-              └─► Part 3: LLM context (async inject into the NEXT turn)
-```
+Sub-agent write behavior is separately controlled from orchestration enablement.
 
-The reader threads deposit frames into the lock-guarded shared state (Part 2).
-Part 3 adds a second consumer of that state for the LLM.
+Supported modes:
+- `SUBAGENT_WRITE_ACCESS=none`
+- `SUBAGENT_WRITE_ACCESS=delegated`
+- `SUBAGENT_WRITE_ACCESS=full`
 
-### Async result harvest (the keystone)
-- `agent_create(prompt) -> {agent_id}` — **fires and returns immediately; the
-  turn ENDS.** The human is back at a live prompt and can keep working; the
-  subagent runs in the background (its own screen session + reader thread).
-- When a subagent emits a terminal `result`/`error` frame, the orchestrator
-  **injects it into the orchestrator LLM's NEXT turn** — reusing the existing
-  `config.enqueue_next_llm_prefix(...)` queue to prepend a notice like
-  `[background agent <id> finished: <summary>]`. So completed work flows into
-  the conversation on the human's next message, **with no blocking** (and is
-  deduped — delivered once).
-- (Optional) a **non-blocking** `agent_poll(ids?)` tool the LLM can call to
-  harvest ready results on demand — returns whatever has reached a terminal
-  state, never waits.
-- `agent_gather(ids, timeout)` is **demoted to an explicit "wait for these
-  now" escape hatch** — used only when the model genuinely must have results
-  before continuing (and the human accepts the freeze). NOT the default path.
+Delegated mode further requires:
+- `MONITOR_SUBAGENT_WRITE_GRANTED=1`
+- optional `MONITOR_SUBAGENT_WRITE_SCOPE`
 
-Note: `agent_logfile` returns a *path*, not content — useless for aggregation.
-The async harvest / poll return `result`-frame **payloads** directly.
+Write enforcement happens in `src/monitor/core/tooling.py`.
 
-### Structured summaries, not transcripts
-The `result` frame's `summary` field (Part 1) is the unit of aggregation.
-Subagents return concise structured findings, never raw transcripts — otherwise
-N subagents blow the orchestrator's context window. The `--agent`-mode system
-prompt instructs: *"your final `result` is data for an orchestrator; return a
-tight, structured summary."*
+This means the codebase now supports a real researcher vs worker distinction,
+although the documentation and guidance around that distinction can still be
+improved.
 
-### Partial-failure honesty
-Both harvest paths surface failures, never silently drop them. A crashed
-subagent (dirty disconnect, or heartbeat-lapse — Part 1 failure model) is
-delivered to the LLM as a failure: the **async injection** says
-`[background agent <id> FAILED: <reason>]`, and `agent_poll`/`agent_gather`
-bucket every requested id as `ok` / `failed` / `pending` (e.g.
-`{failed: [{id, reason: "dirty disconnect"}]}`). The orchestrator always acts on
-an accurate picture of what finished, crashed, or is still running.
+## What is complete vs still evolving
 
-### Orchestrator as sole file writer
-- **Researcher** subagents are read-only and safe to fan out wide.
-- **Worker** subagents do **not** write the working tree directly by default;
-  they return proposed changes, and the **primary orchestrator applies all
-  writes serially** as the single writer of record. This sidesteps concurrent-
-  write conflicts without per-agent worktree isolation.
+### Implemented
+- child `--agent` reporting path,
+- AF_UNIX frame protocol,
+- orchestrator listener and registry,
+- live status tracking,
+- prompt bridge,
+- async next-turn injection,
+- `agent_gather(...)`,
+- breadth and total caps,
+- one-shot and persistent lifecycle modes,
+- heartbeat timeout handling,
+- idle reaping,
+- delegated-write enforcement.
 
-### Sub-agent lifecycle: one-shot (default) vs persistent
-A spawned sub-agent is an interactive instance — without a lifecycle policy it
-answers its injected prompt, emits its result, and then **lingers as an idle
-process forever**. Two modes fix this; the orchestrator chooses per spawn:
+### Still evolving
+- more polished operator guidance,
+- stronger persistent-agent follow-up coverage,
+- richer structured result artifacts,
+- clearer researcher-vs-worker user-facing docs,
+- broader observability and benchmarking,
+- optional worktree isolation if write-capable delegation expands.
 
-- **one-shot (DEFAULT)** — exits after its first completed input turn (prompt →
-  response → `result` frame), so its screen session reaps itself. The leak-free
-  researcher model; the common fire-and-continue case.
-- **persistent** — opt in via `agent_create(prompt, persistent=True)`. Stays
-  alive so the orchestrator can `agent_send` follow-ups; the orchestrator is
-  responsible for `agent_kill`-ing it when done.
+## Relationship to long-horizon docs
 
-The choice is an `agent_create` parameter (the orchestrator LLM decides); the
-spawner translates it into the child's mode (a flag/env). Default = one-shot so
-the leak-free path is the default and persistence is deliberate.
+This document is the orchestration-specific design note.
 
-Safety net for persistent agents (the heartbeat reaper only catches *crashed*
-agents, not idle-alive ones):
-- an **idle-reaper** kills a persistent agent idle longer than a timeout, and
-- the orchestrator system prompt (8g) instructs "kill persistent sub-agents when
-  you're done with them."
+For the broader product-level view of planning, continuity, multi-step coding
+behavior, and bounded autonomy, see:
+- `docs/cache/SPEC_LONG_HORIZON.md`
+- `docs/cache/PLAN_LONG_HORIZON.md`
+- `docs/cache/ROADMAP_LONG_HORIZON.md`
+- `docs/cache/CHECKLIST_LONG_HORIZON.md`
 
-### Caps & token cost (referenced, detailed in roadmap Phase 8)
-- Breadth/sibling cap + total-agent cap (depth alone is insufficient); child
-  token-costs aggregate up to the orchestrator (deferred — see 8c).
+## Bottom line
 
----
+Monitor now has a real orchestration substrate:
+- structured child reporting,
+- bounded asynchronous delegation,
+- live operator visibility,
+- next-turn result harvest,
+- explicit lifecycle control,
+- explicit delegated-write policy.
 
-## What this pins down
-- **Framing**: length-prefixed JSON, versioned envelope, typed bodies — no
-  ambiguity about message boundaries.
-- **Failure**: disconnect/heartbeat-lapse is the trigger; rollback scope is
-  explicitly conversation-history, not the filesystem.
-- **The bridge**: blocking `.prompt()` model — reader threads update
-  lock-guarded shared state; `patch_stdout()` + `run_in_terminal()` make
-  background output safe during a prompt; frames arriving between prompts buffer
-  and flush before the next one. (Not the `run_async`/single-writer model from
-  the original draft.)
-- **Two consumers of one frame stream**: the human terminal (Part 2, including
-  live-flush above the prompt) and the orchestrator LLM's context (Part 3).
-- **Async fire-and-continue is the default**: `agent_create` returns instantly
-  and the turn ends; results inject into the LLM's *next* turn (via
-  `enqueue_next_llm_prefix`) and stream to the human live. Blocking
-  `agent_gather` is a demoted, explicit "wait now" escape hatch — chosen because
-  blocking the turn freezes the REPL. Subagents return tight `result` summaries;
-  failures are surfaced (never dropped); the orchestrator is the sole writer.
-
-## Preserved decisions (do not regress)
-- **Synchronous backend stays synchronous.** File tools, token-cost trackers,
-  and history loaders remain plain sequential Python. Async/threading is
-  quarantined at the edges (socket listener thread + prompt_toolkit loop).
-- **Keep logfiles even with sockets.** Socket = live status; logfile =
-  full post-mortem transcript. `:agent logs` / `logfile` stay.
+It should be understood as a bounded orchestrator architecture, not an
+unconstrained autonomous multi-agent swarm.
