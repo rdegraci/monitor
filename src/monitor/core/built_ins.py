@@ -330,7 +330,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "reasoning",
                     "function": _make_callable(reasoning_command),
-                    "description": "Change reasoning effort (minimal/low/medium/high). Usage: : (or /) reasoning <level> or : (or /) reasoning help.",
+                    "description": "Change reasoning effort (minimal/low/medium/high/xhigh). Usage: : (or /) reasoning <level> or : (or /) reasoning help.",
                 },
                 {
                     "command": "ttl",

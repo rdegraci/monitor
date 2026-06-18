@@ -30,7 +30,7 @@ def reasoning_command(arg: str = None) -> None:
     """Change the reasoning effort level at runtime.
 
     Usage:
-        :reasoning <minimal|low|medium|high>
+        :reasoning <minimal|low|medium|high|xhigh>
 
     With no argument or ``help``, prints available options, current setting,
     and the reasoning model prefix requirement.
@@ -48,16 +48,16 @@ def reasoning_command(arg: str = None) -> None:
             current = getattr(active_config, "REASONING_EFFORT", None)
             prefix = getattr(active_config, "REASONING_MODEL_PREFIX", "")
             print("Set the reasoning effort level used with reasoning-capable models.")
-            print("Usage: : (or /) reasoning <minimal|low|medium|high>")
+            print("Usage: : (or /) reasoning <minimal|low|medium|high|xhigh>")
             print(f"Current reasoning effort: {current}")
             print(f"Reasoning model prefix requirement: {prefix}")
             return
 
         value = str(arg).strip().lower()
-        valid = {"minimal", "low", "medium", "high"}
+        valid = {"minimal", "low", "medium", "high", "xhigh"}
         if value not in valid:
             print_colored_error(
-                "Invalid reasoning effort. Valid options: minimal, low, medium, high."
+                "Invalid reasoning effort. Valid options: minimal, low, medium, high, xhigh."
             )
             return
 

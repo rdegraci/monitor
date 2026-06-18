@@ -56,7 +56,7 @@ LINE_COUNT_THRESHOLD = 3
 
 # Reasoning levels accepted by the providers, ranked from low to high.
 # Used to decide whether to bump (only when current is BELOW high).
-_EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3}
+_EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
 
 
 def detect_reasoning_bump(user_text, current_effort):

@@ -53,7 +53,7 @@ _COMPILED = [re.compile(p, re.MULTILINE) for p in _FAILURE_PATTERNS]
 
 # Effort ranking (mirrors reasoning_heuristic._EFFORT_RANK). Escalation only
 # does something when the current effort is BELOW high.
-_EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3}
+_EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
 
 
 def looks_like_failure(text):

@@ -372,8 +372,10 @@ class TestLLMCore(unittest.TestCase):
             self.assertEqual(mock_cfg.REASONING_EFFORT, 'medium')
             reasoning_command('high')
             self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
+            reasoning_command('xhigh')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'xhigh')
             reasoning_command('invalid')
-            self.assertEqual(mock_cfg.REASONING_EFFORT, 'high')
+            self.assertEqual(mock_cfg.REASONING_EFFORT, 'xhigh')
 
     def test_token_budgeting_trims_tool_outputs(self):
         self.mock_config.MODEL = 'openai/gpt-4o'

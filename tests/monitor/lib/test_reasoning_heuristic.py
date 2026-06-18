@@ -120,6 +120,11 @@ def test_high_default_returns_none():
     assert detect_reasoning_bump("please refactor this entire architecture", "high") is None
 
 
+def test_xhigh_default_returns_none():
+    """xhigh is above high, so the bump heuristic must remain a no-op."""
+    assert detect_reasoning_bump("please refactor this entire architecture", "xhigh") is None
+
+
 def test_unknown_default_treated_as_medium():
     """Defensive: garbage current_effort should default to medium-rank so
     we don't accidentally skip the bump."""
