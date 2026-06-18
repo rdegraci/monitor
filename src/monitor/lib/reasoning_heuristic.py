@@ -3,7 +3,7 @@
 The harness inspects each user message before sending it to the LLM. If
 the message looks like it'd benefit from deeper thinking — based on a
 small list of keyword and length signals — the harness sets a per-turn
-override that promotes reasoning_effort to "high" for the duration of
+override that promotes reasoning_effort to "medium" for the duration of
 that user turn. The override is ephemeral: it's set in prepare_query_context
 and cleared the next time prepare_query_context runs (or when set_model /
 :reset_history fires).
@@ -15,8 +15,8 @@ slightly over-spending on a misclassified easy turn, never under-spending
 on a misclassified hard one.
 
 The heuristic also defers to the user's configured default: if
-config.REASONING_EFFORT is already "high", the heuristic is a no-op
-(can't go higher).
+config.REASONING_EFFORT is already "medium" or above, the heuristic is a no-op
+(can't go higher than what this heuristic suggests).
 """
 
 import re
@@ -55,33 +55,35 @@ LENGTH_THRESHOLD = 500
 LINE_COUNT_THRESHOLD = 3
 
 # Reasoning levels accepted by the providers, ranked from low to high.
-# Used to decide whether to bump (only when current is BELOW high).
+# Used to decide whether to bump (only when current is BELOW medium).
 _EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
+
+_BUMP_TARGET = "medium"
 
 
 def detect_reasoning_bump(user_text, current_effort):
     """Decide whether the current user message warrants bumping reasoning
-    effort to "high" for this turn.
+    effort to "medium" for this turn.
 
     Args:
         user_text: The user's message text (post-macro-expansion, as it
             will go to the LLM). None or empty returns None.
         current_effort: The currently configured reasoning effort
-            (config.REASONING_EFFORT). If already "high" or unknown, this
+            (config.REASONING_EFFORT). If already "medium" or above, this
             function returns None — never downgrades, never overrides
             something stronger than what we'd suggest.
 
     Returns:
-        "high" if the heuristic recommends bumping; None otherwise.
+        "medium" if the heuristic recommends bumping; None otherwise.
     """
     if not user_text or not isinstance(user_text, str):
         return None
 
     # Defer to default if it's already at-or-above what we'd suggest.
     current_rank = _EFFORT_RANK.get(
-        (current_effort or "").lower(), _EFFORT_RANK["medium"]
+        (current_effort or "").lower(), _EFFORT_RANK["low"]
     )
-    if current_rank >= _EFFORT_RANK["high"]:
+    if current_rank >= _EFFORT_RANK[_BUMP_TARGET]:
         return None
 
     # Keyword detection. Lower-case the whole message for case-insensitive
@@ -93,17 +95,17 @@ def detect_reasoning_bump(user_text, current_effort):
     for signal in KEYWORD_SIGNALS:
         if " " in signal:
             if signal in text_lower:
-                return "high"
+                return _BUMP_TARGET
         else:
             if re.search(rf"\b{re.escape(signal)}\b", text_lower):
-                return "high"
+                return _BUMP_TARGET
 
     # Length-based fallback.
     if len(user_text) > LENGTH_THRESHOLD:
-        return "high"
+        return _BUMP_TARGET
 
     if user_text.count("\n") + 1 > LINE_COUNT_THRESHOLD:
-        return "high"
+        return _BUMP_TARGET
 
     return None
 
@@ -115,7 +117,7 @@ def detect_reasoning_bump(user_text, current_effort):
 # turn they trigger is the EXECUTION of whatever was just proposed. This bump
 # closes that gap: when the new message is a brief confirmation AND the previous
 # assistant reply contained a concrete proposal (real code or a diff), reason at
-# "high" for the execution turn. Same one-way discipline as above.
+# "medium" for the execution turn. Same one-way discipline as above.
 
 # Anchored confirmation matcher (per the agreed r"^(proceed|...)" shape). "^"
 # means leading filler defeats it, so "sounds good" / "looks good" are included
@@ -164,7 +166,7 @@ def _last_assistant_text(conversation_history):
 
 def _looks_substantive(assistant_text):
     """True if the assistant reply contains a concrete proposal worth executing
-    at high effort:
+    at elevated effort:
       - a unified diff, or
       - a real fenced code block (size-gated against trivial snippets), or
       - a prose plan structured as an enumerated/bulleted list of >= 2 steps.
@@ -182,10 +184,10 @@ def _looks_substantive(assistant_text):
 
 
 def detect_continuation_bump(user_text, conversation_history, current_effort):
-    """Decide whether a short confirmation should inherit "high" because the
+    """Decide whether a short confirmation should inherit "medium" because the
     previous assistant turn proposed something concrete to execute.
 
-    Returns "high" when: current effort is below high, the message is a brief
+    Returns "medium" when: current effort is below medium, the message is a brief
     confirmation (matches _CONFIRMATION_RE and <= CONFIRMATION_MAX_WORDS words),
     and the last assistant reply _looks_substantive. Otherwise None.
     """
@@ -193,9 +195,9 @@ def detect_continuation_bump(user_text, conversation_history, current_effort):
         return None
 
     current_rank = _EFFORT_RANK.get(
-        (current_effort or "").lower(), _EFFORT_RANK["medium"]
+        (current_effort or "").lower(), _EFFORT_RANK["low"]
     )
-    if current_rank >= _EFFORT_RANK["high"]:
+    if current_rank >= _EFFORT_RANK[_BUMP_TARGET]:
         return None
 
     stripped = user_text.strip()
@@ -206,5 +208,5 @@ def detect_continuation_bump(user_text, conversation_history, current_effort):
 
     prev = _last_assistant_text(conversation_history)
     if _looks_substantive(prev):
-        return "high"
+        return _BUMP_TARGET
     return None

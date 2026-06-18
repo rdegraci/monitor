@@ -644,10 +644,10 @@ CURRENT_TURN_REASONING_OVERRIDE = None
 ESCALATE_REASONING_ON_TOOL_FAILURE = True
 # Continuity reasoning bump. When True, a short confirmation ("Sounds good.
 # Proceed.") that follows a substantive proposal (the previous assistant reply
-# contained real code or a diff) reasons at "high" for that execution turn —
+# contained real code or a diff) reasons at "medium" for that execution turn —
 # closing the gap where "proceed" otherwise runs at the default tier. One-way.
-# NOTE: this bumps your EXECUTION turn (typically the highest tool-round-trip,
-# highest-cost turn), so it trades tokens for execution quality. See
+# NOTE: this can increase execution-turn reasoning cost in exchange for better
+# execution quality. See
 # lib/reasoning_heuristic.detect_continuation_bump. Overridable in config.yaml.
 CONTINUITY_REASONING_BUMP = True
 # Cost-indicator color thresholds (USD). P (this turn) and W per-turn

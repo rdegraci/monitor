@@ -383,7 +383,7 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                 # Per-turn override (set by the auto-bump heuristic in
                 # prepare_query_context) wins over the configured default
                 # for the duration of this user turn. The override is one-
-                # way (only bumps up to high), so reading it unconditionally
+                # way (only bumps up to medium), so reading it unconditionally
                 # never causes a surprise downgrade.
                 effective_effort = (
                     getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)

@@ -6,8 +6,8 @@ Covers:
 - Word-boundary check prevents partial-word false positives ("alignment"
   doesn't trigger "align").
 - Length and line-count fallback signals.
-- No-downgrade rule: never returns "high" when default is already at or
-  above high.
+- No-downgrade rule: never returns "medium" when default is already at or
+  above medium.
 - Empty / None input handling.
 - LLM call integration: override-or-default is read at call time, the
   override wins when set, otherwise the configured default applies.
@@ -47,18 +47,18 @@ def _reset_override():
 ])
 def test_single_word_signals_fire(word):
     msg = f"please {word} the auth module"
-    assert detect_reasoning_bump(msg, "medium") == "high"
+    assert detect_reasoning_bump(msg, "low") == "medium"
 
 
 def test_multi_word_signal_fires_as_substring():
     """'review for' is a phrase, not a single token — substring match
     rather than word-boundary."""
-    assert detect_reasoning_bump("please review for race conditions", "medium") == "high"
+    assert detect_reasoning_bump("please review for race conditions", "low") == "medium"
 
 
 def test_signal_match_is_case_insensitive():
-    assert detect_reasoning_bump("AUDIT the whole codebase", "medium") == "high"
-    assert detect_reasoning_bump("Why does this fail?", "medium") == "high"
+    assert detect_reasoning_bump("AUDIT the whole codebase", "low") == "medium"
+    assert detect_reasoning_bump("Why does this fail?", "low") == "medium"
 
 
 def test_word_boundary_prevents_partial_word_false_positives():
@@ -69,10 +69,10 @@ def test_word_boundary_prevents_partial_word_false_positives():
     Avoid separate keywords like 'fix' so the assertion isolates the
     word-boundary behavior under test.
     """
-    assert detect_reasoning_bump("adjust the alignment of the header", "medium") is None
-    assert detect_reasoning_bump("the rows are aligned correctly", "medium") is None
-    assert detect_reasoning_bump("does the answer live anywhere", "medium") is None
-    assert detect_reasoning_bump("update the pathways constant", "medium") is None
+    assert detect_reasoning_bump("adjust the alignment of the header", "low") is None
+    assert detect_reasoning_bump("the rows are aligned correctly", "low") is None
+    assert detect_reasoning_bump("does the answer live anywhere", "low") is None
+    assert detect_reasoning_bump("update the pathways constant", "low") is None
 
 
 def test_keyword_signals_constant_matches_documented_list():
@@ -90,65 +90,70 @@ def test_keyword_signals_constant_matches_documented_list():
 
 def test_long_message_triggers_bump():
     msg = "a" * (LENGTH_THRESHOLD + 1)
-    assert detect_reasoning_bump(msg, "medium") == "high"
+    assert detect_reasoning_bump(msg, "low") == "medium"
 
 
 def test_message_at_length_threshold_does_not_trigger():
     """The check is strictly > THRESHOLD; equal-to is OK."""
     msg = "a" * LENGTH_THRESHOLD
-    assert detect_reasoning_bump(msg, "medium") is None
+    assert detect_reasoning_bump(msg, "low") is None
 
 
 def test_multi_line_message_triggers():
     msg = "\n".join(["line"] * (LINE_COUNT_THRESHOLD + 1))
-    assert detect_reasoning_bump(msg, "medium") == "high"
+    assert detect_reasoning_bump(msg, "low") == "medium"
 
 
 def test_short_message_with_no_signals_does_not_trigger():
     """The control case — routine one-liners should keep the default."""
-    assert detect_reasoning_bump("typo on line 42", "medium") is None
-    assert detect_reasoning_bump("add a print statement", "medium") is None
-    assert detect_reasoning_bump("rename foo to bar", "medium") is None
+    assert detect_reasoning_bump("typo on line 42", "low") is None
+    assert detect_reasoning_bump("add a print statement", "low") is None
+    assert detect_reasoning_bump("rename foo to bar", "low") is None
 
 
 # --- No-downgrade invariant -------------------------------------------------
 
 
 def test_high_default_returns_none():
-    """If the user explicitly set their default to high (or above), the
-    heuristic must not return anything — it can't go higher."""
+    """If the user explicitly set their default above the bump target, the
+    heuristic must not return anything — it can't justify a downgrade."""
     assert detect_reasoning_bump("please refactor this entire architecture", "high") is None
 
 
+def test_medium_default_returns_none():
+    """If the default already matches the bump target, the heuristic is a no-op."""
+    assert detect_reasoning_bump("please refactor this entire architecture", "medium") is None
+
+
 def test_xhigh_default_returns_none():
-    """xhigh is above high, so the bump heuristic must remain a no-op."""
+    """xhigh is above the bump target, so the heuristic must remain a no-op."""
     assert detect_reasoning_bump("please refactor this entire architecture", "xhigh") is None
 
 
-def test_unknown_default_treated_as_medium():
-    """Defensive: garbage current_effort should default to medium-rank so
+def test_unknown_default_treated_as_low_for_bumping():
+    """Defensive: garbage current_effort should default to low-rank so
     we don't accidentally skip the bump."""
-    assert detect_reasoning_bump("please audit the security", "garbage_value") == "high"
+    assert detect_reasoning_bump("please audit the security", "garbage_value") == "medium"
 
 
-def test_none_default_treated_as_medium():
-    assert detect_reasoning_bump("please debug this", None) == "high"
+def test_none_default_treated_as_low_for_bumping():
+    assert detect_reasoning_bump("please debug this", None) == "medium"
 
 
 # --- Edge-case input handling -----------------------------------------------
 
 
 def test_none_user_text_returns_none():
-    assert detect_reasoning_bump(None, "medium") is None
+    assert detect_reasoning_bump(None, "low") is None
 
 
 def test_empty_user_text_returns_none():
-    assert detect_reasoning_bump("", "medium") is None
+    assert detect_reasoning_bump("", "low") is None
 
 
 def test_non_string_user_text_returns_none():
-    assert detect_reasoning_bump(12345, "medium") is None
-    assert detect_reasoning_bump(["audit", "this"], "medium") is None
+    assert detect_reasoning_bump(12345, "low") is None
+    assert detect_reasoning_bump(["audit", "this"], "low") is None
 
 
 # --- Override application at LLM call time ----------------------------------
@@ -161,9 +166,9 @@ def test_call_litellm_completion_uses_override_when_set(monkeypatch):
     from monitor import config
 
     monkeypatch.setattr(config, "REASONING_MODEL_PREFIX", "openai/gpt-5", raising=False)
-    monkeypatch.setattr(config, "REASONING_EFFORT", "medium", raising=False)
+    monkeypatch.setattr(config, "REASONING_EFFORT", "low", raising=False)
     monkeypatch.setattr(config, "REASONING_MAX_COMPLETION_TOKENS", 25000, raising=False)
-    monkeypatch.setattr(config, "CURRENT_TURN_REASONING_OVERRIDE", "high", raising=False)
+    monkeypatch.setattr(config, "CURRENT_TURN_REASONING_OVERRIDE", "medium", raising=False)
 
     captured = {}
 
@@ -181,8 +186,8 @@ def test_call_litellm_completion_uses_override_when_set(monkeypatch):
         gemini_tool_descriptions=[],
     )
 
-    # Override beats default — kwargs should reflect "high".
-    assert captured.get("reasoning_effort") == "high"
+    # Override beats default — kwargs should reflect "medium".
+    assert captured.get("reasoning_effort") == "medium"
 
 
 def test_call_litellm_completion_falls_back_to_default_without_override(monkeypatch):

@@ -264,8 +264,8 @@ REASONING_MODEL_PREFIX: openai/gpt-5
 #            signals (refactor / audit / design / analyze / debug /
 #            architecture / cross-file / migrate / align / why / "review
 #            for", or messages > 500 chars / 3+ lines) and TEMPORARILY
-#            promotes the next turn to "high" — so you get medium cost
-#            on routine work and high quality on the hard turns.
+#            promotes the next turn to "medium" — so you keep medium cost
+#            on routine work and avoid low-effort on the harder turns.
 #   high     Deep thinking. Best quality but 2-3x more reasoning tokens
 #            than medium. Use only when you've manually set it for a
 #            session with genuinely hard work (architectural reasoning,
