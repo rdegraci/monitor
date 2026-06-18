@@ -35,19 +35,19 @@ def strip_openai_prefix(model_name):
 
 
 def is_reasoning_model(model: Optional[str], prefix: Optional[str]) -> bool:
-    """Check whether a model name starts with a given reasoning prefix.
+    """Check whether a model name contains a given reasoning prefix.
 
     Args:
         model: The model identifier to check.
-        prefix: The prefix indicating a reasoning model.
+        prefix: The substring indicating a reasoning model.
 
     Returns:
-        True when both inputs are strings and ``model`` starts with ``prefix``
-        case-insensitively, otherwise False.
+        True when both inputs are strings and ``prefix`` appears within
+        ``model`` case-insensitively, otherwise False.
     """
     if not isinstance(model, str) or not isinstance(prefix, str):
         return False
-    return model.lower().startswith(prefix.lower())
+    return prefix.lower() in model.lower()
 
 
 def get_model_tail(model: str) -> str:

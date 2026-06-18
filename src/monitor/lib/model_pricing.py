@@ -32,6 +32,8 @@ transparent.
 
 import logging
 
+from monitor.lib.llm_model_utils import is_reasoning_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,64 +114,209 @@ _BUDGET_BLEND_WEIGHTS = {
 }
 
 
-def _blended_rate(rates):
-    """Collapse a get_model_rates() dict to one per-token number via
-    _BUDGET_BLEND_WEIGHTS, renormalized over whatever fields are present.
-    Returns None when no usable rate field exists."""
+def _blended_rate(rates, weights=None):
+    """Collapse a get_model_rates() dict to one per-token number.
+
+    Args:
+        rates: Model pricing entries keyed by per-token field name.
+        weights: Optional weight mapping keyed by the same field names.
+            Defaults to ``_BUDGET_BLEND_WEIGHTS``.
+
+    Returns:
+        The weighted average per-token rate, renormalized over whatever
+        positive-weight fields are present. Returns None when no usable
+        rate field exists.
+    """
     if not isinstance(rates, dict):
         return None
+    resolved_weights = weights if isinstance(weights, dict) and weights else _BUDGET_BLEND_WEIGHTS
     total = 0.0
     weight = 0.0
-    for key, w in _BUDGET_BLEND_WEIGHTS.items():
-        r = rates.get(key)
-        if isinstance(r, (int, float)) and r > 0:
-            total += w * r
-            weight += w
+    for key, current_weight in resolved_weights.items():
+        rate = rates.get(key)
+        if (
+            isinstance(rate, (int, float))
+            and rate > 0
+            and isinstance(current_weight, (int, float))
+            and current_weight > 0
+        ):
+            total += current_weight * rate
+            weight += current_weight
     return (total / weight) if weight > 0 else None
 
 
-def _effort_multiplier():
-    """Rate multiplier for the CURRENT reasoning effort, relative to medium.
-    Applies only to reasoning models (REASONING_MODEL_PREFIX in config.MODEL);
-    1.0 otherwise or when the effort isn't in the multiplier table."""
+def session_empirical_pricing_mix():
+    """Return empirical session token-mix weights from accumulated usage.
+
+    Returns:
+        dict: Session token totals, normalized weights, and a confidence label.
+        When no composition data is available, weights are None and confidence
+        remains ``"low"``.
+    """
     from monitor import config
-    model = getattr(config, "MODEL", "") or ""
+
+    cached_tokens = getattr(config, "SESSION_CACHED_INPUT_TOKENS", 0) or 0
+    uncached_tokens = getattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0) or 0
+    output_tokens = getattr(config, "SESSION_OUTPUT_TOKENS", 0) or 0
+    total_tokens = cached_tokens + uncached_tokens + output_tokens
+    weights = None
+    if total_tokens > 0:
+        weights = {
+            "cached_input_per_token": cached_tokens / total_tokens,
+            "input_per_token": uncached_tokens / total_tokens,
+            "output_per_token": output_tokens / total_tokens,
+        }
+
+    confidence = "low"
+    if total_tokens >= 3_000_000:
+        confidence = "high"
+    elif total_tokens >= 1_000_000:
+        confidence = "medium"
+
+    return {
+        "cached_input_tokens": int(cached_tokens),
+        "uncached_input_tokens": int(uncached_tokens),
+        "output_tokens": int(output_tokens),
+        "total_tokens": int(total_tokens),
+        "weights": weights,
+        "confidence": confidence,
+    }
+
+
+def _effort_multiplier(model=None):
+    """Rate multiplier for the current reasoning effort, relative to medium.
+
+    Applies only to models whose names contain ``REASONING_MODEL_PREFIX``.
+    Returns ``1.0`` for non-reasoning models or when the effort is not
+    present in the multiplier table.
+
+    Args:
+        model: Optional model name to evaluate. When omitted, uses the current
+            configured model.
+
+    Returns:
+        float: The configured effort multiplier.
+    """
+    from monitor import config
+
+    current_model = model if model is not None else getattr(config, "MODEL", "") or ""
     prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
-    if not (prefix and prefix in model):
+    if not is_reasoning_model(current_model, prefix):
         return 1.0
+
     effort = getattr(config, "REASONING_EFFORT", "") or ""
     table = getattr(config, "REASONING_EFFORT_RATE_MULTIPLIER", None) or {}
-    m = table.get(effort) if isinstance(table, dict) else None
-    return float(m) if isinstance(m, (int, float)) and m > 0 else 1.0
+    multiplier = table.get(effort) if isinstance(table, dict) else None
+    return float(multiplier) if isinstance(multiplier, (int, float)) and multiplier > 0 else 1.0
+
+
+def effective_rate_debug_info(model=None):
+    """Return detailed rate inputs used to calibrate token-rate config.
+
+    Args:
+        model: Optional model name to evaluate. When omitted, uses the current
+            configured model.
+
+    Returns:
+        dict: Debug metadata including the configured calibration rate,
+        anchor-derived rate, theoretical blended rate, effort multiplier,
+        and final effective rate per million tokens.
+    """
+    from monitor import config
+
+    resolved_model = model if model is not None else getattr(config, "MODEL", "") or ""
+    raw_configured_budget_rates = getattr(config, "MODEL_TOKEN_RATE_PER_MTOK", None) or {}
+    # Keep debug helpers resilient to malformed config so diagnostics still work
+    # when users are investigating a broken pricing setup.
+    configured_budget_rates = (
+        raw_configured_budget_rates
+        if isinstance(raw_configured_budget_rates, dict)
+        else {}
+    )
+    default_rate = getattr(config, "DEFAULT_TOKEN_RATE_PER_MTOK", 1.0) or 1.0
+    anchor = getattr(config, "TOKEN_RATE_ANCHOR_MODEL", None)
+    configured_calibration_rate = None
+    anchor_rate = configured_budget_rates.get(anchor) if isinstance(configured_budget_rates, dict) else None
+    theoretical_blended_rate_per_token = _blended_rate(get_model_rates(resolved_model))
+    anchor_blended_rate_per_token = _blended_rate(get_model_rates(anchor))
+    empirical_mix = session_empirical_pricing_mix()
+    empirical_blended_rate_per_token = _blended_rate(
+        get_model_rates(resolved_model),
+        empirical_mix["weights"],
+    )
+    theoretical_blended_rate = (
+        theoretical_blended_rate_per_token * 1_000_000
+        if isinstance(theoretical_blended_rate_per_token, (int, float))
+        and theoretical_blended_rate_per_token > 0
+        else None
+    )
+    empirical_blended_rate = (
+        empirical_blended_rate_per_token * 1_000_000
+        if isinstance(empirical_blended_rate_per_token, (int, float))
+        and empirical_blended_rate_per_token > 0
+        else None
+    )
+    anchor_blended_rate = (
+        anchor_blended_rate_per_token * 1_000_000
+        if isinstance(anchor_blended_rate_per_token, (int, float))
+        and anchor_blended_rate_per_token > 0
+        else None
+    )
+    base_rate_source = "default_token_rate"
+    base_rate = float(default_rate)
+
+    if (
+        isinstance(configured_budget_rates, dict)
+        and isinstance(configured_budget_rates.get(resolved_model), (int, float))
+        and configured_budget_rates[resolved_model] > 0
+    ):
+        configured_calibration_rate = float(configured_budget_rates[resolved_model])
+        base_rate = configured_calibration_rate
+        base_rate_source = "configured_calibration_rate"
+    elif (
+        isinstance(anchor_rate, (int, float))
+        and anchor_rate > 0
+        and isinstance(theoretical_blended_rate, (int, float))
+        and theoretical_blended_rate > 0
+        and isinstance(anchor_blended_rate, (int, float))
+        and anchor_blended_rate > 0
+    ):
+        base_rate = float(anchor_rate) * (theoretical_blended_rate / anchor_blended_rate)
+        base_rate_source = "anchor_ratio"
+
+    multiplier = _effort_multiplier(resolved_model)
+    effective_rate = base_rate * multiplier
+    return {
+        "model": resolved_model,
+        "configured_calibration_rate": configured_calibration_rate,
+        "configured_budget_rates": configured_budget_rates,
+        "default_rate": float(default_rate),
+        "anchor_model": anchor,
+        "anchor_rate": anchor_rate,
+        "theoretical_blended_rate": theoretical_blended_rate,
+        "empirical_blended_rate": empirical_blended_rate,
+        "empirical_mix": empirical_mix,
+        "anchor_blended_rate": anchor_blended_rate,
+        "base_rate": base_rate,
+        "base_rate_source": base_rate_source,
+        "effort_multiplier": multiplier,
+        "effective_rate_per_mtok": effective_rate,
+    }
 
 
 def model_effective_rate_per_mtok(model=None):
-    """Effective $ per 1M tokens used to size the F: budget. Precedence:
-      1. measured rate in config.MODEL_TOKEN_RATE_PER_MTOK[model]
-      2. anchor measured rate * (model/anchor published-price ratio)
-      3. config.DEFAULT_TOKEN_RATE_PER_MTOK
-    then scaled by the current reasoning-effort multiplier."""
-    from monitor import config
-    if model is None:
-        model = getattr(config, "MODEL", "") or ""
-    measured = getattr(config, "MODEL_TOKEN_RATE_PER_MTOK", None) or {}
-    default_rate = getattr(config, "DEFAULT_TOKEN_RATE_PER_MTOK", 1.0) or 1.0
+    """Effective $ per 1M tokens used to size the F: budget.
 
-    base = None
-    if isinstance(measured, dict) and isinstance(measured.get(model), (int, float)) and measured[model] > 0:
-        base = float(measured[model])
-    else:
-        anchor = getattr(config, "TOKEN_RATE_ANCHOR_MODEL", None)
-        anchor_rate = measured.get(anchor) if isinstance(measured, dict) else None
-        if isinstance(anchor_rate, (int, float)) and anchor_rate > 0:
-            bm = _blended_rate(get_model_rates(model))
-            ba = _blended_rate(get_model_rates(anchor))
-            if bm and ba and ba > 0:
-                base = float(anchor_rate) * (bm / ba)
-        if base is None:
-            base = float(default_rate)
+    Args:
+        model: Optional model name to evaluate. When omitted, uses the current
+            configured model.
 
-    return base * _effort_multiplier()
+    Returns:
+        float: Effective dollars per million tokens after any reasoning-effort
+        multiplier is applied.
+    """
+    info = effective_rate_debug_info(model)
+    return info["effective_rate_per_mtok"]
 
 
 def session_token_budget():
@@ -185,7 +332,8 @@ def session_token_budget():
     if isinstance(target, (int, float)) and target > 0:
         rate_per_mtok = model_effective_rate_per_mtok()
         if isinstance(rate_per_mtok, (int, float)) and rate_per_mtok > 0:
-            return int(target / (rate_per_mtok / 1_000_000))
+            budget = int(target / (rate_per_mtok / 1_000_000))
+            return budget
     return None
 
 

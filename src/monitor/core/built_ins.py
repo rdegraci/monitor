@@ -30,6 +30,7 @@ from monitor.lib.built_in_commands import (
     copy_code_command,
     cost_debug_command,
     dump_history_command,
+    fuel_debug_command,
     dump_metrics_command,
     less_command,
     load_history_command,
@@ -421,6 +422,11 @@ def configure_built_ins() -> None:
                     "command": "cost_debug",
                     "function": _make_callable(cost_debug_command),
                     "description": "Dump per-turn cost-tracking state and flag invariant violations.",
+                },
+                {
+                    "command": "fuel_debug",
+                    "function": _make_callable(fuel_debug_command),
+                    "description": "Dump fuel-budget state and suggest a MODEL_TOKEN_RATE_PER_MTOK value.",
                 },
                 {
                     "command": "dump_metrics",

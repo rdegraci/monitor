@@ -40,6 +40,7 @@ from monitor.lib.built_ins_history_utils import (
     cost_debug_command,
     dump_history_command,
     dump_metrics_command,
+    fuel_debug_command,
     load_history_command,
     reset_conversation_history_command,
 )

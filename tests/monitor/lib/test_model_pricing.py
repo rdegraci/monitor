@@ -184,6 +184,23 @@ def test_estimate_cost_empty_usage_returns_zero():
     assert cost == 0.0
 
 
+
+
+def test_session_empirical_pricing_mix_uses_cumulative_session_counters(monkeypatch):
+    """Empirical pricing mix should normalize tracked session composition."""
+    monkeypatch.setattr(config, "SESSION_CACHED_INPUT_TOKENS", 800, raising=False)
+    monkeypatch.setattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 150, raising=False)
+    monkeypatch.setattr(config, "SESSION_OUTPUT_TOKENS", 50, raising=False)
+
+    mix = model_pricing.session_empirical_pricing_mix()
+
+    assert mix["total_tokens"] == 1_000
+    assert mix["confidence"] == "low"
+    assert mix["weights"]["cached_input_per_token"] == pytest.approx(0.8)
+    assert mix["weights"]["input_per_token"] == pytest.approx(0.15)
+    assert mix["weights"]["output_per_token"] == pytest.approx(0.05)
+
+
 # --- Integration with update_token_usage -----------------------------------
 
 
@@ -225,6 +242,9 @@ def test_update_token_usage_uses_fallback_when_litellm_returns_zero(monkeypatch)
     # 50K * $1/M + 10K * $2/M = $0.05 + $0.02 = $0.07
     assert config.SESSION_COST_USD == pytest.approx(0.07)
     assert config.TURN_COSTS_USD[0] == pytest.approx(0.07)
+    assert config.SESSION_UNCACHED_INPUT_TOKENS == 50_000
+    assert config.SESSION_CACHED_INPUT_TOKENS == 0
+    assert config.SESSION_OUTPUT_TOKENS == 10_000
 
 
 def test_update_token_usage_litellm_path_still_works(monkeypatch):

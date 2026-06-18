@@ -7,6 +7,13 @@ import os
 import time
 from typing import Any
 
+from monitor.lib.llm_model_utils import is_reasoning_model
+from monitor.lib.model_pricing import (
+    _BUDGET_BLEND_WEIGHTS,
+    effective_rate_debug_info,
+    model_effective_rate_per_mtok,
+    session_token_budget,
+)
 from monitor import config
 from monitor.lib.display_output import print_colored_error
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
@@ -120,6 +127,169 @@ def cost_debug_command(arg: str = None) -> None:
             "Likely a silent exception in the bucket-update try/except at "
             "token_management.py:255-264."
         )
+
+
+def _round_rate_suggestion(rate_per_mtok: float) -> float:
+    """Round a suggested effective rate to a stable config-friendly value.
+
+    Args:
+        rate_per_mtok: Raw effective dollars-per-million-token estimate.
+
+    Returns:
+        Rounded rate suitable for ``MODEL_TOKEN_RATE_PER_MTOK``.
+    """
+    if rate_per_mtok >= 10:
+        return round(rate_per_mtok, 1)
+    if rate_per_mtok >= 1:
+        return round(rate_per_mtok, 2)
+    return round(round(rate_per_mtok / 0.05) * 0.05, 2)
+
+
+def fuel_debug_command(arg: str = None) -> None:
+    """Dump fuel-budget state and suggest a model rate configuration value.
+
+    Args:
+        arg: Ignored dispatcher argument.
+
+    Returns:
+        None.
+    """
+    del arg
+
+    model = getattr(config, "MODEL", None)
+    effort = getattr(config, "REASONING_EFFORT", None)
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+    session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
+    session_tokens = getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+    observed_rate = None
+    if session_cost > 0 and session_tokens > 0:
+        observed_rate = session_cost / session_tokens * 1_000_000
+    observed_confidence = "low"
+    if session_tokens >= 3_000_000:
+        observed_confidence = "high"
+    elif session_tokens >= 1_000_000:
+        observed_confidence = "medium"
+
+    rate_info = effective_rate_debug_info(model)
+    theoretical_blended_rate = rate_info["theoretical_blended_rate"]
+    empirical_blended_rate = rate_info["empirical_blended_rate"]
+    empirical_mix = rate_info["empirical_mix"]
+    empirical_weights = empirical_mix["weights"]
+    empirical_confidence = empirical_mix["confidence"]
+    multiplier = rate_info["effort_multiplier"]
+    effective_rate = model_effective_rate_per_mtok(model)
+    budget = session_token_budget()
+    anchor = rate_info["anchor_model"]
+    anchor_rate = rate_info["anchor_rate"]
+    configured_calibration_rate = rate_info["configured_calibration_rate"]
+    base_rate_source = rate_info["base_rate_source"]
+    reasoning_model_match = is_reasoning_model(model, prefix)
+
+    normalized_observed_rate = observed_rate
+    if reasoning_model_match and isinstance(observed_rate, (int, float)) and multiplier > 0:
+        normalized_observed_rate = observed_rate / multiplier
+
+    suggestion_basis = "configured calibration rate"
+    suggestion_rate = configured_calibration_rate
+    used_normalized_observed_rate = False
+    if (
+        isinstance(normalized_observed_rate, (int, float))
+        and normalized_observed_rate > 0
+        and session_tokens >= 1_000_000
+    ):
+        suggestion_basis = (
+            f"observed U:/T: normalized by current multiplier ({observed_confidence} confidence)"
+            if reasoning_model_match
+            else f"observed U:/T: ({observed_confidence} confidence)"
+        )
+        suggestion_rate = normalized_observed_rate
+        used_normalized_observed_rate = reasoning_model_match
+    elif (
+        isinstance(empirical_blended_rate, (int, float))
+        and empirical_blended_rate > 0
+        and empirical_mix["total_tokens"] >= 1_000_000
+    ):
+        suggestion_basis = f"empirical blended rate ({empirical_confidence} confidence)"
+        suggestion_rate = empirical_blended_rate
+    elif isinstance(theoretical_blended_rate, (int, float)) and theoretical_blended_rate > 0:
+        suggestion_basis = "theoretical blended rate"
+        suggestion_rate = theoretical_blended_rate
+    elif isinstance(effective_rate, (int, float)) and effective_rate > 0 and multiplier > 0:
+        suggestion_basis = "effective rate divided by current multiplier"
+        suggestion_rate = effective_rate / multiplier
+
+    rounded_suggestion = None
+    if isinstance(suggestion_rate, (int, float)) and suggestion_rate > 0:
+        rounded_suggestion = _round_rate_suggestion(float(suggestion_rate))
+
+    print("=== Fuel debug ===")
+    print(f"MODEL:                    {model}")
+    print(f"REASONING_EFFORT:        {effort}")
+    print(f"REASONING_MODEL_PREFIX:  {prefix}")
+    print(f"Reasoning model match:   {reasoning_model_match}")
+    print(f"Configured calibration rate: {configured_calibration_rate!r}")
+    print(f"Base rate source:        {base_rate_source}")
+    print(f"Anchor model:            {anchor!r}")
+    print(f"Anchor rate:             {anchor_rate!r}")
+    print(
+        "Heuristic blend weights:  "
+        f"cached={_BUDGET_BLEND_WEIGHTS['cached_input_per_token']:.2f} "
+        f"input={_BUDGET_BLEND_WEIGHTS['input_per_token']:.2f} "
+        f"output={_BUDGET_BLEND_WEIGHTS['output_per_token']:.2f}"
+    )
+    print(f"Theoretical blend:       {theoretical_blended_rate!r}")
+    print(
+        "Empirical session tokens: "
+        f"cached={empirical_mix['cached_input_tokens']} "
+        f"input={empirical_mix['uncached_input_tokens']} "
+        f"output={empirical_mix['output_tokens']} "
+        f"total={empirical_mix['total_tokens']}"
+    )
+    print(f"Empirical confidence:    {empirical_confidence}")
+    if empirical_weights is None:
+        print("Empirical blend weights: unavailable")
+    else:
+        print(
+            "Empirical blend weights: "
+            f"cached={empirical_weights['cached_input_per_token']:.4f} "
+            f"input={empirical_weights['input_per_token']:.4f} "
+            f"output={empirical_weights['output_per_token']:.4f}"
+        )
+    print(f"Empirical blend / 1M:    {empirical_blended_rate!r}")
+    print(f"Effort multiplier:       {multiplier!r}")
+    print(f"Effective rate / 1M:     {effective_rate!r}")
+    print(f"Session fuel budget:     {budget!r}")
+    print(f"SESSION_COST_USD (T:):   ${session_cost:.6f}")
+    print(f"SESSION_TOTAL_TOKENS (U:): {session_tokens}")
+    if observed_rate is None:
+        print("Observed rate / 1M:      unavailable (need both T: and U: > 0)")
+    else:
+        print(
+            f"Observed rate / 1M:      {observed_rate:.6f} ({observed_confidence} confidence)"
+        )
+    if (
+        reasoning_model_match
+        and isinstance(normalized_observed_rate, (int, float))
+        and normalized_observed_rate > 0
+    ):
+        print(
+            "Normalized observed rate / 1M: "
+            f"{normalized_observed_rate:.6f} "
+            "(assumes current reasoning multiplier is correct)"
+        )
+
+    print()
+    print("--- Suggested calibration entry for MODEL_TOKEN_RATE_PER_MTOK ---")
+    if rounded_suggestion is None:
+        print("No suggestion available yet.")
+        return
+    print(f"Basis: {suggestion_basis}")
+    print(f"Suggested raw rate / 1M: {float(suggestion_rate):.6f}")
+    print(f"Suggested config value:  {rounded_suggestion}")
+    if used_normalized_observed_rate:
+        print("Note: normalized suggestion assumes the current multiplier table is correct.")
+    if isinstance(model, str) and model:
+        print(f"YAML: {model}: {rounded_suggestion}")
 
 
 def dump_metrics_command(arg: str = None) -> None:

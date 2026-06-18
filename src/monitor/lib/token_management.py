@@ -324,6 +324,21 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                         config.TURN_COSTS_USD = turn_costs
                     except Exception:
                         logger.debug("Failed to accumulate per-turn cost", exc_info=True)
+                try:
+                    from monitor.lib.model_pricing import _extract_usage_tokens
+
+                    uncached_input, cached_input, output_tokens = _extract_usage_tokens(cost_response)
+                    if uncached_input > 0:
+                        current_uncached = getattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0) or 0
+                        config.SESSION_UNCACHED_INPUT_TOKENS = current_uncached + int(uncached_input)
+                    if cached_input > 0:
+                        current_cached = getattr(config, "SESSION_CACHED_INPUT_TOKENS", 0) or 0
+                        config.SESSION_CACHED_INPUT_TOKENS = current_cached + int(cached_input)
+                    if output_tokens > 0:
+                        current_output = getattr(config, "SESSION_OUTPUT_TOKENS", 0) or 0
+                        config.SESSION_OUTPUT_TOKENS = current_output + int(output_tokens)
+                except Exception:
+                    logger.debug("Failed to accumulate session token composition", exc_info=True)
             except Exception:
                 logger.debug("Failed to compute completion cost via litellm", exc_info=True)
 

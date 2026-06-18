@@ -550,6 +550,12 @@ SHOW_COST_ESTIMATE = None
 # summarization call itself spends more.
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
+# Session token-composition counters sourced from real provider usage blocks
+# when available. They support empirical pricing-mix estimates for fuel-debug
+# calibration and reset alongside the other cumulative session counters.
+SESSION_CACHED_INPUT_TOKENS = 0
+SESSION_UNCACHED_INPUT_TOKENS = 0
+SESSION_OUTPUT_TOKENS = 0
 # F: fuel-tank gauge — a per-session cumulative-token budget, the draining
 # counterpart to U:. Rendered before C: as F: = budget - SESSION_TOTAL_TOKENS,
 # shown as the exact remaining token count plus percent. Unlike C: (a refillable
@@ -1642,7 +1648,9 @@ def set_model(model_key: str) -> bool:
     - Sets MAX_TOKEN_COUNT accordingly, resets TOTAL_TOKEN_COUNT to 0, clears CONVERSATION_HISTORY, logs an info summary, and returns True.
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
-    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD, SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
+    global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
+    global SESSION_CACHED_INPUT_TOKENS, SESSION_UNCACHED_INPUT_TOKENS, SESSION_OUTPUT_TOKENS
+    global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
 
     # Validate MODEL_MAPPING
@@ -1725,6 +1733,9 @@ def set_model(model_key: str) -> bool:
     # different rates. Both reset together to stay consistent.
     SESSION_TOTAL_TOKENS = 0
     SESSION_COST_USD = 0.0
+    SESSION_CACHED_INPUT_TOKENS = 0
+    SESSION_UNCACHED_INPUT_TOKENS = 0
+    SESSION_OUTPUT_TOKENS = 0
     SESSION_COMPACTION_COUNT = 0
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0
