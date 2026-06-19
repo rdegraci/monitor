@@ -28,6 +28,13 @@ def _reset_pricing_state(monkeypatch):
     monkeypatch.setattr(config, "TURN_COSTS_USD", [], raising=False)
     monkeypatch.setattr(config, "SESSION_TOTAL_TOKENS", 0, raising=False)
     monkeypatch.setattr(config, "TOTAL_TOKEN_COUNT", 0, raising=False)
+    # Cumulative session counters mutated by update_token_usage — reset so
+    # accumulation tests don't leak token counts into one another.
+    monkeypatch.setattr(config, "SESSION_CACHED_INPUT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "SESSION_OUTPUT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
     yield
 
 
@@ -184,6 +191,80 @@ def test_estimate_cost_empty_usage_returns_zero():
     assert cost == 0.0
 
 
+
+
+def test_effort_multiplier_for_explicit_effort(monkeypatch):
+    """effort_multiplier_for scores an explicit effort, not the live config."""
+    monkeypatch.setattr(config, "REASONING_MODEL_PREFIX", "openai/gpt-5", raising=False)
+    monkeypatch.setattr(
+        config,
+        "REASONING_EFFORT_RATE_MULTIPLIER",
+        {"low": 0.75, "medium": 1.0, "high": 1.75},
+        raising=False,
+    )
+    assert model_pricing.effort_multiplier_for("openai/gpt-5.4-mini", "high") == pytest.approx(1.75)
+    assert model_pricing.effort_multiplier_for("openai/gpt-5.4-mini", "low") == pytest.approx(0.75)
+    # Effort absent from the table falls back to 1.0.
+    assert model_pricing.effort_multiplier_for("openai/gpt-5.4-mini", "bogus") == 1.0
+    # Non-reasoning model is always 1.0 regardless of effort.
+    assert model_pricing.effort_multiplier_for("anthropic/claude-sonnet-4-6", "high") == 1.0
+
+
+def test_session_average_effort_multiplier_token_weighted(monkeypatch):
+    """The session average is Σ(tokens × multiplier) / Σ(tokens)."""
+    # 1M tokens at multiplier 1.0 + 1M tokens at 0.5 → weighted average 0.75.
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 1_500_000.0, raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 2_000_000, raising=False)
+    assert model_pricing.session_average_effort_multiplier() == pytest.approx(0.75)
+
+
+def test_session_average_effort_multiplier_none_without_data(monkeypatch):
+    """No accumulated effort-weighted tokens → None (callers fall back)."""
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
+    assert model_pricing.session_average_effort_multiplier() is None
+
+
+def test_update_token_usage_accumulates_effort_weighted_tokens(monkeypatch):
+    """A round-trip uses the per-turn override effort (not steady) to weight
+    the session multiplier accumulators by that turn's token count."""
+    from monitor.lib import token_management
+
+    monkeypatch.setattr(config, "MODEL", "openai/gpt-5.4-mini", raising=False)
+    monkeypatch.setattr(config, "REASONING_MODEL_PREFIX", "openai/gpt-5", raising=False)
+    monkeypatch.setattr(config, "REASONING_EFFORT", "low", raising=False)
+    monkeypatch.setattr(
+        config,
+        "REASONING_EFFORT_RATE_MULTIPLIER",
+        {"low": 0.75, "medium": 1.0, "high": 1.75},
+        raising=False,
+    )
+    # Single-turn upgrade: this round-trip ran at medium, not the steady low.
+    monkeypatch.setattr(config, "CURRENT_TURN_REASONING_OVERRIDE", "medium", raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
+    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "TURN_COSTS_USD", [0.0], raising=False)
+    monkeypatch.setattr(config, "MODEL_PRICING_OVERRIDES", {
+        "openai/gpt-5.4-mini": {
+            "input_per_token":  1.00 / 1_000_000,
+            "output_per_token": 2.00 / 1_000_000,
+        },
+    }, raising=False)
+
+    fake_litellm = SimpleNamespace(completion_cost=lambda **_: 0.01)
+    import sys
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+
+    response = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+    )
+    token_management.update_token_usage(response)
+
+    # 150 tokens weighted by the medium (override) multiplier 1.0, NOT the
+    # steady-low 0.75 — confirms the override drives the calibration weight.
+    assert config.SESSION_EFFORT_WEIGHT_TOKENS == 150
+    assert config.SESSION_EFFORT_WEIGHTED_TOKENS == pytest.approx(150 * 1.0)
+    assert model_pricing.session_average_effort_multiplier() == pytest.approx(1.0)
 
 
 def test_session_empirical_pricing_mix_uses_cumulative_session_counters(monkeypatch):

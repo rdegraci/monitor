@@ -89,6 +89,13 @@ def test_reset_history_clears_session_counters():
     config.TURN_COSTS_USD = [0.1, 0.2, 0.3]
     config.CURRENT_TURN_REASONING_OVERRIDE = "high"
     config.RESPONSE_ID = "stale-response-id"
+    # Calibration counters that feed :fuel_debug must also reset, else a fresh
+    # T:/U: would be mixed against stale composition/effort data.
+    config.SESSION_CACHED_INPUT_TOKENS = 10_000
+    config.SESSION_UNCACHED_INPUT_TOKENS = 20_000
+    config.SESSION_OUTPUT_TOKENS = 5_000
+    config.SESSION_EFFORT_WEIGHTED_TOKENS = 26_250.0
+    config.SESSION_EFFORT_WEIGHT_TOKENS = 35_000
 
     built_in_commands.reset_conversation_history_command()
 
@@ -98,6 +105,11 @@ def test_reset_history_clears_session_counters():
     assert config.TURN_COSTS_USD == []
     assert config.CURRENT_TURN_REASONING_OVERRIDE is None
     assert config.RESPONSE_ID is None
+    assert config.SESSION_CACHED_INPUT_TOKENS == 0
+    assert config.SESSION_UNCACHED_INPUT_TOKENS == 0
+    assert config.SESSION_OUTPUT_TOKENS == 0
+    assert config.SESSION_EFFORT_WEIGHTED_TOKENS == 0.0
+    assert config.SESSION_EFFORT_WEIGHT_TOKENS == 0
 
 
 def test_reset_history_produces_single_system_message():

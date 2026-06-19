@@ -337,6 +337,29 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                     if output_tokens > 0:
                         current_output = getattr(config, "SESSION_OUTPUT_TOKENS", 0) or 0
                         config.SESSION_OUTPUT_TOKENS = current_output + int(output_tokens)
+
+                    # Accumulate a token-weighted effort multiplier so calibration
+                    # can fold in single-turn reasoning upgrades. The effort that
+                    # actually drove this round-trip is the per-turn override when
+                    # set, else the steady REASONING_EFFORT (same precedence as the
+                    # API call in llm_utils). Weight by the round-trip's total
+                    # tokens — the base the multiplier is applied to at runtime.
+                    from monitor.lib.model_pricing import effort_multiplier_for
+
+                    turn_tokens = int(uncached_input) + int(cached_input) + int(output_tokens)
+                    if turn_tokens > 0:
+                        turn_effort = (
+                            getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+                            or getattr(config, "REASONING_EFFORT", "")
+                            or ""
+                        )
+                        turn_multiplier = effort_multiplier_for(
+                            getattr(config, "MODEL", "") or "", turn_effort
+                        )
+                        current_weighted = getattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0) or 0.0
+                        current_weight = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
+                        config.SESSION_EFFORT_WEIGHTED_TOKENS = current_weighted + turn_tokens * turn_multiplier
+                        config.SESSION_EFFORT_WEIGHT_TOKENS = current_weight + turn_tokens
                 except Exception:
                     logger.debug("Failed to accumulate session token composition", exc_info=True)
             except Exception:

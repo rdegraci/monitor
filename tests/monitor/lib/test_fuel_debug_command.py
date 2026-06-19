@@ -28,6 +28,8 @@ def _set_state(monkeypatch, **overrides):
         "SESSION_CACHED_INPUT_TOKENS": 0,
         "SESSION_UNCACHED_INPUT_TOKENS": 0,
         "SESSION_OUTPUT_TOKENS": 0,
+        "SESSION_EFFORT_WEIGHTED_TOKENS": 0.0,
+        "SESSION_EFFORT_WEIGHT_TOKENS": 0,
         "SESSION_TOKEN_BUDGET": None,
         "REASONING_EFFORT_RATE_MULTIPLIER": {
             "minimal": 0.5,
@@ -104,6 +106,47 @@ def test_fuel_debug_uses_empirical_blend_when_session_mix_is_sufficient(capsys, 
     assert "Suggested config value:  0.15" in out
     assert "YAML: openai/gpt-5.4-mini: 0.15" in out
 
+
+
+def test_fuel_debug_normalizes_observed_by_session_average_multiplier(capsys, monkeypatch):
+    """The observed rate is normalized by the session-average multiplier (which
+    folds in single-turn upgrades), not the instantaneous steady multiplier, so
+    occasional upgrades don't bias the suggested baseline rate high."""
+    _set_state(
+        monkeypatch,
+        REASONING_EFFORT="low",                     # steady multiplier 0.75
+        SESSION_COST_USD=1.9,
+        SESSION_TOTAL_TOKENS=2_000_000,             # observed = 0.95 / 1M
+        SESSION_EFFORT_WEIGHTED_TOKENS=1_900_000.0,
+        SESSION_EFFORT_WEIGHT_TOKENS=2_000_000,     # session-average = 0.95
+    )
+
+    fuel_debug_command()
+    out = capsys.readouterr().out
+
+    assert "Effort multiplier (now):     0.75" in out
+    assert "Effort multiplier (session): 0.9500" in out
+    assert "Upgrade load:            +26.7% over steady effort" in out
+    assert "Observed rate / 1M:      0.950000 (medium confidence)" in out
+    # 0.95 / 0.95 = 1.0 baseline — NOT 0.95 / 0.75 = 1.27 (the biased value
+    # the old instantaneous-multiplier divide would have produced).
+    assert (
+        "Basis: observed U:/T: normalized by session-average multiplier (medium confidence)"
+        in out
+    )
+    assert "Suggested config value:  1.0" in out
+
+
+def test_fuel_debug_help_prints_field_guide(capsys, monkeypatch):
+    """':fuel_debug help' prints the field guide, not the live readout."""
+    _set_state(monkeypatch)
+
+    fuel_debug_command("help")
+    out = capsys.readouterr().out
+
+    assert "WHAT THIS COMMAND IS FOR" in out
+    assert "HOW TO CALIBRATE" in out
+    assert "=== Fuel debug ===" not in out
 
 
 def test_fuel_debug_registered_in_built_ins():

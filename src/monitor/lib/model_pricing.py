@@ -183,8 +183,35 @@ def session_empirical_pricing_mix():
     }
 
 
+def effort_multiplier_for(model, effort):
+    """Rate multiplier for a specific reasoning effort on a specific model.
+
+    Applies only to models whose names contain ``REASONING_MODEL_PREFIX``.
+    Returns ``1.0`` for non-reasoning models or when ``effort`` is not present
+    in the multiplier table.
+
+    Args:
+        model: Model name to evaluate.
+        effort: Reasoning-effort label to look up in the multiplier table.
+
+    Returns:
+        float: The configured effort multiplier.
+    """
+    from monitor import config
+
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
+    if not is_reasoning_model(model or "", prefix):
+        return 1.0
+
+    table = getattr(config, "REASONING_EFFORT_RATE_MULTIPLIER", None) or {}
+    multiplier = table.get(effort) if isinstance(table, dict) else None
+    return float(multiplier) if isinstance(multiplier, (int, float)) and multiplier > 0 else 1.0
+
+
 def _effort_multiplier(model=None):
-    """Rate multiplier for the current reasoning effort, relative to medium.
+    """Rate multiplier for the CURRENT steady reasoning effort, relative to
+    medium. Forward-looking: this is what sizes the live F: budget. It reflects
+    only ``config.REASONING_EFFORT`` and is blind to single-turn upgrades.
 
     Applies only to models whose names contain ``REASONING_MODEL_PREFIX``.
     Returns ``1.0`` for non-reasoning models or when the effort is not
@@ -200,14 +227,30 @@ def _effort_multiplier(model=None):
     from monitor import config
 
     current_model = model if model is not None else getattr(config, "MODEL", "") or ""
-    prefix = getattr(config, "REASONING_MODEL_PREFIX", "") or ""
-    if not is_reasoning_model(current_model, prefix):
-        return 1.0
-
     effort = getattr(config, "REASONING_EFFORT", "") or ""
-    table = getattr(config, "REASONING_EFFORT_RATE_MULTIPLIER", None) or {}
-    multiplier = table.get(effort) if isinstance(table, dict) else None
-    return float(multiplier) if isinstance(multiplier, (int, float)) and multiplier > 0 else 1.0
+    return effort_multiplier_for(current_model, effort)
+
+
+def session_average_effort_multiplier():
+    """Token-weighted average effort multiplier incurred this session.
+
+    Unlike ``_effort_multiplier`` (which reflects only the steady
+    ``REASONING_EFFORT``), this folds in single-turn reasoning upgrades by
+    weighting each round-trip's multiplier by that round-trip's token count.
+    Backward-looking: used to normalize the observed rate back to a steady-
+    effort baseline during calibration, so occasional upgrades don't bias the
+    suggested ``MODEL_TOKEN_RATE_PER_MTOK`` high.
+
+    Returns:
+        float | None: The weighted-average multiplier, or None when no
+        effort-weighted token data has accumulated yet (callers fall back to
+        the instantaneous multiplier).
+    """
+    from monitor import config
+
+    weighted = getattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0) or 0.0
+    tokens = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
+    return (weighted / tokens) if (tokens > 0 and weighted > 0) else None
 
 
 def effective_rate_debug_info(model=None):
@@ -285,6 +328,7 @@ def effective_rate_debug_info(model=None):
         base_rate_source = "anchor_ratio"
 
     multiplier = _effort_multiplier(resolved_model)
+    session_multiplier = session_average_effort_multiplier()
     effective_rate = base_rate * multiplier
     return {
         "model": resolved_model,
@@ -300,6 +344,7 @@ def effective_rate_debug_info(model=None):
         "base_rate": base_rate,
         "base_rate_source": base_rate_source,
         "effort_multiplier": multiplier,
+        "session_effort_multiplier": session_multiplier,
         "effective_rate_per_mtok": effective_rate,
     }
 

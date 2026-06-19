@@ -556,6 +556,14 @@ SESSION_COST_USD = 0.0
 SESSION_CACHED_INPUT_TOKENS = 0
 SESSION_UNCACHED_INPUT_TOKENS = 0
 SESSION_OUTPUT_TOKENS = 0
+# Token-weighted effort-multiplier accumulators. Together they yield the
+# session-average reasoning multiplier (SESSION_EFFORT_WEIGHTED_TOKENS /
+# SESSION_EFFORT_WEIGHT_TOKENS), which folds in single-turn reasoning upgrades
+# that the steady REASONING_EFFORT does not. Used to normalize the observed
+# rate during fuel-debug calibration. Reset alongside the other session
+# counters on model change.
+SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
+SESSION_EFFORT_WEIGHT_TOKENS = 0
 # F: fuel-tank gauge — a per-session cumulative-token budget, the draining
 # counterpart to U:. Rendered before C: as F: = budget - SESSION_TOTAL_TOKENS,
 # shown as the exact remaining token count plus percent. Unlike C: (a refillable
@@ -1650,6 +1658,7 @@ def set_model(model_key: str) -> bool:
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
     global SESSION_CACHED_INPUT_TOKENS, SESSION_UNCACHED_INPUT_TOKENS, SESSION_OUTPUT_TOKENS
+    global SESSION_EFFORT_WEIGHTED_TOKENS, SESSION_EFFORT_WEIGHT_TOKENS
     global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
 
@@ -1736,6 +1745,8 @@ def set_model(model_key: str) -> bool:
     SESSION_CACHED_INPUT_TOKENS = 0
     SESSION_UNCACHED_INPUT_TOKENS = 0
     SESSION_OUTPUT_TOKENS = 0
+    SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
+    SESSION_EFFORT_WEIGHT_TOKENS = 0
     SESSION_COMPACTION_COUNT = 0
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0

@@ -46,6 +46,14 @@ def reset_conversation_history_command(arg: Any = None) -> None:
         config.TOTAL_TOKEN_COUNT = 0
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
+        # Keep calibration counters aligned with the fresh session baseline so
+        # :fuel_debug doesn't mix a reset T:/U: against stale composition or
+        # effort-weighted data.
+        config.SESSION_CACHED_INPUT_TOKENS = 0
+        config.SESSION_UNCACHED_INPUT_TOKENS = 0
+        config.SESSION_OUTPUT_TOKENS = 0
+        config.SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
+        config.SESSION_EFFORT_WEIGHT_TOKENS = 0
         config.SESSION_COMPACTION_COUNT = 0
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
@@ -145,16 +153,100 @@ def _round_rate_suggestion(rate_per_mtok: float) -> float:
     return round(round(rate_per_mtok / 0.05) * 0.05, 2)
 
 
+_FUEL_DEBUG_HELP = """\
+=== Fuel debug — how to read this ===
+
+WHAT THIS COMMAND IS FOR
+  The F: gauge is a per-session token budget = DAILY_COST_TARGET_USD divided by
+  an estimated $/1M-token rate. That rate is a guess until you calibrate it
+  against real spend. This command shows where the current rate comes from and
+  suggests a measured replacement for MODEL_TOKEN_RATE_PER_MTOK[<model>].
+
+THE INPUTS (what's feeding the estimate)
+  MODEL / REASONING_EFFORT     Active model and its STEADY reasoning effort.
+                               Single-turn upgrades are temporary and do NOT
+                               change REASONING_EFFORT.
+  Reasoning model match        Whether REASONING_MODEL_PREFIX appears in the
+                               model name. If true, effort multipliers apply.
+  Configured calibration rate  Your current MODEL_TOKEN_RATE_PER_MTOK[model],
+                               or None if unset. This is the value you're tuning.
+  Base rate source             How the base rate was chosen, in precedence order:
+                                 configured_calibration_rate  your config value
+                                 anchor_ratio                 scaled from the
+                                                              anchor model's rate
+                                 default_token_rate           last-resort default
+  Anchor model / rate          The model whose known rate is scaled by published
+                               price ratios when you haven't set this model yet.
+
+THE RATE ESTIMATES (three ways to price a token, least -> most trustworthy)
+  Theoretical blend / 1M       Published prices blended by FIXED assumed weights
+                               (cached/input/output). A pure guess; used before
+                               you've run enough.
+  Empirical blend / 1M         Published prices blended by YOUR session's actual
+                               token mix. Better -- it knows your cache ratio.
+  Observed rate / 1M           Real dollars paid / real tokens used this session.
+                               The ground truth. Needs T: and U: both > 0.
+
+EFFORT MULTIPLIERS (only for reasoning models)
+  Effort multiplier (now)      Multiplier for the STEADY effort. The live F:
+                               budget is sized with this -- forward-looking.
+  Effort multiplier (session)  Token-weighted average actually incurred,
+                               including single-turn upgrade bursts. Backward-
+                               looking; used to normalize the observed rate.
+  Upgrade load +X%             How much your single-turn upgrades raised cost
+                               over steady effort. Big and persistent => either
+                               raise steady REASONING_EFFORT or expect F: to run
+                               slightly generous.
+  Normalized observed rate     Observed rate divided by the SESSION multiplier,
+                               recovering the steady-effort BASELINE rate -- which
+                               is what MODEL_TOKEN_RATE_PER_MTOK is meant to hold
+                               (runtime re-applies the multiplier on top).
+
+CONFIDENCE
+  low / medium / high          Based on tokens accumulated this session:
+                               <1M low, >=1M medium, >=3M high. Treat low-
+                               confidence suggestions as provisional.
+
+THE OUTPUT
+  Session fuel budget          Current F: token budget given the effective rate.
+  Suggested config value       Rounded rate to paste into MODEL_TOKEN_RATE_PER_MTOK.
+  Basis                        Which estimate the suggestion used. Precedence:
+                               observed (>=1M tok) > empirical (>=1M) > theoretical.
+  YAML                         Copy-paste-ready config line.
+
+HOW TO CALIBRATE (the reliable recipe)
+  1. Run a normal session at your STEADY effort with a representative workload
+     (same kind of caching you usually get).
+  2. Accumulate >= 3M tokens (aim for "high" confidence).
+  3. Run :fuel_debug. Prefer a suggestion whose Basis is "observed" or
+     "empirical" -- ignore "theoretical", it's just the starting guess.
+  4. Paste the YAML line into MODEL_TOKEN_RATE_PER_MTOK in your config.yaml.
+  5. Re-run later to refine; the more you run, the better it gets.
+
+  Notes:
+   - Your cache mix drives $/token heavily. Calibrate from a session that looks
+     like your normal one, not an unusual heavy- or zero-cache run.
+   - For reasoning models, calibrate the BASELINE at steady effort. The
+     multiplier table scales from there; don't hand-tune the rate at high effort.
+   - "Upgrade load" tells you how much auto-upgrades cost. It's diagnostic, not
+     something you need to put in config.
+
+Run ':fuel_debug' with no argument for the live readout."""
+
+
 def fuel_debug_command(arg: str = None) -> None:
     """Dump fuel-budget state and suggest a model rate configuration value.
 
     Args:
-        arg: Ignored dispatcher argument.
+        arg: Optional dispatcher argument. ``help`` (or ``-h``/``--help``/``?``)
+            prints the field guide instead of the live readout.
 
     Returns:
         None.
     """
-    del arg
+    if isinstance(arg, str) and arg.strip().lower() in ("help", "-h", "--help", "?"):
+        print(_FUEL_DEBUG_HELP)
+        return
 
     model = getattr(config, "MODEL", None)
     effort = getattr(config, "REASONING_EFFORT", None)
@@ -177,6 +269,7 @@ def fuel_debug_command(arg: str = None) -> None:
     empirical_weights = empirical_mix["weights"]
     empirical_confidence = empirical_mix["confidence"]
     multiplier = rate_info["effort_multiplier"]
+    session_multiplier = rate_info["session_effort_multiplier"]
     effective_rate = model_effective_rate_per_mtok(model)
     budget = session_token_budget()
     anchor = rate_info["anchor_model"]
@@ -185,10 +278,17 @@ def fuel_debug_command(arg: str = None) -> None:
     base_rate_source = rate_info["base_rate_source"]
     reasoning_model_match = is_reasoning_model(model, prefix)
 
-    normalized_observed_rate = observed_rate
-    if reasoning_model_match and isinstance(observed_rate, (int, float)) and multiplier > 0:
-        normalized_observed_rate = observed_rate / multiplier
+    # Normalize by the session-average multiplier when available so occasional
+    # single-turn upgrades don't bias the recovered baseline high; fall back to
+    # the instantaneous multiplier before any effort-weighted data exists.
+    has_session_multiplier = isinstance(session_multiplier, (int, float)) and session_multiplier > 0
+    norm_multiplier = session_multiplier if has_session_multiplier else multiplier
 
+    normalized_observed_rate = observed_rate
+    if reasoning_model_match and isinstance(observed_rate, (int, float)) and norm_multiplier > 0:
+        normalized_observed_rate = observed_rate / norm_multiplier
+
+    norm_label = "session-average" if has_session_multiplier else "current"
     suggestion_basis = "configured calibration rate"
     suggestion_rate = configured_calibration_rate
     used_normalized_observed_rate = False
@@ -198,7 +298,7 @@ def fuel_debug_command(arg: str = None) -> None:
         and session_tokens >= 1_000_000
     ):
         suggestion_basis = (
-            f"observed U:/T: normalized by current multiplier ({observed_confidence} confidence)"
+            f"observed U:/T: normalized by {norm_label} multiplier ({observed_confidence} confidence)"
             if reasoning_model_match
             else f"observed U:/T: ({observed_confidence} confidence)"
         )
@@ -256,7 +356,18 @@ def fuel_debug_command(arg: str = None) -> None:
             f"output={empirical_weights['output_per_token']:.4f}"
         )
     print(f"Empirical blend / 1M:    {empirical_blended_rate!r}")
-    print(f"Effort multiplier:       {multiplier!r}")
+    print(f"Effort multiplier (now):     {multiplier!r}")
+    if has_session_multiplier:
+        print(f"Effort multiplier (session): {session_multiplier:.4f}")
+        if multiplier > 0:
+            upgrade_pct = (session_multiplier / multiplier - 1) * 100
+            weight_tokens = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
+            print(
+                f"Upgrade load:            +{upgrade_pct:.1f}% over steady effort "
+                f"(over {weight_tokens} effort-weighted tokens)"
+            )
+    else:
+        print("Effort multiplier (session): unavailable (no effort-weighted tokens yet)")
     print(f"Effective rate / 1M:     {effective_rate!r}")
     print(f"Session fuel budget:     {budget!r}")
     print(f"SESSION_COST_USD (T:):   ${session_cost:.6f}")
@@ -275,8 +386,44 @@ def fuel_debug_command(arg: str = None) -> None:
         print(
             "Normalized observed rate / 1M: "
             f"{normalized_observed_rate:.6f} "
-            "(assumes current reasoning multiplier is correct)"
+            f"(divided by {norm_label} multiplier; assumes the multiplier table is correct)"
         )
+
+    # Problem-state checks — the fuel analogue of cost_debug's invariant checks.
+    # Routed through print_colored_error (stderr) so they stand out without
+    # scattering the stdout dump above.
+    if budget is None:
+        print_colored_error(
+            "WARN  Session fuel budget is None — F: gauge is hidden. Set "
+            "DAILY_COST_TARGET_USD (and a usable rate) or SESSION_TOKEN_BUDGET."
+        )
+    if (
+        observed_rate is None
+        and empirical_blended_rate is None
+        and theoretical_blended_rate is None
+    ):
+        print_colored_error(
+            "WARN  No rate estimate available from any source — pricing data is "
+            "missing for this model. Suggestions will fall back to defaults."
+        )
+    if (
+        isinstance(observed_rate, (int, float))
+        and observed_rate > 0
+        and isinstance(empirical_blended_rate, (int, float))
+        and empirical_blended_rate > 0
+        # Only meaningful when the empirical blend reflects real session
+        # composition; without it, empirical falls back to the theoretical
+        # blend and the comparison would be a false alarm.
+        and empirical_weights is not None
+    ):
+        divergence = abs(observed_rate - empirical_blended_rate) / empirical_blended_rate
+        if divergence > 0.25:
+            print_colored_error(
+                f"WARN  Observed rate ({observed_rate:.4f}) and empirical blend "
+                f"({empirical_blended_rate:.4f}) differ by {divergence * 100:.0f}% — "
+                "published prices may be stale or the token mix is shifting; treat "
+                "the suggestion as provisional."
+            )
 
     print()
     print("--- Suggested calibration entry for MODEL_TOKEN_RATE_PER_MTOK ---")
@@ -287,7 +434,10 @@ def fuel_debug_command(arg: str = None) -> None:
     print(f"Suggested raw rate / 1M: {float(suggestion_rate):.6f}")
     print(f"Suggested config value:  {rounded_suggestion}")
     if used_normalized_observed_rate:
-        print("Note: normalized suggestion assumes the current multiplier table is correct.")
+        print(
+            f"Note: normalized by the {norm_label} multiplier; assumes the "
+            "reasoning multiplier table is correct."
+        )
     if isinstance(model, str) and model:
         print(f"YAML: {model}: {rounded_suggestion}")
 
