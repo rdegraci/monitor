@@ -2,16 +2,18 @@
 
 Tracks `PLAN_SMART_ORCHESTRATION.md`. `[ ]` todo · `[~]` in progress · `[x]` done.
 
-**Status:** Stages 1–2 implemented (tests green, 1460 passed); commit pending.
-Stage 3 not started.
+**Status:** Stages 1–3 implemented (tests green, 1473 passed); commit pending.
+Stage 3 reconciled Stage 1 — orchestrator behavior is now phase-scoped, not
+whole-session (only `--agent` children take a whole-session `SUBAGENT_MODEL`).
 
 ## Stage 1 — Role-based model selection ✅ (commit pending)
 - [x] config globals: `ORCHESTRATOR_MODEL`, `ORCHESTRATOR_REASONING_EFFORT`,
       `SUBAGENT_MODEL`, `SUBAGENT_REASONING_EFFORT` (default None) + global decl
 - [x] loader reads the four keys
-- [x] `apply_role_model_override()` helper (role resolution + `set_model` + role
-      reasoning effort). NOTE: no reverse-map needed — `set_model` accepts a full
-      model string directly and returns False on an unknown name.
+- [x] `apply_role_model_override()` helper (sub-agent whole-session override only;
+      no startup override for orchestrator). NOTE: no reverse-map needed —
+      `set_model` accepts a full model string directly and returns False on an
+      unknown name.
 - [x] call it in `app.py` after the `--agent` flag, before
       `configure_subsystems()`, gated on no explicit `--model`
 - [x] `config.yaml.example`: commented keys + dated-name note + cost caveat
@@ -45,16 +47,26 @@ Stage 3 not started.
       agent's spend and `:fuel_debug` shows the sub-agent model bucket — the
       child-emit→fold glue is covered by units, not an end-to-end spawn
 
-## Stage 3 — Phase-scoped escalation
-- [ ] read `conversation._fold_agent_injections_into_prefixes` + synthesis call
-      path; pick the phase signal (per-call arg vs short-lived flag)
-- [ ] extend `resolve_turn_model(...)` to priority resolver (phase → ORCH; override
-      → ADV; else MODEL), kept pure
-- [ ] set the collation phase signal at the synthesis call site
-- [ ] `llm_utils` swap site + `token_management` attribution consume the resolver
-- [ ] tests: collation → orchestrator model; non-collation → MODEL; attribution
-      bucket correct
-- [ ] full suite green; commit
+## Stage 3 — Phase-scoped escalation ✅ (commit pending)
+- [x] reconcile Stage 1: removed orchestrator startup override (orchestrator now
+      phase-scoped, not whole-session)
+- [x] `CURRENT_TURN_IS_COLLATION` flag: reset at top of `prepare_query_context`,
+      set True in `_fold_agent_injections_into_prefixes` when notices fold in
+- [x] `resolve_turn_model(...)` priority resolver (collation→ORCH; override→ADV;
+      else MODEL), kept pure + reasoning-capable gate
+- [x] `effective_turn_effort(...)` — override/steady, floored to
+      `ORCHESTRATOR_REASONING_EFFORT` on collation (avoids an inert key)
+- [x] `llm_utils` swap site consumes collation + orchestrator (swap fires on
+      collation OR override; ADV output cap only on ADV swaps)
+- [x] `token_management` attribution mirrors model + effort resolution
+- [x] SPEC §1/§2 contradiction fixed (sub-agent whole-session; orchestrator
+      phase-scoped)
+- [x] tests (`test_phase_escalation.py`, 11): resolver priority + gates,
+      effort floor/no-downgrade, fold sets/clears the flag
+- [x] full suite green (1473 passed)
+- [ ] commit Stage 3
+- [ ] (deferred) live spawn: confirm a real collation turn runs ORCHESTRATOR_MODEL
+      and non-collation turns run MODEL
 
 ## Cross-cutting verification
 - [ ] dated model names resolve in `model_config.json` for any model used as

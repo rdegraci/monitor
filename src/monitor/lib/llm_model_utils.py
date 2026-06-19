@@ -79,34 +79,72 @@ def higher_reasoning_effort(effort, floor):
     return effort
 
 
-def resolve_turn_model(base_model, adv_model, override_active, prefix):
+def resolve_turn_model(base_model, adv_model, override_active, prefix,
+                       *, orchestrator_model=None, collation_active=False):
     """Resolve the model actually used for a turn's LLM calls.
 
-    Returns ``adv_model`` when a reasoning override is active for the turn and a
-    distinct, reasoning-capable ``ADV_REASONING_MODEL`` is configured; otherwise
-    ``base_model``. Pure (no config access) so the call site (llm_utils) and the
-    cost-attribution site (token_management) compute the same effective model
-    from the same inputs.
+    Priority (first that applies wins):
+      1. collation/synthesis turn -> ``orchestrator_model`` (phase-scoped
+         escalation: the orchestrator runs base ``MODEL`` and swaps to the
+         stronger model only while folding sub-agent results)
+      2. reasoning override active -> ``adv_model``
+      3. otherwise -> ``base_model``
+
+    A target only swaps in if it is set, distinct from ``base_model``, and (like
+    ``base_model``) reasoning-capable — otherwise sending ``reasoning_effort`` to
+    it would error. Pure (no config access) so the call site (llm_utils) and the
+    cost-attribution site (token_management) compute the same effective model.
 
     Args:
         base_model: The configured default model (config.MODEL).
         adv_model: The configured advanced-reasoning model, or None.
         override_active: Whether a per-turn reasoning override is set.
-        prefix: REASONING_MODEL_PREFIX — both models must contain it for a swap.
+        prefix: REASONING_MODEL_PREFIX — models must contain it for a swap.
+        orchestrator_model: ORCHESTRATOR_MODEL, or None.
+        collation_active: Whether this turn folds sub-agent results (synthesis).
 
     Returns:
-        str: ``adv_model`` if the swap conditions hold, else ``base_model``.
+        str: the resolved model per the priority above.
     """
-    if (
-        override_active
-        and isinstance(adv_model, str)
-        and adv_model
-        and adv_model != base_model
-        and is_reasoning_model(base_model, prefix)
-        and is_reasoning_model(adv_model, prefix)
-    ):
+    def _swappable(target):
+        return (
+            isinstance(target, str)
+            and target
+            and target != base_model
+            and is_reasoning_model(base_model, prefix)
+            and is_reasoning_model(target, prefix)
+        )
+
+    if collation_active and _swappable(orchestrator_model):
+        return orchestrator_model
+    if override_active and _swappable(adv_model):
         return adv_model
     return base_model
+
+
+def effective_turn_effort(steady_effort, override_effort, *,
+                          collation_active=False, orchestrator_effort=None):
+    """The reasoning effort for a turn.
+
+    The per-turn override (if set) wins over the steady effort, then on a
+    collation turn ``orchestrator_effort`` is applied as a FLOOR (never a
+    downgrade — see ``higher_reasoning_effort``). Pure, so the call site and
+    cost attribution agree on the effort.
+
+    Args:
+        steady_effort: config.REASONING_EFFORT.
+        override_effort: config.CURRENT_TURN_REASONING_OVERRIDE, or None.
+        collation_active: Whether this is a collation/synthesis turn.
+        orchestrator_effort: ORCHESTRATOR_REASONING_EFFORT, applied as a floor
+            on collation turns.
+
+    Returns:
+        The effective effort label.
+    """
+    base = override_effort or steady_effort
+    if collation_active and isinstance(orchestrator_effort, str) and orchestrator_effort:
+        return higher_reasoning_effort(base, orchestrator_effort)
+    return base
 
 
 def get_model_tail(model: str) -> str:

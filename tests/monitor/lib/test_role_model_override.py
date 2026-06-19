@@ -45,18 +45,21 @@ def test_agent_role_uses_subagent_model_and_effort(monkeypatch):
     assert config.REASONING_EFFORT == "high"
 
 
-def test_orchestrator_role_uses_orchestrator_model_and_effort(monkeypatch):
+def test_orchestrator_role_does_not_override_whole_session(monkeypatch):
+    """Phase-scoped (Stage 3): the orchestrator runs base MODEL and escalates to
+    ORCHESTRATOR_MODEL only per collation turn — so the startup override is a
+    no-op for the orchestrator (no whole-session model/effort switch)."""
     _base(monkeypatch)
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True, raising=False)
     monkeypatch.setattr(config, "ORCHESTRATOR_MODEL", "openai/gpt-5.4-2026-03-05", raising=False)
     monkeypatch.setattr(config, "ORCHESTRATOR_REASONING_EFFORT", "low", raising=False)
     calls = _spy_set_model(monkeypatch)
     config.apply_role_model_override()
-    assert calls == ["openai/gpt-5.4-2026-03-05"]
-    assert config.REASONING_EFFORT == "low"
+    assert calls == []                          # no whole-session switch
+    assert config.REASONING_EFFORT == "medium"  # unchanged
 
 
-def test_agent_takes_precedence_over_orchestration(monkeypatch):
+def test_agent_role_applies_even_when_orchestration_enabled(monkeypatch):
     _base(monkeypatch)
     monkeypatch.setattr(config, "AGENT", True, raising=False)
     monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True, raising=False)
@@ -64,7 +67,7 @@ def test_agent_takes_precedence_over_orchestration(monkeypatch):
     monkeypatch.setattr(config, "ORCHESTRATOR_MODEL", "openai/should-not-be-used", raising=False)
     calls = _spy_set_model(monkeypatch)
     config.apply_role_model_override()
-    assert calls == ["openai/gpt-5.4-2026-03-05"]  # subagent, not orchestrator
+    assert calls == ["openai/gpt-5.4-2026-03-05"]  # subagent override applies
 
 
 def test_no_role_is_noop(monkeypatch):

@@ -505,8 +505,13 @@ def _fold_agent_injections_into_prefixes():
     a non-orchestrating session."""
     try:
         from monitor.lib import agent_orchestrator
-        for notice in agent_orchestrator.drain_pending_injections():
+        notices = agent_orchestrator.drain_pending_injections()
+        for notice in notices:
             config.enqueue_next_llm_prefix(notice)
+        # Stage 3: a turn that folds in sub-agent results is a collation/synthesis
+        # turn — mark it so the orchestrator escalates to ORCHESTRATOR_MODEL for it.
+        if notices:
+            config.CURRENT_TURN_IS_COLLATION = True
         # Stage 2: fold sub-agent cost/token deltas into this session's totals
         # (F: gauge + U:/T: status line + per-model calibration). Main thread.
         for usage in agent_orchestrator.drain_pending_usage():
@@ -1041,6 +1046,10 @@ def prepare_query_context(user_prompt):
     Returns:
         dict: Rollback metadata for the just-appended user turn.
     """
+    # Reset the per-turn collation flag before folding; _fold sets it True iff
+    # sub-agent results land on this turn (turn-scoped, like the reasoning override).
+    config.CURRENT_TURN_IS_COLLATION = False
+
     # PLAN 8a (async harvest): fold any completed/failed background sub-agent
     # notices into the prefix queue (on the MAIN thread) before it is drained
     # below — so a finished background agent reaches the orchestrator on this

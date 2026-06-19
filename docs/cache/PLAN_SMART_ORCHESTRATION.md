@@ -9,8 +9,10 @@ cost telemetry → phase escalation. (Telemetry is the load-bearing piece — it
 what makes the role split cost-honest — so it lands before the escalation that
 relies on it being accurate.)
 
-**Status:** Stages 1–2 implemented (tests green); commit pending. Stage 3 not
-started. See `CHECKLIST_SMART_ORCHESTRATION.md`.
+**Status:** Stages 1–3 implemented (tests green, 1473 passed); commit pending.
+See `CHECKLIST_SMART_ORCHESTRATION.md`. NOTE: Stage 3 reconciled Stage 1 — the
+orchestrator no longer has a whole-session override; only `--agent` children take
+a whole-session `SUBAGENT_MODEL`.
 
 ## Resolved risks (verified against the code)
 
@@ -37,10 +39,9 @@ Self-contained; no protocol changes.
   `SUBAGENT_MODEL` / `SUBAGENT_REASONING_EFFORT` globals (default None), loader
   reads, global decl.
 - New helper (config.py): `apply_role_model_override()` — resolves role
-  (`config.AGENT` → subagent; else `MONITOR_ENABLE_AGENT_ORCHESTRATION` →
-  orchestrator; else none), then calls `set_model(role_model)` and sets the
-  role's `REASONING_EFFORT`. Model and effort overrides apply independently;
-  no-op when both are unset.
+  (`config.AGENT` → subagent; otherwise no startup override), then calls
+  `set_model(role_model)` and sets the role's `REASONING_EFFORT`. Model and
+  effort overrides apply independently; no-op when both are unset.
   - **Implementation note:** `set_model` accepts a **full model string**
     directly (no `get_model_reverse_mapping` needed) and returns False on an
     unknown name, so an unresolvable override is logged and left on base `MODEL`.
@@ -71,12 +72,19 @@ Self-contained; no protocol changes.
   fold updates all three targets exactly once (no double-count across two
   results from a persistent agent).
 
-## Stage 3 — Phase-scoped escalation
+## Stage 3 — Phase-scoped escalation ✅ DONE (commit pending)
+
+Reconciliation: removed the orchestrator branch from `apply_role_model_override`
+(Stage 1) so the orchestrator runs base `MODEL` and escalates only during
+collation/synthesis turns. Effort: `ORCHESTRATOR_REASONING_EFFORT` is applied as
+a per-collation-turn floor via a shared `effective_turn_effort` helper (so it
+isn't an inert key and attribution matches the call).
 
 - `llm_model_utils.resolve_turn_model(...)`: extend to a priority resolver —
-  phase=collation → `ORCHESTRATOR_MODEL`; reasoning override → `ADV_REASONING_MODEL`;
+  collation/synthesis → `ORCHESTRATOR_MODEL`; reasoning override → `ADV_REASONING_MODEL`;
   else `MODEL`. Keep it pure; pass the phase in (read at the call site +
-  token_management).
+  token_management). Added `effective_turn_effort(...)` (override or steady,
+  floored to orchestrator effort on collation).
 - Set a per-call "collation" phase signal where gathered results are folded into
   the next turn (`conversation._fold_agent_injections_into_prefixes` → the
   synthesis LLM call). (Read this path first to pick the cleanest signal —

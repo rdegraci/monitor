@@ -655,6 +655,11 @@ PROJECT_WIKI_IDENTITY_PATH = None
 # at the next user turn (set or cleared in prepare_query_context). Also
 # cleared by set_model and :reset_history because it's turn-scoped state.
 CURRENT_TURN_REASONING_OVERRIDE = None
+# Per-turn collation/synthesis flag (smart orchestration). Set True in
+# prepare_query_context when completed sub-agent results were folded into THIS
+# turn, so the orchestrator transiently escalates to ORCHESTRATOR_MODEL for the
+# synthesis call (see resolve_turn_model). Turn-scoped: reset each turn.
+CURRENT_TURN_IS_COLLATION = False
 # Error-driven reasoning escalation. When True, a tool result that looks like a
 # failure (test/build/lint error, traceback, non-zero exit) escalates
 # reasoning_effort to "high" for the remainder of that user turn — so the model
@@ -1752,14 +1757,14 @@ _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
 
 
 def apply_role_model_override() -> None:
-    """Switch MODEL / REASONING_EFFORT to the role-specific model at startup.
+    """Switch MODEL / REASONING_EFFORT to the SUB-AGENT model at startup.
 
-    Role resolution (evaluated once, after ``config.AGENT`` and orchestration
-    flags are known):
-      - ``AGENT`` true  -> ``SUBAGENT_MODEL`` / ``SUBAGENT_REASONING_EFFORT``
-      - else ``MONITOR_ENABLE_AGENT_ORCHESTRATION`` true ->
-        ``ORCHESTRATOR_MODEL`` / ``ORCHESTRATOR_REASONING_EFFORT``
-      - otherwise: no change (plain ``MODEL`` / ``REASONING_EFFORT``).
+    Only ``--agent`` children take a whole-session role model
+    (``SUBAGENT_MODEL`` / ``SUBAGENT_REASONING_EFFORT``). The orchestrator does
+    NOT get a whole-session override — it runs the base ``MODEL`` and escalates
+    to ``ORCHESTRATOR_MODEL`` *transiently, per collation turn* (see
+    ``llm_model_utils.resolve_turn_model`` + ``CURRENT_TURN_IS_COLLATION``), so
+    it "backs down to MODEL" between coordination turns.
 
     The model override goes through ``set_model`` (which accepts a full model
     string and re-derives context/output windows + TPM), so a dated name from
@@ -1771,12 +1776,9 @@ def apply_role_model_override() -> None:
     """
     global REASONING_EFFORT
 
-    if AGENT:
-        role, role_model, role_effort = "sub-agent", SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
-    elif MONITOR_ENABLE_AGENT_ORCHESTRATION:
-        role, role_model, role_effort = "orchestrator", ORCHESTRATOR_MODEL, ORCHESTRATOR_REASONING_EFFORT
-    else:
-        return
+    if not AGENT:
+        return  # orchestrator/standalone keep base MODEL; only children override
+    role, role_model, role_effort = "sub-agent", SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
 
     if isinstance(role_model, str) and role_model and role_model != MODEL:
         if set_model(role_model):

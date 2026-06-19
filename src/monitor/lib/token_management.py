@@ -300,8 +300,9 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                 # fallback correctly and to attribute calibration data to the
                 # right model. An explicit `model` argument is authoritative (for
                 # callers that ran a non-default model). Otherwise derive from
-                # config.MODEL + the per-turn override, which reproduces the
-                # standard turn's transient ADV_REASONING_MODEL swap.
+                # config.MODEL + the per-turn override/collation phase, mirroring
+                # the swap llm_utils performs (ADV on override, ORCHESTRATOR on
+                # collation), so calibration lands in the right model's bucket.
                 if isinstance(model, str) and model:
                     effective_model = model
                 else:
@@ -310,6 +311,8 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                         getattr(config, "ADV_REASONING_MODEL", None),
                         bool(getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)),
                         getattr(config, "REASONING_MODEL_PREFIX", "") or "",
+                        orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
+                        collation_active=bool(getattr(config, "CURRENT_TURN_IS_COLLATION", False)),
                     )
                 try:
                     cost = litellm.completion_cost(completion_response=cost_response)
@@ -359,6 +362,7 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                         calibration_entry,
                         effort_multiplier_for,
                     )
+                    from monitor.lib.llm_model_utils import effective_turn_effort
 
                     uncached_input, cached_input, output_tokens = _extract_usage_tokens(cost_response)
                     # All calibration stats are attributed to the effective model
@@ -380,10 +384,14 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                     # the multiplier is applied to at runtime.
                     turn_tokens = int(uncached_input) + int(cached_input) + int(output_tokens)
                     if turn_tokens > 0:
-                        turn_effort = (
-                            getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
-                            or getattr(config, "REASONING_EFFORT", "")
-                            or ""
+                        # Mirror llm_utils' effort resolution (override, plus the
+                        # ORCHESTRATOR_REASONING_EFFORT floor on collation turns) so
+                        # the multiplier matches the effort actually sent.
+                        turn_effort = effective_turn_effort(
+                            getattr(config, "REASONING_EFFORT", "") or "",
+                            getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None),
+                            collation_active=bool(getattr(config, "CURRENT_TURN_IS_COLLATION", False)),
+                            orchestrator_effort=getattr(config, "ORCHESTRATOR_REASONING_EFFORT", None),
                         )
                         turn_multiplier = effort_multiplier_for(effective_model, turn_effort)
                         entry["effort_weighted_tokens"] += turn_tokens * turn_multiplier

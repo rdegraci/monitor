@@ -40,6 +40,7 @@ from monitor.lib.llm_model_utils import (
     TYPE_KEY,
     get_model_head,
     get_model_tail,
+    effective_turn_effort,
     is_reasoning_model,
     normalize_tool_descriptors,
     resolve_turn_model,
@@ -388,22 +389,34 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                 # up — to medium or, on tool failure, high), so reading it
                 # unconditionally never causes a surprise downgrade.
                 override = getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
-                effective_effort = override or config.REASONING_EFFORT
+                collation = bool(getattr(config, "CURRENT_TURN_IS_COLLATION", False))
+                effective_effort = effective_turn_effort(
+                    config.REASONING_EFFORT,
+                    override,
+                    collation_active=collation,
+                    orchestrator_effort=getattr(config, "ORCHESTRATOR_REASONING_EFFORT", None),
+                )
                 effective_max = config.REASONING_MAX_COMPLETION_TOKENS
-                # Single-turn model swap: when an override is active, run the
-                # bumped turn on the more-capable ADV_REASONING_MODEL if one is
-                # configured (and is itself reasoning-capable). Purely transient
-                # — kwargs only, never set_model — so the configured default
-                # model, the gauges, and session state are all untouched.
-                if override:
-                    swapped = resolve_turn_model(
-                        model, getattr(config, "ADV_REASONING_MODEL", None), True, prefix
+                # Single-turn, transient model swap (kwargs only, never set_model):
+                #   - collation/synthesis turn -> ORCHESTRATOR_MODEL
+                #   - else a reasoning override -> ADV_REASONING_MODEL
+                # So the configured default model, gauges, and session state are
+                # all untouched, and the orchestrator backs down to MODEL after.
+                swapped = resolve_turn_model(
+                    model,
+                    getattr(config, "ADV_REASONING_MODEL", None),
+                    bool(override),
+                    prefix,
+                    orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
+                    collation_active=collation,
+                )
+                if swapped != model:
+                    kwargs["model"] = swapped
+                    kwargs["tools"] = function_descriptions(
+                        tool_descriptions, gemini_tool_descriptions, swapped
                     )
-                    if swapped != model:
-                        kwargs["model"] = swapped
-                        kwargs["tools"] = function_descriptions(
-                            tool_descriptions, gemini_tool_descriptions, swapped
-                        )
+                    # The ADV output-window cap applies only on an ADV swap.
+                    if swapped == getattr(config, "ADV_REASONING_MODEL", None):
                         adv_out = getattr(config, "ADV_REASONING_MODEL_OUTPUT_WINDOW", None)
                         if (
                             isinstance(adv_out, int)

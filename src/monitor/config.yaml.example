@@ -10,8 +10,8 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 # Typically a stronger model than MODEL, used only for bumped turns. The swap is
 # transient (per-call): only the model and its output cap change — session state
 # (C:/F: gauges, context window, TPM) stays on MODEL. Leave unset to use MODEL.
-# ADV_REASONING_MODEL: openai/gpt-5.4-2026-03-05  # Fully qualified advanced-reasoning model (provider/model:version)
-# ADV_REASONING_MODEL_OUTPUT_WINDOW: 128000  # Caps the bumped turn's max_completion_tokens for the swapped model
+ADV_REASONING_MODEL: openai/gpt-5.4-2026-03-05  # Fully qualified advanced-reasoning model (provider/model:version)
+ADV_REASONING_MODEL_OUTPUT_WINDOW: 128000  # Caps the bumped turn's max_completion_tokens for the swapped model
 
 # Soft auto-compaction threshold as a FRACTION of the active model's input
 # window. Compaction (summarize older history into one message, keep recent
@@ -73,8 +73,8 @@ AUTO_COMPACT_THRESHOLD_RATIO: 0.50
 # NOTE: follows the session's PRIMARY model only. A transient ADV_REASONING_MODEL
 # swap is NOT compacted separately — the history is shared and sized for the
 # primary, so there is no per-swap ratio.
-# AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL:
-#   openai/gpt-5.4-2026-03-05: 0.12   # base: dodge the 128K long-context 2x tier
+AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL:
+  openai/gpt-5.4-2026-03-05: 0.12   # base: dodge the 128K long-context 2x tier
 
 # F: fuel-tank gauge — a per-session cumulative-token budget, shown before C:
 # in the status line as F: = budget - SESSION_TOTAL_TOKENS (the exact remaining
@@ -97,8 +97,8 @@ DAILY_COST_TARGET_USD: 5.0          # dollars/day the tank represents; 0 hides t
 # reasoning effort. Seed/tune from observation: at session end, your rate is
 # T: (dollars) / U: (tokens). Models not listed here are scaled off the anchor.
 MODEL_TOKEN_RATE_PER_MTOK:
-  openai/gpt-5.4-2026-03-05: 0.50          # observed at medium reasoning
-  openai/gpt-5.4-mini-2026-03-17: 0.25     # observed at medium reasoning
+  openai/gpt-5.4-2026-03-05: 0.27          # observed at medium reasoning
+  openai/gpt-5.4-mini-2026-03-17: 0.10     # observed at medium reasoning
 TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4-2026-03-05   # scale unlisted models off this measured entry
 DEFAULT_TOKEN_RATE_PER_MTOK: 1.0    # last resort when no anchor/table rate is available
 
@@ -637,9 +637,10 @@ MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may 
 
 # Role-based model selection (smart orchestration). Run different models/efforts
 # by role, instead of one MODEL everywhere. Resolved at startup:
-#   - the orchestrator (this instance, when MONITOR_ENABLE_AGENT_ORCHESTRATION is
-#     true and it is not itself a --agent) uses ORCHESTRATOR_MODEL / _REASONING_EFFORT
 #   - spawned `monitor --agent` children use SUBAGENT_MODEL / _REASONING_EFFORT
+#   - the orchestrator does NOT get a startup override; it uses ORCHESTRATOR_MODEL
+#     only transiently on collation/synthesis turns
+#     NOTE: ORCHESTRATOR_MODEL must be reasoning-capable.
 # Each falls back to MODEL / REASONING_EFFORT when unset, and an explicit
 # `--model` on the command line always wins over these. Use the SAME
 # fully-qualified (dated) model string as MODEL — the override re-derives the
@@ -650,10 +651,10 @@ MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may 
 # NOTE (cost): sub-agent spend is not yet folded into this instance's F: gauge /
 # U:/T: status line — agents are separate processes (telemetry aggregation is a
 # planned follow-up; see docs/cache/PLAN_SMART_ORCHESTRATION.md).
-# ORCHESTRATOR_MODEL: openai/gpt-5.4-2026-03-05
-# ORCHESTRATOR_REASONING_EFFORT: medium
-# SUBAGENT_MODEL: openai/gpt-5.4-mini-2026-03-17
-# SUBAGENT_REASONING_EFFORT: high
+ORCHESTRATOR_MODEL: openai/gpt-5.4-2026-03-05
+ORCHESTRATOR_REASONING_EFFORT: medium
+SUBAGENT_MODEL: openai/gpt-5.4-mini-2026-03-17
+SUBAGENT_REASONING_EFFORT: high
 
 # Sub-agent write behavior
 #
