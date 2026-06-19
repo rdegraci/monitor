@@ -2,6 +2,7 @@
 Tests for lib.rate_limiter
 """
 import pytest
+import monitor.config  # noqa: F401 — import first to break the config<->rate_limiter cycle
 from monitor.lib import rate_limiter
 
 class DummyLogger:
@@ -89,6 +90,18 @@ def test_rate_limit_no_records():
     can_proceed, cooldown = rl.check_limit(81)
     assert can_proceed is None
     assert cooldown == 10
+
+
+@pytest.mark.parametrize("bad_limit", [None, 0, -5, "lots"])
+def test_invalid_limit_falls_back_to_default(bad_limit):
+    """MODEL_MAX_TPM can resolve to None (unrecognized MODEL / unresolvable
+    MODEL_INPUT_TIER). RateLimiter must degrade to the default cap instead of
+    crashing on `None * safety_factor` (regression for the startup TypeError)."""
+    logger = DummyLogger()
+    rl = rate_limiter.RateLimiter(logger, limit=bad_limit, window_seconds=60, safety_factor=0.8)
+    assert rl.limit == 800000
+    assert rl.safety_threshold == pytest.approx(800000 * 0.8)
+    assert any("falling back to default" in m for m in logger.warning_msgs)
 
 """
 This test suite covers:

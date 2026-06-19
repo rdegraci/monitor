@@ -134,6 +134,20 @@ class RateLimiter:
                     limit, window_seconds, safety_factor)
 
         self.logger = logger
+        # MODEL_MAX_TPM can legitimately resolve to None — e.g. an unrecognized
+        # MODEL (not in model_config.json's model_mapping) or an unresolvable
+        # MODEL_INPUT_TIER. The startup path logs a warning and continues with
+        # None, so degrade to a safe default here instead of crashing on
+        # None * safety_factor. Rate limiting stays on, just at a generic cap.
+        if not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit <= 0:
+            logger.warning(
+                "RateLimiter: limit is %r (MODEL_MAX_TPM unresolved); falling back to "
+                "default %d tokens / %ss window. Set MODEL_MAX_TPM explicitly, or use a "
+                "MODEL / MODEL_INPUT_TIER that resolves in model_config.json, for accurate "
+                "rate limiting.",
+                limit, 800000, window_seconds,
+            )
+            limit = 800000
         self.limit = limit
         self.window_seconds = window_seconds
         self.safety_threshold = limit * safety_factor
