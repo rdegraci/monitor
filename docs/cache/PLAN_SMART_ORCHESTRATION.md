@@ -9,7 +9,7 @@ cost telemetry → phase escalation. (Telemetry is the load-bearing piece — it
 what makes the role split cost-honest — so it lands before the escalation that
 relies on it being accurate.)
 
-**Status:** Stage 1 implemented (tests green); commit pending. Stages 2–3 not
+**Status:** Stages 1–2 implemented (tests green); commit pending. Stage 3 not
 started. See `CHECKLIST_SMART_ORCHESTRATION.md`.
 
 ## Resolved risks (verified against the code)
@@ -52,7 +52,7 @@ Self-contained; no protocol changes.
   no-role no-op, unset-model-applies-effort, model==active skip,
   unresolvable-model-keeps-base, invalid-effort-ignored.
 
-## Stage 2 — Sub-agent cost telemetry (result-only, cost+tokens)
+## Stage 2 — Sub-agent cost telemetry (result-only, cost+tokens) ✅ DONE (commit pending)
 
 - `agent_protocol.py`: extend `result(...)` to accept an optional `usage` dict;
   validate shape in `_validate` (best-effort — drop malformed, never reject the

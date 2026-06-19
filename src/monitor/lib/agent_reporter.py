@@ -49,6 +49,14 @@ class AgentReporter:
         # (PLAN 8f). The main loop checks this after reporting a result.
         self.one_shot = one_shot
 
+        # Cost-telemetry cursor (Stage 2): cumulative cost/tokens already
+        # reported to the orchestrator, so each result can carry only the DELTA
+        # since the previous one (persistent agents report per task; one-shot
+        # agents report their whole run). The call site reads config and updates
+        # these — the reporter itself stays config-free (no import cycle).
+        self.reported_cost_usd: float = 0.0
+        self.reported_total_tokens: int = 0
+
         self._sock: Optional[socket.socket] = None
         self._seq = 0
         self._lock = threading.Lock()
@@ -91,8 +99,10 @@ class AgentReporter:
     def emit_stdout(self, chunk: str) -> None:
         self._emit(ap.stdout(self.agent_id, self._next_seq(), chunk))
 
-    def result(self, *, ok: bool, summary: str, data: Optional[Any] = None) -> None:
-        self._emit(ap.result(self.agent_id, self._next_seq(), ok=ok, summary=summary, data=data))
+    def result(self, *, ok: bool, summary: str, data: Optional[Any] = None,
+               usage: Optional[Any] = None) -> None:
+        self._emit(ap.result(self.agent_id, self._next_seq(), ok=ok, summary=summary,
+                             data=data, usage=usage))
 
     def report_error(self, *, kind: str, message: str, recoverable: bool = False) -> None:
         self._emit(ap.error(self.agent_id, self._next_seq(), kind=kind, message=message,

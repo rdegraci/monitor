@@ -507,6 +507,10 @@ def _fold_agent_injections_into_prefixes():
         from monitor.lib import agent_orchestrator
         for notice in agent_orchestrator.drain_pending_injections():
             config.enqueue_next_llm_prefix(notice)
+        # Stage 2: fold sub-agent cost/token deltas into this session's totals
+        # (F: gauge + U:/T: status line + per-model calibration). Main thread.
+        for usage in agent_orchestrator.drain_pending_usage():
+            config.record_agent_usage(usage)
     except Exception:
         logger.debug("agent injection fold failed", exc_info=True)
 
@@ -533,7 +537,26 @@ def _maybe_report_agent_result(user_input):
         summary = None
     if not summary:
         return False
-    rep.result(ok=True, summary=summary)
+    # Cost telemetry (Stage 2): report the cost/token DELTA since the previous
+    # result so the orchestrator can fold this agent's spend into its F: gauge
+    # and U:/T: status line. Best-effort — never block the result on telemetry.
+    usage = None
+    try:
+        cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
+        tokens = getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+        d_cost = cost - getattr(rep, "reported_cost_usd", 0.0)
+        d_tokens = tokens - getattr(rep, "reported_total_tokens", 0)
+        if d_cost > 0 or d_tokens > 0:
+            usage = {
+                "model": getattr(config, "MODEL", "") or "",
+                "cost_usd": d_cost,
+                "total_tokens": d_tokens,
+            }
+            rep.reported_cost_usd = cost
+            rep.reported_total_tokens = tokens
+    except Exception:
+        logger.debug("agent cost-telemetry delta failed", exc_info=True)
+    rep.result(ok=True, summary=summary, usage=usage)
     rep.status("idle")
     return True
 

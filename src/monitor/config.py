@@ -1800,6 +1800,41 @@ def apply_role_model_override() -> None:
             )
 
 
+def record_agent_usage(usage) -> None:
+    """Fold a sub-agent's reported usage delta into THIS (orchestrator) session's
+    totals (Stage 2 cost telemetry).
+
+    Main-thread only — called from the injection-fold step, so config cost globals
+    are never mutated from a listener reader thread. Best-effort: malformed input
+    is ignored. Updates ``SESSION_COST_USD`` + ``SESSION_TOTAL_TOKENS`` (U:/T:
+    status line and F: drain) and ``SESSION_CALIBRATION_BY_MODEL[model]`` (F:
+    sizing and :fuel_debug per-model rate for the sub-agent model).
+    """
+    global SESSION_COST_USD, SESSION_TOTAL_TOKENS
+    if not isinstance(usage, dict):
+        return
+    try:
+        cost = float(usage.get("cost_usd", 0.0) or 0.0)
+        tokens = int(usage.get("total_tokens", 0) or 0)
+    except (TypeError, ValueError):
+        return
+    if cost <= 0 and tokens <= 0:
+        return
+    if cost > 0:
+        SESSION_COST_USD = (SESSION_COST_USD or 0.0) + cost
+    if tokens > 0:
+        SESSION_TOTAL_TOKENS = (SESSION_TOTAL_TOKENS or 0) + tokens
+    model = usage.get("model")
+    if isinstance(model, str) and model:
+        try:
+            from monitor.lib.model_pricing import calibration_entry
+            entry = calibration_entry(model, create=True)
+            entry["cost_usd"] = (entry.get("cost_usd", 0.0) or 0.0) + cost
+            entry["total_tokens"] = (entry.get("total_tokens", 0) or 0) + tokens
+        except Exception:
+            logger.debug("Failed to fold agent usage into calibration", exc_info=True)
+
+
 def set_model(model_key: str) -> bool:
     """
     Changes the active model configuration at runtime.

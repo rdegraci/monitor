@@ -194,10 +194,44 @@ def stdout(agent_id: str, seq: int, chunk: str) -> Dict[str, Any]:
     return make_frame(STDOUT, agent_id, seq, {"chunk": chunk})
 
 
-def result(agent_id: str, seq: int, *, ok: bool, summary: str, data: Optional[Any] = None) -> Dict[str, Any]:
+def sanitize_usage(usage: Any) -> Optional[Dict[str, Any]]:
+    """Coerce a child's cost-telemetry block to ``{model, cost_usd, total_tokens}``
+    or return None. Best-effort: malformed input yields None (never raises), so a
+    bad ``usage`` block is silently dropped rather than rejecting the frame.
+
+    Used both when building a ``result`` frame (sender) and when reading one
+    (orchestrator), so the contract is enforced on both ends.
+    """
+    if not isinstance(usage, dict):
+        return None
+    model = usage.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    try:
+        cost = float(usage.get("cost_usd"))
+        tokens = int(usage.get("total_tokens"))
+    except (TypeError, ValueError):
+        return None
+    if cost < 0 or tokens < 0:
+        return None
+    return {"model": model, "cost_usd": cost, "total_tokens": tokens}
+
+
+def result(
+    agent_id: str,
+    seq: int,
+    *,
+    ok: bool,
+    summary: str,
+    data: Optional[Any] = None,
+    usage: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     body: Dict[str, Any] = {"ok": ok, "summary": summary}
     if data is not None:
         body["data"] = data
+    clean_usage = sanitize_usage(usage)
+    if clean_usage is not None:
+        body["usage"] = clean_usage
     return make_frame(RESULT, agent_id, seq, body)
 
 

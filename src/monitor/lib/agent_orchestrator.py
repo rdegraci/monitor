@@ -105,6 +105,12 @@ _pending_output: Deque[str] = collections.deque(maxlen=_MAX_PENDING_OUTPUT)
 _pending_injections: List[str] = []
 _INJECTION_SUMMARY_CAP = 4000  # truncate a huge subagent summary before injecting
 
+# Sub-agent cost telemetry (Stage 2): sanitized `usage` blocks from `result`
+# frames, awaiting fold into the orchestrator's session totals. Accumulated by
+# the reader thread (under _registry_lock) and drained on the MAIN thread, so
+# config cost globals are never mutated cross-thread.
+_pending_usage: List[Dict[str, Any]] = []
+
 
 def _default_socket_path() -> str:
     # Short path under the runtime/temp dir (mind the ~104-byte sun_path limit).
@@ -174,6 +180,11 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
             rec["results"].append(frame["body"])
             rec["terminal"] = True
             _count_resolved(rec)
+            # Cost telemetry: queue the sanitized usage delta for the main thread
+            # to fold into session totals (best-effort; absent/bad usage ignored).
+            usage = ap.sanitize_usage(frame["body"].get("usage"))
+            if usage is not None:
+                _pending_usage.append(usage)
             ok = frame["body"].get("ok", True)
             summary = frame["body"].get("summary", "")
             _pending_output.append(f"[{agent_id}] {'✓' if ok else '✗'} {summary}")
@@ -391,6 +402,16 @@ def drain_pending_injections() -> List[str]:
     with _registry_lock:
         out = list(_pending_injections)
         _pending_injections.clear()
+        return out
+
+
+def drain_pending_usage() -> List[Dict[str, Any]]:
+    """Return and clear queued sub-agent `usage` deltas (Stage 2 cost telemetry).
+    Call on the MAIN thread at query-prep time, then feed each to
+    config.record_agent_usage — keeping config cost globals single-threaded."""
+    with _registry_lock:
+        out = list(_pending_usage)
+        _pending_usage.clear()
         return out
 
 
