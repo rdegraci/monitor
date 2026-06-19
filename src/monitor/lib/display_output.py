@@ -66,7 +66,12 @@ def _context_color(remaining_tokens, remaining_percent):
     if remaining_tokens == 0:
         return red
     try:
-        compact_ratio = getattr(config, "AUTO_COMPACT_THRESHOLD_RATIO", 0.30) or 0.30
+        # Per-model compaction ratio for the active model, so C: color
+        # thresholds track the same per-model fraction compaction uses.
+        if hasattr(config, "effective_auto_compact_ratio"):
+            compact_ratio = config.effective_auto_compact_ratio() or 0.30
+        else:
+            compact_ratio = getattr(config, "AUTO_COMPACT_THRESHOLD_RATIO", 0.30) or 0.30
         yellow_threshold_pct = (1 - compact_ratio) * 100
         red_threshold_pct = yellow_threshold_pct / 2
         if remaining_percent < red_threshold_pct:

@@ -400,7 +400,12 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         # ceiling at the `return None, ...` check below remains as a backstop
         # for cases where compaction can't bring the prompt under (e.g. a
         # single huge tool result).
-        _compact_ratio = getattr(_cfg(), "AUTO_COMPACT_THRESHOLD_RATIO", 0.30)
+        # Per-model compaction ratio (config.MODEL → AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL,
+        # else the scalar default). Falls back defensively to the scalar / 0.30.
+        try:
+            _compact_ratio = _cfg().effective_auto_compact_ratio()
+        except Exception:
+            _compact_ratio = getattr(_cfg(), "AUTO_COMPACT_THRESHOLD_RATIO", 0.30)
         _soft_threshold = (
             int(input_window_limit * _compact_ratio)
             if input_window_limit is not None

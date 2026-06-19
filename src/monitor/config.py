@@ -709,6 +709,36 @@ RECENT_TURN_WINDOW = 10
 # nor hard summarization fires. Set this to 1.0 to disable the soft trigger
 # and revert to compact-only-at-overflow behavior.
 AUTO_COMPACT_THRESHOLD_RATIO = 0.30
+# Per-model override of the compaction ratio, keyed by the fully-qualified model
+# string (same keys as MODEL / MODEL_TOKEN_RATE_PER_MTOK). The active model
+# (config.MODEL) is looked up here first; unlisted models use the scalar default
+# above. Lets a model with an absolute cost cliff (e.g. gpt-5.4 base's 128K
+# long-context tier) compact at a lower fraction than the global default without
+# over-compacting other models. Resolved via effective_auto_compact_ratio().
+AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL = {}
+
+
+def effective_auto_compact_ratio(model=None):
+    """The soft auto-compaction ratio for the active (or given) model.
+
+    Returns the per-model override from ``AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL``
+    when present and valid (in ``(0, 1]``), else the global
+    ``AUTO_COMPACT_THRESHOLD_RATIO``. Keyed by the fully-qualified model string,
+    defaulting to ``config.MODEL``.
+
+    Args:
+        model: Optional model name. When omitted, uses the active ``MODEL``.
+
+    Returns:
+        float: The effective compaction ratio.
+    """
+    resolved_model = model if model is not None else (MODEL or "")
+    overrides = AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL
+    if isinstance(overrides, dict):
+        val = overrides.get(resolved_model)
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and 0 < val <= 1:
+            return float(val)
+    return AUTO_COMPACT_THRESHOLD_RATIO
 
 # How many recent "turns" (user-message-bounded segments) to preserve
 # verbatim when auto-compaction fires. Older history before this boundary is
@@ -1005,7 +1035,7 @@ def configure_globals():
     # to (0, 1] to keep the trigger sane — 0 or negative would compact on
     # every turn, > 1 would never fire. Invalid values fall back to the
     # module-level default (0.30).
-    global AUTO_COMPACT_THRESHOLD_RATIO
+    global AUTO_COMPACT_THRESHOLD_RATIO, AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL
     _ratio_raw = yaml_config.get("AUTO_COMPACT_THRESHOLD_RATIO")
     if _ratio_raw is not None:
         try:
@@ -1021,6 +1051,35 @@ def configure_globals():
             logger.warning(
                 "AUTO_COMPACT_THRESHOLD_RATIO=%r is not a number; keeping default %s",
                 _ratio_raw, AUTO_COMPACT_THRESHOLD_RATIO,
+            )
+
+    # Per-model overrides. Validate each entry independently; a bad entry is
+    # dropped (warned) so the model falls back to the scalar default rather than
+    # taking a garbage ratio.
+    AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL = {}
+    _ratio_map_raw = yaml_config.get("AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL")
+    if _ratio_map_raw is not None:
+        if isinstance(_ratio_map_raw, dict):
+            for _m, _r in _ratio_map_raw.items():
+                try:
+                    _rv = float(_r)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL[%r]=%r is not a number; ignoring entry",
+                        _m, _r,
+                    )
+                    continue
+                if 0.0 < _rv <= 1.0:
+                    AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL[_m] = _rv
+                else:
+                    logger.warning(
+                        "AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL[%r]=%r outside (0, 1]; ignoring entry",
+                        _m, _r,
+                    )
+        else:
+            logger.warning(
+                "AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL is not a dict (%s); ignoring",
+                type(_ratio_map_raw).__name__,
             )
 
     # F: fuel-tank cap — optional MANUAL OVERRIDE (exact token count). Positive

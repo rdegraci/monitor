@@ -52,7 +52,29 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 #   1.00  Disables the soft trigger entirely. Compaction only fires at the
 #         hard input-window ceiling (when the next request wouldn't fit).
 #         Treat as "emergency only" — you'll pay the worst-case curve.
+# This is the DEFAULT, used for any model not listed in
+# AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL below.
 AUTO_COMPACT_THRESHOLD_RATIO: 0.50
+
+# Per-model override of the compaction ratio. Resolved against the ACTIVE
+# session model (config.MODEL); unlisted models fall back to
+# AUTO_COMPACT_THRESHOLD_RATIO above. Key by the SAME fully-qualified (dated)
+# model string used for MODEL / MODEL_TOKEN_RATE_PER_MTOK — an unmatched or
+# invalid entry silently uses the default.
+#
+# Why per model: the ratio is a fraction of each model's window, but gpt-5.4
+# base has an ABSOLUTE cost cliff a fraction can't track — input + cached rates
+# DOUBLE above ~128K tokens, for every token in that call. With base's ~1.05M
+# window the default 0.50 compacts at ~525K, deep in the 2x tier. Pin base to
+# ~0.12 (compact at ~126K) to stay in the cheap tier. mini (400K window, flat
+# pricing) is fine at 0.50, where 0.12 would over-compact (~48K). One global
+# ratio can't serve both. Also shifts the C: indicator color thresholds per model.
+#
+# NOTE: follows the session's PRIMARY model only. A transient ADV_REASONING_MODEL
+# swap is NOT compacted separately — the history is shared and sized for the
+# primary, so there is no per-swap ratio.
+# AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL:
+#   openai/gpt-5.4-2026-03-05: 0.12   # base: dodge the 128K long-context 2x tier
 
 # F: fuel-tank gauge — a per-session cumulative-token budget, shown before C:
 # in the status line as F: = budget - SESSION_TOTAL_TOKENS (the exact remaining
