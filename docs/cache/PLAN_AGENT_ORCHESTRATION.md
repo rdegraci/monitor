@@ -67,6 +67,8 @@ The protocol supports at least these frame types:
 - `exit`
 - `heartbeat`
 - `cancel`
+- `usage` (proposed) — child cost/token telemetry; see
+  "Cost telemetry and fuel aggregation".
 
 Key implementation modules:
 - `src/monitor/lib/agent_protocol.py`
@@ -213,6 +215,80 @@ This means the codebase now supports a real researcher vs worker distinction,
 although the documentation and guidance around that distinction can still be
 improved.
 
+## Role-based model selection (proposed)
+
+Different orchestration roles want different models. Planned config knobs, each
+falling back to `MODEL` / `REASONING_EFFORT` when unset (same pattern as
+`ADV_REASONING_MODEL` / `COMMIT_MODEL`):
+
+- `ORCHESTRATOR_MODEL` / `ORCHESTRATOR_REASONING_EFFORT` — the coordinator.
+- `SUBAGENT_MODEL` / `SUBAGENT_REASONING_EFFORT` — `--agent` children (groups
+  with the existing `SUBAGENT_*` knobs).
+
+A spawned child resolves `SUBAGENT_MODEL` at config load when `config.AGENT` is
+set; the orchestrator resolves `ORCHESTRATOR_MODEL` when
+`MONITOR_ENABLE_AGENT_ORCHESTRATION` is true and it is not itself an agent. Either
+override must re-derive that model's context/output windows and TPM from
+`model_config.json` (reverse-map → shorthand), so **dated model names are
+required** (an undated name fails the reverse lookup → `MODEL_MAX_TPM` is
+unresolved).
+
+### Phase-scoped escalation (proposed)
+
+Rather than running the orchestrator on the strong model for its whole session,
+the strong model is swapped in **transiently, per call**, only for the
+coordination-critical phases — then it falls back to `MODEL` automatically (no
+`set_model`; the same mechanism as the `ADV_REASONING_MODEL` swap, so "back down"
+is free):
+
+- **Collation/synthesis** is a deterministic trigger: when agent results are
+  folded into the next orchestrator turn
+  (`_fold_agent_injections_into_prefixes`), that LLM call runs on
+  `ORCHESTRATOR_MODEL`.
+- **Decomposition/spawning** is not knowable a priori — the decision to spawn
+  emerges from the call itself — so it leans on the existing reasoning-bump
+  heuristic rather than a dedicated pre-call trigger.
+
+Implementation: extend `resolve_turn_model(...)` to consider triggers in
+priority order — orchestration phase → `ORCHESTRATOR_MODEL`; reasoning override →
+`ADV_REASONING_MODEL`; else `MODEL` — so one resolver drives both the call site
+(`llm_utils`) and cost attribution (`token_management`).
+
+Cost note: the prompt cache is keyed per model, so each swap forfeits the
+cached-input discount for that call. Acceptable for genuinely hard spawn/collate
+turns; this is exactly why the phase-swap must **not** fire on routine turns.
+
+## Cost telemetry and fuel aggregation (proposed)
+
+Today a `--agent` child tracks its own cost in its own in-memory
+`SESSION_CALIBRATION_BY_MODEL` / `SESSION_COST_USD`, reports a `result` summary
+(`ok` + `summary` only), and exits — the dollars never reach the orchestrator. So
+the orchestrator's F: fuel gauge and the U:/T: status-line costs **understate true
+session spend**: the entire sub-agent fleet is invisible to the budget. This
+matters more once `SUBAGENT_MODEL` exists, because moving work onto cheaper agents
+would otherwise *hide* spend rather than account for it.
+
+Planned fix — sub-agents report cost back, orchestrator aggregates:
+
+- **Frame protocol:** add a `usage` frame (and/or a `usage` block on `result`)
+  carrying the child's model, `cost_usd`, `total_tokens`, and — ideally — the
+  token composition (cached / uncached / output) and effort-weighted multiplier
+  accumulators, so the parent can populate a full per-model calibration entry,
+  not just a cost total.
+- **Cadence:** at least once per completed task (on `result`); optionally
+  piggybacked on `heartbeat` for live F: drain during long agent runs.
+- **No double counting:** report deltas since the previous frame, or report
+  cumulative and let the orchestrator track per-agent last-seen (the registry
+  already keys per-agent frame history by `seq`).
+- **Orchestrator aggregation:** the listener folds child usage into the parent's
+  `SESSION_COST_USD` + `SESSION_TOTAL_TOKENS` (status line U:/T:) and into
+  `SESSION_CALIBRATION_BY_MODEL[SUBAGENT_MODEL]` (F: sizing and `:fuel_debug`
+  per-model rate). F: then drains for orchestrator **and** agent spend — a true
+  session budget — and `:fuel_debug` can calibrate the sub-agent model from real
+  fleet usage.
+
+This is the prerequisite that makes role-based models cost-honest.
+
 ## What is complete vs still evolving
 
 ### Implemented
@@ -235,7 +311,11 @@ improved.
 - richer structured result artifacts,
 - clearer researcher-vs-worker user-facing docs,
 - broader observability and benchmarking,
-- optional worktree isolation if write-capable delegation expands.
+- optional worktree isolation if write-capable delegation expands,
+- role-based model selection (`ORCHESTRATOR_MODEL` / `SUBAGENT_MODEL`) with
+  phase-scoped escalation (proposed),
+- sub-agent cost telemetry aggregated into the orchestrator's F: gauge and
+  U:/T: status line (proposed).
 
 ## Relationship to long-horizon docs
 

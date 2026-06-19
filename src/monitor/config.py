@@ -506,6 +506,14 @@ ADV_REASONING_MODEL_OUTPUT_WINDOW = None
 COMMIT_MODEL = None
 COMMIT_REASONING_EFFORT = None
 COMMIT_REASONING_MAX_COMPLETION_TOKENS = None
+# Role-based model selection (smart orchestration). When set, the orchestrator
+# (main instance with MONITOR_ENABLE_AGENT_ORCHESTRATION) and spawned --agent
+# children run a different model/effort than the base MODEL. Applied at startup
+# by apply_role_model_override(); unset → base MODEL / REASONING_EFFORT.
+ORCHESTRATOR_MODEL = None
+ORCHESTRATOR_REASONING_EFFORT = None
+SUBAGENT_MODEL = None
+SUBAGENT_REASONING_EFFORT = None
 LAST_INPUT_WAS_VOICE = False
 ARTIFACT_SERVER = None
 JOKES_FILE = None
@@ -834,6 +842,8 @@ def configure_globals():
     global REASONING_BUMP_EFFORT
     global ADV_REASONING_MODEL, ADV_REASONING_MODEL_OUTPUT_WINDOW
     global COMMIT_MODEL, COMMIT_REASONING_EFFORT, COMMIT_REASONING_MAX_COMPLETION_TOKENS
+    global ORCHESTRATOR_MODEL, ORCHESTRATOR_REASONING_EFFORT
+    global SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
     global ESCALATE_REASONING_ON_TOOL_FAILURE, CONTINUITY_REASONING_BUMP
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -1000,6 +1010,12 @@ def configure_globals():
     COMMIT_REASONING_MAX_COMPLETION_TOKENS = yaml_config.get(
         "COMMIT_REASONING_MAX_COMPLETION_TOKENS"
     )
+    # Role-based model overrides (smart orchestration). Applied post-load by
+    # apply_role_model_override() once config.AGENT is resolved.
+    ORCHESTRATOR_MODEL = yaml_config.get("ORCHESTRATOR_MODEL")
+    ORCHESTRATOR_REASONING_EFFORT = yaml_config.get("ORCHESTRATOR_REASONING_EFFORT")
+    SUBAGENT_MODEL = yaml_config.get("SUBAGENT_MODEL")
+    SUBAGENT_REASONING_EFFORT = yaml_config.get("SUBAGENT_REASONING_EFFORT")
     RESPONSES_API = yaml_config.get("RESPONSES_API")
 
     ARTIFACT_SERVER = os.getenv(
@@ -1730,6 +1746,58 @@ def configure_subsystems():
     configure_voice_to_text()
     from monitor.core.llm_responses_adapter import configure_responses_adapter  # lazy: see NOTE atop imports
     configure_responses_adapter()
+
+
+_VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
+
+
+def apply_role_model_override() -> None:
+    """Switch MODEL / REASONING_EFFORT to the role-specific model at startup.
+
+    Role resolution (evaluated once, after ``config.AGENT`` and orchestration
+    flags are known):
+      - ``AGENT`` true  -> ``SUBAGENT_MODEL`` / ``SUBAGENT_REASONING_EFFORT``
+      - else ``MONITOR_ENABLE_AGENT_ORCHESTRATION`` true ->
+        ``ORCHESTRATOR_MODEL`` / ``ORCHESTRATOR_REASONING_EFFORT``
+      - otherwise: no change (plain ``MODEL`` / ``REASONING_EFFORT``).
+
+    The model override goes through ``set_model`` (which accepts a full model
+    string and re-derives context/output windows + TPM), so a dated name from
+    ``model_config.json`` is required — an unresolvable name is logged and left
+    on the base ``MODEL`` (no crash). Model and effort overrides apply
+    independently. Must run AFTER ``config.AGENT`` is resolved and BEFORE
+    subsystems that read ``MODEL_MAX_TPM`` (the rate limiter). Startup-safe:
+    ``set_model``'s history/counter resets are no-ops on a fresh session.
+    """
+    global REASONING_EFFORT
+
+    if AGENT:
+        role, role_model, role_effort = "sub-agent", SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
+    elif MONITOR_ENABLE_AGENT_ORCHESTRATION:
+        role, role_model, role_effort = "orchestrator", ORCHESTRATOR_MODEL, ORCHESTRATOR_REASONING_EFFORT
+    else:
+        return
+
+    if isinstance(role_model, str) and role_model and role_model != MODEL:
+        if set_model(role_model):
+            logger.info("Applied %s model override: MODEL=%s", role, MODEL)
+        else:
+            logger.warning(
+                "%s model override %r is not resolvable (use a dated model name "
+                "present in model_config.json); keeping MODEL=%s",
+                role, role_model, MODEL,
+            )
+
+    if isinstance(role_effort, str) and role_effort:
+        if role_effort.lower() in _VALID_REASONING_EFFORTS:
+            REASONING_EFFORT = role_effort.lower()
+            logger.info("Applied %s reasoning effort: %s", role, REASONING_EFFORT)
+        else:
+            logger.warning(
+                "%s reasoning effort %r is not a valid level "
+                "(minimal/low/medium/high/xhigh); ignoring",
+                role, role_effort,
+            )
 
 
 def set_model(model_key: str) -> bool:

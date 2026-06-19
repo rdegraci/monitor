@@ -635,6 +635,26 @@ MONITOR_AGENT_MAX_TOTAL: 12                # Max sub-agents spawned per session 
 MONITOR_AGENT_HEARTBEAT_TIMEOUT: 45        # Seconds before a silent sub-agent is treated as crashed/hung.
 MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may sit idle (post-result) before it's reaped.
 
+# Role-based model selection (smart orchestration). Run different models/efforts
+# by role, instead of one MODEL everywhere. Resolved at startup:
+#   - the orchestrator (this instance, when MONITOR_ENABLE_AGENT_ORCHESTRATION is
+#     true and it is not itself a --agent) uses ORCHESTRATOR_MODEL / _REASONING_EFFORT
+#   - spawned `monitor --agent` children use SUBAGENT_MODEL / _REASONING_EFFORT
+# Each falls back to MODEL / REASONING_EFFORT when unset, and an explicit
+# `--model` on the command line always wins over these. Use the SAME
+# fully-qualified (dated) model string as MODEL — the override re-derives the
+# model's windows + TPM from model_config.json, so an undated/unmapped name is
+# logged and left on MODEL. Effort must be minimal|low|medium|high|xhigh.
+#
+# Typical split: a stronger coordinator + cheaper, harder-reasoning workers.
+# NOTE (cost): sub-agent spend is not yet folded into this instance's F: gauge /
+# U:/T: status line — agents are separate processes (telemetry aggregation is a
+# planned follow-up; see docs/cache/PLAN_SMART_ORCHESTRATION.md).
+# ORCHESTRATOR_MODEL: openai/gpt-5.4-2026-03-05
+# ORCHESTRATOR_REASONING_EFFORT: medium
+# SUBAGENT_MODEL: openai/gpt-5.4-mini-2026-03-17
+# SUBAGENT_REASONING_EFFORT: high
+
 # Sub-agent write behavior
 #
 # - `none`

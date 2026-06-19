@@ -361,6 +361,16 @@ def main():
         except Exception:
             logger.exception("Failed to set config.AGENT via --agent flag.")
 
+    # Role-based model selection (smart orchestration): now that config.AGENT is
+    # resolved, switch to ORCHESTRATOR_MODEL / SUBAGENT_MODEL if configured. Must
+    # precede configure_subsystems() (the rate limiter reads MODEL_MAX_TPM).
+    # Skipped when --model was explicit so a deliberate user override always wins.
+    if not (hasattr(args, "model") and args.model is not None):
+        try:
+            config.apply_role_model_override()
+        except Exception:
+            logger.exception("Failed to apply role-based model override.")
+
     configure_subsystems()
 
     # PLAN Phase 0.5: when spawned as a sub-agent (MONITOR_AGENT_SOCKET set by
