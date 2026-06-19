@@ -140,6 +140,55 @@ def test_none_default_treated_as_low_for_bumping():
     assert detect_reasoning_bump("please debug this", None) == "medium"
 
 
+# --- Floored bump target (REASONING_BUMP_EFFORT) ----------------------------
+
+
+def test_bump_floor_raises_target_above_medium():
+    """A floor lifts the returned target — a low default bumps straight to the
+    floored level, not the default medium."""
+    assert detect_reasoning_bump("please refactor this", "low", bump_floor="high") == "high"
+    assert detect_reasoning_bump("please refactor this", "low", bump_floor="xhigh") == "xhigh"
+
+
+def test_medium_default_with_higher_floor_now_fires():
+    """The key new behavior: at steady medium, a higher floor opens the gate so
+    the bump fires (to the floored target) instead of being a no-op."""
+    assert detect_reasoning_bump("please refactor this architecture", "medium", bump_floor="high") == "high"
+
+
+def test_medium_default_without_floor_still_noop():
+    """No floor → target stays medium → steady medium is still a no-op (no
+    spurious bump). Backward-compatible with the pre-floor behavior."""
+    assert detect_reasoning_bump("please refactor this architecture", "medium") is None
+    assert detect_reasoning_bump("please refactor this architecture", "medium", bump_floor=None) is None
+
+
+def test_floor_at_or_below_medium_does_not_lower_target():
+    """A floor at/below medium can't drag the target below medium; a low default
+    still bumps to medium."""
+    assert detect_reasoning_bump("please audit this", "low", bump_floor="low") == "medium"
+    assert detect_reasoning_bump("please audit this", "low", bump_floor="medium") == "medium"
+
+
+def test_high_default_with_xhigh_floor_fires():
+    """A floor above an already-high default reopens the gate (escalate high → xhigh)."""
+    assert detect_reasoning_bump("please refactor this", "high", bump_floor="xhigh") == "xhigh"
+
+
+def test_high_default_with_high_floor_still_noop():
+    """Floor equal to a high default → no headroom → no-op."""
+    assert detect_reasoning_bump("please refactor this", "high", bump_floor="high") is None
+
+
+def test_continuation_bump_respects_floor():
+    """The continuity bump uses the same floored target."""
+    from monitor.lib.reasoning_heuristic import detect_continuation_bump
+    history = [{"role": "assistant", "content": "1. do x\n2. do y\n3. do z"}]
+    # Steady medium would normally be a no-op; a high floor opens the gate.
+    assert detect_continuation_bump("proceed", history, "medium", bump_floor="high") == "high"
+    assert detect_continuation_bump("proceed", history, "medium") is None
+
+
 # --- Edge-case input handling -----------------------------------------------
 
 

@@ -42,6 +42,7 @@ from monitor.lib.llm_model_utils import (
     get_model_tail,
     is_reasoning_model,
     normalize_tool_descriptors,
+    resolve_turn_model,
     strip_openai_prefix,
 )
 from monitor.lib.llm_output_utils import (
@@ -381,17 +382,39 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
             if pattern.search(model):
                 is_reasoning = True
                 # Per-turn override (set by the auto-bump heuristic in
-                # prepare_query_context) wins over the configured default
-                # for the duration of this user turn. The override is one-
-                # way (only bumps up to medium), so reading it unconditionally
-                # never causes a surprise downgrade.
-                effective_effort = (
-                    getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
-                    or config.REASONING_EFFORT
-                )
+                # prepare_query_context, or by tool-failure escalation in
+                # tooling.py) wins over the configured default for the duration
+                # of this user turn. The override is one-way (only ever bumps
+                # up — to medium or, on tool failure, high), so reading it
+                # unconditionally never causes a surprise downgrade.
+                override = getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+                effective_effort = override or config.REASONING_EFFORT
+                effective_max = config.REASONING_MAX_COMPLETION_TOKENS
+                # Single-turn model swap: when an override is active, run the
+                # bumped turn on the more-capable ADV_REASONING_MODEL if one is
+                # configured (and is itself reasoning-capable). Purely transient
+                # — kwargs only, never set_model — so the configured default
+                # model, the gauges, and session state are all untouched.
+                if override:
+                    swapped = resolve_turn_model(
+                        model, getattr(config, "ADV_REASONING_MODEL", None), True, prefix
+                    )
+                    if swapped != model:
+                        kwargs["model"] = swapped
+                        kwargs["tools"] = function_descriptions(
+                            tool_descriptions, gemini_tool_descriptions, swapped
+                        )
+                        adv_out = getattr(config, "ADV_REASONING_MODEL_OUTPUT_WINDOW", None)
+                        if (
+                            isinstance(adv_out, int)
+                            and adv_out > 0
+                            and isinstance(effective_max, int)
+                            and effective_max > 0
+                        ):
+                            effective_max = min(effective_max, adv_out)
                 kwargs.update(
                     reasoning_effort=effective_effort,
-                    max_completion_tokens=config.REASONING_MAX_COMPLETION_TOKENS,
+                    max_completion_tokens=effective_max,
                     temperature=1,
                 )
         except re.error:

@@ -495,6 +495,14 @@ PREFERENCE_PROMPT_FILE = None
 REASONING_MODEL_PREFIX = None
 REASONING_EFFORT = None
 REASONING_MAX_COMPLETION_TOKENS = None
+# Floor for the effort of an auto-bumped turn. None → use each heuristic's own
+# target. When set, raises a bumped turn's effort to at least this level (never
+# downgrades — see higher_reasoning_effort).
+REASONING_BUMP_EFFORT = None
+# Optional more-capable model swapped in for a single reasoning-bumped turn
+# (transient, per-call). None → fall back to the corresponding MODEL* value.
+ADV_REASONING_MODEL = None
+ADV_REASONING_MODEL_OUTPUT_WINDOW = None
 COMMIT_MODEL = None
 COMMIT_REASONING_EFFORT = None
 COMMIT_REASONING_MAX_COMPLETION_TOKENS = None
@@ -550,20 +558,17 @@ SHOW_COST_ESTIMATE = None
 # summarization call itself spends more.
 SESSION_TOTAL_TOKENS = 0
 SESSION_COST_USD = 0.0
-# Session token-composition counters sourced from real provider usage blocks
-# when available. They support empirical pricing-mix estimates for fuel-debug
-# calibration and reset alongside the other cumulative session counters.
-SESSION_CACHED_INPUT_TOKENS = 0
-SESSION_UNCACHED_INPUT_TOKENS = 0
-SESSION_OUTPUT_TOKENS = 0
-# Token-weighted effort-multiplier accumulators. Together they yield the
-# session-average reasoning multiplier (SESSION_EFFORT_WEIGHTED_TOKENS /
-# SESSION_EFFORT_WEIGHT_TOKENS), which folds in single-turn reasoning upgrades
-# that the steady REASONING_EFFORT does not. Used to normalize the observed
-# rate during fuel-debug calibration. Reset alongside the other session
-# counters on model change.
-SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
-SESSION_EFFORT_WEIGHT_TOKENS = 0
+# Per-model calibration store for :fuel_debug. Keyed by the model actually used
+# for each round-trip — which may be ADV_REASONING_MODEL on a reasoning-bumped
+# turn, not config.MODEL — so a transient single-turn model swap never pollutes
+# another model's rate calibration. Each entry accumulates real provider usage:
+#   cost_usd, total_tokens, cached_input_tokens, uncached_input_tokens,
+#   output_tokens, effort_weighted_tokens, effort_weight_tokens.
+# effort_weighted_tokens / effort_weight_tokens yield the token-weighted average
+# reasoning multiplier, folding in single-turn upgrades the steady
+# REASONING_EFFORT does not. Cleared on :reset_history (new session); persists
+# across model switches since it is already keyed per model.
+SESSION_CALIBRATION_BY_MODEL = {}
 # F: fuel-tank gauge — a per-session cumulative-token budget, the draining
 # counterpart to U:. Rendered before C: as F: = budget - SESSION_TOTAL_TOKENS,
 # shown as the exact remaining token count plus percent. Unlike C: (a refillable
@@ -796,6 +801,8 @@ def configure_globals():
     global MEMORY_SHORT_TTL, MEMORY_LONG_TTL, MEMORY_CONTEXT_MAX_ENTRIES
     global SUBAGENT_MEMORY_SERVICES
     global REASONING_MODEL_PREFIX, REASONING_EFFORT, REASONING_MAX_COMPLETION_TOKENS
+    global REASONING_BUMP_EFFORT
+    global ADV_REASONING_MODEL, ADV_REASONING_MODEL_OUTPUT_WINDOW
     global COMMIT_MODEL, COMMIT_REASONING_EFFORT, COMMIT_REASONING_MAX_COMPLETION_TOKENS
     global ESCALATE_REASONING_ON_TOOL_FAILURE, CONTINUITY_REASONING_BUMP
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
@@ -936,6 +943,28 @@ def configure_globals():
         "ESCALATE_REASONING_ON_TOOL_FAILURE", True
     )
     CONTINUITY_REASONING_BUMP = yaml_config.get("CONTINUITY_REASONING_BUMP", True)
+    # Floor for the effort of auto-bumped turns. Validate against known levels;
+    # a typo silently sending a bad reasoning_effort to the provider is worse
+    # than ignoring it.
+    _bump_effort_raw = yaml_config.get("REASONING_BUMP_EFFORT")
+    if _bump_effort_raw is None:
+        REASONING_BUMP_EFFORT = None
+    elif (
+        isinstance(_bump_effort_raw, str)
+        and _bump_effort_raw.lower() in {"minimal", "low", "medium", "high", "xhigh"}
+    ):
+        REASONING_BUMP_EFFORT = _bump_effort_raw.lower()
+    else:
+        logger.warning(
+            "REASONING_BUMP_EFFORT=%r is not a valid effort level "
+            "(minimal/low/medium/high/xhigh); ignoring.",
+            _bump_effort_raw,
+        )
+        REASONING_BUMP_EFFORT = None
+    # Optional single-turn reasoning-bump model swap. Unset → resolved to the
+    # corresponding MODEL* value at the call site (llm_utils).
+    ADV_REASONING_MODEL = yaml_config.get("ADV_REASONING_MODEL")
+    ADV_REASONING_MODEL_OUTPUT_WINDOW = yaml_config.get("ADV_REASONING_MODEL_OUTPUT_WINDOW")
     COMMIT_MODEL = yaml_config.get("COMMIT_MODEL")
     COMMIT_REASONING_EFFORT = yaml_config.get("COMMIT_REASONING_EFFORT")
     COMMIT_REASONING_MAX_COMPLETION_TOKENS = yaml_config.get(
@@ -1657,8 +1686,6 @@ def set_model(model_key: str) -> bool:
     """
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_INPUT_WINDOW, MODEL_MAX_TPM, CONVERSATION_MAX_SIZE, MAX_TOKEN_COUNT, TOTAL_TOKEN_COUNT
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
-    global SESSION_CACHED_INPUT_TOKENS, SESSION_UNCACHED_INPUT_TOKENS, SESSION_OUTPUT_TOKENS
-    global SESSION_EFFORT_WEIGHTED_TOKENS, SESSION_EFFORT_WEIGHT_TOKENS
     global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
 
@@ -1742,11 +1769,9 @@ def set_model(model_key: str) -> bool:
     # different rates. Both reset together to stay consistent.
     SESSION_TOTAL_TOKENS = 0
     SESSION_COST_USD = 0.0
-    SESSION_CACHED_INPUT_TOKENS = 0
-    SESSION_UNCACHED_INPUT_TOKENS = 0
-    SESSION_OUTPUT_TOKENS = 0
-    SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
-    SESSION_EFFORT_WEIGHT_TOKENS = 0
+    # SESSION_CALIBRATION_BY_MODEL is intentionally NOT reset here: it is keyed
+    # per model, so switching models cannot mix rates. It persists until a full
+    # session reset (:reset_history).
     SESSION_COMPACTION_COUNT = 0
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0

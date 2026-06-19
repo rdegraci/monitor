@@ -199,7 +199,7 @@ def update_history_token_count(tokens_to_add) -> int:
         return 0
 
 
-def update_token_usage(tokens_or_response, *, used_estimate: bool = False, response=None):
+def update_token_usage(tokens_or_response, *, used_estimate: bool = False, response=None, model=None):
     """
     Canonical function to update the total token count in config.TOTAL_TOKEN_COUNT.
     This is THE ONLY approved location for token count increment logic.
@@ -216,6 +216,13 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
           response when available even if you also passed extracted token
           count in `tokens_or_response`. Without this, cost cannot be
           computed and the (~$N.NN) display stays at $0.
+        model: Optional name of the model that ACTUALLY produced this response,
+          used as the per-model calibration key (and to price the local
+          fallback). Pass this from any path that calls a model other than
+          ``config.MODEL`` (e.g. commit/sub-agent generation) so its spend is
+          attributed correctly. When omitted, the effective model is derived
+          from ``config.MODEL`` + the per-turn reasoning override, which already
+          captures the standard turn's transient ADV_REASONING_MODEL swap.
 
     Returns:
         int: Updated total token count
@@ -287,6 +294,23 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
         if cost_response is not None:
             try:
                 import litellm
+                from monitor.lib.llm_model_utils import resolve_turn_model
+
+                # The model actually used for this round-trip — used to price the
+                # fallback correctly and to attribute calibration data to the
+                # right model. An explicit `model` argument is authoritative (for
+                # callers that ran a non-default model). Otherwise derive from
+                # config.MODEL + the per-turn override, which reproduces the
+                # standard turn's transient ADV_REASONING_MODEL swap.
+                if isinstance(model, str) and model:
+                    effective_model = model
+                else:
+                    effective_model = resolve_turn_model(
+                        getattr(config, "MODEL", "") or "",
+                        getattr(config, "ADV_REASONING_MODEL", None),
+                        bool(getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)),
+                        getattr(config, "REASONING_MODEL_PREFIX", "") or "",
+                    )
                 try:
                     cost = litellm.completion_cost(completion_response=cost_response)
                 except Exception:
@@ -300,14 +324,19 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                 if not (isinstance(cost, (int, float)) and cost > 0):
                     try:
                         from monitor.lib.model_pricing import estimate_cost_from_usage
-                        model_name = getattr(config, "MODEL", "") or ""
-                        cost = estimate_cost_from_usage(cost_response, model_name)
+                        cost = estimate_cost_from_usage(cost_response, effective_model)
                     except Exception:
                         logger.debug("Local pricing fallback failed", exc_info=True)
                         cost = 0
                 if isinstance(cost, (int, float)) and cost > 0:
                     current_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
                     config.SESSION_COST_USD = current_cost + float(cost)
+                    # Per-model calibration cost for :fuel_debug's observed rate.
+                    try:
+                        from monitor.lib.model_pricing import calibration_entry
+                        calibration_entry(effective_model, create=True)["cost_usd"] += float(cost)
+                    except Exception:
+                        logger.debug("Failed to accumulate per-model cost", exc_info=True)
                     # Also add to the current turn's bucket so the U:
                     # indicator can show recent-window and last-turn costs.
                     # If TURN_COSTS_USD is empty (e.g., LLM call happened
@@ -325,27 +354,30 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                     except Exception:
                         logger.debug("Failed to accumulate per-turn cost", exc_info=True)
                 try:
-                    from monitor.lib.model_pricing import _extract_usage_tokens
+                    from monitor.lib.model_pricing import (
+                        _extract_usage_tokens,
+                        calibration_entry,
+                        effort_multiplier_for,
+                    )
 
                     uncached_input, cached_input, output_tokens = _extract_usage_tokens(cost_response)
+                    # All calibration stats are attributed to the effective model
+                    # so a single-turn swap to ADV_REASONING_MODEL never pollutes
+                    # the configured default's rate calibration.
+                    entry = calibration_entry(effective_model, create=True)
                     if uncached_input > 0:
-                        current_uncached = getattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0) or 0
-                        config.SESSION_UNCACHED_INPUT_TOKENS = current_uncached + int(uncached_input)
+                        entry["uncached_input_tokens"] += int(uncached_input)
                     if cached_input > 0:
-                        current_cached = getattr(config, "SESSION_CACHED_INPUT_TOKENS", 0) or 0
-                        config.SESSION_CACHED_INPUT_TOKENS = current_cached + int(cached_input)
+                        entry["cached_input_tokens"] += int(cached_input)
                     if output_tokens > 0:
-                        current_output = getattr(config, "SESSION_OUTPUT_TOKENS", 0) or 0
-                        config.SESSION_OUTPUT_TOKENS = current_output + int(output_tokens)
+                        entry["output_tokens"] += int(output_tokens)
 
-                    # Accumulate a token-weighted effort multiplier so calibration
-                    # can fold in single-turn reasoning upgrades. The effort that
-                    # actually drove this round-trip is the per-turn override when
-                    # set, else the steady REASONING_EFFORT (same precedence as the
-                    # API call in llm_utils). Weight by the round-trip's total
-                    # tokens — the base the multiplier is applied to at runtime.
-                    from monitor.lib.model_pricing import effort_multiplier_for
-
+                    # Token-weighted effort multiplier so calibration can fold in
+                    # single-turn reasoning upgrades. The effort that actually drove
+                    # this round-trip is the per-turn override when set, else the
+                    # steady REASONING_EFFORT (same precedence as the API call in
+                    # llm_utils). Weight by the round-trip's total tokens — the base
+                    # the multiplier is applied to at runtime.
                     turn_tokens = int(uncached_input) + int(cached_input) + int(output_tokens)
                     if turn_tokens > 0:
                         turn_effort = (
@@ -353,13 +385,10 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                             or getattr(config, "REASONING_EFFORT", "")
                             or ""
                         )
-                        turn_multiplier = effort_multiplier_for(
-                            getattr(config, "MODEL", "") or "", turn_effort
-                        )
-                        current_weighted = getattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0) or 0.0
-                        current_weight = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
-                        config.SESSION_EFFORT_WEIGHTED_TOKENS = current_weighted + turn_tokens * turn_multiplier
-                        config.SESSION_EFFORT_WEIGHT_TOKENS = current_weight + turn_tokens
+                        turn_multiplier = effort_multiplier_for(effective_model, turn_effort)
+                        entry["effort_weighted_tokens"] += turn_tokens * turn_multiplier
+                        entry["effort_weight_tokens"] += turn_tokens
+                        entry["total_tokens"] += turn_tokens
                 except Exception:
                     logger.debug("Failed to accumulate session token composition", exc_info=True)
             except Exception:

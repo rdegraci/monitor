@@ -5,6 +5,21 @@ from monitor import config
 from monitor.lib.built_in_commands import fuel_debug_command
 
 
+def _cal(**kw):
+    """Build a per-model calibration entry with zeroed defaults."""
+    entry = {
+        "cost_usd": 0.0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0,
+        "uncached_input_tokens": 0,
+        "output_tokens": 0,
+        "effort_weighted_tokens": 0.0,
+        "effort_weight_tokens": 0,
+    }
+    entry.update(kw)
+    return entry
+
+
 def _set_state(monkeypatch, **overrides):
     """Apply runtime config values needed by fuel_debug tests.
 
@@ -25,11 +40,7 @@ def _set_state(monkeypatch, **overrides):
         "DAILY_COST_TARGET_USD": 5.0,
         "SESSION_COST_USD": 0.0,
         "SESSION_TOTAL_TOKENS": 0,
-        "SESSION_CACHED_INPUT_TOKENS": 0,
-        "SESSION_UNCACHED_INPUT_TOKENS": 0,
-        "SESSION_OUTPUT_TOKENS": 0,
-        "SESSION_EFFORT_WEIGHTED_TOKENS": 0.0,
-        "SESSION_EFFORT_WEIGHT_TOKENS": 0,
+        "SESSION_CALIBRATION_BY_MODEL": {},
         "SESSION_TOKEN_BUDGET": None,
         "REASONING_EFFORT_RATE_MULTIPLIER": {
             "minimal": 0.5,
@@ -50,8 +61,9 @@ def test_fuel_debug_uses_observed_ut_rate_when_available(capsys, monkeypatch):
     """Observed T:/U: data should drive the primary suggestion when ample."""
     _set_state(
         monkeypatch,
-        SESSION_COST_USD=1.2,
-        SESSION_TOTAL_TOKENS=2_000_000,
+        SESSION_CALIBRATION_BY_MODEL={
+            "openai/gpt-5.4-mini": _cal(cost_usd=1.2, total_tokens=2_000_000),
+        },
     )
 
     fuel_debug_command()
@@ -89,9 +101,13 @@ def test_fuel_debug_uses_empirical_blend_when_session_mix_is_sufficient(capsys, 
     """Empirical session mix should drive fallback suggestions once ample."""
     _set_state(
         monkeypatch,
-        SESSION_CACHED_INPUT_TOKENS=1_600_000,
-        SESSION_UNCACHED_INPUT_TOKENS=300_000,
-        SESSION_OUTPUT_TOKENS=100_000,
+        SESSION_CALIBRATION_BY_MODEL={
+            "openai/gpt-5.4-mini": _cal(
+                cached_input_tokens=1_600_000,
+                uncached_input_tokens=300_000,
+                output_tokens=100_000,
+            ),
+        },
     )
 
     fuel_debug_command()
@@ -115,10 +131,14 @@ def test_fuel_debug_normalizes_observed_by_session_average_multiplier(capsys, mo
     _set_state(
         monkeypatch,
         REASONING_EFFORT="low",                     # steady multiplier 0.75
-        SESSION_COST_USD=1.9,
-        SESSION_TOTAL_TOKENS=2_000_000,             # observed = 0.95 / 1M
-        SESSION_EFFORT_WEIGHTED_TOKENS=1_900_000.0,
-        SESSION_EFFORT_WEIGHT_TOKENS=2_000_000,     # session-average = 0.95
+        SESSION_CALIBRATION_BY_MODEL={
+            "openai/gpt-5.4-mini": _cal(
+                cost_usd=1.9,
+                total_tokens=2_000_000,             # observed = 0.95 / 1M
+                effort_weighted_tokens=1_900_000.0,
+                effort_weight_tokens=2_000_000,     # session-average = 0.95
+            ),
+        },
     )
 
     fuel_debug_command()

@@ -1,9 +1,17 @@
-MODEL: openai/gpt-5.4  # Fully qualified primary LLM model (provider/model:version) used for standard responses
-MODEL_CONTEXT_WINDOW: 1050000  # Maximum tokens the model can accept as input context (tokens)
+MODEL: openai/gpt-5.4-mini-2026-03-17  # Fully qualified primary LLM model (provider/model:version) used for standard responses
+MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens)
 MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens)
-MODEL_INPUT_TIER: 4  # Input tier/plan selector for model usage limits (integer)
+MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
+
+# Optional more-capable model to swap in for a single turn when the reasoning
+# auto-bump fires (see REASONING_MODEL_PREFIX and ESCALATE_REASONING_ON_TOOL_FAILURE).
+# Typically a stronger model than MODEL, used only for bumped turns. The swap is
+# transient (per-call): only the model and its output cap change — session state
+# (C:/F: gauges, context window, TPM) stays on MODEL. Leave unset to use MODEL.
+# ADV_REASONING_MODEL: openai/gpt-5.4-2026-03-05  # Fully qualified advanced-reasoning model (provider/model:version)
+# ADV_REASONING_MODEL_OUTPUT_WINDOW: 128000  # Caps the bumped turn's max_completion_tokens for the swapped model
 
 # Soft auto-compaction threshold as a FRACTION of the active model's input
 # window. Compaction (summarize older history into one message, keep recent
@@ -67,8 +75,9 @@ DAILY_COST_TARGET_USD: 5.0          # dollars/day the tank represents; 0 hides t
 # reasoning effort. Seed/tune from observation: at session end, your rate is
 # T: (dollars) / U: (tokens). Models not listed here are scaled off the anchor.
 MODEL_TOKEN_RATE_PER_MTOK:
-  openai/gpt-5.4: 0.34               # observed ~$0.34/1M at medium reasoning
-TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4   # scale unlisted models off this measured entry
+  openai/gpt-5.4-2026-03-05: 0.50          # observed at medium reasoning
+  openai/gpt-5.4-mini-2026-03-17: 0.25     # observed at medium reasoning
+TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4-2026-03-05   # scale unlisted models off this measured entry
 DEFAULT_TOKEN_RATE_PER_MTOK: 1.0    # last resort when no anchor/table rate is available
 
 # Rate multiplier by reasoning effort, relative to medium (the anchor). Higher
@@ -79,6 +88,7 @@ REASONING_EFFORT_RATE_MULTIPLIER:
   low: 0.75
   medium: 1.0
   high: 1.75
+  xhigh: 2.25
 
 # Optional MANUAL OVERRIDE: pin the F: cap to an exact token count, bypassing the
 # dollar derivation above. Leave unset (or 0) to derive. Uncomment to use:
@@ -254,7 +264,7 @@ REASONING_MODEL_PREFIX: openai/gpt-5
 # tokens count as OUTPUT tokens at the output rate, so this is one of the
 # bigger cost levers on reasoning-capable models.
 #
-# Valid values: minimal | low | medium | high
+# Valid values: minimal | low | medium | high | xhigh
 #   minimal  Almost no thinking. Fastest, cheapest. Good for trivial Q&A
 #            or string-manipulation tasks where reasoning adds no value.
 #   low      Light thinking. Fast responses; OK for routine code edits
@@ -264,39 +274,56 @@ REASONING_MODEL_PREFIX: openai/gpt-5
 #            signals (refactor / audit / design / analyze / debug /
 #            architecture / cross-file / migrate / align / why / "review
 #            for", or messages > 500 chars / 3+ lines) and TEMPORARILY
-#            promotes the next turn to "medium" — so you keep medium cost
-#            on routine work and avoid low-effort on the harder turns.
+#            promotes the next turn to the bump target — medium by default,
+#            or higher when REASONING_BUMP_EFFORT (below) is set — so you keep
+#            steady cost on routine work and think harder on the rest.
 #   high     Deep thinking. Best quality but 2-3x more reasoning tokens
-#            than medium. Use only when you've manually set it for a
-#            session with genuinely hard work (architectural reasoning,
-#            full-codebase audits). The auto-bump above does this
-#            per-turn so leaving the default at medium is usually right.
+#            than medium. Reached per-turn automatically on tool failures, and
+#            on auto-bumped turns when REASONING_BUMP_EFFORT is set to "high"
+#            — so leaving the steady default at/below medium is usually right.
+#   xhigh    Maximum thinking — most reasoning tokens, highest cost. Reserve
+#            for the hardest work; usually reached via REASONING_BUMP_EFFORT
+#            on bumped turns rather than set as a steady default.
 # Runtime override: `:reasoning <level>` swaps the active value mid-session
 # without editing this file.
 REASONING_EFFORT: medium
 
 # Error-driven reasoning escalation (reactive fallback). When a tool result
 # looks like a failure — a test/build/lint error, a Python traceback, a
-# non-zero exit — reasoning_effort is bumped to "high" for the REST of that
-# user turn, so the model reasons harder about the fix. One-way (never
-# downgrades) and pay-for-what-you-use: turns that don't fail cost nothing
-# extra. Reset at the next user turn. Defaults on; set false to disable (then
-# failed turns just continue at REASONING_EFFORT).
+# non-zero exit — reasoning_effort is bumped to "high" (or higher if
+# REASONING_BUMP_EFFORT below is set above high) for the REST of that user
+# turn, so the model reasons harder about the fix. One-way (never downgrades)
+# and pay-for-what-you-use: turns that don't fail cost nothing extra. Reset at
+# the next user turn. Defaults on; set false to disable (then failed turns
+# just continue at REASONING_EFFORT).
 ESCALATE_REASONING_ON_TOOL_FAILURE: true
 
 # Continuity reasoning bump. A short confirmation ("Sounds good. Proceed.")
 # that follows a substantive proposal — the previous assistant reply contained
-# real code or a diff — reasons at "high" for that execution turn, instead of
-# dropping to the default tier. Prose-only plans (no code/diff) do NOT trigger
-# it. One-way. Heads-up: this bumps your EXECUTION turn, usually the
-# highest-cost / highest-tool-round-trip turn, so it trades tokens for
-# execution quality. Defaults on; set false to disable.
+# real code or a diff — reasons at the bump target (medium by default, raised
+# by REASONING_BUMP_EFFORT below) for that execution turn, instead of dropping
+# to the default tier. Prose-only plans (no code/diff) do NOT trigger it.
+# One-way. Heads-up: this bumps your EXECUTION turn, usually the highest-cost /
+# highest-tool-round-trip turn, so it trades tokens for execution quality.
+# Defaults on; set false to disable.
 CONTINUITY_REASONING_BUMP: true
+
+# Floor for the reasoning effort of an AUTO-BUMPED turn. The complexity and
+# continuity heuristics promote a bumped turn to "medium"; tool-failure
+# escalation promotes to "high". When set, this RAISES that bumped effort to at
+# least the given level. It is a floor, never a downgrade:
+#   - lifts a "medium" heuristic bump up to e.g. "high" or "xhigh"
+#   - leaves the tool-failure "high" intact even if this is set lower
+# It applies ONLY to turns that are already bumped — it does NOT itself trigger
+# a bump, and never changes the steady REASONING_EFFORT above. Valid levels:
+# minimal, low, medium, high, xhigh. Leave unset to use each heuristic's own
+# target.
+REASONING_BUMP_EFFORT: high
 
 # Commit-message generation can use its own model and reasoning settings.
 # Leave these unset to fall back to MODEL / REASONING_EFFORT /
 # REASONING_MAX_COMPLETION_TOKENS.
-# COMMIT_MODEL: openai/gpt-5.4
+# COMMIT_MODEL: openai/gpt-5.4-2026-03-05
 # COMMIT_REASONING_EFFORT: high
 # COMMIT_REASONING_MAX_COMPLETION_TOKENS: 8000
 

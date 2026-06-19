@@ -46,14 +46,9 @@ def reset_conversation_history_command(arg: Any = None) -> None:
         config.TOTAL_TOKEN_COUNT = 0
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
-        # Keep calibration counters aligned with the fresh session baseline so
-        # :fuel_debug doesn't mix a reset T:/U: against stale composition or
-        # effort-weighted data.
-        config.SESSION_CACHED_INPUT_TOKENS = 0
-        config.SESSION_UNCACHED_INPUT_TOKENS = 0
-        config.SESSION_OUTPUT_TOKENS = 0
-        config.SESSION_EFFORT_WEIGHTED_TOKENS = 0.0
-        config.SESSION_EFFORT_WEIGHT_TOKENS = 0
+        # Clear the per-model calibration store so :fuel_debug doesn't mix a
+        # reset T:/U: against stale composition/effort data from the old session.
+        config.SESSION_CALIBRATION_BY_MODEL = {}
         config.SESSION_COMPACTION_COUNT = 0
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
@@ -251,15 +246,22 @@ def fuel_debug_command(arg: str = None) -> None:
     model = getattr(config, "MODEL", None)
     effort = getattr(config, "REASONING_EFFORT", None)
     prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+    # Session-wide totals (shown for context; they include any ADV_REASONING_MODEL
+    # swap turns). Calibration uses the PER-MODEL entry for the active model so a
+    # single-turn swap never pollutes its observed rate.
     session_cost = getattr(config, "SESSION_COST_USD", 0.0) or 0.0
     session_tokens = getattr(config, "SESSION_TOTAL_TOKENS", 0) or 0
+    from monitor.lib.model_pricing import calibration_entry
+    cal = calibration_entry(model)
+    model_cost = cal.get("cost_usd", 0.0) or 0.0
+    model_tokens = cal.get("total_tokens", 0) or 0
     observed_rate = None
-    if session_cost > 0 and session_tokens > 0:
-        observed_rate = session_cost / session_tokens * 1_000_000
+    if model_cost > 0 and model_tokens > 0:
+        observed_rate = model_cost / model_tokens * 1_000_000
     observed_confidence = "low"
-    if session_tokens >= 3_000_000:
+    if model_tokens >= 3_000_000:
         observed_confidence = "high"
-    elif session_tokens >= 1_000_000:
+    elif model_tokens >= 1_000_000:
         observed_confidence = "medium"
 
     rate_info = effective_rate_debug_info(model)
@@ -295,7 +297,7 @@ def fuel_debug_command(arg: str = None) -> None:
     if (
         isinstance(normalized_observed_rate, (int, float))
         and normalized_observed_rate > 0
-        and session_tokens >= 1_000_000
+        and model_tokens >= 1_000_000
     ):
         suggestion_basis = (
             f"observed U:/T: normalized by {norm_label} multiplier ({observed_confidence} confidence)"
@@ -361,7 +363,7 @@ def fuel_debug_command(arg: str = None) -> None:
         print(f"Effort multiplier (session): {session_multiplier:.4f}")
         if multiplier > 0:
             upgrade_pct = (session_multiplier / multiplier - 1) * 100
-            weight_tokens = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
+            weight_tokens = cal.get("effort_weight_tokens", 0) or 0
             print(
                 f"Upgrade load:            +{upgrade_pct:.1f}% over steady effort "
                 f"(over {weight_tokens} effort-weighted tokens)"
@@ -370,10 +372,12 @@ def fuel_debug_command(arg: str = None) -> None:
         print("Effort multiplier (session): unavailable (no effort-weighted tokens yet)")
     print(f"Effective rate / 1M:     {effective_rate!r}")
     print(f"Session fuel budget:     {budget!r}")
-    print(f"SESSION_COST_USD (T:):   ${session_cost:.6f}")
-    print(f"SESSION_TOTAL_TOKENS (U:): {session_tokens}")
+    print(f"SESSION_COST_USD (T:):   ${session_cost:.6f}  (session-wide, all models)")
+    print(f"SESSION_TOTAL_TOKENS (U:): {session_tokens}  (session-wide, all models)")
+    print(f"Model calibration cost:  ${model_cost:.6f}  (this model only)")
+    print(f"Model calibration tokens: {model_tokens}  (this model only)")
     if observed_rate is None:
-        print("Observed rate / 1M:      unavailable (need both T: and U: > 0)")
+        print("Observed rate / 1M:      unavailable (need this model's cost & tokens > 0)")
     else:
         print(
             f"Observed rate / 1M:      {observed_rate:.6f} ({observed_confidence} confidence)"

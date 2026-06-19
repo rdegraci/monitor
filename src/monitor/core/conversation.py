@@ -1052,8 +1052,13 @@ def prepare_query_context(user_prompt):
             detect_continuation_bump,
         )
         config.CURRENT_TURN_REASONING_OVERRIDE = None
+        # The configured floor (REASONING_BUMP_EFFORT) is threaded into the
+        # heuristics so the bump target — and the gate that decides whether to
+        # fire at all — both reflect it. This is what lets a steady "medium"
+        # config still bump (to the floored target) on hard turns.
+        bump_floor = getattr(config, "REASONING_BUMP_EFFORT", None)
         bump = detect_reasoning_bump(
-            user_prompt, getattr(config, "REASONING_EFFORT", None)
+            user_prompt, getattr(config, "REASONING_EFFORT", None), bump_floor=bump_floor
         )
         reason = "matched complexity signals"
         # Continuity bump: if the message itself carried no complexity signal,
@@ -1064,6 +1069,7 @@ def prepare_query_context(user_prompt):
                 user_prompt,
                 config.CONVERSATION_HISTORY,
                 getattr(config, "REASONING_EFFORT", None),
+                bump_floor=bump_floor,
             )
             if cont:
                 bump = cont

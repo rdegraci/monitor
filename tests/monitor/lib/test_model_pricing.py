@@ -28,14 +28,25 @@ def _reset_pricing_state(monkeypatch):
     monkeypatch.setattr(config, "TURN_COSTS_USD", [], raising=False)
     monkeypatch.setattr(config, "SESSION_TOTAL_TOKENS", 0, raising=False)
     monkeypatch.setattr(config, "TOTAL_TOKEN_COUNT", 0, raising=False)
-    # Cumulative session counters mutated by update_token_usage — reset so
+    # Per-model calibration store mutated by update_token_usage — reset so
     # accumulation tests don't leak token counts into one another.
-    monkeypatch.setattr(config, "SESSION_CACHED_INPUT_TOKENS", 0, raising=False)
-    monkeypatch.setattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0, raising=False)
-    monkeypatch.setattr(config, "SESSION_OUTPUT_TOKENS", 0, raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "SESSION_CALIBRATION_BY_MODEL", {}, raising=False)
     yield
+
+
+def _cal(**kw):
+    """Build a per-model calibration entry with zeroed defaults."""
+    entry = {
+        "cost_usd": 0.0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0,
+        "uncached_input_tokens": 0,
+        "output_tokens": 0,
+        "effort_weighted_tokens": 0.0,
+        "effort_weight_tokens": 0,
+    }
+    entry.update(kw)
+    return entry
 
 
 # --- get_model_rates --------------------------------------------------------
@@ -211,18 +222,18 @@ def test_effort_multiplier_for_explicit_effort(monkeypatch):
 
 
 def test_session_average_effort_multiplier_token_weighted(monkeypatch):
-    """The session average is Σ(tokens × multiplier) / Σ(tokens)."""
+    """The per-model average is Σ(tokens × multiplier) / Σ(tokens)."""
     # 1M tokens at multiplier 1.0 + 1M tokens at 0.5 → weighted average 0.75.
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 1_500_000.0, raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 2_000_000, raising=False)
-    assert model_pricing.session_average_effort_multiplier() == pytest.approx(0.75)
+    monkeypatch.setattr(config, "SESSION_CALIBRATION_BY_MODEL", {
+        "m": _cal(effort_weighted_tokens=1_500_000.0, effort_weight_tokens=2_000_000),
+    }, raising=False)
+    assert model_pricing.session_average_effort_multiplier("m") == pytest.approx(0.75)
 
 
 def test_session_average_effort_multiplier_none_without_data(monkeypatch):
-    """No accumulated effort-weighted tokens → None (callers fall back)."""
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
-    assert model_pricing.session_average_effort_multiplier() is None
+    """No accumulated effort-weighted tokens for the model → None (fall back)."""
+    monkeypatch.setattr(config, "SESSION_CALIBRATION_BY_MODEL", {}, raising=False)
+    assert model_pricing.session_average_effort_multiplier("m") is None
 
 
 def test_update_token_usage_accumulates_effort_weighted_tokens(monkeypatch):
@@ -241,8 +252,7 @@ def test_update_token_usage_accumulates_effort_weighted_tokens(monkeypatch):
     )
     # Single-turn upgrade: this round-trip ran at medium, not the steady low.
     monkeypatch.setattr(config, "CURRENT_TURN_REASONING_OVERRIDE", "medium", raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0, raising=False)
-    monkeypatch.setattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0, raising=False)
+    monkeypatch.setattr(config, "SESSION_CALIBRATION_BY_MODEL", {}, raising=False)
     monkeypatch.setattr(config, "TURN_COSTS_USD", [0.0], raising=False)
     monkeypatch.setattr(config, "MODEL_PRICING_OVERRIDES", {
         "openai/gpt-5.4-mini": {
@@ -260,20 +270,23 @@ def test_update_token_usage_accumulates_effort_weighted_tokens(monkeypatch):
     )
     token_management.update_token_usage(response)
 
+    # No ADV model set → attributed to the base model's calibration entry.
     # 150 tokens weighted by the medium (override) multiplier 1.0, NOT the
     # steady-low 0.75 — confirms the override drives the calibration weight.
-    assert config.SESSION_EFFORT_WEIGHT_TOKENS == 150
-    assert config.SESSION_EFFORT_WEIGHTED_TOKENS == pytest.approx(150 * 1.0)
-    assert model_pricing.session_average_effort_multiplier() == pytest.approx(1.0)
+    entry = model_pricing.calibration_entry("openai/gpt-5.4-mini")
+    assert entry["effort_weight_tokens"] == 150
+    assert entry["effort_weighted_tokens"] == pytest.approx(150 * 1.0)
+    assert entry["total_tokens"] == 150
+    assert model_pricing.session_average_effort_multiplier("openai/gpt-5.4-mini") == pytest.approx(1.0)
 
 
 def test_session_empirical_pricing_mix_uses_cumulative_session_counters(monkeypatch):
-    """Empirical pricing mix should normalize tracked session composition."""
-    monkeypatch.setattr(config, "SESSION_CACHED_INPUT_TOKENS", 800, raising=False)
-    monkeypatch.setattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 150, raising=False)
-    monkeypatch.setattr(config, "SESSION_OUTPUT_TOKENS", 50, raising=False)
+    """Empirical pricing mix should normalize the model's tracked composition."""
+    monkeypatch.setattr(config, "SESSION_CALIBRATION_BY_MODEL", {
+        "m": _cal(cached_input_tokens=800, uncached_input_tokens=150, output_tokens=50),
+    }, raising=False)
 
-    mix = model_pricing.session_empirical_pricing_mix()
+    mix = model_pricing.session_empirical_pricing_mix("m")
 
     assert mix["total_tokens"] == 1_000
     assert mix["confidence"] == "low"
@@ -323,9 +336,12 @@ def test_update_token_usage_uses_fallback_when_litellm_returns_zero(monkeypatch)
     # 50K * $1/M + 10K * $2/M = $0.05 + $0.02 = $0.07
     assert config.SESSION_COST_USD == pytest.approx(0.07)
     assert config.TURN_COSTS_USD[0] == pytest.approx(0.07)
-    assert config.SESSION_UNCACHED_INPUT_TOKENS == 50_000
-    assert config.SESSION_CACHED_INPUT_TOKENS == 0
-    assert config.SESSION_OUTPUT_TOKENS == 10_000
+    # Per-model calibration entry (no ADV model → keyed to config.MODEL).
+    entry = model_pricing.calibration_entry("xai/grok-build-0.1")
+    assert entry["uncached_input_tokens"] == 50_000
+    assert entry["cached_input_tokens"] == 0
+    assert entry["output_tokens"] == 10_000
+    assert entry["cost_usd"] == pytest.approx(0.07)
 
 
 def test_update_token_usage_litellm_path_still_works(monkeypatch):

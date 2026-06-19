@@ -601,12 +601,21 @@ def handle_tool_call(response, _depth=0):
                 or getattr(config, "REASONING_EFFORT", None)
             )
             if should_escalate(current_effort):
-                config.CURRENT_TURN_REASONING_OVERRIDE = "high"
-                logger.info(
-                    "Tool failure detected; escalated reasoning effort to high "
-                    "for the remainder of this turn."
+                # Escalate to "high", then apply the configured floor so a higher
+                # REASONING_BUMP_EFFORT (e.g. "xhigh") still wins — but never
+                # below "high".
+                from monitor.lib.llm_model_utils import higher_reasoning_effort
+
+                escalated = higher_reasoning_effort(
+                    "high", getattr(config, "REASONING_BUMP_EFFORT", None)
                 )
-                print(f"{yellow}[reasoning → high] tool failure detected{reset}")
+                config.CURRENT_TURN_REASONING_OVERRIDE = escalated
+                logger.info(
+                    "Tool failure detected; escalated reasoning effort to %s "
+                    "for the remainder of this turn.",
+                    escalated,
+                )
+                print(f"{yellow}[reasoning → {escalated}] tool failure detected{reset}")
     except Exception:
         logger.exception(
             "Reasoning escalation check failed; continuing at current effort."

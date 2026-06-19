@@ -50,6 +50,65 @@ def is_reasoning_model(model: Optional[str], prefix: Optional[str]) -> bool:
     return prefix.lower() in model.lower()
 
 
+_REASONING_EFFORT_RANK = {"minimal": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
+
+
+def higher_reasoning_effort(effort, floor):
+    """Return whichever reasoning-effort label ranks higher — a floor that never
+    downgrades.
+
+    Used to raise an auto-bumped turn's effort to a configured minimum
+    (``REASONING_BUMP_EFFORT``) without ever weakening a higher bump such as the
+    tool-failure escalation to ``"high"``.
+
+    Args:
+        effort: The current effort label (e.g. the heuristic/escalation target).
+        floor: The configured minimum effort, or None/invalid to impose no floor.
+
+    Returns:
+        ``floor`` when it ranks strictly higher than ``effort`` (or when
+        ``effort`` is unrecognized); otherwise ``effort`` unchanged. ``floor`` is
+        ignored when None or not a known level.
+    """
+    floor_rank = _REASONING_EFFORT_RANK.get((floor or "").lower()) if isinstance(floor, str) else None
+    if floor_rank is None:
+        return effort
+    effort_rank = _REASONING_EFFORT_RANK.get((effort or "").lower()) if isinstance(effort, str) else None
+    if effort_rank is None or floor_rank > effort_rank:
+        return floor
+    return effort
+
+
+def resolve_turn_model(base_model, adv_model, override_active, prefix):
+    """Resolve the model actually used for a turn's LLM calls.
+
+    Returns ``adv_model`` when a reasoning override is active for the turn and a
+    distinct, reasoning-capable ``ADV_REASONING_MODEL`` is configured; otherwise
+    ``base_model``. Pure (no config access) so the call site (llm_utils) and the
+    cost-attribution site (token_management) compute the same effective model
+    from the same inputs.
+
+    Args:
+        base_model: The configured default model (config.MODEL).
+        adv_model: The configured advanced-reasoning model, or None.
+        override_active: Whether a per-turn reasoning override is set.
+        prefix: REASONING_MODEL_PREFIX — both models must contain it for a swap.
+
+    Returns:
+        str: ``adv_model`` if the swap conditions hold, else ``base_model``.
+    """
+    if (
+        override_active
+        and isinstance(adv_model, str)
+        and adv_model
+        and adv_model != base_model
+        and is_reasoning_model(base_model, prefix)
+        and is_reasoning_model(adv_model, prefix)
+    ):
+        return adv_model
+    return base_model
+
+
 def get_model_tail(model: str) -> str:
     """Return the substring after the last slash in a model string.
 

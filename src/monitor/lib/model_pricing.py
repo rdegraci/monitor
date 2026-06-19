@@ -145,8 +145,55 @@ def _blended_rate(rates, weights=None):
     return (total / weight) if weight > 0 else None
 
 
-def session_empirical_pricing_mix():
-    """Return empirical session token-mix weights from accumulated usage.
+def _calibration_defaults():
+    """A fresh, zeroed per-model calibration stats dict."""
+    return {
+        "cost_usd": 0.0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0,
+        "uncached_input_tokens": 0,
+        "output_tokens": 0,
+        "effort_weighted_tokens": 0.0,
+        "effort_weight_tokens": 0,
+    }
+
+
+def calibration_entry(model, create=False):
+    """Return the per-model calibration stats dict for ``model``.
+
+    Stats are accumulated by ``token_management.update_token_usage`` keyed by
+    the model actually used for each round-trip, so a transient single-turn
+    swap to ``ADV_REASONING_MODEL`` is attributed to that model rather than
+    polluting the configured default's calibration.
+
+    Args:
+        model: Model name key. Falls back to ``"(unknown)"`` when empty.
+        create: When True, create (and store) a zeroed entry if absent.
+
+    Returns:
+        dict: The stored entry (created when ``create``), else a transient
+        zeroed dict so read-only callers get safe defaults.
+    """
+    from monitor import config
+
+    store = getattr(config, "SESSION_CALIBRATION_BY_MODEL", None)
+    if not isinstance(store, dict):
+        store = {}
+        config.SESSION_CALIBRATION_BY_MODEL = store
+    key = model if isinstance(model, str) and model else "(unknown)"
+    entry = store.get(key)
+    if entry is None:
+        entry = _calibration_defaults()
+        if create:
+            store[key] = entry
+    return entry
+
+
+def session_empirical_pricing_mix(model=None):
+    """Return empirical token-mix weights for ``model`` from accumulated usage.
+
+    Args:
+        model: Optional model name. When omitted, uses the configured model.
 
     Returns:
         dict: Session token totals, normalized weights, and a confidence label.
@@ -155,9 +202,11 @@ def session_empirical_pricing_mix():
     """
     from monitor import config
 
-    cached_tokens = getattr(config, "SESSION_CACHED_INPUT_TOKENS", 0) or 0
-    uncached_tokens = getattr(config, "SESSION_UNCACHED_INPUT_TOKENS", 0) or 0
-    output_tokens = getattr(config, "SESSION_OUTPUT_TOKENS", 0) or 0
+    resolved_model = model if model is not None else getattr(config, "MODEL", "") or ""
+    entry = calibration_entry(resolved_model)
+    cached_tokens = entry.get("cached_input_tokens", 0) or 0
+    uncached_tokens = entry.get("uncached_input_tokens", 0) or 0
+    output_tokens = entry.get("output_tokens", 0) or 0
     total_tokens = cached_tokens + uncached_tokens + output_tokens
     weights = None
     if total_tokens > 0:
@@ -231,8 +280,8 @@ def _effort_multiplier(model=None):
     return effort_multiplier_for(current_model, effort)
 
 
-def session_average_effort_multiplier():
-    """Token-weighted average effort multiplier incurred this session.
+def session_average_effort_multiplier(model=None):
+    """Token-weighted average effort multiplier incurred for ``model``.
 
     Unlike ``_effort_multiplier`` (which reflects only the steady
     ``REASONING_EFFORT``), this folds in single-turn reasoning upgrades by
@@ -241,6 +290,9 @@ def session_average_effort_multiplier():
     effort baseline during calibration, so occasional upgrades don't bias the
     suggested ``MODEL_TOKEN_RATE_PER_MTOK`` high.
 
+    Args:
+        model: Optional model name. When omitted, uses the configured model.
+
     Returns:
         float | None: The weighted-average multiplier, or None when no
         effort-weighted token data has accumulated yet (callers fall back to
@@ -248,8 +300,10 @@ def session_average_effort_multiplier():
     """
     from monitor import config
 
-    weighted = getattr(config, "SESSION_EFFORT_WEIGHTED_TOKENS", 0.0) or 0.0
-    tokens = getattr(config, "SESSION_EFFORT_WEIGHT_TOKENS", 0) or 0
+    resolved_model = model if model is not None else getattr(config, "MODEL", "") or ""
+    entry = calibration_entry(resolved_model)
+    weighted = entry.get("effort_weighted_tokens", 0.0) or 0.0
+    tokens = entry.get("effort_weight_tokens", 0) or 0
     return (weighted / tokens) if (tokens > 0 and weighted > 0) else None
 
 
@@ -282,7 +336,7 @@ def effective_rate_debug_info(model=None):
     anchor_rate = configured_budget_rates.get(anchor) if isinstance(configured_budget_rates, dict) else None
     theoretical_blended_rate_per_token = _blended_rate(get_model_rates(resolved_model))
     anchor_blended_rate_per_token = _blended_rate(get_model_rates(anchor))
-    empirical_mix = session_empirical_pricing_mix()
+    empirical_mix = session_empirical_pricing_mix(resolved_model)
     empirical_blended_rate_per_token = _blended_rate(
         get_model_rates(resolved_model),
         empirical_mix["weights"],
@@ -328,7 +382,7 @@ def effective_rate_debug_info(model=None):
         base_rate_source = "anchor_ratio"
 
     multiplier = _effort_multiplier(resolved_model)
-    session_multiplier = session_average_effort_multiplier()
+    session_multiplier = session_average_effort_multiplier(resolved_model)
     effective_rate = base_rate * multiplier
     return {
         "model": resolved_model,
