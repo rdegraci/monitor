@@ -158,6 +158,8 @@ Current safety-related behavior includes:
 - special handling for high-token file and directory operations
 - failure-driven reasoning escalation for the current turn
 
+The runtime status line shown in the REPL and TUI is built in `src/monitor/lib/display_output.py` and documented in `docs/STATUS_LINE.md`.
+
 ## Tool architecture
 
 ### Runtime callable registry

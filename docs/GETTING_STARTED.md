@@ -89,6 +89,8 @@ Monitor may also adjust reasoning effort while you work:
 - a tool failure can escalate effort to `high` for the remainder of the current turn
 - if orchestration is enabled, `--agent` children can use a separate role model from the orchestrator
 
+Monitor also shows a live status line with token, cost, history, and round-trip counters. See `docs/STATUS_LINE.md` for a field-by-field reference.
+
 Examples:
 ```text
 commands

@@ -38,7 +38,13 @@ That lets the model use the wiki as a session-local source of project context.
 
 If the wiki is only the starter template, Monitor can still point the model at the wiki location, but it does not treat the content as substantive guidance yet.
 
-Monitor can also include up to two additional wiki pages linked from `INDEX.md` when those pages exist.
+Retrieval is intentionally simple:
+- `INDEX.md` is the anchor page
+- Monitor looks for up to two additional pages referenced from that index
+- only existing markdown pages are included
+- the page list is derived from explicit `*.md` references in `INDEX.md`, not from broad topic search
+
+This means the wiki is best treated as a curated navigation surface, not a free-form knowledge graph.
 
 ## Relevant built-ins
 
@@ -72,6 +78,12 @@ The wiki also interacts with project prompt guidance:
 - project instructions come from the startup-scoped prompt resolution path
 - the wiki is a separate project knowledge layer
 - both can influence the model, but they serve different purposes
+
+A practical workflow is:
+1. let `wiki_init` draft a starter index
+2. edit `INDEX.md` into a durable guide
+3. link a small number of stable topic pages from the index
+4. use `wiki_lint` and `wiki_fix` when the wiki starts drifting from the codebase
 
 ## Good practices
 
