@@ -29,6 +29,10 @@ It seeds files such as:
 - `non_interactive_commands.json`
 - directive prompt files under `directives/`
 
+The interactive and non-interactive command catalogs are separate shipped
+resources. The interactive catalog drives REPL/TUI routing, while the
+non-interactive catalog supports script/server-style routing.
+
 ### `src/monitor/app.py`
 This is the main runtime entrypoint for the classic Monitor application. It:
 - parses CLI flags
@@ -44,7 +48,7 @@ This is the main runtime entrypoint for the classic Monitor application. It:
   - TUI mode
 
 Supported CLI flags currently include:
-- `--server`
+- `--server [host]`
 - `--port`
 - `--model`
 - `--reset-config`
@@ -55,6 +59,9 @@ Supported CLI flags currently include:
 - `--script`
 - `--agent`
 - `--tui`
+
+`--agent` is a runtime modifier that enables agent-oriented behavior. It is not
+a separate front-end mode.
 
 ## Major runtime modes
 
@@ -87,6 +94,9 @@ The server is wrapped with `SingleRequestMiddleware`, which serializes requests 
 
 ### 5. Agent mode
 `--agent` enables sub-agent behavior by setting `config.AGENT = True`, which affects tool availability and write restrictions.
+
+### 6. `--server` host behavior
+`--server` accepts an optional host. If no host is provided, the runtime binds to `127.0.0.1`.
 
 ## Core package responsibilities
 
@@ -137,6 +147,16 @@ Current safety-related behavior includes:
 
 ### `src/monitor/core/tools.py`
 Configures which tool descriptions are exposed for the active provider/model. It dynamically selects between provider-neutral edit tools and provider-specific edit tool variants.
+
+### `src/monitor/core/tooling.py`
+Executes LLM tool calls, parses tool arguments, applies rate limiting, appends tool results into conversation history, and enforces runtime safety rails.
+
+Current safety-related behavior includes:
+- nested tool-call depth caps
+- repeated-call loop detection
+- write-tool blocking/scoping for sub-agents
+- special handling for high-token file and directory operations
+- failure-driven reasoning escalation for the current turn
 
 ## Tool architecture
 
@@ -241,7 +261,7 @@ Important runtime-controlled features in config include:
 - write-access policy for sub-agents
 - tool output and file write caps
 
-## Agent orchestration
+## Agent orchestration and reasoning escalation
 
 Monitor supports sub-agents through tools and runtime config.
 
@@ -258,6 +278,24 @@ Relevant config/runtime controls include:
 - `MONITOR_AGENT_DEPTH`
 - `MONITOR_AGENT_MAX_DEPTH`
 - `MONITOR_AGENT_MAX_BREADTH`
+- `ORCHESTRATOR_MODEL`
+- `ORCHESTRATOR_REASONING_EFFORT`
+- `SUBAGENT_MODEL`
+- `SUBAGENT_REASONING_EFFORT`
+- `REASONING_BUMP_EFFORT`
+- `ESCALATE_REASONING_ON_TOOL_FAILURE`
+
+### Reasoning behavior
+
+Monitor has two distinct runtime reasoning adjustments:
+- a continuity bump for short follow-up confirmations, which can raise effort to `medium`
+- a failure-driven escalation path, which can raise effort to `high` for the rest of the turn when tool output indicates a failure
+
+### Role-based model selection
+
+When `--agent` is active, Monitor applies the sub-agent model and effort defaults at startup if they are configured.
+The orchestrator keeps the base model for the session, but can use the orchestrator role model transiently during collation turns.
+An explicit `--model` override still wins over role-based defaults.
 - `MONITOR_AGENT_MAX_TOTAL`
 - `MONITOR_AGENT_HEARTBEAT_TIMEOUT`
 - `MONITOR_AGENT_IDLE_TIMEOUT`

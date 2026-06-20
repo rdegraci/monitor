@@ -22,6 +22,9 @@ Because later updates win, private built-ins have the highest precedence and can
 
 Persistent macros are loaded from the configured macro file, typically `macros.json` under the user config directory.
 
+On first launch, Monitor seeds `macros.json` from the packaged default if the
+user file does not already exist.
+
 At startup and reload time, Monitor loads:
 - executable macro entries
 - optional metadata from reserved keys
@@ -141,6 +144,10 @@ Current related built-ins include:
 `edit_macros` opens the configured macro file in the user's editor.
 
 `reload_macros` reloads the macro file into the runtime store.
+
+The runtime display is intentionally grouped so users can distinguish public
+macros, persistent file macros, ephemeral session macros, and private internal
+macros.
 
 ## Practical examples
 

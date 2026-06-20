@@ -116,9 +116,21 @@ Packaged defaults seeded on startup include:
 - `directives/echo.prompt`
 - `directives/greet.prompt`
 
-For project-local prompt guidance, `AGENTS.md` is authoritative when present in
-the startup scope. In that case, Monitor does not read project-local
-`MONITOR.md` or `MONITOR_CONVENTIONS.md` overrides.
+The two command catalogs are distinct:
+- `interactive_commands.json` is used for REPL/TUI-style interactive routing
+- `non_interactive_commands.json` is used for script/server-style non-TTY routing
+
+`directives/echo.prompt` and `directives/greet.prompt` are shipped starter
+prompt files and can be edited after first launch.
+
+For project-local prompt guidance, the startup scope resolves instructions in
+this order:
+1. `AGENTS.md`
+2. otherwise `MONITOR.md` or `build/MONITOR.md`
+3. otherwise packaged/appdir fallback for Monitor instructions
+
+When `AGENTS.md` is present, Monitor does not read project-local `MONITOR.md`
+or `MONITOR_CONVENTIONS.md` overrides.
 
 ## Common usage
 
@@ -282,6 +294,15 @@ python -m monitor --model gpt5
 python -m monitor --debug
 ```
 
+### Reasoning and role-based model behavior
+
+Monitor can adjust reasoning effort during a session when the conversation or tool results call for it.
+
+- A short confirmation such as `Sounds good. Proceed.` can trigger a continuity bump to `medium` reasoning for that turn.
+- A tool failure can escalate reasoning to `high` for the rest of the current turn.
+- When orchestration is enabled, `--agent` children can use `SUBAGENT_MODEL` / `SUBAGENT_REASONING_EFFORT`, while the orchestrator can use `ORCHESTRATOR_MODEL` / `ORCHESTRATOR_REASONING_EFFORT` transiently during collation turns.
+- An explicit `--model` override still wins over role-based defaults.
+
 ## Server API
 
 Monitor exposes a local HTTP API in server mode.
@@ -366,6 +387,8 @@ up and restores:
 - `model_config.json`
 - `preferences.prompt`
 - `public_commands.json`
+
+It does not restore the shipped command catalogs or directive starter files.
 
 ## Logs
 

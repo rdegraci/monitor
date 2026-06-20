@@ -38,6 +38,18 @@ python -m monitor --agent
 
 On first run, Monitor seeds user config files into your app config directory via `src/monitor/__main__.py`.
 
+The shipped defaults include:
+- `config.yaml`
+- `macros.json`
+- `preferences.prompt`
+- `model_config.json`
+- `interactive_commands.json`
+- `non_interactive_commands.json`
+- `directives/echo.prompt`
+- `directives/greet.prompt`
+
+`interactive_commands.json` supports interactive REPL/TUI routing, while `non_interactive_commands.json` supports script/server-style routing.
+
 ## Config and generated files
 
 Monitor uses the user config directory reported by `appdirs`.
@@ -71,6 +83,11 @@ You can then:
 - run built-in commands
 - ask natural-language questions
 - invoke tools through the model
+
+Monitor may also adjust reasoning effort while you work:
+- short confirmation turns like `Sounds good. Proceed.` can bump effort to `medium` for that turn
+- a tool failure can escalate effort to `high` for the remainder of the current turn
+- if orchestration is enabled, `--agent` children can use a separate role model from the orchestrator
 
 Examples:
 ```text
@@ -256,6 +273,8 @@ Monitor can expose a local HTTP API:
 ```sh
 python -m monitor --server 127.0.0.1 --port 5000
 ```
+
+`--server` also accepts no host argument, in which case it binds to `127.0.0.1`.
 
 The server implementation lives in `src/monitor/lib/server.py`.
 

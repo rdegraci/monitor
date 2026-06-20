@@ -4,6 +4,12 @@ The authoritative implementation for these commands lives in `src/monitor/core/c
 
 This document reflects the current code behavior.
 
+Monitor also ships separate command catalogs for routing terminal-style input:
+- `interactive_commands.json` for REPL/TUI-style interactive routing
+- `non_interactive_commands.json` for script/server-style routing
+
+Those files are seeded on first launch if missing.
+
 ## Overview
 
 Monitor currently defines two internal commands in `INTERNAL_COMMANDS`:
