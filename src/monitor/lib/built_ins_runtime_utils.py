@@ -1,6 +1,8 @@
 """Runtime configuration command helpers for built-in command dispatch."""
 
+import json
 import logging
+from typing import Any
 
 from monitor import config as runtime_config
 from monitor.lib.colors import print_yellow
@@ -9,6 +11,14 @@ from monitor.lib.display_output import print_colored_error
 logger = logging.getLogger(__name__)
 
 config = runtime_config
+
+_SETTINGS_EXCLUDED_KEYS = {
+    "CONVERSATION_HISTORY",
+    "FUNCTION_KEY_INSERTIONS",
+    "PROJECT_INSTRUCTIONS_CONTENT",
+    "_MODEL_CONFIG_CACHE",
+    "_VALID_REASONING_EFFORTS",
+}
 
 
 def _active_config():
@@ -24,6 +34,71 @@ def _active_config():
         return getattr(built_in_commands, "config", config)
     except Exception:
         return config
+
+def _make_json_safe(value: Any) -> Any:
+    """Convert runtime config values into JSON-safe structures.
+
+    Args:
+        value: Arbitrary runtime configuration value.
+
+    Returns:
+        A value composed only of JSON-safe container/value types. Non-serializable
+        objects are converted to ``repr(value)``. Dictionary keys are coerced to
+        strings so nested mixed-type mappings remain sortable.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): _make_json_safe(nested_value)
+            for key, nested_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_make_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return sorted(repr(item) for item in value)
+    return repr(value)
+
+
+def settings_command(arg: str = None) -> None:
+    """Dump the live runtime configuration settings as formatted JSON.
+
+    Args:
+        arg: Optional selector. Pass ``help`` to show usage. Pass a non-empty
+            value other than help to filter to config attributes containing the
+            supplied substring (case-insensitive).
+
+    Returns:
+        None.
+    """
+    active_config = _active_config()
+    arg_text = "" if arg is None else str(arg).strip()
+    if arg_text.lower() in {"help", "?", "-h", "--help"}:
+        print("Dump live runtime configuration settings as JSON.")
+        print("Usage: : (or /) settings [substring_filter]")
+        print("Examples:")
+        print("  :settings")
+        print("  :settings model")
+        return
+
+    filter_text = arg_text.lower()
+    settings_payload: dict[str, Any] = {}
+    for name in sorted(dir(active_config)):
+        if name in _SETTINGS_EXCLUDED_KEYS:
+            continue
+        if not name.isupper() and name not in _SETTINGS_EXCLUDED_KEYS:
+            continue
+        if filter_text and filter_text not in name.lower():
+            continue
+        try:
+            value = getattr(active_config, name)
+        except Exception as exc:
+            settings_payload[name] = f"<unavailable: {exc}>"
+            continue
+        settings_payload[name] = _make_json_safe(value)
+
+    print(json.dumps(settings_payload, indent=2, sort_keys=True))
+
 
 
 def reasoning_command(arg: str = None) -> None:

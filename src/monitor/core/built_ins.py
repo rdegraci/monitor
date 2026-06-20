@@ -36,6 +36,7 @@ from monitor.lib.built_in_commands import (
     load_history_command,
     max_tokens_command,
     save_response_command,
+    settings_command,
     reasoning_command,
     ttl_command,
     compact_command,
@@ -367,6 +368,11 @@ def configure_built_ins() -> None:
                     "command": "tools",
                     "function": _make_callable(print_tools_command),
                     "description": "Print currently loaded tools.",
+                },
+                {
+                    "command": "settings",
+                    "function": _make_callable(settings_command),
+                    "description": "Dump the live runtime configuration settings as JSON.",
                 },
                 {
                     "command": "preferences",

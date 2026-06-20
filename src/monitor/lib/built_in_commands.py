@@ -55,6 +55,7 @@ from monitor.lib.built_ins_runtime_utils import (
     llm_command,
     max_tokens_command,
     reasoning_command,
+    settings_command,
     ttl_command,
 )
 from monitor.lib.built_ins_shell_utils import (
