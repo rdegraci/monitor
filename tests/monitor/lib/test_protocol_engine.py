@@ -72,6 +72,73 @@ def test_modify_source_code_success(tmp_path, monkeypatch):
     # depending on whether the original had a trailing newline.
     assert out["lines_changed"] in (1, 2)
 
+
+def test_modify_source_code_uses_adv_reasoning_model_for_bumped_turn(tmp_path, monkeypatch):
+    file_path = tmp_path / "file.py"
+    with open(file_path, "w") as f:
+        f.write("foo")
+
+    monkeypatch.setattr(protocol_engine.config, "MODEL", "openai/gpt-5.4-mini", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "ADV_REASONING_MODEL", "openai/gpt-5.4", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "REASONING_MODEL_PREFIX", "openai/gpt-5", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "CURRENT_TURN_REASONING_OVERRIDE", "high", raising=False)
+
+    seen_models = []
+
+    def mock_fetch_modified_script(script_content, modification_request, source_file):
+        seen_models.append(protocol_engine.ENGINE.model)
+        with open(source_file, "w") as out:
+            out.write("foo\nadded line\n")
+        return "Done."
+
+    protocol_engine.configure_protocol_engine()
+    fake_engine = Mock()
+    fake_engine.model = protocol_engine.config.MODEL
+    monkeypatch.setattr(protocol_engine, "ENGINE", fake_engine, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script, raising=False)
+
+    out = protocol_engine.modify_source_code(str(file_path), "bar")
+    assert out["ok"] is True
+    assert seen_models == ["openai/gpt-5.4"]
+
+
+def test_modify_source_code_uses_adv_model_chunk_budgets_for_bumped_turn(tmp_path, monkeypatch):
+    file_path = tmp_path / "file.py"
+    with open(file_path, "w") as f:
+        f.write("foo")
+
+    monkeypatch.setattr(protocol_engine.config, "MODEL", "openai/gpt-5.4", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "ADV_REASONING_MODEL", "openai/o3", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "REASONING_MODEL_PREFIX", "openai/", raising=False)
+    monkeypatch.setattr(protocol_engine.config, "CURRENT_TURN_REASONING_OVERRIDE", "high", raising=False)
+
+    seen = {}
+
+    def mock_fetch_modified_script(script_content, modification_request, source_file):
+        seen["model"] = protocol_engine.ENGINE.model
+        seen["lines_per_chunk"] = protocol_engine.ENGINE.lines_per_chunk
+        seen["chars_per_chunk"] = protocol_engine.ENGINE.chars_per_chunk
+        seen["token_budget_per_chunk"] = protocol_engine.TOKEN_BUDGET_PER_CHUNK
+        with open(source_file, "w") as out:
+            out.write("foo\nadded line\n")
+        return "Done."
+
+    protocol_engine.configure_protocol_engine()
+    fake_engine = Mock()
+    fake_engine.model = protocol_engine.config.MODEL
+    monkeypatch.setattr(protocol_engine, "ENGINE", fake_engine, raising=False)
+    monkeypatch.setattr(protocol_engine.ENGINE, "fetch_modified_script", mock_fetch_modified_script, raising=False)
+
+    out = protocol_engine.modify_source_code(str(file_path), "bar")
+    assert out["ok"] is True
+    assert seen == {
+        "model": "openai/o3",
+        "lines_per_chunk": 2000,
+        "chars_per_chunk": 200000,
+        "token_budget_per_chunk": 40000,
+    }
+
+
 def test_global_retry_logic_in_modify_source_code(tmp_path, monkeypatch):
     from unittest.mock import Mock
 

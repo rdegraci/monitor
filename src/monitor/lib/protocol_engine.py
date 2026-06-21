@@ -18,6 +18,7 @@ from pygments.lexers import BashLexer, DiffLexer, MarkdownLexer
 from monitor import config
 from monitor.lib import rate_limiter
 from monitor.lib.progress import progress_dots
+from monitor.lib.llm_model_utils import resolve_turn_model
 from monitor.lib.protocol_engine_utils import (
     PROHIBITED_SUMMARY_PATTERN,
     create_chunk_correction_prompt,
@@ -1042,10 +1043,16 @@ MAX_SOURCE_FILE_BYTES = 1024 * 1024  # 1 MiB
 MAX_DIFF_RESULT_CHARS = 8000
 
 
-def _configure_protocol_engine_limits():
+def _configure_protocol_engine_limits(model=None):
     global MAX_LINES_PER_CHUNK, MAX_CHARS_PER_CHUNK, TOKEN_BUDGET_PER_CHUNK
 
-    model = (config.MODEL or "").lower()
+    # Reset to the conservative defaults first so a prior turn's larger model
+    # limits never leak into an unmatched/unknown model.
+    MAX_LINES_PER_CHUNK = 1000
+    MAX_CHARS_PER_CHUNK = 100000
+    TOKEN_BUDGET_PER_CHUNK = 20000
+
+    model = ((model if isinstance(model, str) else config.MODEL) or "").lower()
     if model.startswith("openai/gpt-5") or model.startswith("xai/grok-4"):
         MAX_LINES_PER_CHUNK = 15000
         MAX_CHARS_PER_CHUNK = 2000000
@@ -1078,6 +1085,34 @@ def configure_protocol_engine():
     )
 
 
+def _configure_protocol_engine_turn_model():
+    """Apply the effective per-turn model and chunk budgets to the shared engine.
+
+    modify_source_code/stream_code go through the singleton ENGINE rather than
+    llm_utils.call_litellm_completion, so they must resolve the ADV
+    reasoning-bump swap themselves.
+    """
+    if ENGINE is None:
+        return None
+
+    resolved_model = resolve_turn_model(
+        getattr(config, "MODEL", "") or "",
+        getattr(config, "ADV_REASONING_MODEL", None),
+        bool(getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)),
+        getattr(config, "REASONING_MODEL_PREFIX", "") or "",
+    )
+    _configure_protocol_engine_limits(resolved_model)
+    ENGINE.model = resolved_model
+    ENGINE.lines_per_chunk = MAX_LINES_PER_CHUNK
+    ENGINE.chars_per_chunk = MAX_CHARS_PER_CHUNK
+    ENGINE.system_prompt = create_system_prompt(
+        max_lines_per_chunk=MAX_LINES_PER_CHUNK,
+        max_chars_per_chunk=MAX_CHARS_PER_CHUNK,
+        token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK,
+    )
+    return resolved_model
+
+
 STARTER_SCRIPT = ""  # Empty or minimal starter code
 
 
@@ -1092,6 +1127,7 @@ def stream_code(raw_user_input):
     logger.info("Streaming code for file: %s with prompt of length %d", file_name, len(prompt))
     # H-pe2: serialize access to the shared ENGINE singleton.
     with _ENGINE_LOCK:
+        _configure_protocol_engine_turn_model()
         ENGINE.fetch_modified_script(
             script_content=STARTER_SCRIPT,
             modification_request=prompt,
@@ -1269,28 +1305,12 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
 
 
 def _modify_source_code_locked(source_file: str, modification_request: str, print_func=print) -> str:
-    model = config.MODEL
+    model = _configure_protocol_engine_turn_model() or config.MODEL
     logger.debug(
-        "modify_source_code called: file=%s, req-length=%d",
+        "modify_source_code called: file=%s, req-length=%d, model=%s",
         source_file,
         len(modification_request) if modification_request else 0,
-    )
-    # M-pe5: re-derive chunk-budget constants from the current config.MODEL.
-    # The values are frozen at configure_protocol_engine() time, so a runtime
-    # set_model() leaves the engine with stale budgets — e.g., a switch from
-    # a gpt-5-class model down to o3 would keep the larger limits and the
-    # next LLM call would overshoot.
-    _configure_protocol_engine_limits()
-    ENGINE.lines_per_chunk = MAX_LINES_PER_CHUNK
-    ENGINE.chars_per_chunk = MAX_CHARS_PER_CHUNK
-    # S3: the engine's system_prompt embeds the chunk-limit numbers as text
-    # via create_system_prompt(). M-pe5 fixes the int values used by code,
-    # but the prompt string the model sees still has the startup values
-    # interpolated. Rebuild it so the model and the validator agree.
-    ENGINE.system_prompt = create_system_prompt(
-        max_lines_per_chunk=MAX_LINES_PER_CHUNK,
-        max_chars_per_chunk=MAX_CHARS_PER_CHUNK,
-        token_budget_per_chunk=TOKEN_BUDGET_PER_CHUNK,
+        model,
     )
     ENGINE.reset_state()
 
