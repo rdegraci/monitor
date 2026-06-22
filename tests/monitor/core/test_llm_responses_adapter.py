@@ -81,6 +81,76 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             # Should not raise
             adapter.validate_responses_config()
 
+    def test_calculate_followup_payload_budget_tool_result_request(self):
+        """The pure reserve calculator should derive a payload budget from the
+        usable window and named reserve buckets."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        budget = adapter.calculate_followup_payload_budget(
+            request_class=adapter.FOLLOWUP_REQUEST_CLASS_TOOL,
+            input_window=10_000,
+            base_safety_ratio=0.85,
+            hidden_chain_reserve_by_class={
+                adapter.FOLLOWUP_REQUEST_CLASS_TOOL: 4000,
+            },
+            hidden_chain_reserve_per_depth=1000,
+            hidden_chain_reserve_cap_ratio=0.5,
+            top_level_reserve_tokens=256,
+            iteration=2,
+            tool_schema_reserve_tokens=100,
+            structured_payload_reserve_tokens=200,
+        )
+
+        assert budget["request_class"] == adapter.FOLLOWUP_REQUEST_CLASS_TOOL
+        assert budget["usable_window"] == 8500
+        assert budget["hidden_chain_reserve"] == 6000
+        assert budget["tool_schema_reserve"] == 100
+        assert budget["structured_payload_reserve"] == 200
+        assert budget["top_level_reserve"] == 256
+        assert budget["payload_budget"] == 1944
+        assert budget["decision"] == adapter.FOLLOWUP_BUDGET_DECISION_SEND
+
+    def test_calculate_followup_payload_budget_unknown_without_window(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        budget = adapter.calculate_followup_payload_budget(
+            request_class=adapter.FOLLOWUP_REQUEST_CLASS_TOOL,
+            input_window=None,
+            base_safety_ratio=0.85,
+            hidden_chain_reserve_by_class={},
+            hidden_chain_reserve_per_depth=1000,
+            hidden_chain_reserve_cap_ratio=0.5,
+            top_level_reserve_tokens=256,
+        )
+
+        assert budget["payload_budget"] is None
+        assert budget["decision"] == adapter.FOLLOWUP_BUDGET_DECISION_UNKNOWN
+
+    def test_measure_followup_request_reserves_counts_structure(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        params = {
+            "model": "gpt-4o-mini",
+            "previous_response_id": "resp_1",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": '{"ok": true, "value": 1}',
+                }
+            ],
+            "tools": [{"type": "function", "function": {"name": "echo"}}],
+            "tool_choice": "auto",
+        }
+
+        reserves = adapter.measure_followup_request_reserves(
+            params,
+            model_name="gpt-4o-mini",
+        )
+
+        assert reserves["tool_schema_reserve_tokens"] > 0
+        assert reserves["structured_payload_reserve_tokens"] > 0
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
     @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
@@ -178,6 +248,214 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         # Rate limiter should receive two add_request calls
         assert mock_rate_limiter.RATE_LIMITER.add_request.call_count >= 2
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_followup_budgeter_uses_reserve_aware_payload_budget(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        mock_progress_dots,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=5,
+            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+        )
+        second = self._fake_response("resp_2", total_tokens=3, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=True,
+            MODEL_INPUT_WINDOW=10_000,
+            MODEL_CONTEXT_WINDOW=None,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.85,
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=256,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS={
+                "fresh_request": 0,
+                "chained_user_followup": 2000,
+                "tool_result_followup": 4000,
+                "summarization_followup": 2000,
+            },
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=1000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=0.5,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        def fake_count_message_tokens(obj):
+            if isinstance(obj, list):
+                outputs = [
+                    item.get("output")
+                    for item in obj
+                    if isinstance(item, dict)
+                ]
+                if any(output == "trimmed" for output in outputs):
+                    return 1000
+                return 4000
+            return 10
+
+        def fake_token_budgeter(params, input_window=100000, model_name=None):
+            assert input_window == 2911
+            trimmed = {
+                **params,
+                "input": [
+                    {
+                        **params["input"][0],
+                        "output": "trimmed",
+                    }
+                ],
+            }
+            return trimmed
+
+        with patch.object(adapter, "client", fake_client), \
+             patch.object(adapter, "config", cfg), \
+             patch.object(adapter, "count_message_tokens", side_effect=fake_count_message_tokens), \
+             patch.object(
+                 adapter,
+                 "measure_followup_request_reserves",
+                 return_value={
+                     "tool_schema_reserve_tokens": 111,
+                     "structured_payload_reserve_tokens": 222,
+                 },
+             ), \
+             patch.object(adapter, "token_budgeter", side_effect=fake_token_budgeter) as mock_budgeter:
+            adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        assert mock_budgeter.call_count == 1
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert second_kwargs["previous_response_id"] == "resp_1"
+        assert second_kwargs["input"][0]["output"] == "trimmed"
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_followup_budget_fallback_routes_to_summarization_followup(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        mock_progress_dots,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=5,
+            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+        )
+        summary = self._fake_response("resp_summary", total_tokens=2, output=[])
+        fake_client.responses.create.side_effect = [first, summary]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=True,
+            MODEL_INPUT_WINDOW=10_000,
+            MODEL_CONTEXT_WINDOW=None,
+            TOOL_OUTPUT_TOKEN_LIMIT=8_192,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        fallback_budget = {
+            "request_class": adapter.FOLLOWUP_REQUEST_CLASS_TOOL,
+            "model_input_window": 10_000,
+            "usable_window": 8_500,
+            "hidden_chain_reserve": 6_000,
+            "tool_schema_reserve": 0,
+            "structured_payload_reserve": 0,
+            "top_level_reserve": 256,
+            "payload_budget": -1,
+            "decision": adapter.FOLLOWUP_BUDGET_DECISION_FALLBACK,
+        }
+
+        with patch.object(adapter, "client", fake_client), \
+             patch.object(adapter, "config", cfg), \
+             patch.object(adapter, "budget_followup_request", return_value=({
+                 "model": "gpt-4o-mini",
+                 "previous_response_id": "resp_1",
+                 "input": [{"type": "function_call_output", "call_id": "call_1", "output": "{}"}],
+             }, fallback_budget)), \
+             patch.object(
+                 adapter,
+                 "build_summarization_followup_params",
+                 return_value={
+                     "model": "gpt-4o-mini",
+                     "prev_response_id": "resp_1",
+                     "function_call_outputs": [{"id": "call_1", "output": "{}"}],
+                     "max_output_tokens": 128,
+                 },
+             ):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        assert fake_client.responses.create.call_count == 2
+        summary_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert summary_kwargs["previous_response_id"] == "resp_1"
+        assert "tools" not in summary_kwargs
+        assert isinstance(summary_kwargs["input"], list)
+        assert any(
+            isinstance(item, dict) and item.get("type") == "function_call_output"
+            for item in summary_kwargs["input"]
+        )
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
@@ -350,6 +628,38 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert kwargs["previous_response_id"] == "prev_123"
         assert isinstance(kwargs["input"], str)
         assert kwargs["input"] == "latest user input"
+
+    @patch("monitor.core.llm_responses_adapter.call_responses_api")
+    @patch("monitor.core.llm_responses_adapter.prepare_response_messages", return_value=[{"role": "user", "content": "x"}])
+    @patch("monitor.core.llm_responses_adapter.estimate_response_tokens", return_value=60)
+    def test_response_completion_uses_followup_base_safety_ratio_for_input_gate(
+        self,
+        _mock_estimate,
+        _mock_prepare,
+        mock_call_api,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            MODEL_INPUT_WINDOW=100,
+            MODEL_CONTEXT_WINDOW=None,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.5,
+            REASONING_MAX_COMPLETION_TOKENS=0,
+            REASONING_MODEL_PREFIX="openai/o3",
+            RATE_LIMITER=False,
+        )
+        with patch.object(adapter, "config", cfg):
+            response, error = adapter.response_completion(
+                "hello",
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        assert response is None
+        assert "effective input window 50" in error
+        mock_call_api.assert_not_called()
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=(["t"], "auto"))

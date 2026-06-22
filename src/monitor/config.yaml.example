@@ -102,6 +102,39 @@ MODEL_TOKEN_RATE_PER_MTOK:
 TOKEN_RATE_ANCHOR_MODEL: openai/gpt-5.4-2026-03-05   # scale unlisted models off this measured entry
 DEFAULT_TOKEN_RATE_PER_MTOK: 1.0    # last resort when no anchor/table rate is available
 
+# === Responses API follow-up budgeting ===================================
+# Admission control for tool-result / chained follow-up requests. Only the
+# ESTIMATED reserves are exposed here; the tool-schema and function_call_output
+# shell reserves are MEASURED per request and have no knobs by design (exposing
+# them would reintroduce the over-trim margin the measured approach removes).
+# Every field below defaults to the value shown if unset, so an untouched config
+# matches the documented starting policy. Exact structural measurement for the
+# measured reserves is part of the phased rollout, so these defaults should be
+# read as the stable config surface, not as a promise of byte-for-byte parity
+# with every pre-rollout heuristic. The window itself is not here — it comes
+# from MODEL_INPUT_WINDOW, falling back to MODEL_CONTEXT_WINDOW.
+
+FOLLOWUP_BASE_SAFETY_RATIO: 0.85        # global usable-window discount; replaces the
+                                        # old hardcoded INPUT_WINDOW_SAFETY_RATIO + 0.8
+                                        # trim target. Lower it if 400 context_length_
+                                        # exceeded errors persist on your traffic.
+
+FOLLOWUP_TOPLEVEL_RESERVE_TOKENS: 256   # flat allowance for request-envelope overhead
+
+# Hidden-chain reserve: room for invisible server-side context referenced by
+# previous_response_id. The PRIMARY tuning target — the only estimated bucket.
+# Keyed by request class; tool_result_followup carries the most risk.
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS:
+  fresh_request: 0                      # no previous_response_id, nothing hidden
+  chained_user_followup: 2000           # small user turn atop an existing chain
+  tool_result_followup: 4000            # base; grows with depth (see below)
+  summarization_followup: 2000          # compact, tools omitted
+
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH: 1000   # added per chain-depth level for
+                                                # tool_result_followup, capped below
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO: 0.5    # cap depth growth at this fraction
+                                                # of the usable window
+
 # Rate multiplier by reasoning effort, relative to medium (the anchor). Higher
 # effort emits more output/reasoning tokens -> higher $/token -> smaller tank.
 # Applies only to reasoning models. Rough defaults; tune from observation.

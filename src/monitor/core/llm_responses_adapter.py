@@ -3,6 +3,7 @@ import json
 import threading
 import signal
 import uuid
+from copy import deepcopy
 from openai import OpenAI
 
 from monitor import config
@@ -79,16 +80,329 @@ MESSAGE_CONTENT_LIST_ITEM_KEYS = ("content", "text", "message")
 # risk of runaway function-call loops, but allow the LLM to be more agentic
 MAX_FUNCTION_CALL_ITERATIONS = 256
 SUMMARY_MAX_OUTPUT_TOKENS = 2048
+FOLLOWUP_REQUEST_CLASS_FRESH = "fresh_request"
+FOLLOWUP_REQUEST_CLASS_CHAINED = "chained_user_followup"
+FOLLOWUP_REQUEST_CLASS_TOOL = "tool_result_followup"
+FOLLOWUP_REQUEST_CLASS_SUMMARIZATION = "summarization_followup"
+FOLLOWUP_BUDGET_DECISION_SEND = "send"
+FOLLOWUP_BUDGET_DECISION_SEND_TRIMMED = "send_trimmed"
+FOLLOWUP_BUDGET_DECISION_FALLBACK = "fallback"
+FOLLOWUP_BUDGET_DECISION_UNKNOWN = "unknown_budget"
 
-# Safety margin applied to input_window before deciding whether a request
-# fits the model's context. `count_message_tokens` undercounts by 10-30% on
-# Responses API payloads because it doesn't see server-side cached context
-# (chained via previous_response_id), tool definitions, or the wrapping
-# overhead on `function_call_output` items. We budget against a slightly
-# smaller window so an undercounted estimate that "fits" doesn't trip an
-# OpenAI 400 context_length_exceeded on the wire. 0.85 catches most
-# undercounts; lower it further if 400s persist on your traffic.
-INPUT_WINDOW_SAFETY_RATIO = 0.85
+
+def _get_followup_base_safety_ratio():
+    value = getattr(config, "FOLLOWUP_BASE_SAFETY_RATIO", 0.85)
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 < float(value) <= 1
+    ):
+        return float(value)
+    return 0.85
+
+
+def _get_followup_toplevel_reserve_tokens():
+    value = getattr(config, "FOLLOWUP_TOPLEVEL_RESERVE_TOKENS", 256)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 256
+    return max(0, parsed)
+
+
+def _get_followup_hidden_chain_reserve_by_class():
+    defaults = {
+        FOLLOWUP_REQUEST_CLASS_FRESH: 0,
+        FOLLOWUP_REQUEST_CLASS_CHAINED: 2000,
+        FOLLOWUP_REQUEST_CLASS_TOOL: 4000,
+        FOLLOWUP_REQUEST_CLASS_SUMMARIZATION: 2000,
+    }
+    raw = getattr(config, "FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS", None)
+    if not isinstance(raw, dict):
+        return defaults
+    merged = dict(defaults)
+    for key, value in raw.items():
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed < 0:
+            continue
+        merged[str(key)] = parsed
+    return merged
+
+
+def _get_followup_hidden_chain_reserve_per_depth():
+    value = getattr(config, "FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH", 1000)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 1000
+    return max(0, parsed)
+
+
+def _get_followup_hidden_chain_reserve_cap_ratio():
+    value = getattr(config, "FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO", 0.5)
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 <= float(value) <= 1
+    ):
+        return float(value)
+    return 0.5
+
+
+def _resolve_model_input_window():
+    iw = getattr(config, "MODEL_INPUT_WINDOW", None)
+    cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+    return iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
+
+
+def _get_structural_token_encoder(model_name=None):
+    import tiktoken
+
+    encoder = None
+    if model_name:
+        try:
+            from monitor.lib.llm_model_utils import get_model_head
+
+            encoding_model = get_model_head(
+                str(model_name),
+                {
+                    "gpt-5.1": "gpt-5",
+                    "gpt-5": "gpt-5",
+                    "gpt-4.1": "gpt-4.1",
+                    "gpt-4o": "gpt-4o",
+                    "gpt-4": "gpt-4",
+                    "o4-mini": "o4-mini",
+                },
+            )
+            if encoding_model:
+                encoder = tiktoken.encoding_for_model(encoding_model)
+        except Exception:
+            logger.debug(
+                "Falling back to cl100k_base for structural token counting on model=%r",
+                model_name,
+                exc_info=True,
+            )
+    if encoder is None:
+        encoder = tiktoken.get_encoding("cl100k_base")
+    return encoder
+
+
+def count_serialized_structure_tokens(obj, model_name=None):
+    """Count tokens for a serialized structured object.
+
+    This helper is reserved for full-request reserve measurement. It token-counts
+    `json.dumps(...)` output rather than relying on text-only message counting.
+    """
+    try:
+        serialized = json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        serialized = json.dumps(str(obj), sort_keys=True, ensure_ascii=False)
+    try:
+        encoder = _get_structural_token_encoder(model_name)
+        return len(encoder.encode(serialized))
+    except Exception:
+        logger.exception("Failed structural token counting; falling back to text token estimate")
+        return count_message_tokens(serialized)
+
+
+def measure_followup_request_reserves(params, *, model_name=None):
+    """Measure the known reserve buckets for a follow-up request.
+
+    Phase 2 teaches the reserve calculator the exact structural costs of the
+    tool catalog and the function_call_output item shells. The visible payload
+    estimate still comes from count_message_tokens on the raw output text.
+    """
+    if not isinstance(params, dict):
+        return {
+            "tool_schema_reserve_tokens": 0,
+            "structured_payload_reserve_tokens": 0,
+        }
+
+    tool_schema_reserve_tokens = 0
+    if params.get(REQUEST_PARAM_TOOLS):
+        tool_payload = {
+            REQUEST_PARAM_TOOLS: params.get(REQUEST_PARAM_TOOLS),
+        }
+        if REQUEST_PARAM_TOOL_CHOICE in params:
+            tool_payload[REQUEST_PARAM_TOOL_CHOICE] = params.get(REQUEST_PARAM_TOOL_CHOICE)
+        tool_schema_reserve_tokens = count_serialized_structure_tokens(
+            tool_payload,
+            model_name=model_name,
+        )
+
+    structured_payload_reserve_tokens = 0
+    request_input = params.get(REQUEST_PARAM_INPUT)
+    if isinstance(request_input, list):
+        for item in request_input:
+            if not (isinstance(item, dict) and item.get(TYPE_KEY) == FUNCTION_CALL_OUTPUT_TYPE):
+                continue
+            full_item_tokens = count_serialized_structure_tokens(item, model_name=model_name)
+            output_value = item.get(OUTPUT_KEY, "")
+            if output_value is None:
+                output_value = ""
+            if not isinstance(output_value, str):
+                try:
+                    output_value = json.dumps(output_value, sort_keys=True, ensure_ascii=False, default=str)
+                except Exception:
+                    output_value = str(output_value)
+            output_text_tokens = count_message_tokens(output_value)
+            structured_payload_reserve_tokens += max(0, full_item_tokens - output_text_tokens)
+
+    return {
+        "tool_schema_reserve_tokens": tool_schema_reserve_tokens,
+        "structured_payload_reserve_tokens": structured_payload_reserve_tokens,
+    }
+
+
+def classify_followup_request(params):
+    """Classify a Responses follow-up request shape.
+
+    Pure helper: depends only on the supplied params.
+    """
+    if not isinstance(params, dict):
+        return FOLLOWUP_REQUEST_CLASS_FRESH
+
+    previous_response_id = params.get(REQUEST_PREV_RESPONSE_ID)
+    request_input = params.get(REQUEST_PARAM_INPUT)
+    has_tools = bool(params.get(REQUEST_PARAM_TOOLS))
+
+    if previous_response_id:
+        if isinstance(request_input, list):
+            has_function_outputs = any(
+                isinstance(item, dict) and item.get(TYPE_KEY) == FUNCTION_CALL_OUTPUT_TYPE
+                for item in request_input
+            )
+            has_non_function_output_items = any(
+                not (isinstance(item, dict) and item.get(TYPE_KEY) == FUNCTION_CALL_OUTPUT_TYPE)
+                for item in request_input
+            )
+            if has_function_outputs:
+                if not has_tools and has_non_function_output_items:
+                    return FOLLOWUP_REQUEST_CLASS_SUMMARIZATION
+                return FOLLOWUP_REQUEST_CLASS_TOOL
+        return FOLLOWUP_REQUEST_CLASS_CHAINED
+    return FOLLOWUP_REQUEST_CLASS_FRESH
+
+
+def calculate_followup_payload_budget(
+    *,
+    request_class,
+    input_window,
+    base_safety_ratio,
+    hidden_chain_reserve_by_class,
+    hidden_chain_reserve_per_depth,
+    hidden_chain_reserve_cap_ratio,
+    top_level_reserve_tokens,
+    iteration=0,
+    tool_schema_reserve_tokens=0,
+    structured_payload_reserve_tokens=0,
+):
+    """Pure full-request reserve calculator for Responses follow-ups."""
+    if not isinstance(input_window, int) or input_window <= 0:
+        return {
+            "request_class": request_class,
+            "model_input_window": input_window,
+            "usable_window": None,
+            "hidden_chain_reserve": 0,
+            "tool_schema_reserve": 0,
+            "structured_payload_reserve": 0,
+            "top_level_reserve": 0,
+            "payload_budget": None,
+            "decision": FOLLOWUP_BUDGET_DECISION_UNKNOWN,
+        }
+
+    usable_window = int(input_window * base_safety_ratio)
+    hidden_base = 0
+    if isinstance(hidden_chain_reserve_by_class, dict):
+        try:
+            hidden_base = int(hidden_chain_reserve_by_class.get(request_class, 0) or 0)
+        except (TypeError, ValueError):
+            hidden_base = 0
+    hidden_base = max(0, hidden_base)
+
+    depth_reserve = 0
+    if request_class == FOLLOWUP_REQUEST_CLASS_TOOL:
+        depth_growth = max(0, int(iteration)) * max(0, int(hidden_chain_reserve_per_depth or 0))
+        cap_ratio = hidden_chain_reserve_cap_ratio
+        if not (
+            isinstance(cap_ratio, (int, float))
+            and not isinstance(cap_ratio, bool)
+            and 0 <= float(cap_ratio) <= 1
+        ):
+            cap_ratio = 0.5
+        depth_cap = max(0, int(usable_window * float(cap_ratio)))
+        depth_reserve = min(depth_growth, depth_cap)
+
+    hidden_chain_reserve = hidden_base + depth_reserve
+    try:
+        tool_schema_reserve = max(0, int(tool_schema_reserve_tokens or 0))
+    except (TypeError, ValueError):
+        tool_schema_reserve = 0
+    try:
+        structured_payload_reserve = max(0, int(structured_payload_reserve_tokens or 0))
+    except (TypeError, ValueError):
+        structured_payload_reserve = 0
+    try:
+        top_level_reserve = max(0, int(top_level_reserve_tokens or 0))
+    except (TypeError, ValueError):
+        top_level_reserve = 0
+
+    payload_budget = (
+        usable_window
+        - hidden_chain_reserve
+        - tool_schema_reserve
+        - structured_payload_reserve
+        - top_level_reserve
+    )
+    decision = (
+        FOLLOWUP_BUDGET_DECISION_SEND
+        if payload_budget > 0
+        else FOLLOWUP_BUDGET_DECISION_FALLBACK
+    )
+    return {
+        "request_class": request_class,
+        "model_input_window": input_window,
+        "usable_window": usable_window,
+        "hidden_chain_reserve": hidden_chain_reserve,
+        "tool_schema_reserve": tool_schema_reserve,
+        "structured_payload_reserve": structured_payload_reserve,
+        "top_level_reserve": top_level_reserve,
+        "payload_budget": payload_budget,
+        "decision": decision,
+    }
+
+
+def budget_followup_request(params, *, iteration=0, input_window=None):
+    """Budget a follow-up request against the Phase 1 reserve model.
+
+    Returns a copy of params plus a budget-report dictionary for logging and
+    admission decisions. Phase 1 intentionally leaves the measured reserves at
+    zero; Phase 2 teaches this path exact structural counts.
+    """
+    params_copy = deepcopy(params) if isinstance(params, dict) else {}
+    request_class = classify_followup_request(params_copy)
+    resolved_input_window = input_window if isinstance(input_window, int) and input_window > 0 else _resolve_model_input_window()
+    model_name = params_copy.get(REQUEST_PARAM_MODEL) or getattr(config, "MODEL", None)
+    measured_reserves = measure_followup_request_reserves(
+        params_copy,
+        model_name=model_name,
+    )
+    budget = calculate_followup_payload_budget(
+        request_class=request_class,
+        input_window=resolved_input_window,
+        base_safety_ratio=_get_followup_base_safety_ratio(),
+        hidden_chain_reserve_by_class=_get_followup_hidden_chain_reserve_by_class(),
+        hidden_chain_reserve_per_depth=_get_followup_hidden_chain_reserve_per_depth(),
+        hidden_chain_reserve_cap_ratio=_get_followup_hidden_chain_reserve_cap_ratio(),
+        top_level_reserve_tokens=_get_followup_toplevel_reserve_tokens(),
+        iteration=iteration,
+        tool_schema_reserve_tokens=measured_reserves.get("tool_schema_reserve_tokens", 0),
+        structured_payload_reserve_tokens=measured_reserves.get("structured_payload_reserve_tokens", 0),
+    )
+    return params_copy, budget
 
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
@@ -400,6 +714,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         max_iterations = MAX_FUNCTION_CALL_ITERATIONS
         iteration = 0
         last_iteration_had_calls = False
+        trigger_summarization_followup = False
+        summarization_trigger_reason = None
 
         # Collect function call outputs across iterations for potential summarization and to send aggregated follow-ups.
         # We collect both the serialized follow-up items (all_function_call_outputs) that will be sent back to the Responses API
@@ -640,116 +956,78 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                         f"Sending follow-up responses.create with {len(function_call_outputs)} function_call_output items"
                     )
 
-                    iw = getattr(config, "MODEL_INPUT_WINDOW", None)
-                    cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
-                    input_window = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
-                    # Effective budget = safety-margined input_window. Used
-                    # for "should I trim" and "is this still too big" checks.
-                    # The TRIM TARGET below stays at 80% of input_window
-                    # (tighter than the safety budget) so trimming reliably
-                    # brings the payload below the effective budget.
-                    effective_input_window = (
-                        int(input_window * INPUT_WINDOW_SAFETY_RATIO)
-                        if input_window is not None else None
+                    input_window = _resolve_model_input_window()
+                    budgeted_followup_params, followup_budget = budget_followup_request(
+                        followup_params,
+                        iteration=iteration,
+                        input_window=input_window,
                     )
-                    if input_window is not None:
-                        try:
-                            followup_input = followup_params.get(REQUEST_PARAM_INPUT)
-                            if isinstance(followup_input, list):
-                                followup_tokens = count_message_tokens(followup_input)
-                                logger.info(
-                                    "Pre-flight follow-up payload token check: original=%s tokens, effective limit=%s tokens (input_window=%s, safety=%.2f)",
-                                    followup_tokens,
-                                    effective_input_window,
-                                    input_window,
-                                    INPUT_WINDOW_SAFETY_RATIO,
-                                )
-                                if followup_tokens > effective_input_window:
-                                    trim_target = max(1, int(input_window * 0.8))
-                                    trimmed_input = []
-                                    running_tokens = 0
-                                    note_prefix = "[Trimmed to fit context window] "
-                                    note_tokens = count_message_tokens(note_prefix)
-                                    for idx, fc_item in enumerate(followup_input):
-                                        if not isinstance(fc_item, dict) or fc_item.get(TYPE_KEY) != FUNCTION_CALL_OUTPUT_TYPE:
-                                            continue
-                                        try:
-                                            call_id = fc_item.get("call_id")
-                                            output_text = fc_item.get("output")
-                                            if output_text is None:
-                                                output_text = ""
-                                            if not isinstance(output_text, str):
-                                                try:
-                                                    output_text = json.dumps(output_text)
-                                                except Exception:
-                                                    output_text = str(output_text)
-                                            if idx == 0:
-                                                output_text = note_prefix + output_text
-                                            candidate_item = {
-                                                TYPE_KEY: FUNCTION_CALL_OUTPUT_TYPE,
-                                                "call_id": call_id,
-                                                "output": output_text,
-                                            }
-                                            candidate_tokens = count_message_tokens(candidate_item)
-                                            if running_tokens + candidate_tokens > trim_target and trimmed_input:
-                                                break
-                                            trimmed_input.append(candidate_item)
-                                            running_tokens += candidate_tokens
-                                        except Exception:
-                                            logger.exception("Failed while trimming a follow-up function_call_output item")
-                                            continue
-                                    if trimmed_input:
-                                        logger.warning(
-                                            "Trimmed follow-up payload from %s tokens to approximately %s tokens (target %s tokens; note overhead %s tokens); retained %s tool outputs",
-                                            followup_tokens,
-                                            running_tokens + note_tokens,
-                                            trim_target,
-                                            note_tokens,
-                                            len(trimmed_input),
-                                        )
-                                        followup_params[REQUEST_PARAM_INPUT] = trimmed_input
-                                    else:
-                                        logger.warning(
-                                            "Follow-up payload exceeded context window (%s tokens > %s) but trimming produced no viable payload; continuing with original payload",
-                                            followup_tokens,
-                                            input_window,
-                                        )
-                            else:
-                                logger.debug(
-                                    "Skipping follow-up payload trimming because REQUEST_PARAM_INPUT is not a list"
-                                )
-                        except Exception:
-                            logger.exception("Failed during pre-flight token budget check for follow-up payload")
-                        followup_params = token_budgeter(
-                            followup_params, 
-                            input_window=input_window,
-                            model_name=getattr(config, "MODEL", None)
+                    followup_params = budgeted_followup_params
+
+                    try:
+                        followup_input = followup_params.get(REQUEST_PARAM_INPUT)
+                        original_followup_tokens = (
+                            count_message_tokens(followup_input)
+                            if isinstance(followup_input, list)
+                            else None
                         )
-                        try:
+                        payload_budget = followup_budget.get("payload_budget")
+                        budget_decision = followup_budget.get("decision")
+                        final_followup_tokens = original_followup_tokens
+
+                        if (
+                            isinstance(payload_budget, int)
+                            and payload_budget > 0
+                            and isinstance(followup_input, list)
+                            and isinstance(original_followup_tokens, int)
+                            and original_followup_tokens > payload_budget
+                        ):
+                            followup_params = token_budgeter(
+                                followup_params,
+                                input_window=payload_budget,
+                                model_name=getattr(config, "MODEL", None),
+                            )
                             followup_input = followup_params.get(REQUEST_PARAM_INPUT)
                             if isinstance(followup_input, list):
                                 final_followup_tokens = count_message_tokens(followup_input)
-                                logger.info(
-                                    "Pre-flight follow-up payload token check after budgeting: final=%s tokens, limit=%s tokens",
-                                    final_followup_tokens,
-                                    input_window,
-                                )
-                                if final_followup_tokens > effective_input_window:
-                                    logger.warning(
-                                        "Skipping follow-up responses.create because final payload still exceeds effective context window (%s tokens > %s; safety-margined from %s)",
-                                        final_followup_tokens,
-                                        effective_input_window,
-                                        input_window,
-                                    )
-                                    break
-                            else:
-                                logger.debug(
-                                    "Skipping final follow-up payload token check because REQUEST_PARAM_INPUT is not a list"
-                                )
-                        except Exception:
-                            logger.exception("Failed during final pre-flight token budget check for follow-up payload")
-                    else:
-                        logger.debug(f"Skipping token budgeting: invalid MODEL_INPUT_WINDOW={iw!r}")
+                                if (
+                                    isinstance(final_followup_tokens, int)
+                                    and final_followup_tokens <= payload_budget
+                                ):
+                                    budget_decision = FOLLOWUP_BUDGET_DECISION_SEND_TRIMMED
+                                else:
+                                    budget_decision = FOLLOWUP_BUDGET_DECISION_FALLBACK
+
+                        logger.info(
+                            "Follow-up budget preflight: class=%s input_window=%s usable_window=%s hidden_chain_reserve=%s tool_schema_reserve=%s structured_payload_reserve=%s top_level_reserve=%s payload_budget=%s original_input_estimate=%s final_input_estimate=%s decision=%s",
+                            followup_budget.get("request_class"),
+                            followup_budget.get("model_input_window"),
+                            followup_budget.get("usable_window"),
+                            followup_budget.get("hidden_chain_reserve"),
+                            followup_budget.get("tool_schema_reserve"),
+                            followup_budget.get("structured_payload_reserve"),
+                            followup_budget.get("top_level_reserve"),
+                            payload_budget,
+                            original_followup_tokens,
+                            final_followup_tokens,
+                            budget_decision,
+                        )
+
+                        if budget_decision == FOLLOWUP_BUDGET_DECISION_UNKNOWN:
+                            logger.debug(
+                                "Skipping strict follow-up admission control: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured"
+                            )
+                        elif budget_decision == FOLLOWUP_BUDGET_DECISION_FALLBACK:
+                            logger.warning(
+                                "Routing tool-result follow-up into summarization/rebase fallback because the reserve-aware payload budget could not safely admit the request (payload_budget=%s, final_input_estimate=%s)",
+                                payload_budget,
+                                final_followup_tokens,
+                            )
+                            trigger_summarization_followup = True
+                            summarization_trigger_reason = "reserve-aware payload fallback"
+                            break
+                    except Exception:
+                        logger.exception("Failed during reserve-aware follow-up budgeting preflight")
 
                     # H2: Preflight rate-limit gate for tool-call follow-up.
                     # Previously, follow-up responses.create calls only recorded
@@ -903,8 +1181,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         # attempt to send a summarization follow-up to avoid truncation of tool call results.
         try:
             if (
-                iteration >= max_iterations
-                and last_iteration_had_calls
+                ((iteration >= max_iterations and last_iteration_had_calls) or trigger_summarization_followup)
+                and all_function_call_outputs
             ):
                 if client is None:
                     logger.debug("Skipping summarization follow-up because client is not configured")
@@ -1292,7 +1570,14 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                         except Exception:
                             logger.exception("Failed to log summarization follow-up warning")
 
-                        logger.debug("Sending summarization follow-up due to function call iteration truncation")
+                        trigger_reason = (
+                            summarization_trigger_reason
+                            or "function call iteration truncation"
+                        )
+                        logger.debug(
+                            "Sending summarization follow-up due to %s",
+                            trigger_reason,
+                        )
                         # Pre-send estimation/logging step for summarization payload
                         try:
                             try:
@@ -1641,16 +1926,13 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
             return None, str(ve)
 
         # Input window gating for responses API
-        iw = getattr(config, "MODEL_INPUT_WINDOW", None)
-        cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
-        input_window_limit = iw if isinstance(iw, int) and iw > 0 else (cw if isinstance(cw, int) and cw > 0 else None)
+        input_window_limit = _resolve_model_input_window()
         if input_window_limit is None:
             logger.debug("Input size gating is disabled: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured (responses API)")
         else:
-            # Apply safety margin — count_message_tokens undercounts by 10-30%
-            # vs. OpenAI's actual input-token tally for Responses API payloads
-            # (server-side cached context, tool definitions, output-item wrapping).
-            effective_input_window_limit = int(input_window_limit * INPUT_WINDOW_SAFETY_RATIO)
+            effective_input_window_limit = int(
+                input_window_limit * _get_followup_base_safety_ratio()
+            )
             if estimated_tokens > effective_input_window_limit:
                 error_msg = (
                     f"Input too large: {estimated_tokens} tokens vs effective input window "

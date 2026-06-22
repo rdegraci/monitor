@@ -450,6 +450,20 @@ MODEL_OUTPUT_WINDOW = None
 MODEL_INPUT_TIER = None
 MODEL_MAX_TPM = None
 MODEL_INPUT_WINDOW = None
+# Responses API follow-up budgeting. These are the tunable knobs for the
+# reserve-aware preflight policy used on chained/tool-result follow-up calls.
+# Tool-schema and function_call_output shell reserves are intentionally NOT
+# configured here; they are measured per request.
+FOLLOWUP_BASE_SAFETY_RATIO = 0.85
+FOLLOWUP_TOPLEVEL_RESERVE_TOKENS = 256
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS = {
+    "fresh_request": 0,
+    "chained_user_followup": 2000,
+    "tool_result_followup": 4000,
+    "summarization_followup": 2000,
+}
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH = 1000
+FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO = 0.5
 CONVERSATION_MAX_SIZE = None
 RATE_LIMITING_CONFIG = None
 MEMORY_SERVICES = None
@@ -834,6 +848,9 @@ ANTHROPIC_CACHE_TTL = "1h"
 
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
+    global FOLLOWUP_BASE_SAFETY_RATIO, FOLLOWUP_TOPLEVEL_RESERVE_TOKENS
+    global FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS, FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH
+    global FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO
     global CONVERSATION_MAX_SIZE, RATE_LIMITING_CONFIG, MEMORY_SERVICES, STARTUP_TIME
     global HISTORY_FILE, MAX_TOKEN_COUNT, OLD_MAX_TOKEN_COUNT
     global MACRO_DELIMITER_OPEN, MACRO_DELIMITER_CLOSE, MACRO_DELIMITER_ESCAPE, MACRO_FILE_PATH
@@ -929,6 +946,98 @@ def configure_globals():
     )
     MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
     OLD_MAX_TOKEN_COUNT = MODEL_CONTEXT_WINDOW
+
+    _followup_ratio_raw = yaml_config.get("FOLLOWUP_BASE_SAFETY_RATIO", 0.85)
+    if (
+        isinstance(_followup_ratio_raw, (int, float))
+        and not isinstance(_followup_ratio_raw, bool)
+        and 0 < float(_followup_ratio_raw) <= 1
+    ):
+        FOLLOWUP_BASE_SAFETY_RATIO = float(_followup_ratio_raw)
+    else:
+        logger.warning(
+            "FOLLOWUP_BASE_SAFETY_RATIO=%r must be in (0, 1]; keeping default %.2f",
+            _followup_ratio_raw,
+            FOLLOWUP_BASE_SAFETY_RATIO,
+        )
+
+    _followup_top_raw = yaml_config.get("FOLLOWUP_TOPLEVEL_RESERVE_TOKENS", 256)
+    try:
+        _followup_top_val = int(_followup_top_raw)
+        if _followup_top_val >= 0:
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS = _followup_top_val
+        else:
+            logger.warning(
+                "FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=%r must be >= 0; keeping default %d",
+                _followup_top_raw,
+                FOLLOWUP_TOPLEVEL_RESERVE_TOKENS,
+            )
+    except (TypeError, ValueError):
+        logger.warning(
+            "FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=%r is not an integer; keeping default %d",
+            _followup_top_raw,
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS,
+        )
+
+    _hidden_by_class_raw = yaml_config.get("FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS")
+    if isinstance(_hidden_by_class_raw, dict):
+        merged_hidden = dict(FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS)
+        for key, value in _hidden_by_class_raw.items():
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS[%r]=%r is not an integer; ignoring.",
+                    key,
+                    value,
+                )
+                continue
+            if parsed < 0:
+                logger.warning(
+                    "FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS[%r]=%r must be >= 0; ignoring.",
+                    key,
+                    value,
+                )
+                continue
+            merged_hidden[str(key)] = parsed
+        FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS = merged_hidden
+    elif _hidden_by_class_raw is not None:
+        logger.warning(
+            "FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS=%r is not a mapping; keeping defaults.",
+            _hidden_by_class_raw,
+        )
+
+    _hidden_per_depth_raw = yaml_config.get("FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH", 1000)
+    try:
+        _hidden_per_depth_val = int(_hidden_per_depth_raw)
+        if _hidden_per_depth_val >= 0:
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH = _hidden_per_depth_val
+        else:
+            logger.warning(
+                "FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=%r must be >= 0; keeping default %d",
+                _hidden_per_depth_raw,
+                FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH,
+            )
+    except (TypeError, ValueError):
+        logger.warning(
+            "FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=%r is not an integer; keeping default %d",
+            _hidden_per_depth_raw,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH,
+        )
+
+    _hidden_cap_ratio_raw = yaml_config.get("FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO", 0.5)
+    if (
+        isinstance(_hidden_cap_ratio_raw, (int, float))
+        and not isinstance(_hidden_cap_ratio_raw, bool)
+        and 0 <= float(_hidden_cap_ratio_raw) <= 1
+    ):
+        FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO = float(_hidden_cap_ratio_raw)
+    else:
+        logger.warning(
+            "FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=%r must be in [0, 1]; keeping default %.2f",
+            _hidden_cap_ratio_raw,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO,
+        )
 
     macro_delims = yaml_config.get("macro_delimiters", {})
     MACRO_DELIMITER_OPEN = macro_delims.get("open", "{{")
