@@ -463,6 +463,7 @@ def _prompt_with_agent_bridge(session, prompt_text):
     prompt_toolkit's prompt redraw (the prompt would vanish), so it was removed.
     Agent results still reach you via the next-turn injection and `:agent logs`.
     """
+    global _LAST_AGENT_VISIBILITY_SUMMARY
     try:
         from monitor.lib import agent_orchestrator as orch
     except Exception:
@@ -480,7 +481,16 @@ def _prompt_with_agent_bridge(session, prompt_text):
     except Exception:
         active = False
     if not active:
+        _LAST_AGENT_VISIBILITY_SUMMARY = None
         return session.prompt(prompt_text)
+
+    try:
+        summary = orch.render_visibility_summary()
+    except Exception:
+        summary = ""
+    if summary and summary != _LAST_AGENT_VISIBILITY_SUMMARY:
+        print(summary)
+        _LAST_AGENT_VISIBILITY_SUMMARY = summary
 
     # Live status only — no concurrent printing during the prompt. Returning
     # None when there's nothing to show avoids leaving a blank toolbar bar.
@@ -495,6 +505,9 @@ def _prompt_with_agent_bridge(session, prompt_text):
     except TypeError:
         # Older prompt_toolkit may reject these kwargs — fall back gracefully.
         return session.prompt(prompt_text)
+
+
+_LAST_AGENT_VISIBILITY_SUMMARY = None
 
 
 def _fold_agent_injections_into_prefixes():

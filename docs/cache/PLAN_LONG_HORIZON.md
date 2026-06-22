@@ -24,6 +24,13 @@ The current architecture is best described as:
 > designed for disciplined long-running coding work rather than unconstrained
 > recursive multi-agent autonomy.
 
+The design center for long-horizon support is the **primary Monitor
+instance**. It owns the visible plan, user-facing continuity, delegation
+decisions, result collation, and writer-of-record responsibilities. Sub-agents
+support that long-horizon loop by performing bounded research and returning
+results to the primary instance; they are not the main long-horizon surface
+themselves.
+
 ## What “long-horizon” means here
 
 In this codebase, long-horizon support is the combination of:
@@ -48,10 +55,15 @@ This is distinct from:
 Monitor has a first-class plan-tracking layer:
 
 - `add_todo`
+- `add_discovered_work`
 - `list_todos`
 - `update_todo`
 - `delete_todo`
 - `clear_todos`
+- `get_task_context`
+- `set_task_acceptance`
+- `save_task_checkpoint`
+- `record_task_scope_change`
 
 Implementation:
 - `src/monitor/lib/todo.py`
@@ -62,11 +74,21 @@ Key properties:
 - items have stable IDs,
 - priorities are supported,
 - status values support progress tracking,
+- lightweight session-scoped acceptance criteria, scope-change notes, and
+  resume checkpoints are supported,
 - storage can use Redis with in-memory fallback,
 - the system prompt explicitly instructs the model to use todos for non-trivial,
   multi-step work.
 
 This is the core mechanism for long-horizon continuity across turns.
+
+Recent additions on top of the original flat todo list:
+- `add_discovered_work` adds newly discovered required work explicitly during
+  feature implementation and can also record scope growth in the same step.
+- `set_task_acceptance` lets feature completion be judged against explicit
+  acceptance criteria instead of file edits alone.
+- `save_task_checkpoint` and `get_task_context` provide lightweight
+  session-scoped resume state for interrupted work.
 
 ### 2. Extended autonomous tool-use chains
 
@@ -399,6 +421,56 @@ The most useful next improvements fall into three groups: quick wins,
 medium-term architecture improvements, and the highest-value changes for
 autonomous coding quality.
 
+### Recently landed implementation track
+
+Benchmarking is **not to be implemented at this time**. The first code-facing
+long-horizon implementation track has now landed in three parts:
+
+1. **Active background-work visibility**
+   - active-agent visibility summaries are rendered for the primary
+     orchestrator,
+   - recent terminal outcomes are retained in compact form,
+   - prompt responsiveness is preserved while that status remains visible.
+
+2. **Persistent-agent follow-up hardening**
+   - persistent lifecycle intent is recorded at spawn time,
+   - `agent_send(...)` follow-ups are validated against one-shot, busy,
+     errored, crashed, and idle-reaped sessions,
+   - persistent-session metadata is stored explicitly.
+
+3. **Initial resume and recovery semantics**
+   - interrupted work now has lightweight session-scoped task context,
+   - newly discovered required work can be added explicitly with
+     `add_discovered_work`,
+   - material scope growth and acceptance criteria can be recorded explicitly,
+   - lightweight resume checkpoints can be stored and read back later.
+
+This sequence improved operator trust first, then lifecycle correctness, then
+interruption recovery. It builds directly on the current architecture without
+requiring a richer task model or broader autonomy first.
+
+These phases should be interpreted from the point of view of the **primary
+Monitor instance**. The work is about making the orchestrator better at seeing,
+collating, and resuming delegated work, not about turning sub-agents into
+independent long-horizon actors.
+
+For feature work specifically, this also means strengthening the primary
+orchestrator's task discipline: plan before editing, expand the todo list when
+required work is discovered, and close the task against acceptance criteria
+instead of treating "files changed" as sufficient completion.
+
+### Remaining near-term queue
+
+The following code-facing items remain open after the initial implementation
+track:
+
+1. more operational validation of same-session resume behavior after user
+   interruption,
+2. clearer delegated-failure retry policy, if one is added at all,
+3. stronger evidence that async completion notices remain concise under heavy
+   concurrent usage,
+4. richer task structure beyond a flat plan plus lightweight task context.
+
 ### Quick wins
 
 These are relatively low-risk changes that improve usability, trust, and the
@@ -410,11 +482,14 @@ practical effectiveness of the existing architecture.
    - explain when to delegate,
    - explain when to keep work inline.
 
-2. **Add long-horizon benchmark tasks**
+2. **Do not implement long-horizon benchmark tasks at this time**
    - multi-file bugfix workflows,
    - investigate-then-fix workflows,
    - background audit plus foreground implementation,
    - partial-failure and resume scenarios.
+
+   This is supporting validation work and is explicitly out of scope for the
+   current long-horizon implementation track.
 
 3. **Tighten async completion summaries**
    - make injected completion notices concise,

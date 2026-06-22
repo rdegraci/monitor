@@ -254,27 +254,52 @@ def tasks_command(arg: Any = None) -> None:
     user can see what's being tracked. Takes no arguments.
     """
     import json
-    from monitor.lib.todo import list_todos
+    from monitor.lib.todo import get_task_context, list_todos
 
     try:
         items = json.loads(list_todos())
     except (json.JSONDecodeError, TypeError):
         items = []
+    try:
+        context = json.loads(get_task_context())
+    except (json.JSONDecodeError, TypeError):
+        context = {}
 
     if not items:
         print("No tasks for this session.")
-        return
+    else:
+        print(f"Plan ({len(items)} item{'s' if len(items) != 1 else ''}):")
+        for entry in items:
+            status = entry.get("status", "")
+            priority = entry.get("priority", 0)
+            item = entry.get("item", "")
+            task_id = entry.get("id", "")
+            print(f"  [{status}] P{priority} {item}  ({task_id})")
+            notes = entry.get("notes", "")
+            if notes:
+                print(f"      notes: {notes}")
 
-    print(f"Plan ({len(items)} item{'s' if len(items) != 1 else ''}):")
-    for entry in items:
-        status = entry.get("status", "")
-        priority = entry.get("priority", 0)
-        item = entry.get("item", "")
-        task_id = entry.get("id", "")
-        print(f"  [{status}] P{priority} {item}  ({task_id})")
-        notes = entry.get("notes", "")
-        if notes:
-            print(f"      notes: {notes}")
+    criteria = context.get("acceptance_criteria") or []
+    if criteria:
+        print("Acceptance criteria:")
+        for item in criteria:
+            print(f"  - {item}")
+
+    checkpoint = context.get("checkpoint") or {}
+    if checkpoint:
+        print("Checkpoint:")
+        print(f"  summary: {checkpoint.get('summary', '')}")
+        print(f"  next: {checkpoint.get('next_step', '')}")
+        blockers = checkpoint.get("blockers", "")
+        if blockers:
+            print(f"  blockers: {blockers}")
+
+    scope_changes = context.get("scope_changes") or []
+    if scope_changes:
+        print("Scope changes:")
+        for entry in scope_changes[-3:]:
+            tag = "material" if entry.get("material", True) else "minor"
+            print(f"  - [{tag}] {entry.get('summary', '')}")
 
 
 def clear_tasks_command(arg: Any = None) -> None:

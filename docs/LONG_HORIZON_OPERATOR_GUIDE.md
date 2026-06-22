@@ -7,6 +7,7 @@ This guide is for people who want to use the current codebase effectively and
 safely. It focuses on runtime behavior that already exists today:
 
 - explicit planning with todo tools,
+- lightweight task context for acceptance criteria and resume checkpoints,
 - bounded background sub-agent orchestration,
 - one-shot and persistent agent lifecycles,
 - delegated-write controls,
@@ -36,6 +37,11 @@ Monitor's current long-horizon behavior is best understood as:
 - explicit visible planning,
 - async result harvest into later turns,
 - conservative defaults.
+
+The long-horizon feature primarily applies to the **primary Monitor
+instance**. That main session owns the plan, decides when to delegate,
+collates sub-agent results, and remains the writer of record. Sub-agents are
+normally bounded research workers feeding that primary session.
 
 This is **not** an unconstrained autonomous engineering swarm.
 
@@ -134,11 +140,13 @@ Use cases:
 
 For long-horizon work, the default pattern should be:
 - create a todo plan,
+- set acceptance criteria for feature work,
 - mark one item `in_progress`,
 - execute,
 - verify,
 - mark it `done`,
-- add newly discovered work explicitly.
+- add newly discovered work explicitly with `add_discovered_work`,
+- leave a checkpoint if the task may pause or resume later.
 
 Use todos for:
 - multi-step changes,
@@ -151,6 +159,18 @@ Skip todos only for:
 - pure Q&A,
 - a genuinely trivial one-shot action,
 - a single isolated tool call with no surrounding workflow.
+
+### Task-context tools
+
+The current codebase also supports lightweight session-scoped task context:
+
+- `set_task_acceptance` for feature-level acceptance criteria,
+- `add_discovered_work` for newly uncovered required work,
+- `save_task_checkpoint` for a compact resume marker,
+- `get_task_context` to read that state back later.
+
+Use these as the extension of the todo plan rather than overloading todo
+`notes` as a progress log.
 
 ## When to delegate versus work inline
 
@@ -212,6 +232,12 @@ Persistent agents are more expensive operationally because they require:
 - explicit cleanup,
 - clearer tracking,
 - more discipline around follow-up usage.
+
+Current follow-up rules are intentionally strict:
+- `agent_send(...)` is only for persistent agents,
+- one-shot sessions reject follow-up sends,
+- busy sessions reject follow-up sends until they finish,
+- crashed, errored, or idle-reaped sessions reject follow-up sends.
 
 ### Practical rule
 Default to one-shot.
@@ -362,8 +388,14 @@ This should remain exceptional rather than default.
 This guide does not imply:
 - unconstrained autonomous engineering,
 - filesystem rollback after delegated failure,
-- strong resumable checkpoints,
+- strong durable resumable checkpoints,
 - broad parallel code-writing safety.
+
+What does exist today is lighter-weight:
+- session-scoped resume checkpoints,
+- acceptance criteria,
+- explicit discovered-work capture,
+- explicit scope-growth notes.
 
 Those remain later-stage improvements rather than baseline guarantees.
 

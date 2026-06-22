@@ -10,11 +10,17 @@ creating near-duplicate task notes.
 ## 0. Planning and continuity
 - [x] Session-scoped todo tools exist (`add_todo`, `list_todos`, `update_todo`,
       `delete_todo`, `clear_todos`).
+- [x] Session-scoped task-context tools exist for acceptance criteria,
+      lightweight checkpoints, and recorded scope changes.
+- [x] Newly discovered required work can be added explicitly via
+      `add_discovered_work`.
 - [x] Todo items have stable IDs.
 - [x] Todo items support status tracking.
 - [x] Todo items support priority ordering.
 - [x] Todo storage has a persistence layer with in-memory fallback.
 - [x] System prompt instructs the model to use todos for multi-step work.
+- [x] Lightweight same-session resume state exists via acceptance criteria,
+      scope notes, and checkpoints.
 - [ ] Validate long-turn resume behavior after user interruption and later
       continuation in the same session.
 - [ ] Validate cross-session expectations explicitly in docs: what survives and
@@ -36,8 +42,8 @@ creating near-duplicate task notes.
 - [x] `agent_list` exists.
 - [x] `agent_logfile` exists.
 - [x] Orchestration is gated by `MONITOR_ENABLE_AGENT_ORCHESTRATION`.
-- [ ] Document a recommended production-like enablement profile.
-- [ ] Validate user-facing behavior when orchestration is disabled but the model
+- [x] Document a recommended production-like enablement profile.
+- [x] Validate user-facing behavior when orchestration is disabled but the model
       attempts delegated work.
 
 ## 3. Background execution model
@@ -61,7 +67,7 @@ creating near-duplicate task notes.
 - [x] Persistent agents are opt-in.
 - [ ] Validate operational behavior for very long-running but low-output tasks.
 - [ ] Validate that persistent agents are easy to identify and clean up.
-- [ ] Expand follow-up coverage for persistent `agent_send(...)` workflows.
+- [x] Expand follow-up coverage for persistent `agent_send(...)` workflows.
 
 ## 5. Safety bounds
 - [x] Recursion depth is bounded.
@@ -71,8 +77,8 @@ creating near-duplicate task notes.
 - [x] Delegated write access is explicit.
 - [x] Delegated write scope can be restricted.
 - [x] Sub-agent write policy fails closed when authority is missing.
-- [ ] Validate that bounds are surfaced clearly to operators and contributors.
-- [ ] Add docs for choosing safe cap values by workload type.
+- [x] Validate that bounds are surfaced clearly to operators and contributors.
+- [x] Add docs for choosing safe cap values by workload type.
 
 ## 6. Failure honesty
 - [x] `agent_gather` returns `ok` / `failed` / `pending` buckets.
@@ -80,7 +86,7 @@ creating near-duplicate task notes.
 - [x] Dirty disconnect surfaces as failure.
 - [x] Error frames surface as failure.
 - [x] Timeout surfaces as pending.
-- [ ] Document failure-handling guidance for orchestrator behavior after partial
+- [x] Document failure-handling guidance for orchestrator behavior after partial
       success or partial failure.
 - [ ] Validate that failure notices injected into later turns are consistently
       actionable and not overly verbose.
@@ -89,7 +95,7 @@ creating near-duplicate task notes.
 - [x] The architecture strongly prefers the orchestrator as the main writer.
 - [x] Delegated writes are not the default path.
 - [x] Delegated-write policy is enforced in `--agent` mode.
-- [ ] Make the researcher-vs-worker policy explicit in runtime docs.
+- [x] Make the researcher-vs-worker policy explicit in runtime docs.
 - [ ] Audit which tool surfaces are actually available to sub-agents when they
       are intended to remain read-only.
 - [ ] Validate there are no silent paths that allow broad writes when only
@@ -99,6 +105,8 @@ creating near-duplicate task notes.
 - [x] Agent status can be rendered live.
 - [x] Agent output can be surfaced above the prompt.
 - [x] Agent logs remain available.
+- [x] Active and recent delegated work can be summarized compactly for the
+      primary orchestrator.
 - [ ] Validate that long-running background activity is understandable to a
       human operator without log diving.
 - [ ] Validate prompt responsiveness while multiple agents are active.
@@ -116,17 +124,27 @@ creating near-duplicate task notes.
 
 ## 10. Near-term implementation order
 - [x] Add a practical operator guide for bounded orchestration usage.
-- [ ] Improve visibility into active background work.
+- [x] Improve visibility into active background work.
+- [x] Automatically add newly discovered required work to the todo plan during
+      feature implementation instead of silently widening scope.
+- [x] Surface material feature-scope growth explicitly and close work against
+      acceptance criteria rather than treating code edits alone as completion.
+- [ ] Formalize resume and recovery semantics for interrupted todo plans,
+      delegated work, and partially completed coding loops.
+- [x] Add lightweight checkpoint and resume conventions for current-session
+      work.
+- [x] Benchmark-task creation is explicitly deferred and is not to be
+      implemented in the current long-horizon pass.
 - [x] Add benchmark tasks for representative long-horizon coding workflows (`docs/cache/BENCHMARKS_LONG_HORIZON.md`).
-- [ ] Add stronger tests for persistent-agent follow-up flows.
+- [x] Add stronger tests for persistent-agent follow-up flows.
 - [ ] Tighten async completion notice formatting and length discipline.
 - [x] Add a benchmark gaps summary (`docs/cache/BENCHMARK_GAPS_LONG_HORIZON.md`).
 - [x] Add a benchmark execution queue (`docs/cache/BENCHMARK_EXECUTION_QUEUE_LONG_HORIZON.md`).
 - [x] Add a long-horizon docs index (`docs/cache/INDEX_LONG_HORIZON.md`).
 - [x] Add a benchmark execution playbook (`docs/cache/BENCHMARK_PLAYBOOK_LONG_HORIZON.md`).
 - [x] Add persistent-agent follow-up benchmark execution scaffolding (`docs/cache/BENCHMARK_RUN_LONG_HORIZON_SCENARIO_6_PROFILE_B_EXAMPLE.md`).
-- [ ] Document failure-handling patterns for partial delegated success/failure.
-- [ ] Document researcher-vs-worker mode explicitly.
+- [x] Document failure-handling patterns for partial delegated success/failure.
+- [x] Document researcher-vs-worker mode explicitly.
 
 ## 11. Mid-term architecture improvements
 - [ ] Structured artifact passing between sub-agents and orchestrator.

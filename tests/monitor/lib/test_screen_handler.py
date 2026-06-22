@@ -140,3 +140,18 @@ def test_create_interactive_subagent_clears_delegated_write_env_when_unset(mock_
 
     assert "MONITOR_SUBAGENT_WRITE_GRANTED" not in child_env
     assert "MONITOR_SUBAGENT_WRITE_SCOPE" not in child_env
+
+
+@patch("subprocess.run")
+def test_create_interactive_subagent_persists_lifecycle_metadata(mock_run, handler):
+    mock_cp = MagicMock()
+    mock_cp.returncode = 0
+    mock_run.return_value = mock_cp
+
+    info = handler.create_interactive_subagent("Hello sub-agent", persistent=True)
+
+    with open(info["meta_path"], "r", encoding="utf-8") as fh:
+        meta = json.load(fh)
+
+    assert meta["persistent"] is True
+    assert meta["one_shot"] is False

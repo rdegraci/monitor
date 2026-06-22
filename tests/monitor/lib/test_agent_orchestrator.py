@@ -126,12 +126,79 @@ def test_render_toolbar_active_then_empty():
     # Wait for the status frame to land (not just for the agent to register).
     assert _wait(lambda: "scanning" in (orch.render_toolbar() or ""))
     bar = orch.render_toolbar()
+    assert "running 1" in bar
     assert "tb1" in bar and "scanning" in bar
     # After a terminal frame the agent is no longer active → toolbar empties.
     r.result(ok=True, summary="done")
     r.close()
     assert _wait(lambda: not orch.has_active_agents())
     assert orch.render_toolbar() == ""
+
+
+def test_render_visibility_summary_includes_recent_outcomes():
+    with orch._registry_lock:
+        running = orch._blank_record()
+        running["status"] = "scanning"
+        completed = orch._blank_record()
+        completed["terminal"] = True
+        completed["results"] = [{"ok": True, "summary": "found tests"}]
+        orch._registry["a1"] = running
+        orch._registry["b2"] = completed
+        orch._recent_terminal_events.append(
+            {"agent_id": "b2", "outcome": "ok", "summary": "found tests"}
+        )
+    summary = orch.render_visibility_summary()
+    assert "running 1" in summary
+    assert "done 1" in summary
+    assert "failed 0" in summary
+    assert "a1: scanning" in summary
+    assert "✓ b2 found tests" in summary
+
+
+def test_render_visibility_summary_tracks_failed_recent_outcomes():
+    with orch._registry_lock:
+        failed = orch._blank_record()
+        failed["terminal"] = True
+        failed["error"] = {"message": "kaboom"}
+        orch._registry["bad1"] = failed
+        orch._recent_terminal_events.append(
+            {"agent_id": "bad1", "outcome": "failed", "summary": "kaboom"}
+        )
+    summary = orch.render_visibility_summary()
+    assert "running 0" in summary
+    assert "failed 1" in summary
+    assert "✗ bad1 kaboom" in summary
+
+
+def test_note_followup_sent_marks_record_running():
+    orch.note_spawn("persist1")
+    orch.note_spawn_lifecycle("persist1", persistent=True)
+    with orch._registry_lock:
+        orch._registry["persist1"]["terminal"] = True
+        orch._registry["persist1"]["results"] = [{"ok": True, "summary": "done"}]
+    orch.note_followup_sent("persist1")
+    rec = orch.agent_record("persist1")
+    assert rec["persistent"] is True
+    assert rec["followup_pending"] is True
+    assert rec["terminal"] is False
+    assert orch._classify_record(rec) == "running"
+
+
+def test_should_idle_reap_only_persistent_terminal_idle_sessions():
+    now = time.monotonic()
+    rec = orch._blank_record()
+    rec["persistent"] = True
+    rec["terminal"] = True
+    rec["last_frame"] = now - 1.0
+    rec["last_activity"] = now - 500.0
+    assert orch.should_idle_reap(rec, now, heartbeat_timeout=45.0, idle_timeout=300.0) is True
+
+    rec["followup_pending"] = True
+    assert orch.should_idle_reap(rec, now, heartbeat_timeout=45.0, idle_timeout=300.0) is False
+
+    rec["followup_pending"] = False
+    rec["persistent"] = False
+    assert orch.should_idle_reap(rec, now, heartbeat_timeout=45.0, idle_timeout=300.0) is False
 
 
 def test_clean_exit_not_dirty():

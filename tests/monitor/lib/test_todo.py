@@ -91,6 +91,51 @@ def test_add_todo_stores_given_priority():
     assert next(t for t in _stored() if t["id"] == resp["id"])["priority"] == 5
 
 
+def test_add_discovered_work_creates_todo():
+    resp = json.loads(
+        todo.add_discovered_work("Add migration for new settings table", priority=7)
+    )
+    assert resp["ok"] is True
+    assert resp["created"] is True
+    assert resp["todo"]["item"] == "Add migration for new settings table"
+    assert resp["todo"]["priority"] == 7
+    assert resp["scope_change"] is None
+    assert _stored() == [resp["todo"]]
+
+
+def test_add_discovered_work_records_material_scope_growth():
+    resp = json.loads(
+        todo.add_discovered_work(
+            "Handle legacy config translation",
+            material=True,
+            scope_summary="feature also needs backward-compatible config translation",
+        )
+    )
+    assert resp["ok"] is True
+    assert resp["scope_change"]["material"] is True
+    assert (
+        resp["scope_change"]["summary"]
+        == "feature also needs backward-compatible config translation"
+    )
+    context = json.loads(todo.get_task_context())
+    assert len(context["scope_changes"]) == 1
+    assert context["scope_changes"][0]["summary"] == resp["scope_change"]["summary"]
+
+
+def test_add_discovered_work_reuses_exact_duplicate_item():
+    first = json.loads(todo.add_discovered_work("Write regression test"))
+    second = json.loads(todo.add_discovered_work("Write regression test", priority=9))
+    assert first["todo"]["id"] == second["todo"]["id"]
+    assert second["created"] is False
+    assert len(_stored()) == 1
+
+
+def test_add_discovered_work_rejects_empty_item():
+    resp = json.loads(todo.add_discovered_work("   "))
+    assert resp["ok"] is False
+    assert resp["error"] == "empty_item"
+
+
 # --- list_todos -------------------------------------------------------------
 
 
@@ -365,3 +410,67 @@ def test_fallback_isolated_per_session():
     todo_redis.clear_todo_from_memory(session_id="s1")
     assert todo_redis.read_todo_from_memory(session_id="s1") == []
     assert todo_redis.read_todo_from_memory(session_id="s2") == [{"item": "two"}]
+
+
+# --- task context -----------------------------------------------------------
+
+
+def test_get_task_context_defaults_empty():
+    data = json.loads(todo.get_task_context())
+    assert data == {
+        "acceptance_criteria": [],
+        "scope_changes": [],
+        "checkpoint": None,
+    }
+
+
+def test_set_task_acceptance_replaces_and_dedupes():
+    resp = json.loads(
+        todo.set_task_acceptance(["works on retry", "writes tests", "works on retry", ""])
+    )
+    assert resp["ok"] is True
+    assert resp["count"] == 2
+    data = json.loads(todo.get_task_context())
+    assert data["acceptance_criteria"] == ["works on retry", "writes tests"]
+
+
+def test_save_task_checkpoint_persists_latest_resume_state():
+    resp = json.loads(
+        todo.save_task_checkpoint(
+            summary="parser updated and tests added",
+            next_step="run targeted parser suite",
+            blockers="waiting on fixture refresh",
+        )
+    )
+    assert resp["ok"] is True
+    checkpoint = json.loads(todo.get_task_context())["checkpoint"]
+    assert checkpoint["summary"] == "parser updated and tests added"
+    assert checkpoint["next_step"] == "run targeted parser suite"
+    assert checkpoint["blockers"] == "waiting on fixture refresh"
+    assert checkpoint["updated_at"].endswith("Z")
+
+
+def test_record_task_scope_change_appends_entry():
+    resp = json.loads(
+        todo.record_task_scope_change(
+            "need a compatibility shim for legacy config", material=True
+        )
+    )
+    assert resp["ok"] is True
+    context = json.loads(todo.get_task_context())
+    assert len(context["scope_changes"]) == 1
+    assert context["scope_changes"][0]["summary"] == "need a compatibility shim for legacy config"
+    assert context["scope_changes"][0]["material"] is True
+
+
+def test_clear_todos_clears_task_context_too():
+    _add("Task A")
+    todo.set_task_acceptance(["criterion"])
+    todo.save_task_checkpoint("done some work", "finish verification")
+    todo.record_task_scope_change("need docs update", material=False)
+    todo.clear_todos()
+    assert json.loads(todo.get_task_context()) == {
+        "acceptance_criteria": [],
+        "scope_changes": [],
+        "checkpoint": None,
+    }

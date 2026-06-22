@@ -96,6 +96,13 @@ _registry_lock = threading.Lock()
 _MAX_PENDING_OUTPUT = 2000
 _pending_output: Deque[str] = collections.deque(maxlen=_MAX_PENDING_OUTPUT)
 
+# Bounded history of recent terminal outcomes so the primary orchestrator can
+# show a compact "what just happened" summary without replaying full logs.
+_MAX_RECENT_EVENTS = 8
+_recent_terminal_events: Deque[Dict[str, str]] = collections.deque(
+    maxlen=_MAX_RECENT_EVENTS
+)
+
 # Async result harvest (Phase 8a): when a background sub-agent reaches a terminal
 # state, a one-line notice is queued here (guarded by _registry_lock, written
 # from reader/heartbeat threads). The MAIN thread drains it at query-prep time
@@ -126,6 +133,9 @@ def _blank_record(conn_id: Optional[int] = None) -> Dict[str, Any]:
         "error": None,
         "terminal": False,
         "dirty": False,
+        "persistent": False,
+        "followup_pending": False,
+        "last_followup_sent_at": None,
         "conn_id": conn_id,
         "last_frame": time.monotonic(),
         "last_activity": time.monotonic(),  # last NON-heartbeat frame (real work)
@@ -153,6 +163,30 @@ def _queue_injection(agent_id: str, rec: Dict[str, Any], text: str) -> None:
     _pending_injections.append(text)
 
 
+def _push_terminal_event(agent_id: str, outcome: str, summary: str) -> None:
+    """Record a compact terminal outcome for operator-facing visibility."""
+    text = " ".join(str(summary or "").split()).strip()
+    if not text:
+        text = "completed" if outcome == "ok" else "failed"
+    _recent_terminal_events.append(
+        {"agent_id": str(agent_id), "outcome": str(outcome), "summary": text}
+    )
+
+
+def _classify_record(rec: Dict[str, Any]) -> str:
+    """Return one of running/completed/failed for a registry record."""
+    if rec.get("dirty") or rec.get("error"):
+        return "failed"
+    if rec.get("followup_pending"):
+        return "running"
+    results = rec.get("results") or []
+    if results:
+        return "completed" if results[-1].get("ok", True) else "failed"
+    if rec.get("terminal"):
+        return "completed"
+    return "running"
+
+
 def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
     agent_id = frame.get("agent_id")
     if not agent_id:
@@ -169,6 +203,11 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
         # idle-reaper can tell an idle-but-alive agent from a busy one.
         if ftype != ap.HEARTBEAT:
             rec["last_activity"] = rec["last_frame"]
+            rec["followup_pending"] = False
+        if ftype in (ap.STATUS, ap.STDOUT) and rec.get("terminal"):
+            rec["terminal"] = False
+            rec["_reaped"] = False
+            rec["error"] = None
         rec["frames"].append(frame)
         if ftype == ap.STATUS:
             rec["status"] = frame["body"].get("label")
@@ -187,6 +226,7 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
                 _pending_usage.append(usage)
             ok = frame["body"].get("ok", True)
             summary = frame["body"].get("summary", "")
+            _push_terminal_event(agent_id, "ok" if ok else "failed", summary)
             _pending_output.append(f"[{agent_id}] {'✓' if ok else '✗'} {summary}")
             verb = "finished" if ok else "FAILED"
             _queue_injection(
@@ -198,6 +238,7 @@ def _on_frame(frame: Dict[str, Any], conn_id: int) -> None:
             rec["terminal"] = True
             _count_resolved(rec)
             msg = frame["body"].get("message", "")
+            _push_terminal_event(agent_id, "failed", msg)
             _pending_output.append(f"[{agent_id}] ✗ error: {msg}")
             _queue_injection(
                 agent_id, rec,
@@ -220,6 +261,9 @@ def _on_disconnect(conn_id: int, agent_id: Optional[str], dirty: bool) -> None:
         if bool(dirty) and not rec["terminal"]:
             rec["dirty"] = True
             _count_resolved(rec)
+            _push_terminal_event(
+                agent_id, "failed", "crashed (disconnected before reporting a result)"
+            )
             _queue_injection(
                 agent_id, rec,
                 f"Background sub-agent '{agent_id}' FAILED: crashed (disconnected "
@@ -239,6 +283,26 @@ def _kill_session(agent_id: str) -> None:
         get_global_screen_handler().kill_session(agent_id)
     except Exception:
         logger.debug("idle-reap: could not kill session %s", agent_id, exc_info=True)
+
+
+def should_idle_reap(
+    rec: Dict[str, Any],
+    now: float,
+    heartbeat_timeout: float,
+    idle_timeout: float,
+) -> bool:
+    """Return True when a persistent session is idle long enough to reap."""
+    if not rec.get("persistent"):
+        return False
+    if rec.get("followup_pending"):
+        return False
+    if not rec.get("terminal") or rec.get("dirty") or rec.get("_reaped"):
+        return False
+    if (now - rec.get("last_frame", now)) >= heartbeat_timeout:
+        return False
+    if (now - rec.get("last_activity", now)) <= idle_timeout:
+        return False
+    return True
 
 
 def _heartbeat_monitor() -> None:
@@ -272,13 +336,7 @@ def _heartbeat_monitor() -> None:
                 # and has done no real work for idle_timeout. One-shot agents
                 # exit themselves, so they go silent (stale last_frame) and are
                 # NOT matched here.
-                if (
-                    rec["terminal"]
-                    and not rec["dirty"]
-                    and not rec["_reaped"]
-                    and (now - rec.get("last_frame", now)) < timeout      # still alive
-                    and (now - rec.get("last_activity", now)) > idle_timeout  # idle
-                ):
+                if should_idle_reap(rec, now, timeout, idle_timeout):
                     rec["_reaped"] = True
                     to_reap.append(aid)
         for aid in to_reap:
@@ -378,6 +436,36 @@ def note_spawn(agent_id: str) -> None:
             _registry[agent_id] = rec
 
 
+def note_spawn_lifecycle(agent_id: str, persistent: bool) -> None:
+    """Annotate a spawned agent record with its intended lifecycle."""
+    with _registry_lock:
+        rec = _registry.get(agent_id)
+        if rec is None:
+            rec = _blank_record()
+            _registry[agent_id] = rec
+        rec["persistent"] = bool(persistent)
+
+
+def note_followup_sent(agent_id: str) -> None:
+    """Mark a persistent agent as having received a new follow-up prompt."""
+    now = time.monotonic()
+    with _registry_lock:
+        rec = _registry.get(agent_id)
+        if rec is None:
+            rec = _blank_record()
+            _registry[agent_id] = rec
+        rec["persistent"] = True
+        rec["followup_pending"] = True
+        rec["terminal"] = False
+        rec["dirty"] = False
+        rec["_reaped"] = False
+        rec["last_followup_sent_at"] = now
+        rec["last_frame"] = now
+        rec["last_activity"] = now
+        if not rec.get("status"):
+            rec["status"] = "follow-up pending"
+
+
 # --- bridge: terminal display (Phase 3) -------------------------------------
 
 def drain_pending_output(limit: Optional[int] = None) -> List[str]:
@@ -424,21 +512,72 @@ def has_active_agents() -> bool:
         )
 
 
+def visibility_snapshot(
+    max_active: int = 3, max_recent: int = 2
+) -> Dict[str, Any]:
+    """Summarize active and recent delegated work for operator-facing surfaces."""
+    with _registry_lock:
+        active = [
+            (aid, rec.get("status"))
+            for aid, rec in _registry.items()
+            if _classify_record(rec) == "running"
+        ]
+        completed = 0
+        failed = 0
+        for rec in _registry.values():
+            state = _classify_record(rec)
+            if state == "completed":
+                completed += 1
+            elif state == "failed":
+                failed += 1
+        recent = list(_recent_terminal_events)[-max(0, int(max_recent)) :]
+    return {
+        "running_count": len(active),
+        "completed_count": completed,
+        "failed_count": failed,
+        "active": active[: max(0, int(max_active))],
+        "recent": recent,
+    }
+
+
+def render_visibility_summary(max_active: int = 2, max_recent: int = 2) -> str:
+    """Compact one-line delegated-work summary for the primary orchestrator."""
+    snap = visibility_snapshot(max_active=max_active, max_recent=max_recent)
+    if (
+        snap["running_count"] == 0
+        and snap["completed_count"] == 0
+        and snap["failed_count"] == 0
+        and not snap["recent"]
+    ):
+        return ""
+
+    parts = [f"agents — running {snap['running_count']}"]
+    if snap["completed_count"] or snap["failed_count"]:
+        parts.append(
+            f"done {snap['completed_count']} failed {snap['failed_count']}"
+        )
+    if snap["active"]:
+        active_text = "; ".join(
+            f"{aid}: {status or '…'}" for aid, status in snap["active"]
+        )
+        parts.append(f"active {active_text}")
+    if snap["recent"]:
+        recent_text = "; ".join(
+            f"{'✓' if event['outcome'] == 'ok' else '✗'} {event['agent_id']} {event['summary']}"
+            for event in snap["recent"]
+        )
+        parts.append(f"recent {recent_text}")
+    return " | ".join(parts)
+
+
 def render_toolbar() -> str:
     """One-line live status of active agents for the prompt_toolkit toolbar.
 
     Returns "" when no agents are active so the toolbar is hidden in normal use.
     """
-    with _registry_lock:
-        active = [
-            (aid, rec["status"])
-            for aid, rec in _registry.items()
-            if not rec["terminal"] and not rec["dirty"]
-        ]
-    if not active:
+    if not has_active_agents():
         return ""
-    parts = [f"{aid}: {status or '…'}" for aid, status in active]
-    return "agents — " + "  ".join(parts)
+    return render_visibility_summary()
 
 
 # --- lifecycle / tests ------------------------------------------------------
@@ -465,5 +604,6 @@ def reset_for_test() -> None:
         _registry.clear()
         _pending_output.clear()
         _pending_injections.clear()
+        _recent_terminal_events.clear()
         _total_spawned = 0
         _total_resolved = 0

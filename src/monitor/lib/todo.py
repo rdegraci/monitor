@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from monitor.lib.colors import blue, reset
@@ -8,6 +9,7 @@ from monitor.lib.colors import blue, reset
 from . import todo_redis as _todo_store
 
 logger = logging.getLogger(__name__)
+_MAX_SCOPE_CHANGES = 12
 
 
 def _print_todo_action(symbol: str, message: str) -> None:
@@ -94,6 +96,57 @@ def _priority_of(entry: Dict[str, Any]) -> int:
         return 0
 
 
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _default_task_context() -> Dict[str, Any]:
+    return {
+        "acceptance_criteria": [],
+        "scope_changes": [],
+        "checkpoint": None,
+    }
+
+
+def _read_task_context(session_id: str) -> Dict[str, Any]:
+    value = _todo_store.read_task_context_from_memory(session_id=session_id)
+    if not isinstance(value, dict):
+        return _default_task_context()
+    context = _default_task_context()
+    acceptance = value.get("acceptance_criteria")
+    if isinstance(acceptance, list):
+        context["acceptance_criteria"] = [
+            str(item).strip() for item in acceptance if str(item).strip()
+        ]
+    scope_changes = value.get("scope_changes")
+    if isinstance(scope_changes, list):
+        context["scope_changes"] = [
+            entry for entry in scope_changes if isinstance(entry, dict)
+        ][-_MAX_SCOPE_CHANGES:]
+    checkpoint = value.get("checkpoint")
+    if isinstance(checkpoint, dict):
+        context["checkpoint"] = checkpoint
+    return context
+
+
+def _save_task_context(session_id: str, context: Dict[str, Any]) -> None:
+    _todo_store.save_task_context_to_memory(session_id=session_id, context=context)
+
+
+def _append_scope_change(
+    context: Dict[str, Any], summary: str, *, material: bool
+) -> Dict[str, Any]:
+    entry = {
+        "summary": str(summary).strip(),
+        "material": bool(material),
+        "created_at": _now_utc_iso(),
+    }
+    scope_changes = list(context.get("scope_changes") or [])
+    scope_changes.append(entry)
+    context["scope_changes"] = scope_changes[-_MAX_SCOPE_CHANGES:]
+    return entry
+
+
 def add_todo(item: str, notes: str | None = None, priority: int = 0) -> str:
     """Add a new todo to the current session's plan and return its id.
 
@@ -137,6 +190,196 @@ def add_todo(item: str, notes: str | None = None, priority: int = 0) -> str:
             "item": item,
             "priority": priority,
             "count": len(todos),
+        }
+    )
+
+
+def add_discovered_work(
+    item: str,
+    notes: str | None = None,
+    priority: int = 0,
+    material: bool = False,
+    scope_summary: str | None = None,
+) -> str:
+    """Add newly discovered work to the plan, optionally recording scope growth.
+
+    This is the preferred tool when the orchestrator uncovers new required work
+    mid-task: it creates the todo and, when relevant, records that scope grew.
+    Exact duplicate items are reused instead of duplicated.
+    """
+    session_id = _resolve_session_id()
+    item_text = str(item).strip()
+    if not item_text:
+        return json.dumps(
+            {
+                "ok": False,
+                "action": "add_discovered_work",
+                "error": "empty_item",
+                "reason": "item must be a non-empty string",
+                "session_id": session_id,
+            }
+        )
+
+    todos = _read_todos(session_id, context=f"add_discovered_work session={session_id}")
+    _ensure_ids(todos)
+    context = _read_task_context(session_id)
+
+    existing = next(
+        (
+            entry for entry in todos
+            if isinstance(entry, dict)
+            and str(entry.get("item", "")).strip() == item_text
+        ),
+        None,
+    )
+    created = False
+    if existing is None:
+        existing_ids = {t["id"] for t in todos if isinstance(t, dict) and t.get("id")}
+        todo_entry = {
+            "id": _new_id(existing_ids),
+            "item": item_text,
+            "status": "pending",
+            "priority": priority,
+            "notes": notes or "",
+        }
+        todos.append(todo_entry)
+        existing = todo_entry
+        created = True
+        _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
+        logger.info(
+            "add_discovered_work session=%s id=%s item=%r priority=%s created=true",
+            session_id,
+            todo_entry["id"],
+            item_text,
+            priority,
+        )
+        _print_todo_action("+", f"{todo_entry['id']} P{priority} discovered {item_text}")
+    else:
+        logger.info(
+            "add_discovered_work session=%s id=%s item=%r reused=true",
+            session_id,
+            existing.get("id"),
+            item_text,
+        )
+        _print_todo_action("~", f"{existing.get('id')} discovered work already tracked")
+
+    scope_change = None
+    if material or scope_summary:
+        scope_text = str(scope_summary or item_text).strip()
+        if scope_text:
+            scope_change = _append_scope_change(context, scope_text, material=material)
+            _save_task_context(session_id, context)
+            logger.info(
+                "add_discovered_work session=%s recorded_scope material=%s summary=%r",
+                session_id,
+                material,
+                scope_text,
+            )
+            _print_todo_action(
+                "!",
+                f"scope {'material' if material else 'minor'} {scope_change['summary']}",
+            )
+
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "add_discovered_work",
+            "session_id": session_id,
+            "created": created,
+            "todo": existing,
+            "scope_change": scope_change,
+            "count": len(todos),
+        }
+    )
+
+
+def get_task_context() -> str:
+    """Return session-scoped task context for resume/recovery decisions."""
+    session_id = _resolve_session_id()
+    context = _read_task_context(session_id)
+    logger.info("get_task_context session=%s", session_id)
+    _print_todo_action(
+        "?",
+        (
+            f"context criteria={len(context['acceptance_criteria'])} "
+            f"scope_changes={len(context['scope_changes'])} "
+            f"checkpoint={'yes' if context['checkpoint'] else 'no'}"
+        ),
+    )
+    return json.dumps(context)
+
+
+def set_task_acceptance(criteria: List[str]) -> str:
+    """Replace the session's acceptance criteria list."""
+    session_id = _resolve_session_id()
+    context = _read_task_context(session_id)
+    ordered: List[str] = []
+    seen = set()
+    for item in criteria or []:
+        text = str(item).strip()
+        if not text or text in seen:
+            continue
+        ordered.append(text)
+        seen.add(text)
+    context["acceptance_criteria"] = ordered
+    _save_task_context(session_id, context)
+    logger.info("set_task_acceptance session=%s count=%d", session_id, len(ordered))
+    _print_todo_action("*", f"acceptance criteria {len(ordered)} item{'s' if len(ordered) != 1 else ''}")
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "set_task_acceptance",
+            "session_id": session_id,
+            "acceptance_criteria": ordered,
+            "count": len(ordered),
+        }
+    )
+
+
+def save_task_checkpoint(summary: str, next_step: str, blockers: str | None = None) -> str:
+    """Persist a lightweight resume checkpoint for the current session."""
+    session_id = _resolve_session_id()
+    context = _read_task_context(session_id)
+    checkpoint = {
+        "summary": str(summary).strip(),
+        "next_step": str(next_step).strip(),
+        "blockers": str(blockers or "").strip(),
+        "updated_at": _now_utc_iso(),
+    }
+    context["checkpoint"] = checkpoint
+    _save_task_context(session_id, context)
+    logger.info("save_task_checkpoint session=%s next_step=%r", session_id, checkpoint["next_step"])
+    _print_todo_action(">", f"checkpoint next: {checkpoint['next_step'] or checkpoint['summary']}")
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "save_task_checkpoint",
+            "session_id": session_id,
+            "checkpoint": checkpoint,
+        }
+    )
+
+
+def record_task_scope_change(summary: str, material: bool = True) -> str:
+    """Append a scope-growth note for the current session."""
+    session_id = _resolve_session_id()
+    context = _read_task_context(session_id)
+    entry = _append_scope_change(context, summary, material=material)
+    _save_task_context(session_id, context)
+    logger.info(
+        "record_task_scope_change session=%s material=%s summary=%r",
+        session_id,
+        entry["material"],
+        entry["summary"],
+    )
+    _print_todo_action("!", f"scope {'material' if entry['material'] else 'minor'} {entry['summary']}")
+    return json.dumps(
+        {
+            "ok": True,
+            "action": "record_task_scope_change",
+            "session_id": session_id,
+            "scope_change": entry,
+            "count": len(context["scope_changes"]),
         }
     )
 
@@ -370,6 +613,7 @@ def clear_todos() -> str:
     existing = _todo_store.read_todo_from_memory(session_id=session_id) or []
     count = len(existing) if isinstance(existing, list) else 0
     _todo_store.clear_todo_from_memory(session_id=session_id)
+    _todo_store.clear_task_context_from_memory(session_id=session_id)
     logger.info("clear_todos session=%s removed=%d", session_id, count)
     _print_todo_action("!", f"cleared {count} item{'s' if count != 1 else ''}")
     return json.dumps(

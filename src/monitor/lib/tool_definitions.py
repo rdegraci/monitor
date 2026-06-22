@@ -48,7 +48,18 @@ from monitor.lib.bulk_replace import bulk_replace_in_files
 from monitor.lib.find_files import find_files
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.type_checker import type_check_python
-from monitor.lib.todo import add_todo, list_todos, update_todo, delete_todo, clear_todos
+from monitor.lib.todo import (
+    add_discovered_work,
+    add_todo,
+    clear_todos,
+    delete_todo,
+    get_task_context,
+    list_todos,
+    record_task_scope_change,
+    save_task_checkpoint,
+    set_task_acceptance,
+    update_todo,
+)
 
 TOOL_STATE = {}
 
@@ -98,11 +109,16 @@ AVAILABLE_TOOLS = {
     # decides which tool name, if any, is exposed for the active model.
     "str_replace_based_edit_tool": str_replace_based_edit_tool,
     "str_replace_editor": str_replace_based_edit_tool,
+    "add_discovered_work": add_discovered_work,
     "add_todo": add_todo,
     "list_todos": list_todos,
     "update_todo": update_todo,
     "delete_todo": delete_todo,
     "clear_todos": clear_todos,
+    "get_task_context": get_task_context,
+    "set_task_acceptance": set_task_acceptance,
+    "save_task_checkpoint": save_task_checkpoint,
+    "record_task_scope_change": record_task_scope_change,
     "agent_create": agent_create,
     "agent_kill": agent_kill,
     "agent_list": agent_list,
@@ -584,6 +600,24 @@ TOOL_DESCRIPTIONS = [
     {
         "type": "function",
         "function": {
+            "name": "add_discovered_work",
+            "description": "Add newly discovered required work to the current session's plan. Prefer this over add_todo when work emerges mid-task: it creates the todo and can also record scope growth in one step.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item": {"type": "string", "description": "The newly discovered work item to add to the plan."},
+                    "priority": {"type": "integer", "description": "Higher number sorts earlier in list_todos.", "default": 0},
+                    "notes": {"type": "string", "description": "Static supporting context for the newly discovered work."},
+                    "material": {"type": "boolean", "description": "Set true when this discovered work materially expands the original ask.", "default": False},
+                    "scope_summary": {"type": "string", "description": "Optional scope-growth summary to record alongside the new todo. Defaults to the todo item text when omitted and material/scope recording is requested."}
+                },
+                "required": ["item"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_todos",
             "description": "Retrieve the current session's todo list as a JSON array, sorted by priority (highest first); each item includes id, status, priority, and notes.",
             "parameters": {
@@ -602,7 +636,7 @@ TOOL_DESCRIPTIONS = [
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "The id of the todo to update."},
-                    "status": {"type": "string", "description": "New status, e.g. 'in_progress' or 'done'."},
+                    "status": {"type": "string", "description": "New status, e.g. 'pending', 'in_progress', 'done', 'blocked', or 'waiting'."},
                     "item": {"type": "string", "description": "New description text for the todo."},
                     "notes": {"type": "string", "description": "Static supporting context for the todo — blockers, file pointers, gotchas. Do NOT use notes as a progress log; use `status` for progress and `item` for the action itself. Update notes only when underlying context changes (e.g., a blocker is resolved), not to record what you just did."},
                     "priority": {"type": "integer", "description": "New priority (higher sorts earlier)."}
@@ -634,6 +668,67 @@ TOOL_DESCRIPTIONS = [
                 "type": "object",
                 "properties": {},
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_task_context",
+            "description": "Retrieve lightweight session-scoped task context for long-running work: acceptance criteria, recent scope changes, and the latest resume checkpoint.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_task_acceptance",
+            "description": "Set or replace the current session's acceptance criteria list for feature work. Use this early so completion is judged against explicit criteria, not just file edits.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "criteria": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "The acceptance criteria to satisfy before considering the task done."
+                    }
+                },
+                "required": ["criteria"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_task_checkpoint",
+            "description": "Save a lightweight resume checkpoint for the current session. Use when pausing mid-task, after a delegated failure, or after a meaningful intermediate milestone.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "What is already true now."},
+                    "next_step": {"type": "string", "description": "The exact next action to resume with."},
+                    "blockers": {"type": "string", "description": "Optional blockers or recovery notes."}
+                },
+                "required": ["summary", "next_step"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_task_scope_change",
+            "description": "Record a discovered scope change for the current session. Use together with add_todo when new required work is discovered; surface material scope growth before silently absorbing it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "The newly discovered work or scope expansion."},
+                    "material": {"type": "boolean", "description": "Whether the scope change is materially larger than the original ask.", "default": True}
+                },
+                "required": ["summary"]
             }
         }
     },
@@ -1202,6 +1297,40 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
+    "description": "Add newly discovered required work to the current session's plan. Prefer this over add_todo when work emerges mid-task: it creates the todo and can also record scope growth in one step.",
+    "name": "add_discovered_work",
+    "parameters": {
+      "properties": {
+        "item": {
+          "description": "The newly discovered work item to add to the plan.",
+          "type": "string"
+        },
+        "priority": {
+          "description": "Higher number sorts earlier in list_todos.",
+          "type": "integer",
+          "default": 0
+        },
+        "notes": {
+          "description": "Static supporting context for the newly discovered work.",
+          "type": "string"
+        },
+        "material": {
+          "description": "Set true when this discovered work materially expands the original ask.",
+          "type": "boolean",
+          "default": False
+        },
+        "scope_summary": {
+          "description": "Optional scope-growth summary to record alongside the new todo. Defaults to the todo item text when omitted and material/scope recording is requested.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "description": "Retrieve the current session's todo list as a JSON array, sorted by priority (highest first); each item includes id, status, priority, and notes.",
     "name": "list_todos",
     "parameters": {
@@ -1220,7 +1349,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
           "type": "string"
         },
         "status": {
-          "description": "New status, e.g. 'in_progress' or 'done'.",
+          "description": "New status, e.g. 'pending', 'in_progress', 'done', 'blocked', or 'waiting'.",
           "type": "string"
         },
         "item": {
@@ -1264,6 +1393,80 @@ GEMINI_TOOL_DESCRIPTIONS = [
     "parameters": {
       "properties": {},
       "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Retrieve lightweight session-scoped task context for long-running work: acceptance criteria, recent scope changes, and the latest resume checkpoint.",
+    "name": "get_task_context",
+    "parameters": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Set or replace the current session's acceptance criteria list for feature work. Use this early so completion is judged against explicit criteria, not just file edits.",
+    "name": "set_task_acceptance",
+    "parameters": {
+      "properties": {
+        "criteria": {
+          "description": "The acceptance criteria to satisfy before considering the task done.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "criteria"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Save a lightweight resume checkpoint for the current session. Use when pausing mid-task, after a delegated failure, or after a meaningful intermediate milestone.",
+    "name": "save_task_checkpoint",
+    "parameters": {
+      "properties": {
+        "summary": {
+          "description": "What is already true now.",
+          "type": "string"
+        },
+        "next_step": {
+          "description": "The exact next action to resume with.",
+          "type": "string"
+        },
+        "blockers": {
+          "description": "Optional blockers or recovery notes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "next_step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Record a discovered scope change for the current session. Use together with add_todo when new required work is discovered; surface material scope growth before silently absorbing it.",
+    "name": "record_task_scope_change",
+    "parameters": {
+      "properties": {
+        "summary": {
+          "description": "The newly discovered work or scope expansion.",
+          "type": "string"
+        },
+        "material": {
+          "description": "Whether the scope change is materially larger than the original ask.",
+          "type": "boolean",
+          "default": True
+        }
+      },
+      "required": [
+        "summary"
+      ],
       "type": "object"
     }
   },

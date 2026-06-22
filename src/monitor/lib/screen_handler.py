@@ -420,6 +420,8 @@ class ScreenHandler:
             "log_path": str(log_path),
             "monitor_cmd": self.monitor_cmd,
             "socket_path": str(socket_path),
+            "persistent": bool(persistent),
+            "one_shot": not bool(persistent),
         }
         try:
             with open(meta_path, "w", encoding="utf-8") as fh:

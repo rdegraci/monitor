@@ -37,7 +37,9 @@ class _FakeSession:
 @pytest.fixture(autouse=True)
 def _clean():
     orch.reset_for_test()
+    conversation._LAST_AGENT_VISIBILITY_SUMMARY = None
     yield
+    conversation._LAST_AGENT_VISIBILITY_SUMMARY = None
     orch.reset_for_test()
 
 
@@ -51,13 +53,19 @@ def test_no_agents_is_plain_prompt():
     assert "bottom_toolbar" not in kwargs  # no toolbar when no agents
 
 
-def test_active_agent_adds_toolbar(capsys):
-    path = orch.ensure_started()
-    r = AgentReporter(path, "ag")
-    r.connect()
-    r.status("indexing")
-    assert _wait(lambda: orch.has_active_agents())
-
+def test_active_agent_adds_toolbar(monkeypatch):
+    monkeypatch.setattr(orch, "drain_pending_output", lambda limit=None: [])
+    monkeypatch.setattr(orch, "has_active_agents", lambda: True)
+    monkeypatch.setattr(
+        orch,
+        "render_visibility_summary",
+        lambda: "agents — running 1 | active ag: indexing",
+    )
+    monkeypatch.setattr(
+        orch,
+        "render_toolbar",
+        lambda: "agents — running 1 | active ag: indexing",
+    )
     s = _FakeSession("x")
     out = conversation._prompt_with_agent_bridge(s, "PROMPT>")
     assert out == "x"
@@ -65,17 +73,12 @@ def test_active_agent_adds_toolbar(capsys):
     assert "bottom_toolbar" in kwargs
     assert callable(kwargs["bottom_toolbar"])
     assert kwargs["bottom_toolbar"]()  # renders non-empty while active
-    r.close()
+    assert "running 1" in kwargs["bottom_toolbar"]()
 
 
-def test_toolbar_returns_none_when_empty(capsys):
+def test_toolbar_returns_none_when_empty(monkeypatch):
     """The bottom_toolbar callable returns None (not '') when there's no active
     status, so prompt_toolkit doesn't leave a blank bar."""
-    # No agents → render_toolbar() is "" → callable should yield None.
-    path = orch.ensure_started()
-    r = AgentReporter(path, "tb"); r.connect(); r.status("scanning")
-    assert _wait(lambda: orch.has_active_agents())
-
     captured = {}
 
     class FakeSession:
@@ -83,27 +86,64 @@ def test_toolbar_returns_none_when_empty(capsys):
             captured["toolbar"] = kwargs.get("bottom_toolbar")
             return "x"
 
+    state = {"active": True}
+    monkeypatch.setattr(orch, "drain_pending_output", lambda limit=None: [])
+    monkeypatch.setattr(orch, "has_active_agents", lambda: state["active"])
+    monkeypatch.setattr(
+        orch,
+        "render_visibility_summary",
+        lambda: "agents — running 1 | active tb: scanning" if state["active"] else "",
+    )
+    monkeypatch.setattr(
+        orch,
+        "render_toolbar",
+        lambda: "agents — running 1 | active tb: scanning" if state["active"] else "",
+    )
     conversation._prompt_with_agent_bridge(FakeSession(), "P>")
     tb = captured["toolbar"]
     assert callable(tb)
     assert tb()  # non-empty while active
     # After the agent finishes, the callable yields None (not a blank string).
-    r.result(ok=True, summary="done"); r.close()
-    assert _wait(lambda: not orch.has_active_agents())
+    state["active"] = False
     assert tb() is None
 
 
-def test_pending_output_flushed_above_prompt(capsys):
-    path = orch.ensure_started()
-    r = AgentReporter(path, "ag2")
-    r.connect()
-    r.emit_stdout("agent says hi")
-    r.result(ok=True, summary="finished")
-    assert _wait(lambda: (orch.agent_record("ag2") or {}).get("terminal"))
-
+def test_pending_output_flushed_above_prompt(capsys, monkeypatch):
+    monkeypatch.setattr(
+        orch,
+        "drain_pending_output",
+        lambda limit=None: ["[ag2] agent says hi", "[ag2] ✓ finished"],
+    )
+    monkeypatch.setattr(orch, "has_active_agents", lambda: False)
     s = _FakeSession("x")
     conversation._prompt_with_agent_bridge(s, "PROMPT>")
     printed = capsys.readouterr().out
     assert "agent says hi" in printed
     assert "✓ finished" in printed
-    r.close()
+
+
+def test_active_agent_summary_prints_once_until_it_changes(capsys, monkeypatch):
+    summary = {"value": "agents — running 1 | active ag3: indexing"}
+
+    def _render_summary():
+        return summary["value"]
+
+    monkeypatch.setattr(orch, "drain_pending_output", lambda limit=None: [])
+    monkeypatch.setattr(orch, "has_active_agents", lambda: True)
+    monkeypatch.setattr(orch, "render_visibility_summary", _render_summary)
+
+    s = _FakeSession("x")
+    conversation._prompt_with_agent_bridge(s, "PROMPT>")
+    first = capsys.readouterr().out
+    assert "agents — running 1" in first
+    assert "ag3: indexing" in first
+
+    conversation._prompt_with_agent_bridge(s, "PROMPT>")
+    second = capsys.readouterr().out
+    assert "agents — running 1" not in second
+
+    summary["value"] = "agents — running 1 | active ag3: verifying"
+    conversation._prompt_with_agent_bridge(s, "PROMPT>")
+    third = capsys.readouterr().out
+    assert "agents — running 1" in third
+    assert "ag3: verifying" in third

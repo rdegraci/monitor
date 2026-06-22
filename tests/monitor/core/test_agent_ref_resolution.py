@@ -5,12 +5,14 @@ LLM jammed the session-name digits into it → 'Invalid session index')."""
 import pytest
 
 from monitor.core import agent_tools
+from monitor.lib import agent_orchestrator as orch
 from monitor.lib import subagent_logging
 
 
 class FakeScreen:
-    def __init__(self, names):
+    def __init__(self, names, metadata=None):
         self._names = list(names)
+        self._metadata = metadata or {}
         self.killed = []
         self.sent = []
 
@@ -29,6 +31,16 @@ class FakeScreen:
     def send_to_session(self, name, text):
         self.sent.append((name, text))
         return True
+
+    def session_metadata(self, name):
+        return self._metadata.get(name)
+
+
+@pytest.fixture(autouse=True)
+def _clean_orchestrator():
+    orch.reset_for_test()
+    yield
+    orch.reset_for_test()
 
 
 def test_resolve_by_name_and_index(monkeypatch):
@@ -64,6 +76,46 @@ def test_agent_send_by_session_name(monkeypatch):
     res = agent_tools.agent_send("s_send", "follow-up question")
     assert res["status"] == "ok" and res["session"] == "s_send" and res["sent"] is True
     assert fake.sent == [("s_send", "follow-up question")]
+    rec = orch.agent_record("s_send")
+    assert rec["followup_pending"] is True
+    assert rec["persistent"] is True
+
+
+def test_agent_send_rejects_one_shot_session(monkeypatch):
+    monkeypatch.setenv("MONITOR_ENABLE_AGENT_ORCHESTRATION", "1")
+    fake = FakeScreen(["s_once"], metadata={"s_once": {"persistent": False, "one_shot": True}})
+    monkeypatch.setattr(agent_tools, "_SCREEN", fake)
+    res = agent_tools.agent_send("s_once", "follow-up question")
+    assert res["status"] == "error"
+    assert "one-shot" in res["message"]
+    assert fake.sent == []
+
+
+def test_agent_send_rejects_busy_session(monkeypatch):
+    monkeypatch.setenv("MONITOR_ENABLE_AGENT_ORCHESTRATION", "1")
+    fake = FakeScreen(["s_busy"], metadata={"s_busy": {"persistent": True}})
+    monkeypatch.setattr(agent_tools, "_SCREEN", fake)
+    orch.note_spawn("s_busy")
+    orch.note_spawn_lifecycle("s_busy", persistent=True)
+    res = agent_tools.agent_send("s_busy", "follow-up question")
+    assert res["status"] == "error"
+    assert "still busy" in res["message"]
+    assert fake.sent == []
+
+
+def test_agent_send_rejects_idle_reaped_session(monkeypatch):
+    monkeypatch.setenv("MONITOR_ENABLE_AGENT_ORCHESTRATION", "1")
+    fake = FakeScreen(["s_reaped"], metadata={"s_reaped": {"persistent": True}})
+    monkeypatch.setattr(agent_tools, "_SCREEN", fake)
+    orch.note_spawn("s_reaped")
+    orch.note_spawn_lifecycle("s_reaped", persistent=True)
+    with orch._registry_lock:
+        orch._registry["s_reaped"]["terminal"] = True
+        orch._registry["s_reaped"]["_reaped"] = True
+    res = agent_tools.agent_send("s_reaped", "follow-up question")
+    assert res["status"] == "error"
+    assert "idle-reaped" in res["message"]
+    assert fake.sent == []
 
 
 def test_unknown_session_is_clear_error(monkeypatch):

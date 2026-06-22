@@ -55,3 +55,12 @@ def test_platform_template_includes_prompt_first_routing_guidance():
     assert "inspect -> plan -> exact edit -> verify" in sp
     assert "modify_source_code only when the change genuinely can't be expressed" in sp
     assert "always inspect the diff before claiming success" in sp
+
+
+def test_system_prompt_includes_long_horizon_resume_guidance():
+    sp = system_prompt.build_system_prompt()
+    assert "set_task_acceptance" in sp
+    assert "save_task_checkpoint" in sp
+    assert "get_task_context" in sp
+    assert "record_task_scope_change" in sp
+    assert "add_discovered_work" in sp

@@ -42,9 +42,17 @@ A task that requires one or more of the following:
 The primary Monitor session coordinating user interaction, tool use, plan
 tracking, and any sub-agent delegation.
 
+This is the primary long-horizon actor in the system. It owns continuity,
+planning, delegation decisions, result collation, and the writer-of-record
+role.
+
 ### Sub-agent
 A spawned Monitor instance running in `--agent` mode, usually performing one
 focused delegated task and reporting results back to the orchestrator.
+
+Sub-agents are supporting workers for the orchestrator's long-horizon loop.
+By default they are researchers/proposal generators, not independent
+long-horizon owners of the task.
 
 ### One-shot agent
 A sub-agent that exits after completing and reporting its first task turn.
@@ -74,13 +82,16 @@ turns.
 
 #### Required behavior
 - Session-scoped task plans must persist for the life of the session.
+- Lightweight session-scoped task context must be available for acceptance
+  criteria, scope-change notes, and resume checkpoints.
 - Long-running delegated work must be observable after spawn.
 - Completed delegated results should be available to later orchestrator turns.
 - Background delegated completions should be injectable into the next relevant
   orchestrator turn.
 
 #### Allowed limitation
-- Exact execution-state checkpointing is not currently required.
+- Exact execution-state checkpointing is not currently required; lightweight
+  resume checkpoints are sufficient for current conformance.
 
 ### 3. Delegation requirements
 Delegation should be available for independent background work.
@@ -106,6 +117,8 @@ Long-horizon work should remain legible to a human operator.
 - Important sub-agent output should be visible without requiring immediate log
   inspection.
 - Terminal delegated outcomes should be surfaced clearly.
+- Recent delegated outcomes should be summarized compactly for the primary
+  orchestrator.
 - Failures should be visible and not silently dropped.
 - Background completions should be surfaced both to the operator and to later
   orchestrator reasoning.
@@ -171,6 +184,9 @@ Delegated workers must not linger indefinitely without control.
 - Persistent workers should be explicitly killable.
 - Heartbeats should exist for liveness tracking.
 - Idle reaping should exist for persistent workers.
+- Follow-up sends to persistent workers should reject one-shot, busy, failed,
+  and idle-reaped sessions rather than silently pretending the follow-up was
+  accepted.
 
 ### 10. Operator expectations
 The system should set accurate expectations about its own autonomy.
@@ -191,9 +207,11 @@ A user asks for a moderate multi-file feature.
 
 Expected compliant behavior:
 - the orchestrator creates a visible todo plan,
+- may set explicit acceptance criteria,
 - executes investigation and edits in sequence,
 - runs tests or equivalent verification,
 - updates plan state as work progresses,
+- adds newly discovered required work explicitly when the scope evolves,
 - can continue over multiple turns without losing the plan.
 
 ### Example B — delegated background audit
@@ -225,11 +243,42 @@ architectural change.
 
 Examples:
 - practical orchestration operator guidance,
-- benchmark tasks for representative long-horizon workflows,
+- deferred benchmark tasks for representative long-horizon workflows,
 - concise async completion notices,
 - clearer failure-handling guidance,
+- better active-work visibility,
 - explicit researcher-vs-worker documentation,
 - stronger persistent-agent workflow coverage.
+
+### Near-term implementation focus
+The initial code-facing long-horizon implementation pass has already focused
+on:
+
+1. observability for active background work,
+2. persistent-agent follow-up hardening,
+3. initial resume and recovery semantics.
+
+These were the nearest improvements that strengthened trust and continuity
+without requiring a richer task model or larger autonomy jump first.
+
+These improvements primarily target the primary Monitor instance: its visible
+state, its orchestration lifecycle handling, and its ability to resume after
+interruption. Sub-agents remain bounded supporting workers unless explicit
+delegated-write policy says otherwise.
+
+Benchmarking is not part of this near-term implementation pass.
+
+For feature-oriented work, the primary Monitor instance should also become more
+disciplined about plan expansion and completion:
+- newly discovered required work should be added to the todo plan explicitly,
+- material scope growth should be surfaced rather than silently absorbed,
+- "done" should be judged against acceptance criteria, not just code changes.
+
+Those expectations now have direct runtime support via:
+- `add_discovered_work`,
+- `set_task_acceptance`,
+- `save_task_checkpoint`,
+- `get_task_context`.
 
 ### Medium-term architecture improvements
 These improve the system's resilience and structural ability to sustain larger

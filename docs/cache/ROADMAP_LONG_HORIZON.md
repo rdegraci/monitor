@@ -6,6 +6,11 @@ planning, long tool-call chains, bounded agent orchestration, async result
 injection, and delegated-write controls already exist, and focuses on what
 would most improve trust, resilience, and throughput.
 
+The long-horizon design center is the **primary Monitor instance**. The main
+session owns planning, continuity, delegation decisions, result collation, and
+repo mutation authority by default. Sub-agents support that loop as bounded
+research workers unless explicit write delegation is granted.
+
 ## Goal
 
 Make Monitor stronger at:
@@ -54,8 +59,9 @@ configuration.
 - a user can understand how long-horizon work progresses in practice,
 - safe defaults and recommended overrides are clearly documented.
 
-## Phase 2 — Validation and benchmarks
-**Goal:** Prove long-horizon behavior under realistic workloads.
+## Phase 2 — Deferred validation and benchmarks
+**Goal:** Prove long-horizon behavior under realistic workloads in a later
+pass, not during the current implementation track.
 
 - Add benchmark tasks that require:
   - multi-step planning,
@@ -226,12 +232,45 @@ These should land first because they improve the effectiveness of the current
 system without requiring major architectural change.
 
 1. practical operator guidance,
-2. long-horizon benchmark tasks,
+2. deferred long-horizon benchmark tasks,
 3. tighter async completion summaries,
 4. clearer failure-handling guidance,
 5. explicit researcher-vs-worker documentation,
 6. better active-work visibility,
 7. stronger persistent-agent workflow test coverage.
+
+### Immediate next implementation queue
+
+If the goal is to summarize what has already landed in the current code-facing
+pass, benchmarking remains explicitly out of scope and the implemented order
+was:
+
+1. better observability for long-running background work,
+2. persistent-agent follow-up hardening,
+3. initial resume and recovery semantics for interrupted work.
+
+This ordering favored operator trust and lifecycle correctness before richer
+task structure or broader delegated autonomy, and those first three items now
+exist in code.
+
+These phases are primarily about strengthening the primary orchestrator's
+experience and guarantees. They are not about making sub-agents themselves
+first-class long-horizon owners of the task.
+
+Within that track, feature-delivery discipline should improve in the primary
+Monitor instance by:
+- automatically adding newly discovered required work to the todo plan,
+- surfacing material scope growth instead of silently absorbing it,
+- treating completion as meeting acceptance criteria, not merely editing code.
+
+That discipline now exists in initial form through:
+- `add_discovered_work`,
+- `set_task_acceptance`,
+- `save_task_checkpoint`,
+- `get_task_context`.
+
+The remaining open work is mostly validation, richer task structure, delegated
+artifact quality, and any future retry policy for failed delegated work.
 
 ### Medium-term architecture improvements
 
@@ -264,16 +303,20 @@ highest-value changes are:
 ## Recommended priority order
 
 Most likely implementation order given the current codebase:
-1. operational guidance and observability,
-2. validation and benchmarks,
-3. persistent-agent workflow hardening,
-4. richer delegated artifact flow,
-5. minimal richer task-model improvements,
-6. resume and recovery semantics,
+1. observability for active background work,
+2. persistent-agent workflow hardening,
+3. resume and recovery semantics,
+4. deferred validation and benchmarks,
+5. richer delegated artifact flow,
+6. minimal richer task-model improvements,
 7. project-scoped durable memory,
 8. safer delegated execution and delegated-write observability,
 9. worktree or sandbox isolation for write-capable delegation if needed,
 10. broader autonomy scaling only after the earlier layers are proven.
+
+The first three items in that order now have concrete implementations. The
+roadmap from here is therefore less about inventing the baseline and more
+about validating it, tightening it, and deciding how far to push autonomy.
 
 This sequence biases toward clarity, measurement, delegation quality, and
 state recovery before expanding the autonomy envelope.
@@ -300,5 +343,5 @@ The roadmap should therefore focus first on:
 - only then widening the autonomy envelope.
 
 Phase 1 operator guidance now lives in `docs/LONG_HORIZON_OPERATOR_GUIDE.md`.
-Phase 2 benchmark planning now lives in `docs/cache/BENCHMARKS_LONG_HORIZON.md`.
+Deferred Phase 2 benchmark planning lives in `docs/cache/BENCHMARKS_LONG_HORIZON.md`.
 Long-horizon doc navigation now lives in `docs/cache/INDEX_LONG_HORIZON.md`.

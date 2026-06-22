@@ -392,6 +392,7 @@ def agent_create(
         # pre-registers it for heartbeat-lapse reaping if it never connects.
         try:
             agent_orchestrator.note_spawn(session_name)
+            agent_orchestrator.note_spawn_lifecycle(session_name, persistent=persistent)
         except Exception:
             logger.debug("agent_create: note_spawn failed", exc_info=True)
 
@@ -401,6 +402,7 @@ def agent_create(
             "session_name": session_name,
             "meta_path": meta_path,
             "log_path": log_path,
+            "persistent": bool(persistent),
         }
         logger.info(
             "agent_create success: cid=%s, session=%s, meta=%s, log=%s",
@@ -462,6 +464,39 @@ def _resolve_agent_ref(ref) -> Optional[str]:
             return _normalize_session_name(_SCREEN.get_session_by_index(int(s)))
         except Exception:
             return None
+    return None
+
+
+def _session_lifecycle_metadata(session_name: str) -> Dict[str, Any]:
+    try:
+        meta = _SCREEN.session_metadata(session_name)
+    except AttributeError:
+        meta = None
+    return meta if isinstance(meta, dict) else {}
+
+
+def _agent_send_block_reason(session_name: str) -> Optional[str]:
+    from monitor.lib import agent_orchestrator as orch
+
+    rec = orch.agent_record(session_name) or {}
+    meta = _session_lifecycle_metadata(session_name)
+
+    persistent = meta.get("persistent")
+    if persistent is None and meta:
+        persistent = not bool(meta.get("one_shot"))
+    if persistent is False:
+        return (
+            "Agent session does not accept follow-ups: it was created as one-shot. "
+            "Create it with persistent=true to use agent_send."
+        )
+    if rec.get("dirty"):
+        return "Agent session is no longer usable: it crashed or disconnected."
+    if rec.get("_reaped"):
+        return "Agent session is no longer usable: it was idle-reaped after completion."
+    if rec.get("error"):
+        return "Agent session is no longer usable: it reported an error."
+    if rec and not rec.get("terminal"):
+        return "Agent session is still busy. Wait for it to finish before sending a follow-up."
     return None
 
 
@@ -580,12 +615,26 @@ def agent_send(session, text: str) -> Dict[str, Any]:
         if not session_name:
             return {"status": "error", "correlation_id": cid, "session": session,
                     "message": f"No such agent session: {session!r}"}
+        reason = _agent_send_block_reason(session_name)
+        if reason:
+            return {
+                "status": "error",
+                "correlation_id": cid,
+                "session": session_name,
+                "message": reason,
+            }
         try:
             sent = _SCREEN.send_to_session(session_name, text)
         except AttributeError:
             raise RuntimeError("ScreenHandler.send_to_session is not available")
 
         sent_bool = bool(sent)
+        if sent_bool:
+            try:
+                from monitor.lib import agent_orchestrator
+                agent_orchestrator.note_followup_sent(session_name)
+            except Exception:
+                logger.debug("agent_send: note_followup_sent failed", exc_info=True)
         text_preview = text[:200] if text is not None else ""
         result = {
             "status": "ok",
