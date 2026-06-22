@@ -254,6 +254,11 @@ priority order — orchestration phase → `ORCHESTRATOR_MODEL`; reasoning overr
 `ADV_REASONING_MODEL`; else `MODEL` — so one resolver drives both the call site
 (`llm_utils`) and cost attribution (`token_management`).
 
+Scope boundary: this resolver is meant for the tool-calling assistant path and
+the callable `ProtocolEngine` fallback used by `modify_source_code` /
+`stream_code`. It is not intended to sweep up unrelated built-ins or other
+internal helpers that call `litellm.completion(...)` directly.
+
 Cost note: the prompt cache is keyed per model, so each swap forfeits the
 cached-input discount for that call. Acceptable for genuinely hard spawn/collate
 turns; this is exactly why the phase-swap must **not** fire on routine turns.
@@ -316,6 +321,10 @@ This is the prerequisite that makes role-based models cost-honest.
   phase-scoped escalation (proposed),
 - sub-agent cost telemetry aggregated into the orchestrator's F: gauge and
   U:/T: status line (proposed).
+
+There is no separate follow-on phase for extending `ADV_REASONING_MODEL` to
+non-tool, direct-`litellm` built-ins. Those call sites are intentionally out of
+scope for this feature.
 
 ## Relationship to long-horizon docs
 

@@ -49,6 +49,10 @@ The orchestrator runs `MODEL` by default and swaps to `ORCHESTRATOR_MODEL` **tra
 - **Collation/synthesis** is the only phase-scoped trigger: the folding call runs on `ORCHESTRATOR_MODEL` and is attributed to that model in `SESSION_CALIBRATION_BY_MODEL`.
 - **Decomposition/spawning** has no a-priori trigger (the spawn decision emerges from the call); it relies on the existing reasoning-bump heuristic.
 - The swap is per-call `kwargs` only — never `set_model` (which would reset session state).
+- Scope boundary: this transient resolver applies to the main tool-calling LLM
+  path and the callable `ProtocolEngine` editing surface
+  (`modify_source_code` / `stream_code`). Built-ins and other internal direct
+  `litellm.completion(...)` helpers are intentionally out of scope.
 - **Cache caveat:** the prompt cache is keyed per model; each swap forfeits the cached-input discount for that call. Acceptable for hard spawn/collate turns — the swap must **not** fire on routine turns.
 
 ## 3. Sub-agent cost telemetry → fuel/status aggregation

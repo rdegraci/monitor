@@ -12,7 +12,10 @@ relies on it being accurate.)
 **Status:** Stages 1–3 implemented (tests green, 1473 passed); commit pending.
 See `CHECKLIST_SMART_ORCHESTRATION.md`. NOTE: Stage 3 reconciled Stage 1 — the
 orchestrator no longer has a whole-session override; only `--agent` children take
-a whole-session `SUBAGENT_MODEL`.
+a whole-session `SUBAGENT_MODEL`. The transient turn-model swap is complete for
+the main tool-calling path and the callable `ProtocolEngine` editing surface;
+there is no additional phase planned for unrelated built-ins or other internal
+direct-`litellm` helpers.
 
 ## Resolved risks (verified against the code)
 
