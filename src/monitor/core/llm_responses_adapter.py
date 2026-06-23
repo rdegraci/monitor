@@ -446,15 +446,18 @@ def calculate_followup_payload_budget(
 
 
 def budget_followup_request(params, *, iteration=0, input_window=None):
-    """Budget a follow-up request against the Phase 1 reserve model.
+    """Budget a follow-up request against the reserve-aware policy.
 
     Returns a copy of params plus a budget-report dictionary for logging and
-    admission decisions. Phase 1 intentionally leaves the measured reserves at
-    zero; Phase 2 teaches this path exact structural counts.
+    admission decisions.
     """
     params_copy = deepcopy(params) if isinstance(params, dict) else {}
     request_class = classify_followup_request(params_copy)
-    resolved_input_window = input_window if isinstance(input_window, int) and input_window > 0 else _resolve_model_input_window()
+    resolved_input_window = (
+        input_window
+        if isinstance(input_window, int) and input_window > 0
+        else _resolve_model_input_window()
+    )
     model_name = params_copy.get(REQUEST_PARAM_MODEL) or getattr(config, "MODEL", None)
     measured_reserves = measure_followup_request_reserves(
         params_copy,
@@ -470,9 +473,161 @@ def budget_followup_request(params, *, iteration=0, input_window=None):
         top_level_reserve_tokens=_get_followup_toplevel_reserve_tokens(),
         iteration=iteration,
         tool_schema_reserve_tokens=measured_reserves.get("tool_schema_reserve_tokens", 0),
-        structured_payload_reserve_tokens=measured_reserves.get("structured_payload_reserve_tokens", 0),
+        structured_payload_reserve_tokens=measured_reserves.get(
+            "structured_payload_reserve_tokens",
+            0,
+        ),
     )
     return params_copy, budget
+
+
+def _build_context_length_debug_info(params, *, model_name=None):
+    """Build structured diagnostics for a context-length failure.
+
+    Args:
+        params: The request payload sent to the Responses API.
+        model_name: Optional model name used for structural token counting.
+
+    Returns:
+        dict: Best-effort request-shape and budgeting diagnostics.
+    """
+    if not isinstance(params, dict):
+        params = {}
+
+    request_input = params.get(REQUEST_PARAM_INPUT)
+    request_class = classify_followup_request(params)
+    measured_reserves = measure_followup_request_reserves(
+        params,
+        model_name=model_name,
+    )
+    input_window = _resolve_model_input_window()
+    budget = calculate_followup_payload_budget(
+        request_class=request_class,
+        input_window=input_window,
+        base_safety_ratio=_get_followup_base_safety_ratio(),
+        hidden_chain_reserve_by_class=_get_followup_hidden_chain_reserve_by_class(),
+        hidden_chain_reserve_per_depth=_get_followup_hidden_chain_reserve_per_depth(),
+        hidden_chain_reserve_cap_ratio=_get_followup_hidden_chain_reserve_cap_ratio(),
+        top_level_reserve_tokens=_get_followup_toplevel_reserve_tokens(),
+        tool_schema_reserve_tokens=measured_reserves.get("tool_schema_reserve_tokens", 0),
+        structured_payload_reserve_tokens=measured_reserves.get(
+            "structured_payload_reserve_tokens",
+            0,
+        ),
+    )
+
+    input_text_tokens = None
+    input_serialized_tokens = None
+    input_item_count = len(request_input) if isinstance(request_input, list) else None
+    function_call_output_count = 0
+    input_preview = None
+    if isinstance(request_input, list):
+        try:
+            input_text_tokens = count_message_tokens(request_input)
+        except Exception:
+            logger.exception("Failed to count text tokens for context-length debug info")
+        try:
+            input_serialized_tokens = count_serialized_structure_tokens(
+                request_input,
+                model_name=model_name,
+            )
+        except Exception:
+            logger.exception("Failed to count structural tokens for context-length debug info")
+        function_call_output_count = sum(
+            1
+            for item in request_input
+            if isinstance(item, dict) and item.get(TYPE_KEY) == FUNCTION_CALL_OUTPUT_TYPE
+        )
+        if request_input:
+            input_preview = str(request_input[0])[:500]
+    elif request_input is not None:
+        try:
+            input_text_tokens = count_message_tokens(
+                [{"role": USER_ROLE, CONTENT_KEY: str(request_input)}]
+            )
+        except Exception:
+            logger.exception("Failed to count scalar input tokens for context-length debug info")
+        try:
+            input_serialized_tokens = count_serialized_structure_tokens(
+                request_input,
+                model_name=model_name,
+            )
+        except Exception:
+            logger.exception("Failed to count scalar structural tokens for context-length debug info")
+        input_preview = str(request_input)[:500]
+
+    tools_value = params.get(REQUEST_PARAM_TOOLS)
+    tool_count = len(tools_value) if isinstance(tools_value, list) else 0
+
+    return {
+        "model": params.get(REQUEST_PARAM_MODEL) or getattr(config, "MODEL", None),
+        "request_class": request_class,
+        "has_previous_response_id": bool(params.get(REQUEST_PREV_RESPONSE_ID)),
+        "previous_response_id": params.get(REQUEST_PREV_RESPONSE_ID),
+        "tool_count": tool_count,
+        "input_item_count": input_item_count,
+        "function_call_output_count": function_call_output_count,
+        "input_text_tokens": input_text_tokens,
+        "input_serialized_tokens": input_serialized_tokens,
+        "tool_schema_reserve_tokens": measured_reserves.get("tool_schema_reserve_tokens", 0),
+        "structured_payload_reserve_tokens": measured_reserves.get(
+            "structured_payload_reserve_tokens",
+            0,
+        ),
+        "model_input_window": budget.get("model_input_window"),
+        "usable_window": budget.get("usable_window"),
+        "hidden_chain_reserve": budget.get("hidden_chain_reserve"),
+        "top_level_reserve": budget.get("top_level_reserve"),
+        "payload_budget": budget.get("payload_budget"),
+        "decision": budget.get("decision"),
+        "input_preview": input_preview,
+    }
+
+
+def _log_context_length_exceeded(error, params):
+    """Log structured diagnostics for Responses API context-length failures.
+
+    Args:
+        error: The provider exception raised by responses.create.
+        params: The request payload that triggered the failure.
+    """
+    model_name = None
+    if isinstance(params, dict):
+        model_name = params.get(REQUEST_PARAM_MODEL) or getattr(config, "MODEL", None)
+
+    try:
+        debug_info = _build_context_length_debug_info(params, model_name=model_name)
+    except Exception:
+        logger.exception("Failed building context-length diagnostics")
+        debug_info = {
+            "model": model_name,
+            "request_class": classify_followup_request(params if isinstance(params, dict) else {}),
+        }
+
+    logger.error(
+        "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s",
+        debug_info.get("model"),
+        debug_info.get("request_class"),
+        debug_info.get("previous_response_id"),
+        debug_info.get("tool_count"),
+        debug_info.get("input_item_count"),
+        debug_info.get("function_call_output_count"),
+        debug_info.get("input_text_tokens"),
+        debug_info.get("input_serialized_tokens"),
+        debug_info.get("tool_schema_reserve_tokens"),
+        debug_info.get("structured_payload_reserve_tokens"),
+        debug_info.get("model_input_window"),
+        debug_info.get("usable_window"),
+        debug_info.get("hidden_chain_reserve"),
+        debug_info.get("top_level_reserve"),
+        debug_info.get("payload_budget"),
+        debug_info.get("decision"),
+        error,
+    )
+    logger.info(
+        "Responses API context debug payload: %s",
+        json.dumps(debug_info, ensure_ascii=False, default=str, sort_keys=True),
+    )
 
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
@@ -1982,6 +2137,8 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         return wrapper
 
     except Exception as e:
+        if getattr(e, "code", None) == "context_length_exceeded":
+            _log_context_length_exceeded(e, params)
         logger.error(f"Responses API call failed: {e}", exc_info=True)
         raise
 

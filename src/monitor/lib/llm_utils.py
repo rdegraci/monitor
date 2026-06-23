@@ -648,6 +648,12 @@ def handle_response_errors(error, user_input=None):
     elif "timeout" in str(error).lower():
         error_msg = f"Responses API request timed out{error_context}. Please try again."
         logger.error(f"Timeout error: {error}", exc_info=True)
+    elif getattr(error, "code", None) == "context_length_exceeded" or "context_length_exceeded" in str(error).lower():
+        error_msg = (
+            f"Responses API request exceeded the model context window{error_context}. "
+            "Please shorten the conversation, reduce tool output, retry with compacted history, or try again with a smaller request."
+        )
+        logger.error(f"Context length error: {error}", exc_info=True)
     else:
         error_msg = f"Responses API error{error_context}: {str(error)}"
         logger.error(f"General responses API error: {error}", exc_info=True)

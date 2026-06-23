@@ -243,6 +243,10 @@ def append_conversation_history(
         f"[APPEND_CONVERSATION_HISTORY] About to call check_limits with TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}, MAX_TOKEN_COUNT={getattr(config, 'MAX_TOKEN_COUNT', 'n/a')}, len(conversation_history)={len(conversation_history)}"
     )
     # Compute actual tokens in history for accurate limit checks and diagnostics
+    try:
+        setattr(config, "_ACTIVE_CONVERSATION_HISTORY_FOR_LIMITS", conversation_history)
+    except Exception:
+        pass
     tokens_in_history = count_message_tokens(conversation_history)
     logger.debug(
         f"[APPEND_CONVERSATION_HISTORY] Token diagnostics: tokens_in_history={tokens_in_history}, config.TOTAL_TOKEN_COUNT={getattr(config, 'TOTAL_TOKEN_COUNT', 'n/a')}"
@@ -666,6 +670,104 @@ def deep_size(obj):
     else:
         return sys.getsizeof(obj)
 
+
+
+def _get_responses_chain_compaction_pressure(config, logger):
+    """Estimate reserve-aware Responses chain pressure for compaction decisions.
+
+    Args:
+        config: Runtime configuration object.
+        logger: Logger used for diagnostics.
+
+    Returns:
+        dict: Reserve-aware pressure metrics for chained Responses sessions.
+    """
+    result = {
+        "enabled": False,
+        "request_class": None,
+        "model_input_window": None,
+        "usable_window": None,
+        "hidden_chain_reserve": 0,
+        "payload_budget": None,
+        "requires_compaction": False,
+        "telemetry_request_class": None,
+        "telemetry_payload_budget": None,
+        "telemetry_requires_compaction": False,
+    }
+
+    responses_api_flag = getattr(config, "RESPONSES_API", False)
+    previous_response_id = getattr(config, "RESPONSE_ID", None)
+    conversation_history = getattr(config, "CONVERSATION_HISTORY", None)
+    if not isinstance(conversation_history, list):
+        conversation_history = getattr(config, "_ACTIVE_CONVERSATION_HISTORY_FOR_LIMITS", None)
+    if responses_api_flag is not True or not previous_response_id or not isinstance(conversation_history, list):
+        return result
+
+    try:
+        from monitor.core import llm_responses_adapter as responses_adapter
+
+        input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
+        if not isinstance(input_window, int) or input_window <= 0:
+            input_window = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+
+        telemetry_params = {
+            responses_adapter.REQUEST_PARAM_MODEL: getattr(config, "MODEL", None),
+            responses_adapter.REQUEST_PREV_RESPONSE_ID: previous_response_id,
+            responses_adapter.REQUEST_PARAM_INPUT: conversation_history,
+        }
+        _telemetry_copy, telemetry_budget = responses_adapter.budget_followup_request(
+            telemetry_params,
+            iteration=0,
+            input_window=input_window,
+        )
+
+        latest_user_input = None
+        for message in reversed(conversation_history):
+            if isinstance(message, dict) and message.get("role") == "user":
+                latest_user_input = message.get("content")
+                break
+
+        hard_budget = None
+        hard_request_class = None
+        hard_requires_compaction = False
+        if latest_user_input:
+            hard_params = {
+                responses_adapter.REQUEST_PARAM_MODEL: getattr(config, "MODEL", None),
+                responses_adapter.REQUEST_PREV_RESPONSE_ID: previous_response_id,
+                responses_adapter.REQUEST_PARAM_INPUT: latest_user_input,
+            }
+            _hard_copy, hard_budget = responses_adapter.budget_followup_request(
+                hard_params,
+                iteration=0,
+                input_window=input_window,
+            )
+            hard_request_class = hard_budget.get("request_class")
+            hard_requires_compaction = (
+                hard_budget.get("decision")
+                == responses_adapter.FOLLOWUP_BUDGET_DECISION_FALLBACK
+            )
+
+        result.update(
+            {
+                "enabled": True,
+                "request_class": hard_request_class or telemetry_budget.get("request_class"),
+                "model_input_window": telemetry_budget.get("model_input_window"),
+                "usable_window": telemetry_budget.get("usable_window"),
+                "hidden_chain_reserve": telemetry_budget.get("hidden_chain_reserve", 0),
+                "payload_budget": hard_budget.get("payload_budget") if hard_budget else telemetry_budget.get("payload_budget"),
+                "requires_compaction": hard_requires_compaction,
+                "telemetry_request_class": telemetry_budget.get("request_class"),
+                "telemetry_payload_budget": telemetry_budget.get("payload_budget"),
+                "telemetry_requires_compaction": telemetry_budget.get("decision")
+                == responses_adapter.FOLLOWUP_BUDGET_DECISION_FALLBACK,
+            }
+        )
+    except Exception:
+        logger.exception(
+            "[CHECK_LIMITS] Failed to derive reserve-aware Responses compaction pressure"
+        )
+    return result
+
 def check_limits(
     total_token_count: int,
     max_token_count: int,
@@ -831,8 +933,13 @@ def check_limits(
     #
     # The token trigger (``over_token_limit``, derived from
     # ``token_threshold * max_token_count``) is the primary, load-bearing
-    # compaction signal. The remaining secondary triggers (time, memory) only
-    # contribute to ``should_summarize`` when token usage is also above
+    # compaction signal for visible/local history pressure. For chained
+    # Responses API sessions, also consult the reserve-aware follow-up budget so
+    # hidden previous_response_id context can force compaction even when the
+    # visible transcript still appears to fit.
+    #
+    # The remaining secondary triggers (time, memory) only contribute to
+    # ``should_summarize`` when token usage is also above
     # ``SECONDARY_PRESSURE_RATIO`` of ``max_token_count``.
     #
     # ``over_history_limit`` (CONVERSATION_MAX_SIZE / message-count check) is
@@ -848,7 +955,12 @@ def check_limits(
         and total_token_count > SECONDARY_PRESSURE_RATIO * max_token_count
     )
     secondary_trigger = time_limit_exceeded or memory_limit_exceeded
-    should_summarize = over_token_limit or (under_secondary_pressure and secondary_trigger)
+    responses_chain_pressure = _get_responses_chain_compaction_pressure(config, logger)
+    should_summarize = (
+        over_token_limit
+        or (under_secondary_pressure and secondary_trigger)
+        or responses_chain_pressure.get("requires_compaction", False)
+    )
     logger.debug(
         f"[CHECK_LIMITS EXIT] should_summarize = {should_summarize} "
         f"(over_token_limit={over_token_limit}, "
@@ -856,7 +968,12 @@ def check_limits(
         f"(threshold={SECONDARY_PRESSURE_RATIO * max_token_count if isinstance(max_token_count, int) else 'n/a'}), "
         f"over_history_limit={over_history_limit}, "
         f"time_limit_exceeded={time_limit_exceeded}, "
-        f"memory_limit_exceeded={memory_limit_exceeded})"
+        f"memory_limit_exceeded={memory_limit_exceeded}, "
+        f"responses_chain_requires_compaction={responses_chain_pressure.get('requires_compaction')}, "
+        f"responses_chain_payload_budget={responses_chain_pressure.get('payload_budget')}, "
+        f"responses_chain_hidden_chain_reserve={responses_chain_pressure.get('hidden_chain_reserve')}, "
+        f"responses_chain_telemetry_requires_compaction={responses_chain_pressure.get('telemetry_requires_compaction')}, "
+        f"responses_chain_telemetry_payload_budget={responses_chain_pressure.get('telemetry_payload_budget')})"
     )
     if over_token_limit:
         logger.info(
@@ -878,7 +995,8 @@ def check_limits(
         over_token_limit,
         over_history_limit,
         time_limit_exceeded,
-        memory_limit_exceeded
+        memory_limit_exceeded,
+        responses_chain_pressure.get("requires_compaction", False),
     ]):
         logger.debug(
             "[CHECK_LIMITS] No summarization triggers activated. All thresholds respected."
@@ -890,14 +1008,18 @@ def check_limits(
             'tokens': over_token_limit,
             'history': over_history_limit,
             'time': time_limit_exceeded,
-            'memory': memory_limit_exceeded
+            'memory': memory_limit_exceeded,
+            'responses_chain_budget': responses_chain_pressure.get('requires_compaction', False),
         },
         'metrics': {
             'token_count': total_token_count,
             'token_limit': token_limit_threshold,
             'history_size': len(conversation_history),
             'history_limit': effective_history_limit,
-            'memory_usage_mb': current_memory_usage
+            'memory_usage_mb': current_memory_usage,
+            'responses_chain_payload_budget': responses_chain_pressure.get('payload_budget'),
+            'responses_chain_hidden_chain_reserve': responses_chain_pressure.get('hidden_chain_reserve'),
+            'responses_chain_request_class': responses_chain_pressure.get('request_class'),
         }
     }
 

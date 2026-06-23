@@ -77,7 +77,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
                 adapter.validate_responses_config()
 
         # Both present
-        with patch.object(adapter, "config", SimpleNamespace(MODEL="openai/gpt-4o", RESPONSES_API=True)):
+        with patch.object(
+            adapter,
+            "config",
+            SimpleNamespace(MODEL="openai/gpt-4o", RESPONSES_API=True),
+        ):
             # Should not raise
             adapter.validate_responses_config()
 
@@ -152,10 +156,22 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert reserves["structured_payload_reserve_tokens"] > 0
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -195,7 +211,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
         second = self._fake_response("resp_2", total_tokens=3, output=[])
         fake_client.responses.create.side_effect = [first, second]
@@ -220,7 +243,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
             messages = [{"role": "user", "content": "say hi"}]
             # Should run without raising; we assert the calls/side-effects below
-            adapter.call_responses_api(messages, tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                messages,
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         # Assert first call: sends full messages list because RESPONSE_ID was None
         first_kwargs = fake_client.responses.create.call_args_list[0].kwargs
@@ -325,10 +352,22 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         )
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=(None, "Traceback (most recent call last): boom"))
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=(None, "Traceback (most recent call last): boom"),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -358,7 +397,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
         second = self._fake_response("resp_2", total_tokens=3, output=[])
         fake_client.responses.create.side_effect = [first, second]
@@ -402,9 +448,18 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert cfg.CURRENT_TURN_REASONING_OVERRIDE == "high"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -433,7 +488,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
         second = self._fake_response("resp_2", total_tokens=3, output=[])
         fake_client.responses.create.side_effect = [first, second]
@@ -465,11 +527,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         def fake_count_message_tokens(obj):
             if isinstance(obj, list):
-                outputs = [
-                    item.get("output")
-                    for item in obj
-                    if isinstance(item, dict)
-                ]
+                outputs = [item.get("output") for item in obj if isinstance(item, dict)]
                 if any(output == "trimmed" for output in outputs):
                     return 1000
                 return 4000
@@ -488,18 +546,28 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             }
             return trimmed
 
-        with patch.object(adapter, "client", fake_client), \
-             patch.object(adapter, "config", cfg), \
-             patch.object(adapter, "count_message_tokens", side_effect=fake_count_message_tokens), \
-             patch.object(
-                 adapter,
-                 "measure_followup_request_reserves",
-                 return_value={
-                     "tool_schema_reserve_tokens": 111,
-                     "structured_payload_reserve_tokens": 222,
-                 },
-             ), \
-             patch.object(adapter, "token_budgeter", side_effect=fake_token_budgeter) as mock_budgeter:
+        with (
+            patch.object(adapter, "client", fake_client),
+            patch.object(adapter, "config", cfg),
+            patch.object(
+                adapter,
+                "count_message_tokens",
+                side_effect=fake_count_message_tokens,
+            ),
+            patch.object(
+                adapter,
+                "measure_followup_request_reserves",
+                return_value={
+                    "tool_schema_reserve_tokens": 111,
+                    "structured_payload_reserve_tokens": 222,
+                },
+            ),
+            patch.object(
+                adapter,
+                "token_budgeter",
+                side_effect=fake_token_budgeter,
+            ) as mock_budgeter,
+        ):
             adapter.call_responses_api(
                 [{"role": "user", "content": "say hi"}],
                 tool_descriptions={},
@@ -512,9 +580,18 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert second_kwargs["input"][0]["output"] == "trimmed"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -543,7 +620,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
         summary = self._fake_response("resp_summary", total_tokens=2, output=[])
         fake_client.responses.create.side_effect = [first, summary]
@@ -576,23 +660,38 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             "decision": adapter.FOLLOWUP_BUDGET_DECISION_FALLBACK,
         }
 
-        with patch.object(adapter, "client", fake_client), \
-             patch.object(adapter, "config", cfg), \
-             patch.object(adapter, "budget_followup_request", return_value=({
-                 "model": "gpt-4o-mini",
-                 "previous_response_id": "resp_1",
-                 "input": [{"type": "function_call_output", "call_id": "call_1", "output": "{}"}],
-             }, fallback_budget)), \
-             patch.object(
-                 adapter,
-                 "build_summarization_followup_params",
-                 return_value={
-                     "model": "gpt-4o-mini",
-                     "prev_response_id": "resp_1",
-                     "function_call_outputs": [{"id": "call_1", "output": "{}"}],
-                     "max_output_tokens": 128,
-                 },
-             ):
+        with (
+            patch.object(adapter, "client", fake_client),
+            patch.object(adapter, "config", cfg),
+            patch.object(
+                adapter,
+                "budget_followup_request",
+                return_value=(
+                    {
+                        "model": "gpt-4o-mini",
+                        "previous_response_id": "resp_1",
+                        "input": [
+                            {
+                                "type": "function_call_output",
+                                "call_id": "call_1",
+                                "output": "{}",
+                            }
+                        ],
+                    },
+                    fallback_budget,
+                ),
+            ),
+            patch.object(
+                adapter,
+                "build_summarization_followup_params",
+                return_value={
+                    "model": "gpt-4o-mini",
+                    "prev_response_id": "resp_1",
+                    "function_call_outputs": [{"id": "call_1", "output": "{}"}],
+                    "max_output_tokens": 128,
+                },
+            ),
+        ):
             adapter.call_responses_api(
                 [{"role": "user", "content": "say hi"}],
                 tool_descriptions={},
@@ -610,10 +709,22 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         )
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     def test_call_responses_api_clears_response_id_after_followup_failure(
         self,
@@ -646,9 +757,19 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
-        fake_client.responses.create.side_effect = [first, RuntimeError("follow-up denied")]
+        fake_client.responses.create.side_effect = [
+            first,
+            RuntimeError("follow-up denied"),
+        ]
 
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
@@ -674,6 +795,161 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         assert fake_client.responses.create.call_count == 2
         assert cfg.RESPONSE_ID is None
+
+    @patch("monitor.core.llm_responses_adapter.logger")
+    @patch(
+        "monitor.core.llm_responses_adapter.measure_followup_request_reserves",
+        return_value={
+            "tool_schema_reserve_tokens": 111,
+            "structured_payload_reserve_tokens": 222,
+        },
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.count_serialized_structure_tokens",
+        return_value=4321,
+    )
+    @patch("monitor.core.llm_responses_adapter.count_message_tokens", return_value=1234)
+    def test_call_responses_api_logs_context_budget_debug_on_context_length_error(
+        self,
+        _mock_count_tokens,
+        _mock_count_structural,
+        _mock_measure_reserves,
+        mock_logger,
+    ):
+        """Verify context-length failures emit reserve-aware diagnostics."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class FakeBadRequestError(Exception):
+            """Provider-shaped bad request for testing."""
+
+            def __init__(self, message, code):
+                super().__init__(message)
+                self.code = code
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.side_effect = FakeBadRequestError(
+            "context too large",
+            "context_length_exceeded",
+        )
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID="resp_prev",
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=False,
+            MODEL_INPUT_WINDOW=10_000,
+            MODEL_CONTEXT_WINDOW=None,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.85,
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=256,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS={
+                "fresh_request": 0,
+                "chained_user_followup": 2000,
+                "tool_result_followup": 4000,
+                "summarization_followup": 2000,
+            },
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=1000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=0.5,
+        )
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            with self.assertRaises(FakeBadRequestError):
+                adapter.call_responses_api(
+                    [{"role": "user", "content": "say hi"}],
+                    tool_descriptions=[
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "echo",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {},
+                                },
+                            },
+                        }
+                    ],
+                    gemini_tool_descriptions={},
+                )
+
+        logged_context_errors = [
+            call_args
+            for call_args in mock_logger.error.call_args_list
+            if call_args.args
+            and call_args.args[0]
+            == "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s"
+        ]
+        assert logged_context_errors, "Expected context-length diagnostic log entry"
+        context_call = logged_context_errors[0]
+        assert context_call.args[1:-1] == (
+            "gpt-4o-mini",
+            "chained_user_followup",
+            "resp_prev",
+            1,
+            None,
+            0,
+            1234,
+            4321,
+            111,
+            222,
+            10_000,
+            8_500,
+            2_000,
+            256,
+            5_911,
+            "send",
+        )
+        assert isinstance(context_call.args[-1], FakeBadRequestError)
+        mock_logger.info.assert_any_call(
+            "Responses API context debug payload: %s",
+            ANY,
+        )
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    def test_context_length_exceeded_returns_user_friendly_error(self, mock_progress_dots):
+        """Verify context-length failures are converted into a friendly error message."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeBadRequestError(Exception):
+            """Provider-shaped bad request for testing."""
+
+            def __init__(self, message, code):
+                super().__init__(message)
+                self.code = code
+
+        mock_progress_dots.return_value = _DummyCtx()
+        fake_client = self.FakeClient()
+        fake_client.responses.create.side_effect = FakeBadRequestError(
+            "context too large",
+            "context_length_exceeded",
+        )
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+        )
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            response, error_message = adapter.response_completion(
+                "hello",
+                tool_descriptions=[],
+                gemini_tool_descriptions=[],
+            )
+
+        assert response is None
+        assert "model context window" in error_message
+        assert "shorten the conversation" in error_message
+        assert "retry with compacted history" in error_message
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
@@ -704,7 +980,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_progress_dots.return_value = _DummyCtx()
 
         fake_client = self.FakeClient()
-        fake_client.responses.create.return_value = self._fake_response("resp_fresh", total_tokens=1, output=[])
+        fake_client.responses.create.return_value = self._fake_response(
+            "resp_fresh",
+            total_tokens=1,
+            output=[],
+        )
 
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
@@ -717,7 +997,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         messages = [{"role": "user", "content": "new prompt after failure"}]
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api(messages, tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                messages,
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         kwargs = fake_client.responses.create.call_args.kwargs
         assert kwargs["model"] == "gpt-4o-mini"
@@ -754,7 +1038,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         fake_client = self.FakeClient()
         # Single response, no function calls to keep it simple
-        fake_client.responses.create.return_value = self._fake_response("resp_X", total_tokens=1, output=[])
+        fake_client.responses.create.return_value = self._fake_response(
+            "resp_X",
+            total_tokens=1,
+            output=[],
+        )
 
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
@@ -772,7 +1060,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         ]
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api(messages, tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                messages,
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         # Ensure only the latest user text was sent as the input string
         kwargs = fake_client.responses.create.call_args.kwargs
@@ -782,7 +1074,10 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert kwargs["input"] == "latest user input"
 
     @patch("monitor.core.llm_responses_adapter.call_responses_api")
-    @patch("monitor.core.llm_responses_adapter.prepare_response_messages", return_value=[{"role": "user", "content": "x"}])
+    @patch(
+        "monitor.core.llm_responses_adapter.prepare_response_messages",
+        return_value=[{"role": "user", "content": "x"}],
+    )
     @patch("monitor.core.llm_responses_adapter.estimate_response_tokens", return_value=60)
     def test_response_completion_uses_followup_base_safety_ratio_for_input_gate(
         self,
@@ -837,7 +1132,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_progress_dots.return_value = _DummyCtx()
 
         fake_client = self.FakeClient()
-        fake_client.responses.create.return_value = self._fake_response("resp_1", total_tokens=1, output=[])
+        fake_client.responses.create.return_value = self._fake_response(
+            "resp_1",
+            total_tokens=1,
+            output=[],
+        )
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
             RESPONSES_API=True,
@@ -847,7 +1146,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_rate_limiter.RATE_LIMITER = MagicMock()
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api([{"role": "user", "content": "hello"}], tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                [{"role": "user", "content": "hello"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         kwargs = fake_client.responses.create.call_args.kwargs
         assert kwargs["model"] == "gpt-4o-mini"
@@ -855,9 +1158,18 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert kwargs.get("tool_choice") == "auto"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
     @patch("monitor.core.llm_responses_adapter.execute_tool_call")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
@@ -885,10 +1197,63 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         mock_progress_dots.return_value = _DummyCtx()
 
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=2,
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"a":1}',
+                }
+            ],
+        )
+        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            MODEL_INPUT_WINDOW=None,
+            TOOL_OUTPUT_TOKEN_LIMIT=8_192,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+        mock_execute_tool_call.return_value = ({"ok": True}, None)
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "hello"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        mock_execute_tool_call.assert_called_once()
+        called_args, _called_kwargs = mock_execute_tool_call.call_args
+        assert isinstance(called_args[0], dict)
+        assert called_args[0]["function"]["arguments"] == {"a": 1}
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -918,7 +1283,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=5,
-            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
         )
         second = self._fake_response("resp_2", total_tokens=3, output=[])
         fake_client.responses.create.side_effect = [first, second]
@@ -938,11 +1310,15 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         )
         mock_rate_limiter.RATE_LIMITER = MagicMock()
 
-        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg), patch.object(
-            adapter,
-            "truncate_to_token_limit",
-            return_value="{}",
-        ) as mock_truncate:
+        with (
+            patch.object(adapter, "client", fake_client),
+            patch.object(adapter, "config", cfg),
+            patch.object(
+                adapter,
+                "truncate_to_token_limit",
+                return_value="{}",
+            ) as mock_truncate,
+        ):
             adapter.call_responses_api(
                 [{"role": "user", "content": "say hi"}],
                 tool_descriptions={},
@@ -975,7 +1351,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_progress_dots.return_value = _DummyCtx()
 
         fake_client = self.FakeClient()
-        fake_client.responses.create.return_value = self._fake_response("resp_1", total_tokens=None, output=[])
+        fake_client.responses.create.return_value = self._fake_response(
+            "resp_1",
+            total_tokens=None,
+            output=[],
+        )
         cfg = SimpleNamespace(
             MODEL="openai/gpt-4o-mini",
             RESPONSES_API=True,
@@ -985,7 +1365,11 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_rate_limiter.RATE_LIMITER = MagicMock()
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api([{"role": "user", "content": "tokenless"}], tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                [{"role": "user", "content": "tokenless"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         # update_token_usage should be called with 0
         mock_update_tokens.assert_any_call(
@@ -998,14 +1382,28 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         # Rate limiter should receive an add_request with 0
         calls = mock_rate_limiter.RATE_LIMITER.add_request.call_args_list
         assert any(
-            (len(c.args) > 0 and c.args[0] == 0) or (len(c.kwargs) > 0 and next(iter(c.kwargs.values())) == 0) for c in calls
+            (len(c.args) > 0 and c.args[0] == 0)
+            or (len(c.kwargs) > 0 and next(iter(c.kwargs.values())) == 0)
+            for c in calls
         ), "Expected add_request to be called with 0 tokens"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
-    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=Exception("truncate fail"))
-    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=Exception("serialize fail"))
-    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=Exception("truncate fail"),
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=Exception("serialize fail"),
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")
     @patch("monitor.core.llm_responses_adapter.rate_limiter")
@@ -1035,7 +1433,14 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         first = self._fake_response(
             "resp_1",
             total_tokens=2,
-            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"a\":1}"}],
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "c1",
+                    "name": "tools.echo",
+                    "arguments": '{"a":1}',
+                }
+            ],
         )
         second = self._fake_response("resp_2", total_tokens=1, output=[])
         fake_client.responses.create.side_effect = [first, second]
@@ -1049,73 +1454,39 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         mock_rate_limiter.RATE_LIMITER = MagicMock()
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            adapter.call_responses_api([{"role": "user", "content": "hi"}], tool_descriptions={}, gemini_tool_descriptions={})
+            adapter.call_responses_api(
+                [{"role": "user", "content": "hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         # Second call is the follow-up; verify payload output is the fallback string
         second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
         assert isinstance(second_kwargs["input"], list)
         assert second_kwargs["input"][0]["output"] == adapter.SERIALIZATION_FAILED_STR
 
-    @patch("monitor.core.llm_responses_adapter.progress_dots")
-    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
-    def test_client_lazy_configuration_failure(self, _mock_get_tools, mock_progress_dots):
-        """Raise RuntimeError when lazy client configuration fails."""
-        from monitor.core import llm_responses_adapter as adapter
-
-        class _DummyCtx:
-            def __enter__(self):
-                return None
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-        mock_progress_dots.return_value = _DummyCtx()
-
-        # Force lazy configuration path and make it fail
-        cfg = SimpleNamespace(
-            MODEL="openai/gpt-4o-mini",
-            RESPONSES_API=True,
-            RESPONSE_ID=None,
-        )
-
-        fake_client = self.FakeClient()
-        first = self._fake_response(
-            "resp_1",
-            total_tokens=2,
-            output=[{"type": "function_call", "id": "c1", "name": "tools.echo", "arguments": "{\"a\":1}"}],
-        )
-        second = self._fake_response("resp_2", total_tokens=1, output=[])
-        fake_client.responses.create.side_effect = [first, second]
-
-        cfg = SimpleNamespace(
-            MODEL="openai/gpt-4o-mini",
-            RESPONSES_API=True,
-            RESPONSE_ID=None,
-            RATE_LIMITER=False,
-        )
-
-        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg), \
-             patch.object(adapter, "execute_tool_call", return_value=({"ok": True}, None)), \
-             patch.object(adapter, "serialize_tool_output", side_effect=Exception("serialize fail")), \
-             patch.object(adapter, "truncate_to_token_limit", side_effect=Exception("truncate fail")), \
-             patch.object(adapter, "token_budgeter", side_effect=lambda params, *_args, **_kwargs: params):
-            adapter.call_responses_api([{"role": "user", "content": "x"}], tool_descriptions={}, gemini_tool_descriptions={})
-
-        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
-        payload = second_kwargs["input"]
-        assert isinstance(payload, list) and payload, "Expected non-empty follow-up input list"
-        assert payload[0]["type"] == "function_call_output"
-        assert payload[0]["output"] == adapter.SERIALIZATION_FAILED_STR
-
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     def test_client_lazy_configuration_failure(self, _mock_progress, _mock_get_tools):
         from monitor.core import llm_responses_adapter as adapter
+
         fake_client = None
         cfg = SimpleNamespace(MODEL="openai/gpt-4o-mini", RESPONSES_API=True)
-        with patch.object(adapter, "client", None), patch.object(adapter, "config", cfg), patch.object(adapter, "configure_responses_adapter", side_effect=Exception("boom")):
+        with (
+            patch.object(adapter, "client", fake_client),
+            patch.object(adapter, "config", cfg),
+            patch.object(
+                adapter,
+                "configure_responses_adapter",
+                side_effect=Exception("boom"),
+            ),
+        ):
             with self.assertRaises(RuntimeError):
-                adapter.call_responses_api([{"role":"user","content":"x"}], tool_descriptions={}, gemini_tool_descriptions={})
+                adapter.call_responses_api(
+                    [{"role": "user", "content": "x"}],
+                    tool_descriptions={},
+                    gemini_tool_descriptions={},
+                )
 
 
 if __name__ == "__main__":
