@@ -242,12 +242,164 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         # Token accounting: initial + follow-up. The `response=ANY` allows
         # the production code to also pass the response object for cost
         # computation without breaking these assertions.
-        mock_update_tokens.assert_any_call(5, used_estimate=False, response=ANY)
-        mock_update_tokens.assert_any_call(3, used_estimate=False, response=ANY)
+        mock_update_tokens.assert_any_call(
+            5,
+            used_estimate=False,
+            response=ANY,
+            model="openai/gpt-4o-mini",
+        )
+        mock_update_tokens.assert_any_call(
+            3,
+            used_estimate=False,
+            response=ANY,
+            model="openai/gpt-4o-mini",
+        )
         assert mock_update_tokens.call_count >= 2
 
         # Rate limiter should receive two add_request calls
         assert mock_rate_limiter.RATE_LIMITER.add_request.call_count >= 2
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_call_responses_api_uses_adv_reasoning_model_for_turn_override(
+        self,
+        mock_rate_limiter,
+        mock_update_tokens,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.return_value = self._fake_response(
+            "resp_adv",
+            total_tokens=1,
+            output=[],
+        )
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-5.4-mini",
+            ADV_REASONING_MODEL="openai/gpt-5.4",
+            REASONING_MODEL_PREFIX="openai/gpt-5",
+            CURRENT_TURN_REASONING_OVERRIDE="high",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=4_000,
+            REASONING_MAX_COMPLETION_TOKENS=25_000,
+            ADV_REASONING_MODEL_OUTPUT_WINDOW=10_000,
+            CURRENT_TURN_IS_COLLATION=False,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "reason harder"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        kwargs = fake_client.responses.create.call_args.kwargs
+        assert kwargs["model"] == "gpt-5.4"
+        assert kwargs["max_output_tokens"] == 10_000
+        mock_update_tokens.assert_any_call(
+            1,
+            used_estimate=False,
+            response=ANY,
+            model="openai/gpt-5.4",
+        )
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.token_budgeter", side_effect=lambda params, *_args, **_kwargs: params)
+    @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
+    @patch("monitor.core.llm_responses_adapter.serialize_tool_output", side_effect=lambda obj: "{}")
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=(None, "Traceback (most recent call last): boom"))
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_call_responses_api_tool_failure_escalates_followup_to_adv_model(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=5,
+            output=[{"type": "function_call", "id": "call_1", "name": "tools.echo", "arguments": "{\"x\":1}"}],
+        )
+        second = self._fake_response("resp_2", total_tokens=3, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-5.4-mini",
+            ADV_REASONING_MODEL="openai/gpt-5.4",
+            REASONING_MODEL_PREFIX="openai/gpt-5",
+            CURRENT_TURN_REASONING_OVERRIDE=None,
+            CURRENT_TURN_IS_COLLATION=False,
+            ESCALATE_REASONING_ON_TOOL_FAILURE=True,
+            REASONING_EFFORT="low",
+            REASONING_BUMP_EFFORT="high",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=4_000,
+            REASONING_MAX_COMPLETION_TOKENS=25_000,
+            ADV_REASONING_MODEL_OUTPUT_WINDOW=10_000,
+            RATE_LIMITER=True,
+            MODEL_INPUT_WINDOW=None,
+            TOOL_OUTPUT_TOKEN_LIMIT=8_192,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "try the tool"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        first_kwargs = fake_client.responses.create.call_args_list[0].kwargs
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert first_kwargs["model"] == "gpt-5.4-mini"
+        assert second_kwargs["model"] == "gpt-5.4"
+        assert second_kwargs["max_output_tokens"] == 10_000
+        assert cfg.CURRENT_TURN_REASONING_OVERRIDE == "high"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.truncate_to_token_limit", side_effect=lambda s, *_args, **_kwargs: s)
@@ -836,7 +988,12 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             adapter.call_responses_api([{"role": "user", "content": "tokenless"}], tool_descriptions={}, gemini_tool_descriptions={})
 
         # update_token_usage should be called with 0
-        mock_update_tokens.assert_any_call(0, used_estimate=True, response=ANY)
+        mock_update_tokens.assert_any_call(
+            0,
+            used_estimate=True,
+            response=ANY,
+            model="openai/gpt-4o-mini",
+        )
 
         # Rate limiter should receive an add_request with 0
         calls = mock_rate_limiter.RATE_LIMITER.add_request.call_args_list

@@ -28,6 +28,8 @@ from monitor.lib.llm_utils import (
 from monitor.lib.tool_loading import function_descriptions
 from monitor.lib.progress import progress_dots
 from monitor.lib.llm_utils import is_reasoning_model
+from monitor.lib.llm_model_utils import resolve_turn_model
+from monitor.lib.colors import yellow, reset
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,74 @@ FOLLOWUP_BUDGET_DECISION_SEND = "send"
 FOLLOWUP_BUDGET_DECISION_SEND_TRIMMED = "send_trimmed"
 FOLLOWUP_BUDGET_DECISION_FALLBACK = "fallback"
 FOLLOWUP_BUDGET_DECISION_UNKNOWN = "unknown_budget"
+
+
+def _resolve_responses_turn_settings():
+    """Resolve the effective model and output budget for this Responses turn."""
+    base_model = getattr(config, "MODEL", "") or ""
+    prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
+    override = getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+    collation = bool(getattr(config, "CURRENT_TURN_IS_COLLATION", False))
+
+    resolved_model = resolve_turn_model(
+        base_model,
+        getattr(config, "ADV_REASONING_MODEL", None),
+        bool(override),
+        prefix or "",
+        orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
+        collation_active=collation,
+    )
+    request_model = strip_openai_prefix(resolved_model)
+    reasoning_model = is_reasoning_model(resolved_model, prefix)
+
+    max_output_tokens = getattr(config, "MAX_COMPLETION_TOKENS", None)
+    if reasoning_model:
+        max_output_tokens = getattr(config, "REASONING_MAX_COMPLETION_TOKENS", None)
+        adv_out = getattr(config, "ADV_REASONING_MODEL_OUTPUT_WINDOW", None)
+        if (
+            resolved_model == getattr(config, "ADV_REASONING_MODEL", None)
+            and isinstance(adv_out, int)
+            and adv_out > 0
+            and isinstance(max_output_tokens, int)
+            and max_output_tokens > 0
+        ):
+            max_output_tokens = min(max_output_tokens, adv_out)
+
+    return resolved_model, request_model, reasoning_model, max_output_tokens
+
+
+def _maybe_escalate_reasoning_on_tool_failure(result, error):
+    """Apply tool-failure reasoning escalation for the Responses tool loop."""
+    try:
+        if not getattr(config, "ESCALATE_REASONING_ON_TOOL_FAILURE", True):
+            return
+        from monitor.lib.reasoning_escalation import looks_like_failure, should_escalate
+        if not (looks_like_failure(error) or looks_like_failure(result)):
+            return
+
+        current_effort = (
+            getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)
+            or getattr(config, "REASONING_EFFORT", None)
+        )
+        if not should_escalate(current_effort):
+            return
+
+        from monitor.lib.llm_model_utils import higher_reasoning_effort
+
+        escalated = higher_reasoning_effort(
+            "high", getattr(config, "REASONING_BUMP_EFFORT", None)
+        )
+        config.CURRENT_TURN_REASONING_OVERRIDE = escalated
+        logger.info(
+            "Tool failure detected in Responses tool loop; escalated reasoning effort to %s "
+            "for the remainder of this turn.",
+            escalated,
+        )
+        print(f"{yellow}[reasoning → {escalated}] tool failure detected{reset}")
+    except Exception:
+        logger.exception(
+            "Reasoning escalation check failed in Responses tool loop; continuing at current effort."
+        )
 
 
 def _get_followup_base_safety_ratio():
@@ -516,18 +586,19 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                 logger.error("Responses client could not be configured. Please call configure_responses_adapter() or verify your OpenAI API credentials.")
                 raise RuntimeError("Responses client could not be configured. Please call configure_responses_adapter() or verify your OpenAI API credentials.")
 
-        # Get tools for the current model
-        tools, tool_choice = get_tools_for_model(tool_descriptions, gemini_tool_descriptions)
+        resolved_model, request_model, reasoning_model, max_output_tokens = (
+            _resolve_responses_turn_settings()
+        )
+
+        # Get tools for the effective turn model.
+        tools, tool_choice = get_tools_for_model(
+            tool_descriptions,
+            gemini_tool_descriptions,
+            resolved_model,
+        )
 
         # Build request parameters, include only non-None values
-        params = {REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL)}
-
-        # Determine if the current model is a reasoning model to force temperature=1
-        reasoning_model = False
-        try:
-            reasoning_model = is_reasoning_model(getattr(config, "MODEL", None), getattr(config, "REASONING_MODEL_PREFIX", None))
-        except Exception:
-            reasoning_model = False
+        params = {REQUEST_PARAM_MODEL: request_model}
 
         # Determine input: if a previous response id exists, send only the new user input
         if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
@@ -570,7 +641,6 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         if getattr(config, "PRESENCE_PENALTY", None) is not None:
             params[REQUEST_PARAM_PRESENCE_PENALTY] = getattr(config, "PRESENCE_PENALTY")
 
-        max_output_tokens = getattr(config, "MAX_COMPLETION_TOKENS", None)
         if max_output_tokens is not None:
             params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = max_output_tokens
 
@@ -629,7 +699,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
             except Exception:
                 rid = None
             try:
-                mname = strip_openai_prefix(getattr(config, "MODEL", None)) if getattr(config, "MODEL", None) is not None else None
+                mname = request_model
             except Exception:
                 mname = None
             try:
@@ -693,7 +763,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
         # Update token usage and rate limiter immediately for the initial response
         try:
-            update_token_usage(actual_tokens, used_estimate=used_estimate, response=response)
+            update_token_usage(
+                actual_tokens,
+                used_estimate=used_estimate,
+                response=response,
+                model=resolved_model,
+            )
             logger.debug(
                 f"Updated token usage with {actual_tokens} tokens from OpenAI response"
             )
@@ -865,6 +940,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                         f"Exception executing tool/function '{name}' (call_id: {call_id})"
                     )
                     result_or_error = {"error": str(e)}
+                    _maybe_escalate_reasoning_on_tool_failure(None, str(e))
+                else:
+                    _maybe_escalate_reasoning_on_tool_failure(result, error)
 
                 try:
                     output_payload = serialize_tool_output(result_or_error)
@@ -878,9 +956,10 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                 # Truncate serialized output to configured per-tool token limit to avoid oversized follow-ups.
                 try:
+                    _, current_request_model, _, _ = _resolve_responses_turn_settings()
                     token_limit = int(config.TOOL_OUTPUT_TOKEN_LIMIT)
                     truncated_output = truncate_to_token_limit(
-                        output_payload, token_limit, model=strip_openai_prefix(config.MODEL)
+                        output_payload, token_limit, model=current_request_model
                     )
                 except Exception:
                     # If truncation fails for any reason, fall back to the original serialized payload.
@@ -923,14 +1002,25 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
             # If we have outputs from executing tools, send them back as a follow-up response
             if function_call_outputs:
                 try:
-                    followup_params = {REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL)}
+                    (
+                        followup_resolved_model,
+                        followup_request_model,
+                        followup_reasoning_model,
+                        followup_max_output_tokens,
+                    ) = _resolve_responses_turn_settings()
+                    followup_tools, followup_tool_choice = get_tools_for_model(
+                        tool_descriptions,
+                        gemini_tool_descriptions,
+                        followup_resolved_model,
+                    )
+                    followup_params = {REQUEST_PARAM_MODEL: followup_request_model}
                     # Ensure previous_response_id is the last persisted response id
                     if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
                         followup_params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
                     followup_params[REQUEST_PARAM_INPUT] = function_call_outputs
 
                     # Preserve optional params
-                    if reasoning_model:
+                    if followup_reasoning_model:
                         followup_params[REQUEST_PARAM_TEMPERATURE] = 1
                     elif getattr(config, "TEMPERATURE", None) is not None:
                         followup_params[REQUEST_PARAM_TEMPERATURE] = getattr(config, "TEMPERATURE")
@@ -944,13 +1034,13 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                         followup_params[REQUEST_PARAM_PRESENCE_PENALTY] = getattr(
                             config, "PRESENCE_PENALTY"
                         )
-                    if max_output_tokens is not None:
-                        followup_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = max_output_tokens
+                    if followup_max_output_tokens is not None:
+                        followup_params[REQUEST_PARAM_MAX_OUTPUT_TOKENS] = followup_max_output_tokens
 
                     # Add tools if available
-                    if tools:
-                        followup_params[REQUEST_PARAM_TOOLS] = tools
-                        followup_params[REQUEST_PARAM_TOOL_CHOICE] = tool_choice
+                    if followup_tools:
+                        followup_params[REQUEST_PARAM_TOOLS] = followup_tools
+                        followup_params[REQUEST_PARAM_TOOL_CHOICE] = followup_tool_choice
 
                     logger.debug(
                         f"Sending follow-up responses.create with {len(function_call_outputs)} function_call_output items"
@@ -985,7 +1075,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                             followup_params = token_budgeter(
                                 followup_params,
                                 input_window=payload_budget,
-                                model_name=getattr(config, "MODEL", None),
+                                model_name=followup_resolved_model,
                             )
                             followup_input = followup_params.get(REQUEST_PARAM_INPUT)
                             if isinstance(followup_input, list):
@@ -1110,7 +1200,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                     # Update token usage and rate limiter for follow-up
                     try:
-                        update_token_usage(follow_tokens, used_estimate=follow_used_estimate, response=followup_response)
+                        update_token_usage(
+                            follow_tokens,
+                            used_estimate=follow_used_estimate,
+                            response=followup_response,
+                            model=followup_resolved_model,
+                        )
                         logger.debug(
                             f"Updated token usage with {follow_tokens} tokens from follow-up OpenAI response"
                         )
@@ -1190,6 +1285,13 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                     logger.debug("Skipping summarization follow-up because no config.RESPONSE_ID is present")
                 else:
                     try:
+                        (
+                            summary_resolved_model,
+                            summary_request_model,
+                            _summary_reasoning_model,
+                            _summary_max_output_tokens,
+                        ) = _resolve_responses_turn_settings()
+
                         # Build a summary instruction that explicitly prevents further tool usage.
                         # NOTE: We intentionally do NOT include tools in the summarization follow-up
                         # parameters to prevent the model from issuing additional tool/function calls.
@@ -1239,7 +1341,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                 prev_response_id=parent_resp_id,
                                 function_call_outputs=all_function_call_outputs,
                                 summary_instruction=summary_instruction,
-                                model=strip_openai_prefix(config.MODEL),
+                                model=summary_resolved_model,
                                 max_output_tokens=computed_summary_tokens,
                             )
 
@@ -1251,9 +1353,9 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                 if isinstance(sfp, dict) and sfp.get("model"):
                                     summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(sfp.get("model"))
                                 else:
-                                    summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(config.MODEL)
+                                    summary_params[REQUEST_PARAM_MODEL] = summary_request_model
                             except Exception:
-                                summary_params[REQUEST_PARAM_MODEL] = strip_openai_prefix(config.MODEL)
+                                summary_params[REQUEST_PARAM_MODEL] = summary_request_model
 
                             # previous_response_id -> REQUEST_PREV_RESPONSE_ID: use returned sfp field if present, else fallback
                             try:
@@ -1469,14 +1571,14 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                         combined_input.extend(typed_function_call_items)
                                         combined_input.extend(summary_input_messages)
                                         summary_params = {
-                                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                            REQUEST_PARAM_MODEL: summary_request_model,
                                             REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                             REQUEST_PARAM_INPUT: combined_input,
                                             REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
                                         }
                                     except Exception:
                                         summary_params = {
-                                            REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                            REQUEST_PARAM_MODEL: summary_request_model,
                                             REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                             REQUEST_PARAM_INPUT: summary_input_messages,
                                             REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
@@ -1517,14 +1619,14 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                 except Exception:
                                     logger.exception("Failed to build summary_input_messages in fallback; using instruction-only payload")
                                     summary_params = {
-                                        REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                        REQUEST_PARAM_MODEL: summary_request_model,
                                         REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                         REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
                                         REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
                                     }
                             except Exception:
                                 summary_params = {
-                                    REQUEST_PARAM_MODEL: strip_openai_prefix(config.MODEL),
+                                    REQUEST_PARAM_MODEL: summary_request_model,
                                     REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                     REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
                                     REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
@@ -1729,7 +1831,12 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                         # Update token usage and rate limiter for summary
                         try:
-                            update_token_usage(summary_tokens, used_estimate=summary_used_estimate, response=summary_response)
+                            update_token_usage(
+                                summary_tokens,
+                                used_estimate=summary_used_estimate,
+                                response=summary_response,
+                                model=summary_resolved_model,
+                            )
                             logger.debug(
                                 f"Updated token usage with {summary_tokens} tokens from summarization OpenAI response"
                             )

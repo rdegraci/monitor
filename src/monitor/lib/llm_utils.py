@@ -503,7 +503,7 @@ def estimate_response_tokens(messages):
         logger.error(f"Error estimating response tokens: {e}", exc_info=True)
         return 0
 
-def get_tools_for_model(tool_descriptions, gemini_tool_descriptions):
+def get_tools_for_model(tool_descriptions, gemini_tool_descriptions, model_name=None):
     """Get appropriate tool definitions based on the model type.
 
     Returns:
@@ -511,7 +511,8 @@ def get_tools_for_model(tool_descriptions, gemini_tool_descriptions):
                tool_choice is the tool selection strategy
     """
     try:
-        model_lower = config.MODEL.lower()
+        model_value = model_name if isinstance(model_name, str) and model_name else config.MODEL
+        model_lower = model_value.lower()
 
         # Check if tools are disabled
         if getattr(config, "DISABLE_TOOLS", False):
@@ -710,5 +711,4 @@ def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = 
         )
 
     return current, delta
-
 
