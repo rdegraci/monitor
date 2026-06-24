@@ -1,5 +1,6 @@
 import logging
 import re
+from textwrap import dedent
 
 import litellm
 
@@ -211,7 +212,11 @@ def build_commit_message_query_input(
     Returns:
         str: The macro-expanded query input.
     """
-    macro = f"{macro_delim_open}create_git_entry{macro_delim_close} then provide a rationale for the commit. Finally, only give a bug report if there are bugs otherwise stay silent; no need to say something like 'No bugs detected from this diff.'"
+    macro = dedent(
+        f"""
+        {macro_delim_open}create_git_entry{macro_delim_close}
+        """
+    ).strip()
     git_entry_macro_expanded = recursive_macro_expand(
         macro,
         macro_values,

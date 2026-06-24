@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import tempfile
+from textwrap import dedent
 
 import litellm
 
@@ -254,7 +255,11 @@ def get_suggested_commit_message(diff_output):
         kwargs["messages"] = [
             {
                 "role": "system",
-                "content": "You write clear, conventional git commit messages.",
+                "content": dedent(
+                    """
+                    You write clear git commit messages.
+                    """
+                ).strip(),
             },
             {"role": "user", "content": query_input},
         ]

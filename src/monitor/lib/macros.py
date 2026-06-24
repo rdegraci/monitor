@@ -27,6 +27,7 @@ expansion path in ``macro_utils.tcl_macro_expand`` is the boundary to gate.
 import logging
 import os
 import subprocess
+from textwrap import dedent
 
 from monitor import config
 
@@ -81,37 +82,72 @@ PRIVATE_MACRO_METADATA = {
 # Useful macros, these are visible when dumping macros via the 'macros' built in command.
 PUBLIC_MACRO_VALUES = {
     "do_diff": "Examine the files that have been modified, using the perform_git_diff tool",
-    "create_git_entry": """Provide a git commit title (max 50 characters) and a body that describes the changes.
+    "create_git_entry": dedent("""
+        Write a commit message that strictly follows this specification.
 
-Title format by change type:
-- Bug fix: "Fix <bug description>"
-- New feature: "Add <feature>"
-- Refactor: "Refactor <component>"
+        Requirements:
 
-Output format: plain text, no Markdown. Do not prepend "Title:" or "Body:". One blank line between title and body. The body is read by a tool that builds contextual understanding of the development process, so
-it must provide comprehensive context. Title must have max 50 characters and no trailing period. Hard-wrap every line, in the Body, at 72 characters. Exception: URLs may overflow.
+        Subject:
+        - Separate the commit message into a Subject and Body
+        - Capitalize the Subject
+        - Keep the Subject at 50 characters or fewer
+        - Do not end the Subject with a period
+        - Start the Subject with the appropriate leading verb
+        - Use imperative mood
+        - Describe what changed, not why or how
 
-Body content by change type:
+        Allowed leading verbs:
+        - Add: create a feature, test, dependency, etc.
+        - Remove: remove a feature, test, dependency, etc.
+        - Fix: fix a bug, style violation, typo, etc.
+        - Upgrade: upgrade a dependency; format as "Upgrade DEP_NAME to VERSION"
+        - Refactor: design-only change; behavior should not change
+        - Reformat: formatting-only change
+        - Start: begin doing something, such as enabling a toggle or flag
+        - Stop: end doing something, such as disabling a toggle or flag
+        - Document: documentation or comment change
+        - Make: build process or tooling change
+        - Bump: increase the project version
+        - Rearrange: purely rearrange layout or UI
+        - Redraw: change a visual asset
+        - Reword: purely textual change
+        - Revert: purely the result of git revert
+        - Import: purely the result of importing into Git LFS
 
-Bug fix — explain:
-- what was broken
-- what should happen instead
-- why the correction matters to users or the system
-- what changed from the user's perspective
-- why that behavior is desirable or necessary
-- any product or context motivation
-Implementation details are secondary unless they explain a non-obvious constraint or risk.
+        Body:
+        - A Body is required unless the change is purely cosmetic or extremely minor
+        - Include a Body for all non-trivial changes
+        - Place exactly one blank line after the Subject
+        - Hard-wrap body lines at 72 characters, except URLs
+        - Explain what changed and why, not how
+        - Provide enough context for a reviewer or later reader to understand the intent and impact
 
-New feature — explain:
-- what new capability exists for users
-- why it was added
-Keep implementation details out unless they matter for reviewers, rollout, or risk.
+        The body is read by a tool that builds contextual understanding of the development process, so it must provide comprehensive context.
 
-Refactor — explain:
-- what design or maintenance issue is being addressed
-- why the change helps
-- whether behavior is intentionally unchanged (usually it is)
-Avoid generic "cleanup" framing or listing moved methods unless that context matters.""",
+        Body content by change type:
+
+        Bug fix — explain:
+        - what was broken
+        - what should happen instead
+        - why the correction matters to users or the system
+        - what changed from the user's perspective
+        - why that behavior is desirable or necessary
+        - any product or context motivation
+        Implementation details are secondary unless they explain a non-obvious constraint or risk.
+
+        New feature — explain:
+        - what new capability exists for users
+        - why it was added
+        Keep implementation details out unless they matter for reviewers, rollout, or risk.
+
+        Refactor — explain:
+        - what design or maintenance issue is being addressed
+        - why the change helps
+        - whether behavior is intentionally unchanged (usually it is)
+        Avoid generic "cleanup" framing or listing moved methods unless that context matters.
+
+        Return only the commit message text.
+    """).strip(),
     "rank_examine": "Rank what to examine next",
     "diff": "{{do_diff}} {{create_git_entry}}",
     "diff_previous": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
