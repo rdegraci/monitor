@@ -715,9 +715,13 @@ def _get_responses_chain_compaction_pressure(config, logger):
             responses_adapter.REQUEST_PREV_RESPONSE_ID: previous_response_id,
             responses_adapter.REQUEST_PARAM_INPUT: conversation_history,
         }
+        followup_iteration = responses_adapter.infer_followup_iteration(
+            telemetry_params,
+            default_iteration=0,
+        )
         _telemetry_copy, telemetry_budget = responses_adapter.budget_followup_request(
             telemetry_params,
-            iteration=0,
+            iteration=followup_iteration,
             input_window=input_window,
         )
 
@@ -738,7 +742,7 @@ def _get_responses_chain_compaction_pressure(config, logger):
             }
             _hard_copy, hard_budget = responses_adapter.budget_followup_request(
                 hard_params,
-                iteration=0,
+                iteration=followup_iteration,
                 input_window=input_window,
             )
             hard_request_class = hard_budget.get("request_class")

@@ -517,6 +517,45 @@ def calculate_followup_payload_budget(
     }
 
 
+
+
+def infer_followup_iteration(params, default_iteration=0):
+    """Infer a follow-up iteration count from runtime state and request shape.
+
+    Args:
+        params: The request payload being budgeted.
+        default_iteration: Fallback iteration to use when no better signal exists.
+
+    Returns:
+        int: The inferred non-negative iteration count.
+    """
+    try:
+        inferred_iteration = int(default_iteration or 0)
+    except (TypeError, ValueError):
+        inferred_iteration = 0
+    inferred_iteration = max(0, inferred_iteration)
+
+    if not isinstance(params, dict):
+        return inferred_iteration
+
+    if not params.get(REQUEST_PREV_RESPONSE_ID):
+        return inferred_iteration
+
+    request_class = classify_followup_request(params)
+    if request_class != FOLLOWUP_REQUEST_CLASS_CHAINED:
+        return inferred_iteration
+
+    round_trips = getattr(config, "TURN_ROUND_TRIPS", None)
+    if not isinstance(round_trips, list) or not round_trips:
+        return inferred_iteration
+
+    current_round_trip_count = round_trips[-1]
+    try:
+        current_round_trip_count = int(current_round_trip_count or 0)
+    except (TypeError, ValueError):
+        return inferred_iteration
+
+    return max(inferred_iteration, max(0, current_round_trip_count))
 def budget_followup_request(params, *, iteration=0, input_window=None):
     """Budget a follow-up request against the reserve-aware policy.
 
@@ -525,6 +564,10 @@ def budget_followup_request(params, *, iteration=0, input_window=None):
     """
     params_copy = deepcopy(params) if isinstance(params, dict) else {}
     request_class = classify_followup_request(params_copy)
+    effective_iteration = infer_followup_iteration(
+        params_copy,
+        default_iteration=iteration,
+    )
     resolved_input_window = (
         input_window
         if isinstance(input_window, int) and input_window > 0
@@ -543,7 +586,7 @@ def budget_followup_request(params, *, iteration=0, input_window=None):
         hidden_chain_reserve_per_depth=_get_followup_hidden_chain_reserve_per_depth(),
         hidden_chain_reserve_cap_ratio=_get_followup_hidden_chain_reserve_cap_ratio(),
         top_level_reserve_tokens=_get_followup_toplevel_reserve_tokens(),
-        iteration=iteration,
+        iteration=effective_iteration,
         tool_schema_reserve_tokens=measured_reserves.get("tool_schema_reserve_tokens", 0),
         structured_payload_reserve_tokens=measured_reserves.get(
             "structured_payload_reserve_tokens",
@@ -568,6 +611,7 @@ def _build_context_length_debug_info(params, *, model_name=None):
 
     request_input = params.get(REQUEST_PARAM_INPUT)
     request_class = classify_followup_request(params)
+    effective_iteration = infer_followup_iteration(params, default_iteration=0)
     measured_reserves = measure_followup_request_reserves(
         params,
         model_name=model_name,
@@ -581,6 +625,7 @@ def _build_context_length_debug_info(params, *, model_name=None):
         hidden_chain_reserve_per_depth=_get_followup_hidden_chain_reserve_per_depth(),
         hidden_chain_reserve_cap_ratio=_get_followup_hidden_chain_reserve_cap_ratio(),
         top_level_reserve_tokens=_get_followup_toplevel_reserve_tokens(),
+        iteration=effective_iteration,
         tool_schema_reserve_tokens=measured_reserves.get("tool_schema_reserve_tokens", 0),
         structured_payload_reserve_tokens=measured_reserves.get(
             "structured_payload_reserve_tokens",
@@ -636,6 +681,7 @@ def _build_context_length_debug_info(params, *, model_name=None):
         "request_class": request_class,
         "has_previous_response_id": bool(params.get(REQUEST_PREV_RESPONSE_ID)),
         "previous_response_id": params.get(REQUEST_PREV_RESPONSE_ID),
+        "effective_iteration": effective_iteration,
         "tool_count": tool_count,
         "input_item_count": input_item_count,
         "function_call_output_count": function_call_output_count,
@@ -677,10 +723,11 @@ def _log_context_length_exceeded(error, params):
         }
 
     logger.error(
-        "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s",
+        "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s effective_iteration=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s",
         debug_info.get("model"),
         debug_info.get("request_class"),
         debug_info.get("previous_response_id"),
+        debug_info.get("effective_iteration"),
         debug_info.get("tool_count"),
         debug_info.get("input_item_count"),
         debug_info.get("function_call_output_count"),

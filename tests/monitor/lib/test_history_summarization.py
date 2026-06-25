@@ -425,6 +425,45 @@ def test_check_limits_uses_real_next_user_shape_for_hard_trigger_and_history_pro
     assert limits["metrics"]["responses_chain_request_class"] == "chained_user_followup"
 
 
+
+def test_responses_chain_pressure_uses_turn_round_trips_for_chained_budget_depth(config):
+    conversation = [
+        {"role": "user", "content": "First turn."},
+        {"role": "assistant", "content": "First answer."},
+        {"role": "user", "content": "Follow-up turn."},
+    ]
+    config.CONVERSATION_HISTORY = conversation
+    config.RESPONSES_API = True
+    config.RESPONSE_ID = "resp_chain"
+    config.MODEL = "openai/gpt-4o-mini"
+    config.MODEL_INPUT_WINDOW = 1_000
+    config.MODEL_CONTEXT_WINDOW = 1_200
+    config.TURN_ROUND_TRIPS = [2, 30]
+
+    with patch(
+        "monitor.core.llm_responses_adapter.infer_followup_iteration",
+        return_value=30,
+    ) as mock_infer, patch(
+        "monitor.core.llm_responses_adapter.budget_followup_request"
+    ) as mock_snapshot:
+        mock_snapshot.return_value = (
+            {},
+            {
+                "request_class": "chained_user_followup",
+                "model_input_window": 1_000,
+                "usable_window": 850,
+                "hidden_chain_reserve": 4_400,
+                "payload_budget": 50,
+                "decision": "send",
+            },
+        )
+        history._get_responses_chain_compaction_pressure(config, logging.getLogger(__name__))
+
+    assert mock_infer.call_count == 1
+    assert mock_snapshot.call_count == 2
+    assert mock_snapshot.call_args_list[0].kwargs["iteration"] == 30
+    assert mock_snapshot.call_args_list[1].kwargs["iteration"] == 30
+
 def _fill_tokens_to_threshold(
     config, conversation, summarization_config, max_token_count
 ):

@@ -210,6 +210,38 @@ class TestLLMResponsesAdapter(unittest.TestCase):
                 == 4400
             )
 
+    def test_infer_followup_iteration_uses_turn_round_trips_for_chained_requests(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(TURN_ROUND_TRIPS=[3, 30])
+        params = {
+            adapter.REQUEST_PARAM_MODEL: "gpt-4o-mini",
+            adapter.REQUEST_PREV_RESPONSE_ID: "resp_chain",
+            adapter.REQUEST_PARAM_INPUT: "latest user turn",
+        }
+
+        with patch.object(adapter, "config", cfg):
+            assert adapter.infer_followup_iteration(params, default_iteration=0) == 30
+
+    def test_infer_followup_iteration_keeps_tool_followup_iteration(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(TURN_ROUND_TRIPS=[45])
+        params = {
+            adapter.REQUEST_PARAM_MODEL: "gpt-4o-mini",
+            adapter.REQUEST_PREV_RESPONSE_ID: "resp_chain",
+            adapter.REQUEST_PARAM_INPUT: [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "{}",
+                }
+            ],
+        }
+
+        with patch.object(adapter, "config", cfg):
+            assert adapter.infer_followup_iteration(params, default_iteration=2) == 2
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch(
         "monitor.core.llm_responses_adapter.token_budgeter",
@@ -891,6 +923,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             MODEL="openai/gpt-4o-mini",
             RESPONSES_API=True,
             RESPONSE_ID="resp_prev",
+            TURN_ROUND_TRIPS=[30],
             TEMPERATURE=None,
             TOP_P=None,
             FREQUENCY_PENALTY=None,
@@ -935,7 +968,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             for call_args in mock_logger.error.call_args_list
             if call_args.args
             and call_args.args[0]
-            == "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s"
+            == "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s effective_iteration=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s"
         ]
         assert logged_context_errors, "Expected context-length diagnostic log entry"
         context_call = logged_context_errors[0]
@@ -943,6 +976,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             "gpt-4o-mini",
             "chained_user_followup",
             "resp_prev",
+            30,
             1,
             None,
             0,
@@ -952,9 +986,9 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             222,
             10_000,
             8_500,
-            2_000,
+            4_400,
             256,
-            5_911,
+            3_511,
             "send",
         )
         assert isinstance(context_call.args[-1], FakeBadRequestError)
