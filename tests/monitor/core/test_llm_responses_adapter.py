@@ -155,6 +155,61 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert reserves["tool_schema_reserve_tokens"] > 0
         assert reserves["structured_payload_reserve_tokens"] > 0
 
+    def test_compute_followup_hidden_chain_reserve_ramps_for_chained_followups(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS={
+                "fresh_request": 0,
+                "chained_user_followup": 2000,
+                "tool_result_followup": 4000,
+                "summarization_followup": 2000,
+            },
+            FOLLOWUP_DYNAMIC_CHAINED_RESERVE=True,
+            FOLLOWUP_CHAINED_RESERVE_MIN_RT=20,
+            FOLLOWUP_CHAINED_RESERVE_MAX_RT=45,
+            FOLLOWUP_CHAINED_RESERVE_MAX_TOKENS=8000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=1000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=0.5,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.85,
+            MODEL_INPUT_WINDOW=10_000,
+            MODEL_CONTEXT_WINDOW=None,
+        )
+
+        with patch.object(adapter, "config", cfg):
+            assert (
+                adapter.compute_followup_hidden_chain_reserve(
+                    adapter.FOLLOWUP_REQUEST_CLASS_CHAINED,
+                    iteration=0,
+                    input_window=10_000,
+                )
+                == 2000
+            )
+            assert (
+                adapter.compute_followup_hidden_chain_reserve(
+                    adapter.FOLLOWUP_REQUEST_CLASS_CHAINED,
+                    iteration=20,
+                    input_window=10_000,
+                )
+                == 2000
+            )
+            assert (
+                adapter.compute_followup_hidden_chain_reserve(
+                    adapter.FOLLOWUP_REQUEST_CLASS_CHAINED,
+                    iteration=45,
+                    input_window=10_000,
+                )
+                == 8000
+            )
+            assert (
+                adapter.compute_followup_hidden_chain_reserve(
+                    adapter.FOLLOWUP_REQUEST_CLASS_CHAINED,
+                    iteration=30,
+                    input_window=10_000,
+                )
+                == 4400
+            )
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch(
         "monitor.core.llm_responses_adapter.token_budgeter",
@@ -534,7 +589,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             return 10
 
         def fake_token_budgeter(params, input_window=100000, model_name=None):
-            assert input_window == 2911
+            assert input_window == 1911
             trimmed = {
                 **params,
                 "input": [

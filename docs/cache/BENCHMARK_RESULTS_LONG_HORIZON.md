@@ -162,13 +162,19 @@ Track these metrics as benchmark evidence accumulates.
 
 Document repeating failure modes or operator pain points here.
 
-- _None recorded yet._
+- Responses chained user follow-ups can still hit `context_length_exceeded`
+  even when visible input is tiny, because `previous_response_id` hides a large
+  prior chain and the full tool catalog may still be resent.
 
 ## Follow-up actions
 
 Use this section to connect benchmark evidence back to roadmap priorities.
 
-- _No follow-up actions recorded yet._
+- Recalibrate `FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS["chained_user_followup"]`
+  upward from the original `~2,000` seed toward a safer `~8,000` cap.
+- Evaluate a conditional tool-inclusion policy for `chained_user_followup`
+  using the future `UtilityLLM` helper so clearly non-tool-oriented turns can
+  avoid paying the full tool-schema cost.
 
 ## Evidence-backed roadmap implications
 

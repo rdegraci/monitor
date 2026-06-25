@@ -131,6 +131,7 @@ If `input_payload_budget <= 0`, the normal follow-up request is not safe to send
 These are seed values to make Phase 1 actionable, not tuned results. Phase 4
 calibrates them against logged preflight decisions and real provider errors.
 
+The implemented adapter follows these defaults today:
 - `base_safety_ratio = 0.85` — carried over from today's `INPUT_WINDOW_SAFETY_RATIO`
   (config key `FOLLOWUP_BASE_SAFETY_RATIO`).
 - Tool schema reserve — measured; no constant.
@@ -140,11 +141,32 @@ calibrates them against logged preflight decisions and real provider errors.
 - Hidden chain reserve (the only tunable margin; config key
   `FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS`):
   - `fresh_request`: `0` (no `previous_response_id`).
-  - `chained_user_followup`: `~2,000` tokens.
-  - `tool_result_followup`: `~4,000` tokens base, plus `~1,000` tokens per
-    chain-depth level (`FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH`), capped at a
-    fraction of the usable window (`FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO`).
+  - `chained_user_followup`: ramps from `~2,000` toward `~8,000` as RT depth
+    grows beyond the configured minimum threshold.
+  - `tool_result_followup`: `~4,000` tokens base, plus depth growth capped by
+    `FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO`.
   - `summarization_followup`: `~2,000` tokens (compact input, no tools).
+
+Future tool omission is intentionally left off by default and is expected to be
+hinted by a small local `UtilityLLM` helper rather than by the main adapter.
+
+## Observed failure note
+A real chained-follow-up failure has now been observed with:
+- tiny visible user input,
+- a non-empty `previous_response_id`, and
+- a large serialized tool catalog.
+
+That result matters because it demonstrates that `chained_user_followup` can
+still overflow the provider window even when local visible payload estimates are
+small. In practical terms:
+- hidden chain context can dominate the request cost,
+- tool-schema overhead can materially worsen the failure mode,
+- the `chained_user_followup` hidden reserve needs empirical recalibration,
+- a future optimization may omit tools on clearly non-tool-oriented chained
+  follow-ups when the added round trip is preferable to a hard provider reject.
+
+This does **not** change the measured/estimated split: tool-schema cost remains
+measured, while the prior-chain cost remains the primary tunable uncertainty.
 
 All values are deliberately round; treat them as starting points to log against,
 not as validated thresholds.

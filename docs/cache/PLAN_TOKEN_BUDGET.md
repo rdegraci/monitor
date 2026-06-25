@@ -87,12 +87,18 @@ variants are optional extensions within this phase, not prerequisites for
 landing the first fallback behavior.
 
 ### Phase 4: empirical tuning
-Once Phases 1–3 are in production, calibrate the tunable knobs against observed
+Once the flow is in production, calibrate the tunable knobs against observed
 behavior rather than the seed constants:
 - recalibrate the hidden-chain reserve per model family (a `_BY_MODEL` override
   layered over `FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS`, mirroring the existing
   `MODEL_TOKEN_RATE_PER_MTOK` pattern)
+- tune the `chained_user_followup` ramp from the original `~2,000` seed toward a
+  safer `~8,000` cap when logs show long-chain overflows despite tiny visible
+  payloads
 - tune the per-depth reserve and its cap ratio from real chain-depth data
+- evaluate conditional tool omission using the future `UtilityLLM` helper for
+  clearly non-tool-oriented chained follow-ups when the extra round trip is
+  preferable to a hard provider reject
 - close the loop using the structured preflight logs and actual provider
   `context_length_exceeded` errors
 
@@ -106,6 +112,20 @@ Use request-shape-specific budgeting rules:
 - `chained_user_followup`
 - `tool_result_followup`
 - `summarization_followup`
+
+## Newly observed gap
+A real failure has now been observed for `chained_user_followup` where:
+- visible input was tiny,
+- the request still included a large tool catalog,
+- admission control decided `send`, and
+- the provider still returned `context_length_exceeded`.
+
+This narrows the remaining problem:
+- tool-result follow-up budgeting is not the only risk surface,
+- hidden prior-chain cost for ordinary chained user turns is still under-tuned,
+- `chained_user_followup` needs a larger default hidden reserve,
+- conditional tool omission is a plausible safety valve for clearly
+  conversational follow-ups.
 
 Tool-result follow-ups should receive the strictest reserve policy because they have the highest context-overrun risk.
 

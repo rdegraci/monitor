@@ -64,3 +64,19 @@ Evaluate whether fallback behavior preserves answer quality when standard tool-r
 - lower incidence of follow-up request 400 context-length failures
 - predictable trimming behavior with auditable logs
 - reduced dependence on ad hoc safety-ratio tuning alone
+
+## Current status
+
+As of the latest code changes, the reserve-aware follow-up flow is implemented
+in the Responses adapter and tracked more fully in `REQUEST_FLOW.md`:
+- reserve-aware follow-up preflight is active,
+- chained follow-up reserve grows with RT depth,
+- measured tool-schema and structured-payload reserves are counted from
+  serialized request structure,
+- oversized tool-result follow-ups route into the existing
+  summarization/rebase fallback path,
+- short recovery notices are emitted when context is condensed,
+- the tool-omission hook is present but disabled pending a future local helper.
+
+Phase 4 remains open for empirical calibration against production-style logs,
+model-specific behavior, and any future `UtilityLLM`-based omission hints.

@@ -258,6 +258,7 @@ Important runtime-controlled features in config include:
 - memory service flags
 - reasoning behavior
 - compaction and token budgeting
+- Responses follow-up budgeting reserves and safety ratio
 - server mode and agent mode
 - sub-agent orchestration limits
 - write-access policy for sub-agents
@@ -292,6 +293,32 @@ Relevant config/runtime controls include:
 Monitor has two distinct runtime reasoning adjustments:
 - a continuity bump for short follow-up confirmations, which can raise effort to `medium`
 - a failure-driven escalation path, which can raise effort to `high` for the rest of the turn when tool output indicates a failure
+
+### Responses follow-up budgeting
+
+Responses API follow-up calls are preflighted in
+`src/monitor/core/llm_responses_adapter.py` with a reserve-aware budgeting
+policy.
+
+Current behavior includes:
+- request-shape classification for fresh, chained, tool-result, and
+  summarization follow-ups,
+- usable-window calculation from `MODEL_INPUT_WINDOW` or
+  `MODEL_CONTEXT_WINDOW`,
+- config-driven safety ratio and hidden-chain reserves,
+- measured tool-schema and structured `function_call_output` shell reserves
+  using serialized structure token counting,
+- structured logging for both budget preflight decisions and actual
+  `context_length_exceeded` failures,
+- fallback into the existing summarization/rebase path when a normal tool
+  follow-up cannot be admitted safely.
+
+Relevant config keys include:
+- `FOLLOWUP_BASE_SAFETY_RATIO`
+- `FOLLOWUP_TOPLEVEL_RESERVE_TOKENS`
+- `FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS`
+- `FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH`
+- `FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO`
 
 ### Role-based model selection
 

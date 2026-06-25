@@ -222,6 +222,95 @@ def _get_followup_hidden_chain_reserve_cap_ratio():
     return 0.5
 
 
+def _get_followup_chained_reserve_rt_bounds():
+    min_value = getattr(config, "FOLLOWUP_CHAINED_RESERVE_MIN_RT", 20)
+    max_value = getattr(config, "FOLLOWUP_CHAINED_RESERVE_MAX_RT", 45)
+    try:
+        min_rt = int(min_value)
+    except (TypeError, ValueError):
+        min_rt = 20
+    try:
+        max_rt = int(max_value)
+    except (TypeError, ValueError):
+        max_rt = 45
+    if max_rt <= min_rt:
+        max_rt = min_rt + 1
+    return max(0, min_rt), max_rt
+
+
+def _get_followup_chained_reserve_max_tokens():
+    value = getattr(config, "FOLLOWUP_CHAINED_RESERVE_MAX_TOKENS", 8000)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 8000
+    return max(0, parsed)
+
+
+def _get_followup_dynamic_chained_reserve_enabled():
+    return bool(getattr(config, "FOLLOWUP_DYNAMIC_CHAINED_RESERVE", True))
+
+
+def _get_followup_tool_omission_hints_enabled():
+    return bool(getattr(config, "ENABLE_FOLLOWUP_TOOL_OMISSION_HINTS", False))
+
+
+def _get_followup_show_recovery_notices():
+    return bool(getattr(config, "FOLLOWUP_SHOW_RECOVERY_NOTICES", True))
+
+
+def compute_followup_hidden_chain_reserve(request_class, *, iteration=0, input_window=None):
+    """Compute the hidden-chain reserve for a follow-up request.
+
+    Args:
+        request_class: The classified follow-up request type.
+        iteration: The current tool-loop iteration count.
+        input_window: Optional model input window for reserve capping.
+
+    Returns:
+        int: The hidden-chain reserve token budget.
+    """
+    hidden_chain_reserve_by_class = _get_followup_hidden_chain_reserve_by_class()
+    try:
+        hidden_base = int(hidden_chain_reserve_by_class.get(request_class, 0) or 0)
+    except (TypeError, ValueError):
+        hidden_base = 0
+    hidden_base = max(0, hidden_base)
+
+    if (
+        request_class == FOLLOWUP_REQUEST_CLASS_CHAINED
+        and _get_followup_dynamic_chained_reserve_enabled()
+    ):
+        min_rt, max_rt = _get_followup_chained_reserve_rt_bounds()
+        max_tokens = _get_followup_chained_reserve_max_tokens()
+        rt_count = max(0, int(iteration))
+        if rt_count <= min_rt:
+            hidden_base = hidden_base
+        elif rt_count >= max_rt:
+            hidden_base = max(hidden_base, max_tokens)
+        else:
+            progress = float(rt_count - min_rt) / float(max_rt - min_rt)
+            scaled = round(hidden_base + progress * (max_tokens - hidden_base))
+            hidden_base = max(hidden_base, int(scaled))
+
+    depth_reserve = 0
+    if request_class == FOLLOWUP_REQUEST_CLASS_TOOL:
+        depth_growth = max(0, int(iteration)) * max(
+            0,
+            int(_get_followup_hidden_chain_reserve_per_depth() or 0),
+        )
+        cap_ratio = _get_followup_hidden_chain_reserve_cap_ratio()
+        if not isinstance(input_window, int) or input_window <= 0:
+            input_window = _resolve_model_input_window()
+        usable_window = 0
+        if isinstance(input_window, int) and input_window > 0:
+            usable_window = int(input_window * _get_followup_base_safety_ratio())
+        depth_cap = max(0, int(usable_window * float(cap_ratio)))
+        depth_reserve = min(depth_growth, depth_cap)
+
+    return hidden_base + depth_reserve
+
+
 def _resolve_model_input_window():
     iw = getattr(config, "MODEL_INPUT_WINDOW", None)
     cw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
@@ -385,28 +474,11 @@ def calculate_followup_payload_budget(
         }
 
     usable_window = int(input_window * base_safety_ratio)
-    hidden_base = 0
-    if isinstance(hidden_chain_reserve_by_class, dict):
-        try:
-            hidden_base = int(hidden_chain_reserve_by_class.get(request_class, 0) or 0)
-        except (TypeError, ValueError):
-            hidden_base = 0
-    hidden_base = max(0, hidden_base)
-
-    depth_reserve = 0
-    if request_class == FOLLOWUP_REQUEST_CLASS_TOOL:
-        depth_growth = max(0, int(iteration)) * max(0, int(hidden_chain_reserve_per_depth or 0))
-        cap_ratio = hidden_chain_reserve_cap_ratio
-        if not (
-            isinstance(cap_ratio, (int, float))
-            and not isinstance(cap_ratio, bool)
-            and 0 <= float(cap_ratio) <= 1
-        ):
-            cap_ratio = 0.5
-        depth_cap = max(0, int(usable_window * float(cap_ratio)))
-        depth_reserve = min(depth_growth, depth_cap)
-
-    hidden_chain_reserve = hidden_base + depth_reserve
+    hidden_chain_reserve = compute_followup_hidden_chain_reserve(
+        request_class,
+        iteration=iteration,
+        input_window=input_window,
+    )
     try:
         tool_schema_reserve = max(0, int(tool_schema_reserve_tokens or 0))
     except (TypeError, ValueError):
@@ -1202,9 +1274,14 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                     )
 
                     input_window = _resolve_model_input_window()
+                    budget_iteration = iteration + 1
+                    if _get_followup_tool_omission_hints_enabled():
+                        logger.info(
+                            "Follow-up tool omission hints are enabled, but no omission classifier is wired yet; keeping tools enabled."
+                        )
                     budgeted_followup_params, followup_budget = budget_followup_request(
                         followup_params,
-                        iteration=iteration,
+                        iteration=budget_iteration,
                         input_window=input_window,
                     )
                     followup_params = budgeted_followup_params
@@ -1268,6 +1345,10 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                                 payload_budget,
                                 final_followup_tokens,
                             )
+                            if _get_followup_show_recovery_notices():
+                                print(
+                                    "[notice] I’m condensing context to keep this thread reliable."
+                                )
                             trigger_summarization_followup = True
                             summarization_trigger_reason = "reserve-aware payload fallback"
                             break
@@ -1835,6 +1916,10 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                             "Sending summarization follow-up due to %s",
                             trigger_reason,
                         )
+                        if _get_followup_show_recovery_notices():
+                            print(
+                                "[notice] I’m continuing from a condensed summary to avoid context overflow."
+                            )
                         # Pre-send estimation/logging step for summarization payload
                         try:
                             try:
