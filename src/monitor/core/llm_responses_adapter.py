@@ -748,6 +748,25 @@ def _log_context_length_exceeded(error, params):
         json.dumps(debug_info, ensure_ascii=False, default=str, sort_keys=True),
     )
 
+
+def _is_context_length_exceeded_error(error):
+    """Return True when an exception represents a provider context-length failure.
+
+    Args:
+        error: Exception raised by the provider client.
+
+    Returns:
+        bool: True when the exception indicates context window exhaustion.
+    """
+    if error is None:
+        return False
+
+    error_code = getattr(error, "code", None)
+    if error_code == "context_length_exceeded":
+        return True
+
+    return "context_length_exceeded" in str(error).lower()
+
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
     global client
@@ -1537,7 +1556,31 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
                     # Set last_response to followup_response and continue loop
                     last_response = followup_response
-                except Exception:
+                except Exception as error:
+                    if _is_context_length_exceeded_error(error):
+                        logger.warning(
+                            "Follow-up responses.create exceeded the provider context window while reusing previous_response_id=%s; retrying with a fresh request chain",
+                            getattr(config, "RESPONSE_ID", None),
+                        )
+                        try:
+                            setattr(config, "RESPONSE_ID", None)
+                            logger.warning(
+                                "Cleared config.RESPONSE_ID after oversized tool follow-up so the next retry starts a fresh response chain"
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to clear config.RESPONSE_ID after oversized tool follow-up"
+                            )
+                        logger.info(
+                            "Retrying the turn as a fresh request after tool follow-up context exhaustion"
+                        )
+                        return call_responses_api(
+                            messages,
+                            tool_descriptions,
+                            gemini_tool_descriptions,
+                            request_id=request_id,
+                        )
+
                     logger.exception(
                         "Failed to send follow-up responses.create for function call outputs"
                     )

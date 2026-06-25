@@ -997,6 +997,122 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             ANY,
         )
 
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call", return_value=({"ok": True}, None))
+    def test_tool_followup_context_length_error_rebases_to_fresh_request(
+        self,
+        _mock_execute_tool_call,
+        _mock_truncate,
+        _mock_serialize,
+        mock_rate_limiter,
+        _mock_update_token_usage,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        """Rebase tool follow-up onto a fresh request when the provider rejects the chain."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeBadRequestError(Exception):
+            """Provider-shaped bad request for testing."""
+
+            def __init__(self, message, code):
+                super().__init__(message)
+                self.code = code
+
+        def _build_response(response_id, output):
+            return SimpleNamespace(id=response_id, output=output, usage={"total_tokens": 10})
+
+        mock_progress_dots.return_value = _DummyCtx()
+        mock_rate_limiter.RATE_LIMITER = None
+        fake_client = self.FakeClient()
+        fake_client.responses.create.side_effect = [
+            _build_response(
+                "resp_1",
+                [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "echo",
+                        "arguments": "{}",
+                    }
+                ],
+            ),
+            FakeBadRequestError("context too large", "context_length_exceeded"),
+            _build_response(
+                "resp_2",
+                [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "recovered"}],
+                    }
+                ],
+            ),
+        ]
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TURN_ROUND_TRIPS=[],
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=False,
+            MODEL_INPUT_WINDOW=272_000,
+            MODEL_CONTEXT_WINDOW=None,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.85,
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=256,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS={
+                "fresh_request": 0,
+                "chained_user_followup": 2000,
+                "tool_result_followup": 4000,
+                "summarization_followup": 2000,
+            },
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=1000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=0.5,
+        )
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            response = adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        assert response["id"] == "resp_2"
+        assert cfg.RESPONSE_ID == "resp_2"
+        assert fake_client.responses.create.call_count == 3
+
+        first_kwargs = fake_client.responses.create.call_args_list[0].kwargs
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        third_kwargs = fake_client.responses.create.call_args_list[2].kwargs
+
+        assert "previous_response_id" not in first_kwargs
+        assert second_kwargs["previous_response_id"] == "resp_1"
+        assert isinstance(second_kwargs["input"], list)
+        assert "previous_response_id" not in third_kwargs
+        assert third_kwargs["input"] == [{"role": "user", "content": "say hi"}]
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     def test_context_length_exceeded_returns_user_friendly_error(self, mock_progress_dots):
         """Verify context-length failures are converted into a friendly error message."""
