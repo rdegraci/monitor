@@ -1,3 +1,5 @@
+import monitor.config as config
+
 """Tests for the Phase 3 terminal bridge in get_input (_prompt_with_agent_bridge).
 
 Verifies the gating guarantee: with NO active agents the helper behaves exactly
@@ -114,12 +116,36 @@ def test_pending_output_flushed_above_prompt(capsys, monkeypatch):
         "drain_pending_output",
         lambda limit=None: ["[ag2] agent says hi", "[ag2] ✓ finished"],
     )
+    monkeypatch.setattr(orch, "drain_pending_injections", lambda: [])
     monkeypatch.setattr(orch, "has_active_agents", lambda: False)
     s = _FakeSession("x")
     conversation._prompt_with_agent_bridge(s, "PROMPT>")
     printed = capsys.readouterr().out
     assert "agent says hi" in printed
     assert "✓ finished" in printed
+
+
+def test_collation_turn_suppresses_terminal_result_replay(capsys, monkeypatch):
+    monkeypatch.setattr(config, "CURRENT_TURN_IS_COLLATION", False, raising=False)
+    monkeypatch.setattr(config, "PENDING_LLM_PREFIXES", [], raising=False)
+    monkeypatch.setattr(
+        orch,
+        "drain_pending_output",
+        lambda limit=None: ["[ag2] tool: reading file", "[ag2] ✓ finished"],
+    )
+    monkeypatch.setattr(
+        orch,
+        "drain_pending_injections",
+        lambda: ["Background sub-agent 'ag2' finished: finished"],
+    )
+    monkeypatch.setattr(orch, "has_active_agents", lambda: False)
+    s = _FakeSession("x")
+    conversation._prompt_with_agent_bridge(s, "PROMPT>")
+    printed = capsys.readouterr().out
+    assert "tool: reading file" in printed
+    assert "✓ finished" not in printed
+    assert config.CURRENT_TURN_IS_COLLATION is True
+    assert any("ag2" in prefix for prefix in config.PENDING_LLM_PREFIXES)
 
 
 def test_active_agent_summary_prints_once_until_it_changes(capsys, monkeypatch):

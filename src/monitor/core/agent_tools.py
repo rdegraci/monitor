@@ -404,6 +404,12 @@ def agent_create(
             "log_path": log_path,
             "persistent": bool(persistent),
         }
+        print(
+            f"Started {'persistent' if persistent else 'one-shot'} sub-agent "
+            f"'{session_name}'."
+        )
+        prompt_preview = prompt if len(prompt) <= 500 else f"{prompt[:500]}..."
+        print(f"Prompt: {prompt_preview}")
         logger.info(
             "agent_create success: cid=%s, session=%s, meta=%s, log=%s",
             cid,

@@ -470,8 +470,35 @@ def _prompt_with_agent_bridge(session, prompt_text):
         return session.prompt(prompt_text)
 
     # Flush completed/streamed agent output above the (next) prompt line.
+    # When the next turn is a collation/synthesis turn, suppress terminal result
+    # replay here — the results will already be folded into the orchestrator's
+    # next LLM prefix, and printing them again is noisy.
     try:
-        for line in orch.drain_pending_output():
+        pending_lines = orch.drain_pending_output()
+        pending_injections = orch.drain_pending_injections()
+        injection_agent_ids = set()
+        for notice in pending_injections:
+            try:
+                if not isinstance(notice, str):
+                    continue
+                first_quote = notice.find("'")
+                second_quote = notice.find("'", first_quote + 1)
+                if first_quote == -1 or second_quote == -1:
+                    continue
+                injection_agent_ids.add(notice[first_quote + 1:second_quote])
+            except Exception:
+                continue
+        for notice in pending_injections:
+            config.enqueue_next_llm_prefix(notice)
+        if pending_injections:
+            config.CURRENT_TURN_IS_COLLATION = True
+        for line in pending_lines:
+            if config.CURRENT_TURN_IS_COLLATION and isinstance(line, str):
+                if any(
+                    line.startswith(f"[{agent_id}] ✓") or line.startswith(f"[{agent_id}] ✗")
+                    for agent_id in injection_agent_ids
+                ):
+                    continue
             print(line)
     except Exception:
         logger.debug("agent bridge: drain failed", exc_info=True)

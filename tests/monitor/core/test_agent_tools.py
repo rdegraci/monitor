@@ -1,3 +1,4 @@
+import builtins
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -40,7 +41,31 @@ def test_agent_create_success(mock_screen, monkeypatch):
         "meta_path": "/tmp/meta.json",
         "log_path": "/tmp/log"
     }
-    res = agent_create("start agent")
+    with patch.object(builtins, "print") as mock_print:
+        res = agent_create("start agent")
     assert isinstance(res, dict)
     assert res.get("status") == "ok"
     assert res.get("session_name") == "20261003_abc"
+    assert mock_print.call_args_list == [
+        (("Started one-shot sub-agent '20261003_abc'.",),),
+        (("Prompt: start agent",),),
+    ]
+
+
+@patch("monitor.core.agent_tools._SCREEN")
+def test_agent_create_success_truncates_long_prompt(mock_screen, monkeypatch):
+    monkeypatch.setattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", True)
+    long_prompt = "x" * 501
+    mock_screen.create_interactive_subagent.return_value = {
+        "session_name": "20261003_long",
+        "meta_path": "/tmp/meta.json",
+        "log_path": "/tmp/log"
+    }
+    with patch.object(builtins, "print") as mock_print:
+        res = agent_create(long_prompt)
+    assert isinstance(res, dict)
+    assert res.get("session_name") == "20261003_long"
+    assert mock_print.call_args_list == [
+        (("Started one-shot sub-agent '20261003_long'.",),),
+        ((f"Prompt: {'x' * 500}...",),),
+    ]
