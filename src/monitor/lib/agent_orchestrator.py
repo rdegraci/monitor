@@ -575,9 +575,17 @@ def render_toolbar() -> str:
 
     Returns "" when no agents are active so the toolbar is hidden in normal use.
     """
-    if not has_active_agents():
+    with _registry_lock:
+        has_visible_startup = any(
+            rec.get("status") == "spawning" and not rec.get("terminal") and not rec.get("dirty")
+            for rec in _registry.values()
+        )
+    if not has_visible_startup and not has_active_agents():
         return ""
-    return render_visibility_summary()
+    summary = render_visibility_summary()
+    if not summary:
+        return ""
+    return summary
 
 
 # --- lifecycle / tests ------------------------------------------------------

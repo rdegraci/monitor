@@ -135,6 +135,13 @@ def test_render_toolbar_active_then_empty():
     assert orch.render_toolbar() == ""
 
 
+
+def test_render_toolbar_shows_spawning_agent_before_first_frame():
+    orch.note_spawn("spawn1")
+    bar = orch.render_toolbar()
+    assert "running 1" in bar
+    assert "spawn1: spawning" in bar
+
 def test_render_visibility_summary_includes_recent_outcomes():
     with orch._registry_lock:
         running = orch._blank_record()
