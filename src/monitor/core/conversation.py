@@ -1112,50 +1112,49 @@ def prepare_query_context(user_prompt):
                 pass
     logger.debug("Preparing query context...")
 
-    # Per-turn reasoning auto-bump. Always clear the prior turn's override
-    # first (so a previous bump doesn't leak forward), then detect signals
-    # in the new message and set the override if warranted. The override
-    # is read by call_litellm_completion as override-or-default and lasts
-    # for every LLM call within this user turn (including tool-chain
-    # follow-ups).
+    # Per-turn reasoning override. Always clear the prior turn's override first
+    # (so a previous turn's state doesn't leak forward), then apply any explicit
+    # inline turn flag from the current request before falling back to the
+    # complexity-signal heuristic. The override is read by
+    # call_litellm_completion as override-or-default and lasts for every LLM
+    # call within this user turn (including tool-chain follow-ups).
     try:
-        from monitor.lib.reasoning_heuristic import (
-            detect_reasoning_bump,
-            detect_continuation_bump,
-        )
+        from monitor.lib.reasoning_heuristic import detect_reasoning_bump
         config.CURRENT_TURN_REASONING_OVERRIDE = None
-        # The configured floor (REASONING_BUMP_EFFORT) is threaded into the
-        # heuristics so the bump target — and the gate that decides whether to
-        # fire at all — both reflect it. This is what lets a steady "medium"
-        # config still bump (to the floored target) on hard turns.
-        bump_floor = getattr(config, "REASONING_BUMP_EFFORT", None)
-        bump = detect_reasoning_bump(
-            user_prompt, getattr(config, "REASONING_EFFORT", None), bump_floor=bump_floor
-        )
-        reason = "matched complexity signals"
-        # Continuity bump: if the message itself carried no complexity signal,
-        # check whether it's a short confirmation following a substantive
-        # proposal (code/diff) — the execution turn for that proposal.
-        if not bump and getattr(config, "CONTINUITY_REASONING_BUMP", True):
-            cont = detect_continuation_bump(
+        stripped_user_prompt = user_prompt.rstrip()
+        explicit_adv_flag = " --adv"
+        if stripped_user_prompt.endswith(explicit_adv_flag):
+            user_prompt = stripped_user_prompt[: -len(explicit_adv_flag)].rstrip()
+            config.CURRENT_TURN_REASONING_OVERRIDE = "high"
+            logger.info(
+                "Applied explicit reasoning override %s for this turn via %s.",
+                config.CURRENT_TURN_REASONING_OVERRIDE,
+                explicit_adv_flag.strip(),
+            )
+            print(
+                f"{yellow}[reasoning → {config.CURRENT_TURN_REASONING_OVERRIDE}] explicit {explicit_adv_flag.strip()}{reset}"
+            )
+        else:
+            # The configured floor (REASONING_BUMP_EFFORT) is threaded into the
+            # heuristic so the bump target — and the gate that decides whether
+            # to fire at all — both reflect it. This is what lets a steady
+            # "medium" config still bump (to the floored target) on hard turns.
+            bump_floor = getattr(config, "REASONING_BUMP_EFFORT", None)
+            bump = detect_reasoning_bump(
                 user_prompt,
-                config.CONVERSATION_HISTORY,
                 getattr(config, "REASONING_EFFORT", None),
                 bump_floor=bump_floor,
             )
-            if cont:
-                bump = cont
-                reason = "short confirmation after a substantive proposal"
-        if bump:
-            config.CURRENT_TURN_REASONING_OVERRIDE = bump
-            logger.info(
-                "Auto-bumped reasoning effort to %s for this turn (%s).",
-                bump,
-                reason,
-            )
-            print(f"{yellow}[reasoning → {bump}] {reason}{reset}")
+            if bump:
+                config.CURRENT_TURN_REASONING_OVERRIDE = bump
+                logger.info(
+                    "Auto-bumped reasoning effort to %s for this turn (%s).",
+                    bump,
+                    "matched complexity signals",
+                )
+                print(f"{yellow}[reasoning → {bump}] matched complexity signals{reset}")
     except Exception:
-        logger.exception("Reasoning auto-bump heuristic failed; continuing with default effort.")
+        logger.exception("Reasoning override detection failed; continuing with default effort.")
 
     prepend_memory_to_history()
     model_text = build_prefixed_model_text(user_prompt)

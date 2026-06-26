@@ -688,14 +688,6 @@ CURRENT_TURN_IS_COLLATION = False
 # lib/reasoning_escalation.py and the hook in core/tooling.handle_tool_call.
 # Overridable in config.yaml.
 ESCALATE_REASONING_ON_TOOL_FAILURE = True
-# Continuity reasoning bump. When True, a short confirmation ("Sounds good.
-# Proceed.") that follows a substantive proposal (the previous assistant reply
-# contained real code or a diff) reasons at "medium" for that execution turn —
-# closing the gap where "proceed" otherwise runs at the default tier. One-way.
-# NOTE: this can increase execution-turn reasoning cost in exchange for better
-# execution quality. See
-# lib/reasoning_heuristic.detect_continuation_bump. Overridable in config.yaml.
-CONTINUITY_REASONING_BUMP = True
 # Cost-indicator color thresholds (USD). P (this turn) and W per-turn
 # average get colored when they exceed these values: green (uncolored,
 # default) → yellow → red. Defaults are calibrated for gpt-5.4 base /
@@ -872,7 +864,7 @@ def configure_globals():
     global COMMIT_MODEL, COMMIT_REASONING_EFFORT, COMMIT_REASONING_MAX_COMPLETION_TOKENS
     global ORCHESTRATOR_MODEL, ORCHESTRATOR_REASONING_EFFORT
     global SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
-    global ESCALATE_REASONING_ON_TOOL_FAILURE, CONTINUITY_REASONING_BUMP
+    global ESCALATE_REASONING_ON_TOOL_FAILURE
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
     global SUMMARY_TWITCH, SUMMARY_LINKEDIN, SUMMARY_TWITTER, SERVER_MODE, AGENT, RESPONSES_API
@@ -1102,7 +1094,6 @@ def configure_globals():
     ESCALATE_REASONING_ON_TOOL_FAILURE = yaml_config.get(
         "ESCALATE_REASONING_ON_TOOL_FAILURE", True
     )
-    CONTINUITY_REASONING_BUMP = yaml_config.get("CONTINUITY_REASONING_BUMP", True)
     # Floor for the effort of auto-bumped turns. Validate against known levels;
     # a typo silently sending a bad reasoning_effort to the provider is worse
     # than ignoring it.
