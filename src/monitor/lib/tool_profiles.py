@@ -468,3 +468,15 @@ def tool_profile_snapshot() -> dict:
 def profile_names() -> list[str]:
     """Return user-facing static profile names in stable order."""
     return list(PROFILE_GROUPS.keys())
+
+
+def profile_phrase_snapshot() -> dict:
+    """Return the phrase triggers that can widen each temporary tool group."""
+    return {
+        "verify": [pattern.pattern for pattern in _PROFILE_INTENT_PATTERNS[VERIFY_GROUP]],
+        "edit": [pattern.pattern for pattern in _PROFILE_INTENT_PATTERNS[EDIT_GROUP]],
+        "network": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[NETWORK_GROUP]],
+        "db": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[DB_GROUP]],
+        "memory": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[MEMORY_GROUP]],
+        "agent": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[AGENT_GROUP]],
+    }

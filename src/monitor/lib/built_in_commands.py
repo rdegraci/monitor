@@ -101,7 +101,7 @@ from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 from monitor.lib.tool_loading import list_tools
-from monitor.lib.tool_profiles import profile_names, tool_profile_snapshot
+from monitor.lib.tool_profiles import profile_names, profile_phrase_snapshot, tool_profile_snapshot
 
 reasoning_command.__globals__["config"] = config
 llm_command.__globals__["config"] = config
@@ -141,6 +141,15 @@ def print_tools_command(arg=None):
         print("  coding   minimal + edit/write + verify")
         print("  review   minimal + verify (no write tools)")
         print("  full     all available tools")
+        return
+
+    if arg_text == "phrases":
+        phrases = profile_phrase_snapshot()
+        print("Tool-profile widening phrases:")
+        for group_name in ("network", "db", "memory", "agent", "edit", "verify"):
+            print(f"  {group_name}:")
+            for phrase in phrases.get(group_name, []):
+                print(f"    - {phrase}")
         return
 
     if arg_text in valid_profiles:
