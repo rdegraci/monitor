@@ -429,6 +429,36 @@ RESPONSES_API: True
 #          reviews through but increases prompt size proportionally.
 TOOL_OUTPUT_TOKEN_LIMIT: 32768
 
+# Static tool-profile selection. This controls which tool schemas are ADVERTISED
+# to the model by default; it does NOT remove the underlying Python tool
+# implementations. Change at runtime with `:tools <profile>`.
+#
+# Valid values:
+#   minimal  Read/search/git/task core only
+#   coding   minimal + edit/write + verify tools
+#   review   minimal + verify tools (no write tools)
+#   full     All available tools
+# Default in code is `coding`, so these are commented out unless you want to
+# override that default explicitly.
+# TOOL_PROFILE: coding
+#
+# When enabled, EXPLICIT user intent can temporarily widen the advertised tool
+# set beyond TOOL_PROFILE for a short lease. Examples: "search the web",
+# "query postgres", "spawn an agent". The widen always applies to the current
+# turn, and can persist for a few FUTURE user turns before automatically
+# returning to the base profile.
+# ENABLE_TOOL_PROFILE_AUTO_WIDEN: true
+# TOOL_PROFILE_AUTO_WIDEN_TURNS: 2
+# TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE: true
+# TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS: 2
+# TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP:
+#   network: 2
+#   db: 2
+#   agent: 1
+#   memory: 1
+# TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS: []
+# SHOW_TOOL_PROFILE_NOTICES: true
+
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 
 history:
@@ -681,9 +711,12 @@ MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may 
 # logged and left on MODEL. Effort must be minimal|low|medium|high|xhigh.
 #
 # Typical split: a stronger coordinator + cheaper, harder-reasoning workers.
-# NOTE (cost): sub-agent spend is not yet folded into this instance's F: gauge /
-# U:/T: status line — agents are separate processes (telemetry aggregation is a
-# planned follow-up; see docs/cache/PLAN_SMART_ORCHESTRATION.md).
+# NOTE (cost): cumulative sub-agent spend IS folded into this instance's
+# F: gauge and U:/T: status line via usage telemetry, but only when the
+# orchestrator drains pending agent usage on the next main-turn prep. So the
+# cumulative totals can lag slightly while agents are still running. Per-turn
+# indicators such as W:/P: cost buckets and RT: round-trip count still reflect
+# only the local orchestrator process, not aggregated sub-agent activity.
 ORCHESTRATOR_MODEL: openai/gpt-5.4-2026-03-05
 ORCHESTRATOR_REASONING_EFFORT: medium
 SUBAGENT_MODEL: openai/gpt-5.4-mini-2026-03-17

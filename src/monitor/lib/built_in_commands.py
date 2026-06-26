@@ -101,6 +101,7 @@ from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 from monitor.lib.tool_loading import list_tools
+from monitor.lib.tool_profiles import profile_names, tool_profile_snapshot
 
 reasoning_command.__globals__["config"] = config
 llm_command.__globals__["config"] = config
@@ -118,39 +119,78 @@ _SUPPORTED_WIKI_FIX_KINDS = {
 
 
 def print_tools_command(arg=None):
-    from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, TOOL_STATE
+    from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE
+    from monitor.lib.llm_utils import get_tools_for_model
 
-    # Debug logging: log types and (truncated) contents of TOOL_DESCRIPTIONS and TOOL_STATE.
-    # Helper to truncate large structures for preview.
-    def _truncate_repr(obj, maxlen=500):
-        try:
-            rep = repr(obj)
-        except Exception as e:
-            rep = f"repr-failed({e})"
-        if len(rep) > maxlen:
-            return rep[:maxlen] + "... [truncated]"
-        return rep
+    arg_text = "" if arg is None else str(arg).strip().lower()
+    valid_profiles = profile_names()
 
-    # TOOL_DESCRIPTIONS type and truncated content
-    logger.debug(f"TOOL_DESCRIPTIONS type: {type(TOOL_DESCRIPTIONS)} - preview: {_truncate_repr(TOOL_DESCRIPTIONS)}")
-    if not isinstance(TOOL_DESCRIPTIONS, list):
-        logger.warning("TOOL_DESCRIPTIONS is not a list!")
+    if arg_text in {"help", "?", "-h", "--help"}:
+        print("Show or set the static tool profile used to advertise tools to the model.")
+        print("Usage: : (or /) tools [show|list|catalog|minimal|coding|review|full]")
+        print("Examples:")
+        print("  :tools")
+        print("  :tools list")
+        print("  :tools coding")
+        print("  :tools catalog")
+        return
 
-    # TOOL_STATE type and truncated content
-    logger.debug(f"TOOL_STATE type: {type(TOOL_STATE)} - preview: {_truncate_repr(TOOL_STATE)}")
-    if not isinstance(TOOL_STATE, dict):
-        logger.warning("TOOL_STATE is not a dict!")
+    if arg_text == "list":
+        print("Available tool profiles:")
+        print("  minimal  read/search/git/task core")
+        print("  coding   minimal + edit/write + verify")
+        print("  review   minimal + verify (no write tools)")
+        print("  full     all available tools")
+        return
 
-    tools = list_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
-    logger.debug(f"tools after list_tools() type: {type(tools)} - preview: {_truncate_repr(tools)}")
-    if not isinstance(tools, dict):
-        logger.warning("tools is not a dict after list_tools()!")
+    if arg_text in valid_profiles:
+        config.TOOL_PROFILE = arg_text
+        config.CURRENT_TURN_TOOL_GROUPS = set()
+        config.TOOL_PROFILE_GROUP_LEASES = {}
+        print_yellow(f"Tool profile set to: {config.TOOL_PROFILE}")
+        return
 
-    for name, info in tools.items():
-        print(f"Tool: {name}")
-        print(f"  Description: {info['description']}")
-        print(f"  Active: {info['active']}")
-        print("-" * 40)
+    snapshot = tool_profile_snapshot()
+    tools, _tool_choice = get_tools_for_model(
+        TOOL_DESCRIPTIONS,
+        GEMINI_TOOL_DESCRIPTIONS,
+        model_name=getattr(config, "MODEL", None),
+        normalize_tools=False,
+    )
+    tools = tools or []
+    tool_names = []
+    for descriptor in tools:
+        name = None
+        if isinstance(descriptor, dict):
+            if isinstance(descriptor.get("function"), dict):
+                name = descriptor["function"].get("name")
+            if not name:
+                name = descriptor.get("name")
+        if isinstance(name, str) and name:
+            tool_names.append(name)
+
+    if arg_text in {"catalog", "show_all", "names"}:
+        print(f"Tool profile: {snapshot['base_profile']}")
+        print(f"Current turn groups: {', '.join(snapshot['current_turn_groups']) or '(none)'}")
+        print(f"Leased groups: {snapshot['leased_groups'] or '(none)'}")
+        print(f"Advertised tools ({len(tool_names)}):")
+        for name in tool_names:
+            print(f"  {name}")
+        return
+
+    tools_info = list_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+    active_count = len(tool_names)
+    loaded_count = len(tools_info) if isinstance(tools_info, dict) else 0
+    print(f"Tool profile: {snapshot['base_profile']}")
+    print(f"Base groups: {', '.join(snapshot['base_groups'])}")
+    print(
+        f"Current turn groups: "
+        f"{', '.join(snapshot['current_turn_groups']) or '(none)'}"
+    )
+    print(f"Leased groups: {snapshot['leased_groups'] or '(none)'}")
+    print(f"Advertised tool count: {active_count}")
+    print(f"Loaded tool count: {loaded_count}")
+    print("Use ':tools list' for profiles or ':tools catalog' to print current advertised tool names.")
 
 
 def _strip_markdown_fences(text):

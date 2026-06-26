@@ -680,6 +680,34 @@ CURRENT_TURN_REASONING_OVERRIDE = None
 # turn, so the orchestrator transiently escalates to ORCHESTRATOR_MODEL for the
 # synthesis call (see resolve_turn_model). Turn-scoped: reset each turn.
 CURRENT_TURN_IS_COLLATION = False
+# Active temporary tool groups for the CURRENT user turn only. Seeded from
+# short-lived leases at query-prep time, widened for explicit intents on the
+# current turn, then consumed by tool-catalog filtering. Cleared/reset on the
+# next user turn, :reset_history, and set_model().
+CURRENT_TURN_TOOL_GROUPS = set()
+# Base static tool profile advertised to the model on normal turns. The runtime
+# :tools command changes this without editing config.yaml.
+TOOL_PROFILE = "coding"
+# When True, explicit user intent may temporarily widen the advertised tool set
+# beyond TOOL_PROFILE for a small number of future turns.
+ENABLE_TOOL_PROFILE_AUTO_WIDEN = True
+# Number of FUTURE user turns a temporary widen persists after the triggering
+# turn. 0 means current turn only.
+TOOL_PROFILE_AUTO_WIDEN_TURNS = 2
+# When True, explicit re-asks or actual use of a temporarily widened group's
+# tools refresh that group's lease back to TOOL_PROFILE_AUTO_WIDEN_TURNS.
+TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE = True
+# Cap on simultaneously leased temporary groups. 0 disables the cap.
+TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS = 2
+# Optional per-group future-turn lease overrides, keyed by internal group name.
+TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP = {}
+# Optional internal group names that should never auto-widen from user intent.
+TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS = []
+# Whether to print notices when temporary tool groups are widened/expired.
+SHOW_TOOL_PROFILE_NOTICES = True
+# Temporary leased widen groups that remain active for upcoming turns. Mapping
+# of internal group name -> remaining FUTURE user turns.
+TOOL_PROFILE_GROUP_LEASES = {}
 # Error-driven reasoning escalation. When True, a tool result that looks like a
 # failure (test/build/lint error, traceback, non-zero exit) escalates
 # reasoning_effort to "high" for the remainder of that user turn — so the model
@@ -864,6 +892,11 @@ def configure_globals():
     global COMMIT_MODEL, COMMIT_REASONING_EFFORT, COMMIT_REASONING_MAX_COMPLETION_TOKENS
     global ORCHESTRATOR_MODEL, ORCHESTRATOR_REASONING_EFFORT
     global SUBAGENT_MODEL, SUBAGENT_REASONING_EFFORT
+    global TOOL_PROFILE, ENABLE_TOOL_PROFILE_AUTO_WIDEN
+    global TOOL_PROFILE_AUTO_WIDEN_TURNS, TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE
+    global TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS
+    global TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP, TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS
+    global SHOW_TOOL_PROFILE_NOTICES
     global ESCALATE_REASONING_ON_TOOL_FAILURE
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -875,6 +908,7 @@ def configure_globals():
     global MONITOR_AGENT_MAX_BREADTH, MONITOR_AGENT_MAX_TOTAL, MONITOR_AGENT_HEARTBEAT_TIMEOUT
     global MONITOR_AGENT_IDLE_TIMEOUT
     global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE, TOOL_OUTPUT_TOKEN_LIMIT
+    global CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -1128,6 +1162,86 @@ def configure_globals():
     SUBAGENT_MODEL = yaml_config.get("SUBAGENT_MODEL")
     SUBAGENT_REASONING_EFFORT = yaml_config.get("SUBAGENT_REASONING_EFFORT")
     RESPONSES_API = yaml_config.get("RESPONSES_API")
+    _tool_profile_raw = yaml_config.get("TOOL_PROFILE", "coding")
+    if isinstance(_tool_profile_raw, str) and _tool_profile_raw.strip().lower() in {
+        "minimal", "coding", "review", "full"
+    }:
+        TOOL_PROFILE = _tool_profile_raw.strip().lower()
+    else:
+        if _tool_profile_raw is not None:
+            logger.warning(
+                "TOOL_PROFILE=%r is invalid; keeping default %r.",
+                _tool_profile_raw,
+                TOOL_PROFILE,
+            )
+        TOOL_PROFILE = "coding"
+    ENABLE_TOOL_PROFILE_AUTO_WIDEN = bool(
+        yaml_config.get("ENABLE_TOOL_PROFILE_AUTO_WIDEN", True)
+    )
+    _tool_profile_turns_raw = yaml_config.get("TOOL_PROFILE_AUTO_WIDEN_TURNS")
+    if _tool_profile_turns_raw is not None:
+        try:
+            TOOL_PROFILE_AUTO_WIDEN_TURNS = max(0, int(_tool_profile_turns_raw))
+        except (TypeError, ValueError):
+            logger.warning(
+                "TOOL_PROFILE_AUTO_WIDEN_TURNS=%r is not an integer; keeping default %d",
+                _tool_profile_turns_raw,
+                TOOL_PROFILE_AUTO_WIDEN_TURNS,
+            )
+    TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE = bool(
+        yaml_config.get("TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE", True)
+    )
+    _tool_profile_max_groups_raw = yaml_config.get("TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS")
+    if _tool_profile_max_groups_raw is not None:
+        try:
+            TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS = max(
+                0, int(_tool_profile_max_groups_raw)
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS=%r is not an integer; keeping default %d",
+                _tool_profile_max_groups_raw,
+                TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS,
+            )
+    _tool_profile_turns_by_group_raw = yaml_config.get("TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP")
+    TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP = {}
+    if isinstance(_tool_profile_turns_by_group_raw, dict):
+        for _group, _raw_turns in _tool_profile_turns_by_group_raw.items():
+            if not isinstance(_group, str) or not _group.strip():
+                continue
+            try:
+                TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP[_group.strip().lower()] = max(
+                    0, int(_raw_turns)
+                )
+            except (TypeError, ValueError):
+                logger.warning(
+                    "TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP[%r]=%r is not an integer; ignoring entry.",
+                    _group,
+                    _raw_turns,
+                )
+    elif _tool_profile_turns_by_group_raw is not None:
+        logger.warning(
+            "TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP=%r is not a mapping; keeping default {}.",
+            _tool_profile_turns_by_group_raw,
+        )
+    _tool_profile_disabled_groups_raw = yaml_config.get("TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS")
+    TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS = []
+    if isinstance(_tool_profile_disabled_groups_raw, list):
+        TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS = [
+            entry.strip().lower()
+            for entry in _tool_profile_disabled_groups_raw
+            if isinstance(entry, str) and entry.strip()
+        ]
+    elif _tool_profile_disabled_groups_raw is not None:
+        logger.warning(
+            "TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS=%r is not a list; keeping default [].",
+            _tool_profile_disabled_groups_raw,
+        )
+    SHOW_TOOL_PROFILE_NOTICES = bool(
+        yaml_config.get("SHOW_TOOL_PROFILE_NOTICES", True)
+    )
+    CURRENT_TURN_TOOL_GROUPS = set()
+    TOOL_PROFILE_GROUP_LEASES = {}
 
     ARTIFACT_SERVER = os.getenv(
         "ARTIFACT_SERVER", yaml_config.get("ARTIFACT_SERVER", "http://localhost:2323/")
@@ -1958,6 +2072,7 @@ def set_model(model_key: str) -> bool:
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
     global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
+    global CURRENT_TURN_IS_COLLATION, CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES
 
     # Validate MODEL_MAPPING
     if not isinstance(MODEL_MAPPING, dict) or not MODEL_MAPPING:
@@ -2048,6 +2163,9 @@ def set_model(model_key: str) -> bool:
     TURN_COSTS_USD = []
     TURN_ROUND_TRIPS = []
     CURRENT_TURN_REASONING_OVERRIDE = None
+    CURRENT_TURN_IS_COLLATION = False
+    CURRENT_TURN_TOOL_GROUPS = set()
+    TOOL_PROFILE_GROUP_LEASES = {}
 
     if isinstance(CONVERSATION_HISTORY, list):
         CONVERSATION_HISTORY.clear()

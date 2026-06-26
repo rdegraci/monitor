@@ -392,7 +392,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "tools",
                     "function": _make_callable(print_tools_command),
-                    "description": "Print currently loaded tools.",
+                    "description": "Show or set the tool profile (:tools, :tools list, :tools coding, :tools catalog).",
                 },
                 {
                     "command": "settings",

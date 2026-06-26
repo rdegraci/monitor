@@ -85,6 +85,10 @@ from monitor.lib.summarizers import (
 )
 from monitor.lib.colors import blue, red, yellow, reset
 from monitor.lib.redis_utils import prepend_memory_to_history
+from monitor.lib.tool_profiles import (
+    activate_turn_tool_group_leases,
+    maybe_apply_explicit_auto_widen,
+)
 import monitor.lib.subagent_logging as subagent_logging
 
 logger = logging.getLogger(__name__)
@@ -1089,6 +1093,21 @@ def prepare_query_context(user_prompt):
     # Reset the per-turn collation flag before folding; _fold sets it True iff
     # sub-agent results land on this turn (turn-scoped, like the reasoning override).
     config.CURRENT_TURN_IS_COLLATION = False
+    # Seed per-turn temporary tool groups from any short-lived leases carried
+    # forward from prior turns, then decrement those leases for future turns.
+    try:
+        active_tool_groups, expired_tool_groups = activate_turn_tool_group_leases()
+        if (
+            expired_tool_groups
+            and getattr(config, "SHOW_TOOL_PROFILE_NOTICES", True)
+        ):
+            print(
+                f"{yellow}[tools → base:{getattr(config, 'TOOL_PROFILE', 'coding')}] "
+                f"expired temporary groups: {', '.join(sorted(expired_tool_groups))}{reset}"
+            )
+    except Exception:
+        logger.exception("Tool-profile lease activation failed; continuing with base profile.")
+        active_tool_groups = set()
 
     # PLAN 8a (async harvest): fold any completed/failed background sub-agent
     # notices into the prefix queue (on the MAIN thread) before it is drained
@@ -1111,6 +1130,19 @@ def prepare_query_context(user_prompt):
             except Exception:
                 pass
     logger.debug("Preparing query context...")
+    try:
+        widened_groups = maybe_apply_explicit_auto_widen(
+            user_prompt,
+            notify=(
+                (lambda message: print(f"{yellow}[tools → {message}]{reset}"))
+                if getattr(config, "SHOW_TOOL_PROFILE_NOTICES", True)
+                else None
+            ),
+        )
+        if widened_groups:
+            active_tool_groups = set(getattr(config, "CURRENT_TURN_TOOL_GROUPS", set()) or set())
+    except Exception:
+        logger.exception("Tool-profile auto-widening failed; continuing with current profile.")
 
     # Per-turn reasoning override. Always clear the prior turn's override first
     # (so a previous turn's state doesn't leak forward), then apply any explicit

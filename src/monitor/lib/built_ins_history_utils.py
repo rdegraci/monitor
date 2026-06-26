@@ -55,6 +55,9 @@ def reset_conversation_history_command(arg: Any = None) -> None:
         config.TURN_COSTS_USD = []
         config.TURN_ROUND_TRIPS = []
         config.CURRENT_TURN_REASONING_OVERRIDE = None
+        config.CURRENT_TURN_IS_COLLATION = False
+        config.CURRENT_TURN_TOOL_GROUPS = set()
+        config.TOOL_PROFILE_GROUP_LEASES = {}
         config.RESPONSE_ID = None
         config.last_summary_time = time.time()
         print("Conversation history was reset to initial system prompt.")
@@ -636,6 +639,9 @@ def load_history_command(arg: str = None) -> None:
     config.TURN_COSTS_USD = []
     config.TURN_ROUND_TRIPS = []
     config.CURRENT_TURN_REASONING_OVERRIDE = None
+    config.CURRENT_TURN_IS_COLLATION = False
+    config.CURRENT_TURN_TOOL_GROUPS = set()
+    config.TOOL_PROFILE_GROUP_LEASES = {}
     config.RESPONSE_ID = None
     config.last_summary_time = time.time()
 

@@ -59,6 +59,7 @@ from monitor.lib.llm_usage_utils import (
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.text_to_speech import TextToSpeech
 from monitor.lib.tool_loading import function_descriptions
+from monitor.lib.tool_profiles import advertised_tool_descriptors_for_current_turn
 
 logger = logging.getLogger(__name__)
 
@@ -364,14 +365,19 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
     Returns:
         The litellm completion response.
     """
+    tools, _tool_choice = get_tools_for_model(
+        tool_descriptions,
+        gemini_tool_descriptions,
+        model_name=model,
+        normalize_tools=False,
+    )
     kwargs = {
         "model": model,
         "messages": messages,
-        "tools": function_descriptions(
-            tool_descriptions, gemini_tool_descriptions, model
-        ),
         "drop_params": True,
     }
+    if tools is not None:
+        kwargs["tools"] = tools
 
     prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
     if isinstance(prefix, str):
@@ -412,9 +418,16 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                 )
                 if swapped != model:
                     kwargs["model"] = swapped
-                    kwargs["tools"] = function_descriptions(
-                        tool_descriptions, gemini_tool_descriptions, swapped
+                    swapped_tools, _swapped_tool_choice = get_tools_for_model(
+                        tool_descriptions,
+                        gemini_tool_descriptions,
+                        model_name=swapped,
+                        normalize_tools=False,
                     )
+                    if swapped_tools is not None:
+                        kwargs["tools"] = swapped_tools
+                    else:
+                        kwargs.pop("tools", None)
                     # The ADV output-window cap applies only on an ADV swap.
                     if swapped == getattr(config, "ADV_REASONING_MODEL", None):
                         adv_out = getattr(config, "ADV_REASONING_MODEL_OUTPUT_WINDOW", None)
@@ -503,7 +516,7 @@ def estimate_response_tokens(messages):
         logger.error(f"Error estimating response tokens: {e}", exc_info=True)
         return 0
 
-def get_tools_for_model(tool_descriptions, gemini_tool_descriptions, model_name=None):
+def get_tools_for_model(tool_descriptions, gemini_tool_descriptions, model_name=None, *, normalize_tools=True):
     """Get appropriate tool definitions based on the model type.
 
     Returns:
@@ -511,7 +524,11 @@ def get_tools_for_model(tool_descriptions, gemini_tool_descriptions, model_name=
                tool_choice is the tool selection strategy
     """
     try:
-        model_value = model_name if isinstance(model_name, str) and model_name else config.MODEL
+        model_value = (
+            model_name
+            if isinstance(model_name, str) and model_name
+            else (getattr(config, "MODEL", "") or "")
+        )
         model_lower = model_value.lower()
 
         # Check if tools are disabled
@@ -531,8 +548,14 @@ def get_tools_for_model(tool_descriptions, gemini_tool_descriptions, model_name=
                 f"Using function descriptions ({len(tools) if tools else 0} tools)"
             )
 
-        # Normalize tool descriptors to a consistent flat shape for downstream usage
         if tools:
+            try:
+                tools = advertised_tool_descriptors_for_current_turn(tools)
+            except Exception:
+                logger.exception("Failed to filter tools for the current profile, proceeding with original tools")
+
+        # Normalize tool descriptors to a consistent flat shape for downstream usage
+        if tools and normalize_tools:
             try:
                 tools = normalize_tool_descriptors(tools)
             except Exception:
@@ -717,4 +740,3 @@ def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = 
         )
 
     return current, delta
-

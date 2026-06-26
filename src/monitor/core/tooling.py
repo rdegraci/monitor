@@ -11,6 +11,7 @@ from monitor.lib.colors import red, blue, yellow, reset
 from monitor.lib import rate_limiter
 
 from monitor.lib.protocol_engine import configure_protocol_engine_message_history
+from monitor.lib.tool_profiles import refresh_tool_group_lease_for_tool
 from monitor.lib.token_management import (
     count_message_tokens,
     update_token_usage,
@@ -425,6 +426,11 @@ def execute_tool_call(tool_call):
             if estimated_tokens > LARGE_FILE_TOKEN_THRESHOLD:
                 if rate_limiter.RATE_LIMITER is not None:
                     rate_limiter.RATE_LIMITER.add_request(estimated_tokens)
+
+        try:
+            refresh_tool_group_lease_for_tool(function_name)
+        except Exception:
+            logger.debug("Failed to refresh temporary tool-group lease", exc_info=True)
 
         return result, None
     except TypeError as e:
@@ -873,6 +879,11 @@ def execute_function(function_name, function_args_raw):
             # Record substantial token usage for source modifications (still conservatively estimated)
             if rate_limiter.RATE_LIMITER is not None:
                 rate_limiter.RATE_LIMITER.add_request(SOURCE_MODIFICATION_TOKEN_ESTIMATE)
+
+        try:
+            refresh_tool_group_lease_for_tool(function_name)
+        except Exception:
+            logger.debug("Failed to refresh temporary tool-group lease", exc_info=True)
 
         return result, None
     except Exception as e:
