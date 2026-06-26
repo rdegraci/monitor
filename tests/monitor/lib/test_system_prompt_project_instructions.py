@@ -289,8 +289,9 @@ def test_modify_source_code_tool_descriptions_include_updated_guidance():
     )
 
     for text in (
-        "Inspect first when the exact target text or file context is not already known",
-        "bulk_replace_in_files for mechanical repeated edits",
+        "Write one file from a natural-language change request",
+        "It writes files and makes an extra model call",
+        "bulk_replace_in_files instead",
         "After any write, inspect the diff before claiming success",
     ):
         assert text in description
@@ -310,9 +311,7 @@ def test_add_openai_editor_tools_uses_updated_modify_source_code_guidance():
         if tool["function"]["name"] == "modify_source_code"
     )
 
-    assert (
-        "Inspect first when the exact target text or file context is not already known"
-        in description
-    )
-    assert "bulk_replace_in_files for mechanical repeated edits" in description
+    assert "Write one file from a natural-language change request" in description
+    assert "It writes files and makes an extra model call" in description
+    assert "bulk_replace_in_files instead" in description
     assert "After any write, inspect the diff before claiming success" in description

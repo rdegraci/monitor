@@ -66,6 +66,9 @@ Working style:
 - For code changes, prefer an inspect -> plan -> exact edit -> verify workflow.
 - Inspect first when the target file, file layout, or exact text is not already known. Use read tools to gather the necessary context before editing instead of guessing.
 - Batch independent tool calls into a single response instead of firing them one at a time, and when you already know which files you need, read them together — not serially, and not speculatively. Each round-trip is a separate model call; fewer, fuller turns are cheaper and faster.
+- Use tools only when they materially improve correctness or reduce uncertainty. Prefer a direct answer when the context already contains enough information.
+- Avoid tool chaining unless the first result is insufficient. If one tool call can gather all needed facts, do that instead of serial follow-ups.
+- Prefer composite or broader tools over several narrow tool calls when the work is related and the combined result would be cheaper.
 - For exact edits, prefer the narrowest deterministic tool that fits: text_file_str_replace_in_file for a unique replacement, text_file_insert_text_at_line for a precise insertion, text_file_create for a new file, and bulk_replace_in_files for mechanical repeated edits.
 - Prefer the surgical text-edit tools (text_file_str_replace_in_file / text_file_insert_text_at_line / text_file_create) over modify_source_code. Reach for modify_source_code only when the change genuinely can't be expressed as exact text replacements (fuzzy intent or sweeping refactors).
 - After any write, always inspect the diff before claiming success. Run language-specific verification only when clearly applicable: for example, type-check Python changes when the edited files make that relevant, and run targeted tests when an obvious scoped test target exists. If no relevant automated check is clearly applicable, say so plainly.
