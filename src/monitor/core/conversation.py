@@ -558,8 +558,19 @@ def _fold_agent_injections_into_prefixes():
             config.CURRENT_TURN_IS_COLLATION = True
         # Stage 2: fold sub-agent cost/token deltas into this session's totals
         # (F: gauge + U:/T: status line + per-model calibration). Main thread.
-        for usage in agent_orchestrator.drain_pending_usage():
+        pending_usage = agent_orchestrator.drain_pending_usage()
+        for usage in pending_usage:
             config.record_agent_usage(usage)
+        try:
+            turn_costs = getattr(config, "TURN_COSTS_USD", None)
+            if isinstance(turn_costs, list) and turn_costs and pending_usage:
+                for usage in pending_usage:
+                    cost = usage.get("cost_usd", 0.0) if isinstance(usage, dict) else 0.0
+                    if isinstance(cost, (int, float)) and cost > 0:
+                        turn_costs[-1] = turn_costs[-1] + float(cost)
+                config.TURN_COSTS_USD = turn_costs
+        except Exception:
+            logger.debug("agent cost fold failed for TURN_COSTS_USD", exc_info=True)
     except Exception:
         logger.debug("agent injection fold failed", exc_info=True)
 

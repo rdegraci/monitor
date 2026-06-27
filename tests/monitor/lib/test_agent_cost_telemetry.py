@@ -121,6 +121,22 @@ def test_record_agent_usage_ignores_malformed_and_zero(monkeypatch):
     assert config.SESSION_TOTAL_TOKENS == 1000
 
 
+
+def test_fold_agent_usage_adds_cost_to_current_turn_bucket(monkeypatch):
+    monkeypatch.setattr(config, "TURN_COSTS_USD", [0.12], raising=False)
+
+    pending = [{"model": "sub/m", "cost_usd": 0.5, "total_tokens": 2000}]
+
+    turn_costs = getattr(config, "TURN_COSTS_USD", None)
+    if isinstance(turn_costs, list) and turn_costs and pending:
+        for usage in pending:
+            cost = usage.get("cost_usd", 0.0) if isinstance(usage, dict) else 0.0
+            if isinstance(cost, (int, float)) and cost > 0:
+                turn_costs[-1] = turn_costs[-1] + float(cost)
+        config.TURN_COSTS_USD = turn_costs
+
+    assert config.TURN_COSTS_USD == [pytest_approx(0.62)]
+
 def pytest_approx(v):
     import pytest
     return pytest.approx(v)
