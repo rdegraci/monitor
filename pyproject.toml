@@ -43,6 +43,7 @@ dependencies = [
     "mypy==2.1.0",
     "boto3==1.43.20",
     "pyperclip==1.11.0",
+    "chromadb==1.0.10",
     # Platform-specific libmagic bindings to enable seamless file type detection:
     # - python-magic for non-Windows platforms
     # - python-magic-bin for Windows platforms
@@ -57,6 +58,7 @@ Issues = "https://github.com/rdegraci/monitor/issues"
 [project.scripts]
 monitor = "monitor.__main__:main"
 monitor-oop = "monitor_oop.__main__:main"
+chroma-db = "monitor.lib.chroma_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

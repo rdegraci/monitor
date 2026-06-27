@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Thin launcher for the chroma-db command-line interface."""
+
+from __future__ import annotations
+
+from monitor.lib.chroma_cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
