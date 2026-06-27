@@ -114,17 +114,18 @@ def test_idle_reaper_kills_persistent_idle_agent(monkeypatch):
     # Idle timeout tiny; heartbeat timeout large so the agent counts as ALIVE
     # (still heartbeating) rather than crashed.
     monkeypatch.setenv("MONITOR_AGENT_IDLE_TIMEOUT", "0.3")
-    monkeypatch.setenv("MONITOR_AGENT_HEARTBEAT_TIMEOUT", "5")
+    monkeypatch.setenv("MONITOR_AGENT_HEARTBEAT_TIMEOUT", "10")
     killed = []
     monkeypatch.setattr(orch, "_kill_session", lambda aid: killed.append(aid))
 
     path = orch.ensure_started()
     r = AgentReporter(path, "persist")
     r.connect()
+    orch.note_spawn_lifecycle("persist", persistent=True)
     r.result(ok=True, summary="done task 1")   # terminal; last_activity set here
     r.start_heartbeat(interval=0.05)            # stays ALIVE but does no work
     # The reaper (runs every ~hb/3) should kill it once idle > 0.3s while alive.
-    assert _wait(lambda: "persist" in killed, timeout=6)
+    assert _wait(lambda: "persist" in killed, timeout=10)
     r.stop_heartbeat()
     r.close()
 
