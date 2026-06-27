@@ -869,7 +869,8 @@ def check_limits(
         f"(max_token_count={max_token_count}, trigger_ratio={summarization_config['triggers']['token_threshold']})"
     )
     logger.info(
-        f"[CHECK_LIMITS] Token thresholds: total_token_count={total_token_count}; threshold={token_limit_threshold}; max_token_count={max_token_count}"
+        f"[CHECK_LIMITS] Token thresholds: total_token_count={total_token_count}; threshold={token_limit_threshold}; max_token_count={max_token_count}; "
+        f"effective_auto_compact_ratio={getattr(config, 'AUTO_COMPACT_THRESHOLD_RATIO', 'n/a')}"
     )
     over_token_limit = total_token_count > token_limit_threshold
     logger.debug(
@@ -960,14 +961,35 @@ def check_limits(
     )
     secondary_trigger = time_limit_exceeded or memory_limit_exceeded
     responses_chain_pressure = _get_responses_chain_compaction_pressure(config, logger)
+    compaction_soft_ratio = None
+    try:
+        compaction_soft_ratio = config.effective_auto_compact_ratio()
+    except Exception:
+        compaction_soft_ratio = summarization_config['triggers'].get('token_threshold', 0.95)
+    try:
+        compaction_soft_ratio = float(compaction_soft_ratio)
+    except (TypeError, ValueError):
+        compaction_soft_ratio = 0.95
+    if not 0 < compaction_soft_ratio <= 1:
+        compaction_soft_ratio = 0.95
+
+    h_based_threshold = max_token_count * compaction_soft_ratio
+    over_history_tokens_limit = total_token_count > h_based_threshold
+    logger.debug(
+        f"[CHECK_LIMITS] H-based soft threshold = {h_based_threshold} (ratio={compaction_soft_ratio}); total_token_count={total_token_count} -> over_history_tokens_limit={over_history_tokens_limit}"
+    )
+
     should_summarize = (
         over_token_limit
+        or over_history_tokens_limit
         or (under_secondary_pressure and secondary_trigger)
         or responses_chain_pressure.get("requires_compaction", False)
     )
     logger.debug(
         f"[CHECK_LIMITS EXIT] should_summarize = {should_summarize} "
         f"(over_token_limit={over_token_limit}, "
+        f"over_history_tokens_limit={over_history_tokens_limit}, "
+        f"h_based_threshold={h_based_threshold}, "
         f"under_secondary_pressure={under_secondary_pressure} "
         f"(threshold={SECONDARY_PRESSURE_RATIO * max_token_count if isinstance(max_token_count, int) else 'n/a'}), "
         f"over_history_limit={over_history_limit}, "
@@ -1191,7 +1213,7 @@ def _build_truncated_history_copy(
         return list(conversation_history)
 
     system_message = next(
-        (msg for msg in conversation_history if msg.get('role') == 'system'),
+        (msg for msg in conversation_history if isinstance(msg, dict) and msg.get('role') == 'system'),
         None,
     )
     kept: list = []
