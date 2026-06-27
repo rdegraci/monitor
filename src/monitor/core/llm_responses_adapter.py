@@ -6,6 +6,9 @@ import uuid
 from copy import deepcopy
 from openai import OpenAI
 
+XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_MODEL_PREFIX = "xai/"
+
 from monitor import config
 from monitor.core.tooling import execute_tool_call
 from monitor.lib.message_utils import normalize_message, sanitize_messages
@@ -770,7 +773,19 @@ def _is_context_length_exceeded_error(error):
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
     global client
-    client = OpenAI()
+    model_name = getattr(config, "MODEL", "") or ""
+    client_kwargs = {}
+
+    if model_name.startswith(XAI_MODEL_PREFIX):
+        client_kwargs["base_url"] = XAI_BASE_URL
+        xai_api_key = getattr(config, "XAI_API_KEY", None) or getattr(config, "OPENAI_API_KEY", None)
+        if xai_api_key:
+            client_kwargs["api_key"] = xai_api_key
+        logger.info("Configuring Responses adapter for xAI with model=%s", model_name)
+    else:
+        logger.info("Configuring Responses adapter for OpenAI with model=%s", model_name)
+
+    client = OpenAI(**client_kwargs)
 
 def validate_responses_config():
     """Validate that required responses API configuration is present."""
@@ -872,7 +887,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         if client is None:
             try:
                 configure_responses_adapter()
-                logger.debug("Configured responses adapter (OpenAI client) lazily")
+                logger.debug("Configured responses adapter client lazily")
             except Exception:
                 logger.exception("Failed to configure responses adapter lazily")
             if client is None:
