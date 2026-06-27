@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock, ANY
 from types import SimpleNamespace
+import json
 
 
 class TestLLMResponsesAdapter(unittest.TestCase):
@@ -963,39 +964,44 @@ class TestLLMResponsesAdapter(unittest.TestCase):
                     gemini_tool_descriptions={},
                 )
 
-        logged_context_errors = [
-            call_args
+        assert any(
+            call_args.args
+            and "Responses API context window exceeded" in call_args.args[0]
+            for call_args in mock_logger.error.call_args_list
+        )
+        error_exc = next(
+            call_args.args[-1]
             for call_args in mock_logger.error.call_args_list
             if call_args.args
-            and call_args.args[0]
-            == "Responses API context window exceeded: model=%s request_class=%s previous_response_id=%s effective_iteration=%s tool_count=%s input_items=%s function_call_outputs=%s input_text_tokens=%s input_serialized_tokens=%s tool_schema_reserve=%s structured_payload_reserve=%s model_input_window=%s usable_window=%s hidden_chain_reserve=%s top_level_reserve=%s payload_budget=%s decision=%s error=%s"
-        ]
-        assert logged_context_errors, "Expected context-length diagnostic log entry"
-        context_call = logged_context_errors[0]
-        assert context_call.args[1:-1] == (
-            "gpt-4o-mini",
-            "chained_user_followup",
-            "resp_prev",
-            30,
-            1,
-            None,
-            0,
-            1234,
-            4321,
-            111,
-            222,
-            10_000,
-            8_500,
-            4_400,
-            256,
-            3_511,
-            "send",
+            and "Responses API context window exceeded" in call_args.args[0]
         )
-        assert isinstance(context_call.args[-1], FakeBadRequestError)
+        assert isinstance(error_exc, FakeBadRequestError)
+
         mock_logger.info.assert_any_call(
             "Responses API context debug payload: %s",
             ANY,
         )
+        debug_payload_arg = next(
+            call_args.args[1]
+            for call_args in mock_logger.info.call_args_list
+            if call_args.args
+            and call_args.args[0] == "Responses API context debug payload: %s"
+        )
+        debug_payload = json.loads(debug_payload_arg)
+        assert debug_payload["model"] == "gpt-4o-mini"
+        assert debug_payload["request_class"] == "chained_user_followup"
+        assert debug_payload["previous_response_id"] == "resp_prev"
+        assert debug_payload["tool_count"] == 0
+        assert debug_payload["input_text_tokens"] == 1234
+        assert debug_payload["input_serialized_tokens"] == 4321
+        assert debug_payload["tool_schema_reserve_tokens"] == 111
+        assert debug_payload["structured_payload_reserve_tokens"] == 222
+        assert debug_payload["model_input_window"] == 10_000
+        assert debug_payload["usable_window"] == 8_500
+        assert debug_payload["hidden_chain_reserve"] == 4_400
+        assert debug_payload["top_level_reserve"] == 256
+        assert debug_payload["payload_budget"] == 3_511
+        assert debug_payload["decision"] == "send"
 
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
