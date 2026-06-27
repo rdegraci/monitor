@@ -24,27 +24,97 @@ import re
 
 from monitor.lib.llm_model_utils import higher_reasoning_effort
 
-# Keywords that signal the user is asking for work where deeper reasoning
-# typically pays off. Whole-word matching so "refactor" matches but
-# "refactoring" / "refactored" / "refactorize" don't accidentally fire
-# substring rules elsewhere. Phrases like "review for" are matched as a
-# multi-word substring (just lower-cased text search, not whole-word).
-KEYWORD_SIGNALS = (
-    "refactor",
-    "audit",
-    "design",
-    "review for",
-    "analyze",
+# High-confidence reasoning-intent phrases grouped by theme.
+# Root-cause / failure analysis phrases are the strongest indicators that the
+# user wants careful diagnosis rather than a routine edit.
+ROOT_CAUSE_AND_FAILURE_SIGNALS = (
+    "root cause",
+    "what caused this",
+    "why is this happening",
+    "why did this break",
+    "what is going wrong",
+    "why is it failing",
+    "where is this coming from",
+    "how does this fail",
+    "failure mode",
+)
+
+# Verification / correctness phrases indicate the user wants the result
+# checked, validated, or compared for safety before accepting it.
+VERIFICATION_AND_CORRECTNESS_SIGNALS = (
+    "verify the fix",
+    "check for regressions",
+    "confirm the behavior",
+    "validate the change",
+    "make sure this is safe",
+    "assess the risk",
+    "ensure compatibility",
+    "prove that",
+    "is this correct",
+)
+
+# Investigation / tracing phrases suggest the user wants the flow followed or
+# the source of a problem located across code paths.
+INVESTIGATION_AND_TRACING_SIGNALS = (
+    "trace through",
+    "trace the flow",
+    "follow the path",
+    "investigate the issue",
+    "inspect the call chain",
+    "track down",
+    "locate the source",
+    "find the bug",
+    "identify the regression",
+    "pinpoint the problem",
+)
+
+# Architecture / design phrases are useful when the user is asking for a
+# broader system-level judgment or tradeoff analysis.
+ARCHITECTURE_AND_DESIGN_SIGNALS = (
+    "cross-file analysis",
+    "system-wide impact",
+    "architecture review",
+    "design review",
+    "tradeoff analysis",
+)
+
+# Review / audit style phrases point to explicit scrutiny of implementation
+# quality, behavior, or edge cases.
+REVIEW_AND_AUDIT_SIGNALS = (
+    "audit the change",
+    "review for regressions",
+    "examine the behavior",
+    "look for edge cases",
+    "check the assumptions",
+    "evaluate correctness",
+)
+
+# Broader but still useful phrasing for system scope or unexpected behavior.
+BROAD_SCOPE_AND_BEHAVIOR_SIGNALS = (
+    "across the codebase",
+    "interactions between",
+    "behavioral change",
+    "unexpected behavior",
+)
+
+# Expensive high-effort routing signals are intentionally checked last so the
+# more specific multi-word phrase groups above get first consideration.
+HIGH_EFFORT_WORD_SIGNALS = (
     "debug",
-    "architecture",
-    "cross-file",
-    "migrate",
-    "align",
-    "why",
-    "examine",
     "trace",
-    "verify",
-    "fix"
+    "investigate",
+    "follow",
+    "identify"
+)
+
+KEYWORD_SIGNALS = (
+    *ROOT_CAUSE_AND_FAILURE_SIGNALS,
+    *VERIFICATION_AND_CORRECTNESS_SIGNALS,
+    *INVESTIGATION_AND_TRACING_SIGNALS,
+    *ARCHITECTURE_AND_DESIGN_SIGNALS,
+    *REVIEW_AND_AUDIT_SIGNALS,
+    *BROAD_SCOPE_AND_BEHAVIOR_SIGNALS,
+    *HIGH_EFFORT_WORD_SIGNALS,
 )
 
 # Messages above this character length suggest the user is providing
@@ -127,7 +197,12 @@ def detect_reasoning_bump(user_text, current_effort, bump_floor=None):
             if signal in text_lower:
                 return target
         else:
-            if re.search(rf"\b{re.escape(signal)}\b", text_lower):
+            # Match against the original user text instead of a lower-cased copy.
+            # Macros may expand to uppercase tokens like DEBUG, and those should
+            # not accidentally trigger these single-word reasoning signals.
+            if re.search(rf"\b{re.escape(signal)}\b", user_text):
+                return target
+            if re.search(rf"\b{re.escape(signal.title())}\b", user_text):
                 return target
 
     # Length-based fallback.
