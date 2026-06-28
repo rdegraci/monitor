@@ -596,6 +596,24 @@ def budget_followup_request(params, *, iteration=0, input_window=None):
             0,
         ),
     )
+
+    payload_budget = budget.get("payload_budget")
+    request_input = params_copy.get(REQUEST_PARAM_INPUT)
+    if (
+        request_class == FOLLOWUP_REQUEST_CLASS_CHAINED
+        and params_copy.get(REQUEST_PREV_RESPONSE_ID)
+        and isinstance(payload_budget, int)
+        and payload_budget > 0
+        and isinstance(request_input, str)
+    ):
+        logger.info(
+            "Skipping local follow-up payload admission for chained previous_response_id request; provider-side retained context is not locally measurable (payload_budget=%s, input_type=%s)",
+            payload_budget,
+            type(request_input).__name__,
+        )
+        budget["decision"] = FOLLOWUP_BUDGET_DECISION_UNKNOWN
+        budget["payload_budget"] = None
+
     return params_copy, budget
 
 
@@ -1417,9 +1435,18 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                         )
 
                         if budget_decision == FOLLOWUP_BUDGET_DECISION_UNKNOWN:
-                            logger.debug(
-                                "Skipping strict follow-up admission control: no valid MODEL_INPUT_WINDOW or MODEL_CONTEXT_WINDOW configured"
+                            logger.warning(
+                                "Routing chained follow-up into summarization/rebase fallback because the retained provider-side context cannot be measured locally (previous_response_id=%s, input_type=%s)",
+                                followup_params.get(REQUEST_PREV_RESPONSE_ID),
+                                type(followup_input).__name__,
                             )
+                            if _get_followup_show_recovery_notices():
+                                print(
+                                    "[notice] I’m condensing context to keep this thread reliable."
+                                )
+                            trigger_summarization_followup = True
+                            summarization_trigger_reason = "unknown chained follow-up budget"
+                            break
                         elif budget_decision == FOLLOWUP_BUDGET_DECISION_FALLBACK:
                             logger.warning(
                                 "Routing tool-result follow-up into summarization/rebase fallback because the reserve-aware payload budget could not safely admit the request (payload_budget=%s, final_input_estimate=%s)",
@@ -1698,9 +1725,15 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                             except Exception:
                                 summary_params[REQUEST_PARAM_MODEL] = summary_request_model
 
-                            # previous_response_id -> REQUEST_PREV_RESPONSE_ID: use returned sfp field if present, else fallback
+                            # previous_response_id -> REQUEST_PREV_RESPONSE_ID: only reuse an existing
+                            # provider chain when summarizing tool follow-up payloads. For chained
+                            # user-followups that already exceeded local measurability, force a fresh
+                            # summarization request so the provider does not re-include the oversized
+                            # retained chain we are trying to compact away.
                             try:
-                                if isinstance(sfp, dict) and (sfp.get("prev_response_id") or sfp.get("parent_response_id")):
+                                if summarization_trigger_reason == "unknown chained follow-up budget" and followup_budget.get("request_class") == FOLLOWUP_REQUEST_CLASS_CHAINED:
+                                    summary_params[REQUEST_PREV_RESPONSE_ID] = None
+                                elif isinstance(sfp, dict) and (sfp.get("prev_response_id") or sfp.get("parent_response_id")):
                                     summary_params[REQUEST_PREV_RESPONSE_ID] = sfp.get("prev_response_id") or sfp.get("parent_response_id")
                                 else:
                                     summary_params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")

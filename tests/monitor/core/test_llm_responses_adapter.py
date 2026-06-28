@@ -156,6 +156,52 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert reserves["tool_schema_reserve_tokens"] > 0
         assert reserves["structured_payload_reserve_tokens"] > 0
 
+
+    def test_budget_followup_request_marks_chained_user_followup_unknown(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        params = {
+            "model": "gpt-4o-mini",
+            "previous_response_id": "resp_prev",
+            "input": "latest user question",
+        }
+
+        with patch.object(adapter, "config", SimpleNamespace(TURN_ROUND_TRIPS=[])):
+            _params_copy, budget = adapter.budget_followup_request(
+                params,
+                iteration=0,
+                input_window=10_000,
+            )
+
+        assert budget["request_class"] == adapter.FOLLOWUP_REQUEST_CLASS_CHAINED
+        assert budget["decision"] == adapter.FOLLOWUP_BUDGET_DECISION_UNKNOWN
+        assert budget["payload_budget"] is None
+
+    def test_budget_followup_request_keeps_tool_followup_send_decision(self):
+        from monitor.core import llm_responses_adapter as adapter
+
+        params = {
+            "model": "gpt-4o-mini",
+            "previous_response_id": "resp_prev",
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "{}",
+                }
+            ],
+        }
+
+        with patch.object(adapter, "config", SimpleNamespace(TURN_ROUND_TRIPS=[])):
+            _params_copy, budget = adapter.budget_followup_request(
+                params,
+                iteration=0,
+                input_window=10_000,
+            )
+
+        assert budget["request_class"] == adapter.FOLLOWUP_REQUEST_CLASS_TOOL
+        assert budget["decision"] == adapter.FOLLOWUP_BUDGET_DECISION_SEND
+        assert isinstance(budget["payload_budget"], int)
     def test_compute_followup_hidden_chain_reserve_ramps_for_chained_followups(self):
         from monitor.core import llm_responses_adapter as adapter
 
@@ -532,7 +578,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
         assert first_kwargs["model"] == "gpt-5.4-mini"
         assert second_kwargs["model"] == "gpt-5.4"
-        assert second_kwargs["max_output_tokens"] == 10_000
+        assert second_kwargs["max_output_tokens"] == 2_048
         assert cfg.CURRENT_TURN_REASONING_OVERRIDE == "high"
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
@@ -874,15 +920,16 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         )
 
         with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
-            with self.assertRaises(RuntimeError):
-                adapter.call_responses_api(
-                    [{"role": "user", "content": "say hi"}],
-                    tool_descriptions={},
-                    gemini_tool_descriptions={},
-                )
+            adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
 
         assert fake_client.responses.create.call_count == 2
-        assert cfg.RESPONSE_ID is None
+        summary_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert summary_kwargs.get("previous_response_id") == "resp_1"
+        assert cfg.RESPONSE_ID == "resp_1"
 
     @patch("monitor.core.llm_responses_adapter.logger")
     @patch(
