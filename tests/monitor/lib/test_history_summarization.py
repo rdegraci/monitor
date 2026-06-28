@@ -194,6 +194,16 @@ def conversation_and_config(sample_conversation, config):
             ),
             False,
         ),
+        (
+            "h_based_soft_trigger",
+            lambda convo, cfg: _fill_tokens_to_h_soft_threshold(cfg, convo),
+            True,
+        ),
+        (
+            "h_based_soft_trigger (negative)",
+            lambda convo, cfg: _set_strictly_below_h_soft_threshold(cfg, convo),
+            False,
+        ),
     ],
 )
 def test_summarization_triggers_and_reset(
@@ -747,6 +757,25 @@ def _set_strictly_below_memory_trigger(
         )
 
 
+
+def _fill_tokens_to_h_soft_threshold(config, conversation):
+    """Raise token usage above the H-based soft compaction threshold."""
+    threshold = int(config.MAX_TOKEN_COUNT * 0.5)
+    while config.TOTAL_TOKEN_COUNT <= threshold:
+        msg = {"role": "user", "content": f"h_trigger {config.TOTAL_TOKEN_COUNT}"}
+        conversation.append(msg)
+        config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
+
+
+def _set_strictly_below_h_soft_threshold(config, conversation):
+    """Keep token usage below the H-based soft compaction threshold."""
+    conversation[:] = [{"role": "system", "content": "System prompt."}]
+    config.TOTAL_TOKEN_COUNT = count_message_tokens_always_10(conversation[0])
+    threshold = int(config.MAX_TOKEN_COUNT * 0.5)
+    while config.TOTAL_TOKEN_COUNT <= max(0, threshold - 20):
+        msg = {"role": "user", "content": f"h_safe {config.TOTAL_TOKEN_COUNT}"}
+        conversation.append(msg)
+        config.TOTAL_TOKEN_COUNT += count_message_tokens_always_10(msg)
 # No additional code in this file.
 
 # --- NEW TEST FOR PROMPT COUNT STALENESS AFTER SUMMARIZATION ---
