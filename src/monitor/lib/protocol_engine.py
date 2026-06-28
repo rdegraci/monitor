@@ -1053,7 +1053,7 @@ def _configure_protocol_engine_limits(model=None):
     TOKEN_BUDGET_PER_CHUNK = 20000
 
     model = ((model if isinstance(model, str) else config.MODEL) or "").lower()
-    if model.startswith("openai/gpt-5") or model.startswith("xai/grok-4"):
+    if model.startswith("openai/gpt-5") or model.startswith("xai/grok"):
         MAX_LINES_PER_CHUNK = 15000
         MAX_CHARS_PER_CHUNK = 2000000
         TOKEN_BUDGET_PER_CHUNK = 120000
