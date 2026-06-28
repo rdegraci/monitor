@@ -361,7 +361,6 @@ ESCALATE_REASONING_ON_TOOL_FAILURE: true
 # One-way. Heads-up: this bumps your EXECUTION turn, usually the highest-cost /
 # highest-tool-round-trip turn, so it trades tokens for execution quality.
 # Defaults on; set false to disable.
-CONTINUITY_REASONING_BUMP: true
 
 # Floor for the reasoning effort of an AUTO-BUMPED turn. The complexity and
 # continuity heuristics promote a bumped turn to "medium"; tool-failure

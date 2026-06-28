@@ -194,7 +194,6 @@ Pick one of two ways:
   ```yaml
   REASONING_BUMP_EFFORT:               # unset
   ESCALATE_REASONING_ON_TOOL_FAILURE: false
-  CONTINUITY_REASONING_BUMP: false
   ```
 
   The session multiplier is then `1.0`, so the observed rate **is** the medium
@@ -275,7 +274,6 @@ so temporarily disable the bumps that would change effort mid-session:
 ```yaml
 REASONING_BUMP_EFFORT:               # unset
 ESCALATE_REASONING_ON_TOOL_FAILURE: false
-CONTINUITY_REASONING_BUMP: false
 ```
 
 Then, **using the same model and a comparable workload** for each run:
