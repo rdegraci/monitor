@@ -270,6 +270,14 @@ def append_conversation_history(
         logger.info(
             f"[SUMMARIZATION] Summarization triggered - Reasons: {limits['trigger_reasons']}, Current metrics: {limits['metrics']}"
         )
+        soft_triggered = bool(limits["trigger_reasons"].get("tokens")) and not bool(
+            limits["metrics"].get("over_token_limit", False)
+        )
+        if soft_triggered:
+            try:
+                config.SESSION_COMPACTION_COUNT = getattr(config, "SESSION_COMPACTION_COUNT", 0) + 1
+            except Exception:
+                logger.debug("[SUMMARIZATION] Failed to increment SESSION_COMPACTION_COUNT for soft-trigger compaction.")
         # If tokens overflowed, optionally auto-adjust token max
         if limits["trigger_reasons"]["tokens"]:
             try:

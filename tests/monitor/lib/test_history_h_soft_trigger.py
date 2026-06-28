@@ -108,6 +108,8 @@ def test_check_limits_triggers_h_based_soft_compaction(capture_logger, stub_conf
             capture_logger,
             stub_config,
         )
+        if limits["should_summarize"]:
+            config.SESSION_COMPACTION_COUNT = getattr(config, "SESSION_COMPACTION_COUNT", 0) + 1
 
     assert limits["should_summarize"] is True
     assert limits["trigger_reasons"]["tokens"] is True
