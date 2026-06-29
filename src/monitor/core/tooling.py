@@ -630,7 +630,19 @@ def handle_tool_call(response, _depth=0):
     # Get second response from LLM (token usage is recorded by get_llm_completion via monitor.lib.token_management)
     second_response, error = get_llm_completion()
     if error:
-        return "I apologize, but I encountered an error while processing the tool response. Please try again."
+        logger.error(
+            "Second get_llm_completion call failed after tool result for tool_call_id=%r: %s",
+            tool_call_id, error,
+            exc_info=True,
+        )
+        if error:
+            return str(error)
+        return (
+            "The follow-up model request exceeded the configured input window. "
+            "Please inspect the prior conversation history, the most recent tool output, "
+            "and the configured model window, then try again with a shorter prompt or "
+            "reduced context."
+        )
 
     # Token accounting handled by get_llm_completion; no additional update here.
 

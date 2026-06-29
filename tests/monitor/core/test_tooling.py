@@ -320,7 +320,7 @@ class TestTooling(unittest.TestCase):
             ]
             result = tooling.handle_tool_call(response)
 
-        self.assertIn("encountered an error while processing the tool response", result)
+        self.assertEqual(result, "HTTP 500")
         self.assertEqual(history[0], {"role": "user", "content": "question"})
         self.assertEqual(history[1]["role"], "assistant")
         self.assertEqual(history[1]["tool_calls"][0]["id"], "tc1")

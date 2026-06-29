@@ -210,6 +210,56 @@ def _apply_tool_output_budgeting(messages, input_window_limit):
         return estimated_tokens, estimated_request, f"Token budgeting failed: {be}"
 
 
+def _format_input_too_large_diagnostic(
+    estimated_tokens,
+    input_window_limit,
+    soft_threshold=None,
+    summarization_attempted=False,
+    current_history_tokens=None,
+    recent_history_tokens=None,
+    tool_output_tokens=None,
+    reason_notes=None,
+):
+    """Format a detailed diagnostic for input-too-large failures."""
+    notes = []
+    if reason_notes:
+        if isinstance(reason_notes, (list, tuple, set)):
+            notes.extend([str(n) for n in reason_notes if str(n).strip()])
+        else:
+            notes.append(str(reason_notes))
+    if current_history_tokens is not None:
+        notes.append(f"current history tokens: {current_history_tokens}")
+    if recent_history_tokens is not None:
+        notes.append(f"recent preserved tokens: {recent_history_tokens}")
+    if tool_output_tokens is not None:
+        notes.append(f"tool output tokens: {tool_output_tokens}")
+
+    likely_causes = []
+    if current_history_tokens is not None and input_window_limit is not None:
+        likely_causes.append("conversation history has grown beyond the active model window")
+    if tool_output_tokens is not None:
+        likely_causes.append("a large tool result or tool-call payload is dominating the prompt")
+    likely_causes.append("the selected model may have a smaller context window than expected")
+    if summarization_attempted:
+        likely_causes.append("auto-summarization was attempted but was not enough to get under the limit")
+    else:
+        likely_causes.append("auto-summarization was not triggered or could not reduce the prompt enough")
+
+    parts = [
+        f"Input too large: {estimated_tokens} estimated tokens vs input window {input_window_limit}.",
+        "The request cannot be sent as-is.",
+    ]
+    if soft_threshold is not None:
+        parts.append(f"Soft threshold was {soft_threshold} tokens.")
+    parts.append("Likely causes: " + "; ".join(likely_causes) + ".")
+    if notes:
+        parts.append("Details: " + "; ".join(notes) + ".")
+    parts.append(
+        "Try reducing conversation history, trimming large tool outputs, or switching to a model with a larger context window."
+    )
+    return " ".join(parts)
+
+
 def cancellable_call_litellm_completion(model, messages, tool_descriptions, gemini_tool_descriptions):
     """Run the blocking LLM completion in a background thread and allow Ctrl-C to cancel waiting.
 
@@ -413,7 +463,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         )
         if _soft_threshold is not None and estimated_tokens > _soft_threshold:
             if (
-                getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False)
+                getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", True)
                 and not summarization_attempted
             ):
                 logger.info(
@@ -534,11 +584,47 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                     logger.error(f"Auto-summarization failed: {se}", exc_info=True)
 
         if input_window_limit is not None and estimated_tokens > input_window_limit:
-            return None, (
-                f"Input too large: {estimated_tokens} tokens "
-                f"vs input window {input_window_limit}. Cannot send request. "
-                "Please reduce the size of your input (file, diff, or message) or send smaller requests."
+            current_history_tokens = None
+            recent_history_tokens = None
+            tool_output_tokens = None
+            try:
+                current_history_tokens = 0
+                for msg in getattr(_cfg(), "CONVERSATION_HISTORY", []) or []:
+                    current_history_tokens += count_message_tokens(normalize_message(msg))
+            except Exception:
+                current_history_tokens = None
+            try:
+                _k = getattr(_cfg(), "RECENT_TURNS_PRESERVED_ON_COMPACT", 6)
+                _split_idx = _find_compaction_split_index(
+                    getattr(_cfg(), "CONVERSATION_HISTORY", []) or [], _k
+                )
+                if _split_idx is not None:
+                    recent_history_tokens = 0
+                    for msg in getattr(_cfg(), "CONVERSATION_HISTORY", [])[ _split_idx: ]:
+                        recent_history_tokens += count_message_tokens(normalize_message(msg))
+            except Exception:
+                recent_history_tokens = None
+            try:
+                tool_output_tokens = 0
+                for msg in messages:
+                    if msg.get("role") == "tool":
+                        tool_output_tokens += count_message_tokens(normalize_message(msg))
+            except Exception:
+                tool_output_tokens = None
+            diagnostic_message = _format_input_too_large_diagnostic(
+                estimated_tokens=estimated_tokens,
+                input_window_limit=input_window_limit,
+                soft_threshold=_soft_threshold,
+                summarization_attempted=summarization_attempted,
+                current_history_tokens=current_history_tokens,
+                recent_history_tokens=recent_history_tokens,
+                tool_output_tokens=tool_output_tokens,
+                reason_notes=[
+                    "the prompt still exceeds the hard context limit after preprocessing",
+                ],
             )
+            logger.error(diagnostic_message)
+            return None, diagnostic_message
 
         # Validate before waiting on rate limiter
         try:
@@ -550,7 +636,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         wait_result = rate_limiter.RATE_LIMITER.wait_if_needed(estimated_request)
         if wait_result is None:
             if (
-                getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", False)
+                getattr(_cfg(), "ENABLE_AUTO_SUMMARIZE_ON_LIMIT", True)
                 and not summarization_attempted
             ):
                 logger.info(

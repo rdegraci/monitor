@@ -788,6 +788,32 @@ def _is_context_length_exceeded_error(error):
 
     return "context_length_exceeded" in str(error).lower()
 
+def _build_input_too_large_diagnostics(
+    estimated_tokens,
+    input_window_limit,
+    effective_input_window_limit,
+    safety_ratio,
+    *,
+    model_name=None,
+):
+    """Build detailed diagnostics for input-too-large rejections in the Responses adapter."""
+    original_window = input_window_limit
+    likely_causes = [
+        "a large tool result",
+        "conversation history bloat",
+        "a smaller-than-expected model window",
+    ]
+    diagnostics = {
+        "model": model_name or getattr(config, "MODEL", None),
+        "estimated_tokens": estimated_tokens,
+        "input_window_limit": input_window_limit,
+        "effective_input_window_limit": effective_input_window_limit,
+        "safety_ratio": safety_ratio,
+        "original_window": original_window,
+        "likely_causes": likely_causes,
+    }
+    return diagnostics
+
 def configure_responses_adapter():
     """Configure the OpenAI client for Responses API usage."""
     global client
@@ -2421,10 +2447,21 @@ def response_completion(user_input, tool_descriptions, gemini_tool_descriptions,
                 input_window_limit * _get_followup_base_safety_ratio()
             )
             if estimated_tokens > effective_input_window_limit:
+                diagnostics = _build_input_too_large_diagnostics(
+                    estimated_tokens,
+                    input_window_limit,
+                    effective_input_window_limit,
+                    _get_followup_base_safety_ratio(),
+                    model_name=getattr(config, "MODEL", None),
+                )
                 error_msg = (
-                    f"Input too large: {estimated_tokens} tokens vs effective input window "
-                    f"{effective_input_window_limit} (safety-margined from {input_window_limit}). "
-                    f"Cannot send request to responses API. Please reduce your input or send a smaller request."
+                    f"Input too large for responses API: estimated {estimated_tokens} tokens exceeds the effective input window "
+                    f"{effective_input_window_limit} tokens (original window {input_window_limit}, safety ratio {diagnostics['safety_ratio']}). "
+                    f"Likely causes include {', '.join(diagnostics['likely_causes'])}."
+                )
+                logger.error(
+                    "Responses API input too large diagnostics: %s",
+                    json.dumps(diagnostics, ensure_ascii=False, default=str, sort_keys=True),
                 )
                 logger.error(error_msg)
                 return None, error_msg
