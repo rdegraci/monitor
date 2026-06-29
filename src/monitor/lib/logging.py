@@ -32,7 +32,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor import config
 

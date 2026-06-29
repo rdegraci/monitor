@@ -5,7 +5,7 @@ import pytest
 import logging
 from unittest import mock
 
-import src.monitor.lib.preferences as preferences
+import monitor.lib.preferences as preferences
 
 
 def test_get_preference_editor_default(monkeypatch):

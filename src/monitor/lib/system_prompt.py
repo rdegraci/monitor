@@ -22,7 +22,7 @@
 
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor.lib.monitor_wiki import (
     configured_project_wiki_additional_pages,

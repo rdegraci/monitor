@@ -11,7 +11,7 @@ Ctrl-C).
 """
 
 import argparse  # Added for command-line argument parsing.
-import appdirs  # Import appdirs for user config directory
+from monitor._stubs import appdirs  # Import appdirs for user config directory
 from datetime import datetime  # For backup filename timestamps
 import importlib.resources  # For accessing package resource defaults
 import logging

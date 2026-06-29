@@ -45,7 +45,7 @@ def _extract_fenced_code_blocks(text: str) -> list[tuple[str, str]]:
     return [(match.group(1), match.group(2)) for match in pattern.finditer(text)]
 
 
-def less_command(arg: str = None) -> None:
+def less_command(arg: str | None = None) -> None:
     """Re-display the most recent assistant response through a pager.
 
     Args:
@@ -72,8 +72,8 @@ def less_command(arg: str = None) -> None:
         print(text)
         return
 
-    unset = object()
-    prev_less = os.environ.get("LESS", unset)
+    unset: object = object()
+    prev_less: object = os.environ.get("LESS", unset)
     os.environ["LESS"] = "-R"
     try:
         console = Console()
@@ -88,10 +88,10 @@ def less_command(arg: str = None) -> None:
         if prev_less is unset:
             os.environ.pop("LESS", None)
         else:
-            os.environ["LESS"] = prev_less
+            os.environ["LESS"] = str(prev_less)
 
 
-def copy_code_command(arg: str = None) -> None:
+def copy_code_command(arg: str | None = None) -> None:
     """Copy fenced code blocks from the latest assistant response.
 
     Args:
@@ -142,7 +142,7 @@ def copy_code_command(arg: str = None) -> None:
     payload = "\n\n".join(selected)
 
     try:
-        import pyperclip
+        from monitor._stubs import pyperclip
 
         pyperclip.copy(payload)
     except ImportError:
@@ -159,7 +159,7 @@ def copy_code_command(arg: str = None) -> None:
     print(f"Copied {label} to clipboard ({len(payload)} chars).")
 
 
-def save_response_command(arg: str = None) -> None:
+def save_response_command(arg: str | None = None) -> None:
     """Write the most recent assistant response to a file.
 
     Args:

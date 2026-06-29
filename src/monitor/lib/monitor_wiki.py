@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import List
 
-import appdirs
+from monitor._stubs import appdirs
 
 logger = logging.getLogger(__name__)
 

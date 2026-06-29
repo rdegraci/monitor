@@ -7,9 +7,7 @@ import os
 import sys
 from datetime import datetime
 
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
-from pygments.lexers import MarkdownLexer
+from monitor.lib.pygments_stubs import MarkdownLexer, TerminalFormatter, highlight
 
 from monitor import config
 from monitor.lib.colors import blue, red, reset, yellow
@@ -114,7 +112,11 @@ def highlightMarkdown(query_result):
         except Exception:
             pass
         return
-    highlighted_output = highlight(query_result, MarkdownLexer(), TerminalFormatter(reset=True))
+    if highlight is None or MarkdownLexer is None or TerminalFormatter is None:
+        logger.info("Pygments unavailable; printing raw markdown output.")
+        highlighted_output = query_result
+    else:
+        highlighted_output = highlight(query_result, MarkdownLexer(), TerminalFormatter(reset=True))
     print(f"\n{yellow}STX{reset}")
     print(f"{highlighted_output}{yellow}ETX{reset}\n")
     print("*******************")

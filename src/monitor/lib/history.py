@@ -27,25 +27,29 @@ __all__ = [
 import json
 import logging
 import readline
-import time
 import sys
+import time
+from collections.abc import Callable
 
 import litellm
 
 from monitor import config
+from monitor.lib.history_types import HistoryConfig, HistoryLogger, MessageAppender, TokenCounter, UsageUpdater
 
-from monitor.lib.colors import red, blue, yellow, reset
+from monitor.lib import rate_limiter
 # SYSTEM_PROMPT import removed — this module no longer references it directly.
 # Callers that need the system prompt pass it in as a parameter
 # (see append_conversation_history's system_prompt arg, etc.).
-from monitor.lib import rate_limiter
-from monitor.lib.token_management import count_message_tokens as count_message_tokens
-from monitor.lib.token_management import update_history_token_count as update_history_token_count
-from monitor.lib.token_management import update_token_usage as update_token_usage
+from monitor.lib.colors import blue, red, reset, yellow
+from monitor.lib.token_management import (
+    count_message_tokens as count_message_tokens,
+    update_history_token_count as update_history_token_count,
+    update_token_usage as update_token_usage,
+)
 
 logger = logging.getLogger(__name__)  # Standardized to __name__
 
-def log_negative_token_count(logger, config):
+def log_negative_token_count(logger: HistoryLogger, config: HistoryConfig) -> None:
     """
     Logs explicit warnings if TOTAL_TOKEN_COUNT is negative or unexpectedly high.
     Hardened to safely handle non-integer MAX_TOKEN_COUNT/TOTAL_TOKEN_COUNT values.
@@ -87,8 +91,8 @@ def log_negative_token_count(logger, config):
 def append_to_history_with_count(
     message: dict,
     conversation_history: list,
-    count_message_tokens_func: callable,
-    update_token_usage_func: callable,
+    count_message_tokens_func: Callable,
+    update_token_usage_func: Callable,
 ) -> None:
     """
     Append a message to a conversation history and update token count.
@@ -111,8 +115,8 @@ def append_to_history_with_count(
     Args:
         message (dict): Message to append (role, content).
         conversation_history (list): The chat history in-place.
-        count_message_tokens_func (callable): Counts tokens in the message.
-        update_token_usage_func (callable): Retained for API compatibility;
+        count_message_tokens_func (Callable): Counts tokens in the message.
+        update_token_usage_func (Callable): Retained for API compatibility;
             no longer invoked from this function.
     """
     del update_token_usage_func  # intentionally unused — see docstring above
@@ -147,9 +151,9 @@ def update_conversation_history(
     content: str,
     role: str,
     conversation_history: list,
-    append_func: callable,
-    count_message_tokens_func: callable,
-    update_token_usage_func: callable,
+    append_func: Callable,
+    count_message_tokens_func: Callable,
+    update_token_usage_func: Callable,
 ) -> None:
     """
     Conditionally adds a message of specified role and content to the chat history.
@@ -158,9 +162,9 @@ def update_conversation_history(
         content (str): Message text.
         role (str): 'user', 'assistant', etc.
         conversation_history (list): The chat history.
-        append_func (callable): Function to append message to the history.
-        count_message_tokens_func (callable): Counts tokens in the message.
-        update_token_usage_func (callable): Updates tracked usage (side effect).
+        append_func (Callable): Function to append message to the history.
+        count_message_tokens_func (Callable): Counts tokens in the message.
+        update_token_usage_func (Callable): Updates tracked usage (side effect).
     """
     if content:
         try:
@@ -177,15 +181,15 @@ def update_conversation_history(
 def append_conversation_history(
     user_input: str,
     conversation_history: list,
-    conversation_logs_func: callable,
-    handle_token_limit_func: callable,
-    check_limits_func: callable,
-    generate_summary_func: callable,
-    reset_with_summary_func: callable,
+    conversation_logs_func: Callable,
+    handle_token_limit_func: Callable,
+    check_limits_func: Callable,
+    generate_summary_func: Callable,
+    reset_with_summary_func: Callable,
     system_prompt: str,
-    config: object,
-    post_social_summaries_func: callable,
-    logger: object,
+    config: HistoryConfig,
+    post_social_summaries_func: Callable,
+    logger: HistoryLogger,
 ) -> None:
     """
     Main entry point for storing a new user input and performing summarization if limits exceeded.
@@ -198,14 +202,14 @@ def append_conversation_history(
     Args:
         user_input (str): New user message.
         conversation_history (list): Mutable chat history.
-        conversation_logs_func (callable): For persistently storing/logging user inputs.
-        handle_token_limit_func (callable): Adjusts token max after overflow.
-        check_limits_func (callable): Returns dict with current state vs. thresholds (see `check_limits`).
-        generate_summary_func (callable): Produces summary message from chat.
-        reset_with_summary_func (callable): Resets history to summary + user input.
+        conversation_logs_func (Callable): For persistently storing/logging user inputs.
+        handle_token_limit_func (Callable): Adjusts token max after overflow.
+        check_limits_func (Callable): Returns dict with current state vs. thresholds (see `check_limits`).
+        generate_summary_func (Callable): Produces summary message from chat.
+        reset_with_summary_func (Callable): Resets history to summary + user input.
         system_prompt (str): System-level chat context.
         config (object): Contains runtime state and settings.
-        post_social_summaries_func (callable): Optional posting to external systems.
+        post_social_summaries_func (Callable): Optional posting to external systems.
         logger (object): Logger for diagnostics.
     """
     from monitor.lib.token_management import count_message_tokens, update_token_usage
@@ -542,7 +546,10 @@ def append_conversation_history(
         # Extra: warn if state size is still dangerously high even if not triggered (defensive)
         # Guard against invalid MAX_TOKEN_COUNT before using it and use configured token_threshold for comparison
         try:
-            max_token_count_value = int(getattr(config, 'MAX_TOKEN_COUNT', None))
+            max_token_count_raw = getattr(config, 'MAX_TOKEN_COUNT', None)
+            if max_token_count_raw is None:
+                raise TypeError("MAX_TOKEN_COUNT is missing")
+            max_token_count_value = int(max_token_count_raw)
         except Exception as e:
             logger.error("[SUMMARIZATION] Invalid or missing MAX_TOKEN_COUNT when evaluating prompt-size warning.", exc_info=True)
             raise RuntimeError("Invalid or missing MAX_TOKEN_COUNT for prompt-size warning") from e
@@ -567,26 +574,26 @@ def append_conversation_history(
 
 def initialize_chat_history(
     conversation_history: list,
-    append_func: callable,
+    append_func: Callable,
     system_prompt: str,
     history_file_path: str,
-    logger: object,
-    config: object,
-    count_message_tokens_func: callable,
-    update_token_usage_func: callable,
+    logger: HistoryLogger,
+    config: HistoryConfig,
+    count_message_tokens_func: Callable,
+    update_token_usage_func: Callable,
 ) -> str:
     """
     Loads prior readline input history (if available) and appends the base system prompt as the initial message.
 
     Args:
         conversation_history (list): Mutable chat messages.
-        append_func (callable): To append initial system message.
+        append_func (Callable): To append initial system message.
         system_prompt (str): Launch prompt.
         history_file_path (str): Where CLI/readline history is stored.
         logger (object): Diagnostics.
         config (object): Contains runtime state and settings.
-        count_message_tokens_func (callable): Counts tokens in the message.
-        update_token_usage_func (callable): Updates tracked usage (side effect).
+        count_message_tokens_func (Callable): Counts tokens in the message.
+        update_token_usage_func (Callable): Updates tracked usage (side effect).
     Returns:
         str: The path to the readline history file used.
     """
@@ -609,10 +616,10 @@ def adjust_history_size(
     new_size: int,
     conversation_history: list,
     current_max_size: int,
-    print_func: callable,
+    print_func: Callable,
     color_warning_funcs: dict,
-    logger: object,
-    config: object,
+    logger: HistoryLogger,
+    config: HistoryConfig,
 ) -> int:
     """
     Adjusts the maximum allowable conversation history size and trims history if needed.
@@ -621,7 +628,7 @@ def adjust_history_size(
         new_size (int): Target max history size.
         conversation_history (list): Active chat log.
         current_max_size (int): Current limit.
-        print_func (callable): To relay warnings or confirmations.
+        print_func (Callable): To relay warnings or confirmations.
         color_warning_funcs (dict): Dict containing color functions/strings.
         logger (object): Diagnostics.
         config (object): Contains runtime state and settings.
@@ -638,7 +645,7 @@ def adjust_history_size(
         print_func(f"Current config.CONVERSATION_MAX_SIZE: {current_max_size}")
         return current_max_size
     try:
-        new_size = int(new_size)
+        new_size = int(str(new_size))
         # Warn user for impractically small or large limits
         if new_size < 10:
             print_func(f"{red}Warning: Very small history size may impact conversation quality{reset}")
@@ -786,9 +793,9 @@ def check_limits(
     max_history_size: int,
     conversation_history: list,
     summarization_config: dict,
-    logger: object,
-    config: object,
-    time_since_last_summary: float = None,
+    logger: HistoryLogger,
+    config: HistoryConfig,
+    time_since_last_summary: float | None = None,
 ) -> dict:
     """
     Determines if any summarization or pruning triggers are met using content, time, memory, and token usage.
@@ -1062,11 +1069,11 @@ def generate_conversation_summary(
     conversation_history: list,
     summarization_config: dict,
     model_name: str,
-    litellm_completion_func: callable,
-    count_message_tokens_func: callable,
+    litellm_completion_func: Callable,
+    count_message_tokens_func: Callable,
     rate_limiter_obj: object,
-    logger: object,
-    config: object,
+    logger: HistoryLogger,
+    config: HistoryConfig,
 ) -> object:
     """
     Requests a summary of the chat conversation from the language model API,
@@ -1079,8 +1086,8 @@ def generate_conversation_summary(
         conversation_history (list): Full conversation to summarize.
         summarization_config (dict): Contains the LLM prompt template, thresholds.
         model_name (str): Name/id for the LM backend.
-        litellm_completion_func (callable): LLM API client (such as litellm.completion).
-        count_message_tokens_func (callable):  Canonical message token counting helper (lib/token_management.py).
+        litellm_completion_func (Callable): LLM API client (such as litellm.completion).
+        count_message_tokens_func (Callable):  Canonical message token counting helper (lib/token_management.py).
         rate_limiter_obj (object): To throttle requests as needed.
         logger (object): For diagnostics and warnings.
         config (object): The live config object (read MAX_TOKEN_COUNT directly).
@@ -1099,8 +1106,9 @@ def generate_conversation_summary(
         )
         estimated_tokens = sum(count_message_tokens_func(m) for m in messages)
         logger.info(f"[SUMMARIZATION] Estimated tokens to summarize: {estimated_tokens}")
-        log_negative_token_count(logger, {'TOTAL_TOKEN_COUNT': estimated_tokens, 'MAX_TOKEN_COUNT': getattr(config, 'MAX_TOKEN_COUNT', None)})
-        rate_limiter_obj.wait_if_needed(estimated_tokens)
+        log_negative_token_count(logger, config)
+        if hasattr(rate_limiter_obj, "wait_if_needed"):
+            rate_limiter_obj.wait_if_needed(estimated_tokens)
 
         triggers = summarization_config.get('triggers', {})
         token_reduction_factor = triggers.get('token_reduction_factor', 0.7)
@@ -1111,7 +1119,10 @@ def generate_conversation_summary(
         if not hasattr(config, 'MAX_TOKEN_COUNT'):
             logger.critical('[SUMMARIZATION] FATAL: config object missing MAX_TOKEN_COUNT.')
             raise RuntimeError('config missing MAX_TOKEN_COUNT')
-        max_token_count = config.MAX_TOKEN_COUNT
+        max_token_count_raw = getattr(config, "MAX_TOKEN_COUNT", None)
+        if max_token_count_raw is None:
+            raise RuntimeError("config missing MAX_TOKEN_COUNT")
+        max_token_count = int(max_token_count_raw)
         max_summary_tokens = int(max_token_count * token_reduction_factor * summary_token_ratio)
         if max_summary_tokens > maximum_summary_tokens:
             max_summary_tokens = maximum_summary_tokens
@@ -1137,10 +1148,12 @@ def generate_conversation_summary(
         )
         if hasattr(response, "usage") and hasattr(response.usage, "total_tokens"):
             actual_total_tokens = response.usage.total_tokens
-            rate_limiter_obj.add_request(actual_total_tokens)
+            if hasattr(rate_limiter_obj, "add_request"):
+                rate_limiter_obj.add_request(actual_total_tokens)
             logger.info(f"[SUMMARIZATION] LLM returned: usage.total_tokens={actual_total_tokens}")
         else:
-            rate_limiter_obj.add_request(estimated_tokens)
+            if hasattr(rate_limiter_obj, "add_request"):
+                rate_limiter_obj.add_request(estimated_tokens)
             logger.warning(
                 "[SUMMARIZATION] No usage.total_tokens info from LLM; only using estimated tokens for tracking."
             )
@@ -1173,7 +1186,7 @@ def generate_conversation_summary(
             logger.info(
                 f"[SUMMARIZATION] Summary length: {len(summary_content)} chars, estimated {summary_token_count} tokens. Snippet: '{summary_content[:200]}...'"
             )
-            log_negative_token_count(logger, {'TOTAL_TOKEN_COUNT': summary_token_count, 'MAX_TOKEN_COUNT': max_token_count})
+            log_negative_token_count(logger, config)
             if summary_token_count > summarization_config['triggers']['token_threshold'] * max_token_count:
                 logger.warning(
                     f"[SUMMARIZATION] WARNING: Generated summary by itself exceeds threshold ({summary_token_count} tokens)."
@@ -1190,8 +1203,8 @@ def generate_conversation_summary(
 
 def _build_truncated_history_copy(
     conversation_history: list,
-    config: object,
-    logger: object,
+    config: HistoryConfig,
+    logger: HistoryLogger,
 ) -> list:
     """Return a *copy* of conversation_history truncated to fit roughly half
     the model's input budget, suitable for passing to the summarizer when the
@@ -1205,11 +1218,19 @@ def _build_truncated_history_copy(
     The new flow passes a copy here only as a fallback when the full-history
     summarization call fails.
     """
-    model_window = getattr(config, "MODEL_CONTEXT_WINDOW", None) or getattr(config, "MAX_TOKEN_COUNT", None)
+    model_window_raw = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+    if model_window_raw is None:
+        model_window_raw = getattr(config, "MAX_TOKEN_COUNT", None)
+    model_window = model_window_raw
     try:
+        if model_window is None:
+            raise TypeError("model window missing")
         model_window_val = int(model_window)
     except Exception:
-        model_window_val = int(getattr(config, "MAX_TOKEN_COUNT", 0) or 0)
+        fallback_window = getattr(config, "MAX_TOKEN_COUNT", 0)
+        if fallback_window is None:
+            fallback_window = 0
+        model_window_val = int(fallback_window or 0)
     threshold = int(model_window_val / 2)
     if threshold <= 0:
         # Cannot compute a reasonable threshold; return a full-history copy.
@@ -1255,7 +1276,7 @@ def _truncate_summary_to_fit(
     user_input: str,
     max_tokens: int,
     model,
-    logger: object,
+    logger: HistoryLogger,
 ) -> "str | None":
     """Return a version of ``summary`` that fits within ``max_tokens`` when combined with
     the system prompt and user input, or ``None`` when even an empty summary cannot fit.
@@ -1308,9 +1329,9 @@ def reset_conversation_with_summary(
     system_prompt: str,
     user_input: str,
     conversation_history: list,
-    append_func: callable,
-    logger: object,
-    config: object,
+    append_func: Callable,
+    logger: HistoryLogger,
+    config: HistoryConfig,
 ) -> None:
     """
     After a summary is created, clear old conversation and set new state of [system, summary, latest user input].
@@ -1329,7 +1350,7 @@ def reset_conversation_with_summary(
         system_prompt (str): The preserved system prompt string.
         user_input (str): The latest user input that triggered the reset.
         conversation_history (list): Mutated in-place to just system, summary, user prompt.
-        append_func (callable): For tracking tokens & appending messages. Preserved
+        append_func (Callable): For tracking tokens & appending messages. Preserved
             in the signature for backward-compatible callers but no longer used —
             the new flow performs an atomic clear-and-extend after pre-validation.
         logger (object): Logging for diagnostics.
@@ -1495,8 +1516,8 @@ def reset_conversation_with_partial_summary(
     system_prompt: str,
     preserved_messages: list,
     conversation_history: list,
-    logger: object,
-    config: object,
+    logger: HistoryLogger,
+    config: HistoryConfig,
 ) -> None:
     """Partial-preserve sibling of ``reset_conversation_with_summary``.
 

@@ -5,12 +5,10 @@ from pathlib import Path
 import sys
 from typing import Any, Dict
 
-import appdirs
+from monitor._stubs import appdirs
 import litellm
 from colored import attr, fg
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
-from pygments.lexers import BashLexer, MarkdownLexer
+from monitor.lib.pygments_stubs import BashLexer, MarkdownLexer, TerminalFormatter, highlight
 
 from monitor import config
 from monitor.function_keys_loader import load_function_keys_config

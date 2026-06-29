@@ -7,12 +7,9 @@ import os
 from monitor import config
 from monitor.lib.macros import MACRO_VALUES
 
-try:
-    from termcolor import colored
-except ImportError:
-    # Fallback in case termcolor is not installed
-    def colored(text, color):
-        return text
+from typing import Any, Callable, cast
+
+from termcolor import colored
 
 from monitor.lib.command_utils import handle_error, run_subprocess
 
@@ -22,9 +19,9 @@ from monitor.core.query_service import query
 
 logger = logging.getLogger(__name__)
 
-ALL_TERMINAL_COMMANDS = []
-NON_INTERACTIVE_COMMANDS = []
-INTERACTIVE_COMMANDS = []
+ALL_TERMINAL_COMMANDS: list[dict[str, object]] = []
+NON_INTERACTIVE_COMMANDS: list[dict[str, object]] = []
+INTERACTIVE_COMMANDS: list[dict[str, object]] = []
 
 def load_terminal_commands(interactive_commands_path, non_interactive_commands_path, ):
     global ALL_TERMINAL_COMMANDS
@@ -80,8 +77,8 @@ def _load_interactive_commands(interactive_commands_path):
         INTERACTIVE_COMMANDS = []
         return
 
-PRIVATE_COMMANDS = []
-INTERNAL_COMMANDS = []
+PRIVATE_COMMANDS: list[dict[str, object]] = []
+INTERNAL_COMMANDS: list[dict[str, object]] = []
 
 def _load_private_internal_commands():
     global PRIVATE_COMMANDS, INTERNAL_COMMANDS
@@ -319,7 +316,7 @@ def command_needs_tty(command: str) -> bool:
     first_word, rest_tokens, _ = parse_command(command)
     name = os.path.basename(first_word) if first_word else first_word
     if name in ("python", "python3"):
-        return _python_is_interactive(rest_tokens)
+        return _python_is_interactive([str(token) for token in rest_tokens])
     if name == "crontab":
         return "-e" in rest_tokens
     if name in ("sh", "bash", "zsh"):
@@ -332,7 +329,7 @@ def command_needs_tty(command: str) -> bool:
         ),
         None,
     )
-    return bool(match.get("needs_tty", False)) if match else False
+    return bool(match["needs_tty"]) if match and "needs_tty" in match else False
 
 def execute_non_interactive_command(command: str):
     """
@@ -378,7 +375,7 @@ def execute_non_interactive_command(command: str):
             chosen_remainder = ""
 
         if matching_command is not None:
-            command_to_run = matching_command.get("expansion")
+            command_to_run = str(matching_command.get("expansion", ""))
             if command_to_run:
                 command_to_run += f" {chosen_remainder}" if chosen_remainder else ""
             else:
@@ -452,7 +449,7 @@ def execute_interactive_command(command: str):
 
         try:
             if matching_command is not None:
-                command_to_run = matching_command.get("expansion")
+                command_to_run = str(matching_command.get("expansion", ""))
                 if command_to_run:
                     command_to_run += f" {chosen_remainder}" if chosen_remainder else ""
                 else:
@@ -568,7 +565,7 @@ def internalize_to_llm(command: str, display_query_result_call):
             llm_input = None
             if user_prompt_str is not None:
                 if '${result}' in user_prompt_str:
-                    llm_input = user_prompt_str.replace('${result}', result)
+                    llm_input = user_prompt_str.replace('${result}', result or "")
                 else:
                     if user_prompt_str:
                         if result:
@@ -651,6 +648,7 @@ def execute_internal_command(command: str, display_query_result):
             if expansion is None:
                 expansion = ""
             else:
+                expansion = str(expansion)
                 if expansion.startswith("!<"):
                     logger.info(f"Macro expansion suppressed for internal command '{first_word}'; using raw expansion: {expansion}")
                     expansion = expansion[2:]

@@ -60,7 +60,7 @@ def _make_json_safe(value: Any) -> Any:
     return repr(value)
 
 
-def settings_command(arg: str = None) -> None:
+def settings_command(arg: str | None = None) -> None:
     """Dump the live runtime configuration settings as formatted JSON.
 
     Args:
@@ -101,7 +101,7 @@ def settings_command(arg: str = None) -> None:
 
 
 
-def reasoning_command(arg: str = None) -> None:
+def reasoning_command(arg: str | None = None) -> None:
     """Change the reasoning effort level at runtime.
 
     Usage:
@@ -193,7 +193,7 @@ def _print_ttl_help(current_minutes: int) -> None:
     print(f"Current TTL: {current_minutes} minutes.")
 
 
-def ttl_command(arg: str = None) -> None:
+def ttl_command(arg: str | None = None) -> None:
     """Configure the Anthropic prompt-cache TTL at runtime.
 
     Args:
@@ -256,7 +256,7 @@ def _print_max_tokens_help(current_value: int) -> None:
     print(f"Current cap: {current_value} tokens.")
 
 
-def max_tokens_command(arg: str = None) -> None:
+def max_tokens_command(arg: str | None = None) -> None:
     """Configure the non-reasoning output-token cap at runtime.
 
     Args:
@@ -290,7 +290,7 @@ def max_tokens_command(arg: str = None) -> None:
     print_yellow(f"Output-token cap set to {new_cap} (non-reasoning model calls).")
 
 
-def llm_command(arg: str = None) -> None:
+def llm_command(arg: str | None = None) -> None:
     """Change the active LLM model at runtime.
 
     Args:

@@ -6,7 +6,7 @@ import os
 import subprocess
 from typing import Any
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor import config
 from monitor.function_keys_loader import load_function_keys_config
@@ -17,7 +17,7 @@ from monitor.lib.preferences import open_preferences_editor
 logger = logging.getLogger(__name__)
 
 
-def open_preferences_command(arg: Any = None) -> None:
+def open_preferences_command(arg: Any | None = None) -> None:
     """Open the preferences prompt file in the configured editor.
 
     Args:
@@ -31,7 +31,7 @@ def open_preferences_command(arg: Any = None) -> None:
     print(result)
 
 
-def edit_macros_command(arg: Any = None) -> None:
+def edit_macros_command(arg: Any | None = None) -> None:
     """Open the macros editor, ignoring any dispatcher argument.
 
     Args:
@@ -48,7 +48,7 @@ def edit_macros_command(arg: Any = None) -> None:
         print(result)
 
 
-def open_function_keys_editor(path: str = None) -> str | None:
+def open_function_keys_editor(path: str | None = None) -> str | None:
     """Open the function keys configuration file in a text editor.
 
     Args:
@@ -86,7 +86,7 @@ def open_function_keys_editor(path: str = None) -> str | None:
         return None
 
 
-def edit_function_keys_command(arg: Any = None) -> str | None:
+def edit_function_keys_command(arg: Any | None = None) -> str | None:
     """Edit grouped function key bindings and apply them after saving.
 
     Args:
@@ -97,7 +97,7 @@ def edit_function_keys_command(arg: Any = None) -> str | None:
         The path to the configuration file on success, or ``None`` on failure.
     """
     try:
-        path = arg if isinstance(arg, str) and str(arg).strip() else None
+        path = str(arg).strip() if isinstance(arg, str) and str(arg).strip() else None
         config_path = open_function_keys_editor(path)
         if not config_path:
             return None
@@ -117,7 +117,7 @@ def edit_function_keys_command(arg: Any = None) -> str | None:
         return None
 
 
-def reload_macros_command(arg: Any = None) -> None:
+def reload_macros_command(arg: Any | None = None) -> None:
     """Reload macros from configuration and print a summary of changes.
 
     Args:

@@ -7,25 +7,24 @@ of extraction; any future refactorings should update both caller sites as needed
 
 import logging
 import re
+from importlib import import_module
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import litellm
 
-try:
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
     import httpcore
-except ImportError:
-    httpcore = None
-
-try:
     import httpx
-except ImportError:
-    httpx = None
-
-try:
     from monitor.lib import rate_limiter
-except Exception:
-    rate_limiter = None
-
-from typing import Any, Dict, List, Optional, Tuple, Union
+else:
+    httpcore = import_module("httpcore")
+    httpx = import_module("httpx")
+    try:
+        from monitor.lib import rate_limiter
+    except Exception:
+        rate_limiter = None
 
 from monitor import config
 from monitor.lib.history import append_to_history_with_count

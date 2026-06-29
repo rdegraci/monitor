@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import appdirs
+from monitor._stubs import appdirs
 import monitor.config as config
 from .screen_handler_utils import (
     shutil_which,

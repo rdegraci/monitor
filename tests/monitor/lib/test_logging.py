@@ -3,10 +3,10 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
-import appdirs
 import re
 
 import monitor.lib.logging as app_logging
+from monitor._stubs import appdirs
 
 
 class TestLoggingConfig(unittest.TestCase):

@@ -42,7 +42,7 @@ def clean_missing_values_command(args: Any) -> Any:
         if args.get("help"):
             print(usage)
             return None
-        file_path = args.get("file_path")
+        file_path = str(args.get("file_path") or "")
         fill_value = args.get("fill_value", 0)
         if not file_path:
             print_colored_error("Missing required parameter: 'file_path'")
@@ -104,7 +104,7 @@ def normalize_data_command(args: Any) -> Any:
         if args.get("help"):
             print(usage)
             return None
-        file_path = args.get("file_path")
+        file_path = str(args.get("file_path") or "")
         method = args.get("method", "standard")
         if not file_path:
             print_colored_error("Missing required parameter: 'file_path'")

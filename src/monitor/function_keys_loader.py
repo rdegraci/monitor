@@ -4,7 +4,7 @@ import json
 import logging
 import os
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor.function_keys import validate_function_keys_config
 

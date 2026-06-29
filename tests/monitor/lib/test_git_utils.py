@@ -10,7 +10,8 @@ if _src_dir not in sys.path:
 
 import pytest
 
-from pygments.lexers import BashLexer
+pygments_lexers = pytest.importorskip("pygments.lexers")
+BashLexer = pygments_lexers.BashLexer
 
 import monitor.lib.git_utils as git_utils
 

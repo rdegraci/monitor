@@ -1,7 +1,7 @@
 from monitor import config 
 import logging
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, cast
 import inspect
 
 from monitor.lib.tool_definitions import TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE
@@ -115,7 +115,7 @@ def _make_callable(func: Callable[..., Any]) -> Callable[[Any], Any]:
 
     # If the function accepts varargs, treat it as acceptable.
     if has_var_positional:
-        def _wrapper(arg: Any = None) -> Any:
+        def varargs_wrapper(arg: Any = None) -> Any:
             try:
                 if arg is None:
                     return func()
@@ -123,17 +123,17 @@ def _make_callable(func: Callable[..., Any]) -> Callable[[Any], Any]:
             except TypeError:
                 # Fallback for callables that still error when given the argument
                 return func()
-        return _wrapper
+        return varargs_wrapper
 
     # If the function accepts no positional parameters
     if len(positional_params) == 0:
-        def _wrapper(arg: Any = None) -> Any:
+        def noarg_wrapper(arg: Any = None) -> Any:
             return func()
-        return _wrapper
+        return noarg_wrapper
 
     # If the function accepts exactly one positional parameter
     if len(positional_params) == 1:
-        def _wrapper(arg: Any = None) -> Any:
+        def singlearg_wrapper(arg: Any = None) -> Any:
             try:
                 if arg is None:
                     return func()
@@ -142,16 +142,16 @@ def _make_callable(func: Callable[..., Any]) -> Callable[[Any], Any]:
                 # Preserve forgiving behavior in case the underlying function
                 # chooses to raise when called with an argument.
                 return func()
-        return _wrapper
+        return singlearg_wrapper
 
     # Function requires more than one positional parameter; require explicit adapter.
-    def _wrapper(arg: Any = None) -> Any:
+    def error_wrapper(arg: Any = None) -> Any:
         raise TypeError(
             f"Function '{getattr(func, '__name__', str(func))}' requires more than one positional "
             "argument. Register an explicit adapter (e.g., a lambda) when adding to built-ins."
         )
 
-    return _wrapper
+    return error_wrapper
 
 
 def _safe_register(mapping: Dict[str, Callable[..., Any]]) -> None:
@@ -334,13 +334,13 @@ def configure_built_ins() -> None:
                 {
                     "command": "history_size",
                     "function": lambda arg=None: adjust_history_size(
-                        int(arg) if arg and str(arg).strip() else None,
+                        int(arg) if arg and str(arg).strip() else 0,
                         config.CONVERSATION_HISTORY,
-                        config.CONVERSATION_MAX_SIZE,
+                        config.CONVERSATION_MAX_SIZE or 0,
                         print,
                         COLOR_WARNING_FUNCS,
                         logger,
-                        config
+                        config,
                     ),
                     "description": "Adjust max conversation history size.",
                 },
@@ -511,22 +511,22 @@ def configure_built_ins() -> None:
             "commands": [
                 {
                     "command": "add_db_tools",
-                    "function": lambda arg=None: add_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
+                    "function": lambda arg=None: add_db_tools(cast(List[Dict[str, Any]], TOOL_DESCRIPTIONS), cast(List[Dict[str, Any]], GEMINI_TOOL_DESCRIPTIONS), cast(Dict[str, bool], TOOL_STATE)),
                     "description": "Add database related tools.",
                 },
                 {
                     "command": "remove_db_tools",
-                    "function": lambda arg=None: remove_db_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
+                    "function": lambda arg=None: remove_db_tools(TOOL_DESCRIPTIONS, TOOL_STATE),
                     "description": "Remove database related tools.",
                 },
                 {
                     "command": "add_modelling_tools",
-                    "function": lambda arg=None: add_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
+                    "function": lambda arg=None: add_modelling_tools(cast(List[Dict[str, Any]], TOOL_DESCRIPTIONS), cast(List[Dict[str, Any]], GEMINI_TOOL_DESCRIPTIONS), cast(Dict[str, bool], TOOL_STATE)),
                     "description": "Add machine learning modelling tools.",
                 },
                 {
                     "command": "remove_modelling_tools",
-                    "function": lambda arg=None: remove_modelling_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE),
+                    "function": lambda arg=None: remove_modelling_tools(cast(List[Dict[str, Any]], TOOL_DESCRIPTIONS), cast(Dict[str, bool], TOOL_STATE)),
                     "description": "Remove machine learning modelling tools.",
                 },
             ],

@@ -21,7 +21,7 @@ from monitor.lib.system_prompt import build_system_prompt, clear_project_instruc
 logger = logging.getLogger(__name__)
 
 
-def reset_conversation_history_command(arg: Any = None) -> None:
+def reset_conversation_history_command(arg: Any | None = None) -> None:
     """Reset conversation state to a freshly-started session baseline.
 
     Args:
@@ -58,14 +58,16 @@ def reset_conversation_history_command(arg: Any = None) -> None:
         config.CURRENT_TURN_IS_COLLATION = False
         config.CURRENT_TURN_TOOL_GROUPS = set()
         config.TOOL_PROFILE_GROUP_LEASES = {}
-        config.RESPONSE_ID = None
-        config.last_summary_time = time.time()
+        if hasattr(config, "RESPONSE_ID"):
+            config.RESPONSE_ID = None
+        if hasattr(config, "last_summary_time"):
+            config.last_summary_time = time.time()
         print("Conversation history was reset to initial system prompt.")
     except Exception as exc:
         logger.error("Failed to reset conversation history: %s", exc, exc_info=True)
 
 
-def cost_debug_command(arg: str = None) -> None:
+def cost_debug_command(arg: str | None = None) -> None:
     """Dump cost-tracking state for diagnosing the ``U:`` indicator.
 
     Args:
@@ -232,7 +234,7 @@ HOW TO CALIBRATE (the reliable recipe)
 Run ':fuel_debug' with no argument for the live readout."""
 
 
-def fuel_debug_command(arg: str = None) -> None:
+def fuel_debug_command(arg: str | None = None) -> None:
     """Dump fuel-budget state and suggest a model rate configuration value.
 
     Args:
@@ -449,7 +451,7 @@ def fuel_debug_command(arg: str = None) -> None:
         print(f"YAML: {model}: {rounded_suggestion}")
 
 
-def dump_metrics_command(arg: str = None) -> None:
+def dump_metrics_command(arg: str | None = None) -> None:
     """Write session metrics as JSON to a path.
 
     Args:
@@ -510,7 +512,7 @@ def dump_metrics_command(arg: str = None) -> None:
     print(f"Wrote metrics to {expanded}")
 
 
-def dump_history_command(arg: str = None) -> None:
+def dump_history_command(arg: str | None = None) -> None:
     """Write the full conversation history as JSON to a path.
 
     Args:
@@ -573,7 +575,7 @@ def _format_elapsed(seconds: float) -> str:
     return f"{seconds // 86400}d ago"
 
 
-def load_history_command(arg: str = None) -> None:
+def load_history_command(arg: str | None = None) -> None:
     """Replace current conversation history with a saved transcript.
 
     Args:
@@ -642,8 +644,10 @@ def load_history_command(arg: str = None) -> None:
     config.CURRENT_TURN_IS_COLLATION = False
     config.CURRENT_TURN_TOOL_GROUPS = set()
     config.TOOL_PROFILE_GROUP_LEASES = {}
-    config.RESPONSE_ID = None
-    config.last_summary_time = time.time()
+    if hasattr(config, "RESPONSE_ID"):
+        config.RESPONSE_ID = None
+    if hasattr(config, "last_summary_time"):
+        config.last_summary_time = time.time()
 
     written_at = envelope.get("written_at")
     if isinstance(written_at, (int, float)) and written_at > 0:

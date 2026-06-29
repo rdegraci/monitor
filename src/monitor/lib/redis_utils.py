@@ -1,15 +1,19 @@
-import logging
 import json
-import time
+import logging
 import threading
+import time
 from functools import wraps
-from typing import Optional, Union, Tuple, List
+from typing import List, Optional, Tuple, Union
 
 try:
-    import redis  # type: ignore
-    from redis.exceptions import ConnectionError, TimeoutError, RedisError  # type: ignore
+    import redis as redis_module  # type: ignore
+    from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError, RedisError as RedisRedisError  # type: ignore
 except Exception:
-    redis = None
+    import types
+
+    redis: types.ModuleType | None = None
+else:
+    redis = redis_module
 
     class RedisError(Exception):
         pass
@@ -19,6 +23,7 @@ except Exception:
 
     class TimeoutError(RedisError):
         pass
+
 
 from monitor import config
 
@@ -52,7 +57,7 @@ class _DummyPipeline:
     """
 
     def __init__(self) -> None:
-        self._commands = []
+        self._commands: list[tuple[str, str, str | int]] = []
 
     def __enter__(self) -> "_DummyPipeline":
         return self
@@ -101,7 +106,7 @@ class _DummyPipeline:
             Note: Return values are placeholders for testing only and may differ
             from the real Redis pipeline's return values.
         """
-        results = []
+        results: list[bool | int | None] = []
         for cmd in self._commands:
             if cmd[0] == "set":
                 results.append(True)
@@ -298,35 +303,11 @@ def get_redis_client() -> Optional[object]:
     logger.debug("Entering get_redis_client")
     if not hasattr(_redis_client, "instance"):
         # Lazy import if redis was not importable at module load
-        global redis, ConnectionError, TimeoutError, RedisError
         if redis is None:
             try:
                 import importlib
 
-                _redis_mod = importlib.import_module("redis")
-                redis = _redis_mod  # type: ignore[assignment]
-                try:
-                    from redis.exceptions import (  # type: ignore
-                        ConnectionError as _ConnErr,
-                        TimeoutError as _TimeoutErr,
-                        RedisError as _RedisErr,
-                    )
-
-                    ConnectionError = _ConnErr
-                    TimeoutError = _TimeoutErr
-                    RedisError = _RedisErr
-                except Exception:
-                    # Fallback if exceptions submodule is not accessible as expected
-                    if hasattr(_redis_mod, "exceptions"):
-                        ConnectionError = getattr(
-                            _redis_mod.exceptions, "ConnectionError", RedisError
-                        )
-                        TimeoutError = getattr(
-                            _redis_mod.exceptions, "TimeoutError", RedisError
-                        )
-                        RedisError = getattr(
-                            _redis_mod.exceptions, "RedisError", Exception
-                        )
+                globals()["redis"] = importlib.import_module("redis")
             except Exception as e:
                 raise ImportError(
                     "Redis client requested but the 'redis' package is not installed. "
@@ -472,6 +453,9 @@ def verify_ttl(key: str) -> Tuple[bool, int]:
         if client is None:
             logger.debug("verify_ttl short-circuit: MEMORY_SERVICES disabled.")
             return False, -2
+        if not hasattr(client, "exists") or not hasattr(client, "ttl"):
+            logger.debug("verify_ttl short-circuit: client lacks TTL methods.")
+            return False, -2
         exists = client.exists(key)
         ttl = client.ttl(key) if exists else -2
         logger.debug("verify_ttl result: exists=%s, ttl=%s", exists, ttl)
@@ -576,6 +560,8 @@ def update_memory(
 
         # Use pipeline for atomic operations
         try:
+            if not hasattr(client, "pipeline"):
+                return f"Failed to save to Redis: client lacks pipeline support"
             with client.pipeline() as pipe:
                 pipe.set(prefix, json_data)
                 if ttl is not None:
@@ -591,7 +577,8 @@ def update_memory(
             return "Key was not saved successfully"
         if ttl is not None and (actual_ttl == -1 or actual_ttl <= 0):
             try:
-                client.delete(prefix)
+                if hasattr(client, "delete"):
+                    client.delete(prefix)
             except RedisError as e:
                 logger.error(
                     "Failed to cleanup after TTL verification for key %s: %s",
@@ -653,6 +640,9 @@ def read_from_memory(key: str) -> Union[str, None]:
         search_key = normalize_conversation_key(key)
 
         exists, ttl = verify_ttl(search_key)
+        if not hasattr(client, "get"):
+            logger.debug("read_from_memory short-circuit: client lacks get().")
+            return None
         value = client.get(search_key) if exists else None
 
         if value is None:
@@ -701,7 +691,7 @@ def fetch_memory_for_context() -> List[str]:
         List[str]: List of conversation keys.
     """
     logger.debug("Entering fetch_memory_for_context")
-    keys = []
+    keys: list[str] = []
     try:
         client = get_redis_client()
         if client is None:
@@ -710,6 +700,9 @@ def fetch_memory_for_context() -> List[str]:
             )
             return keys
         # Get all conversation keys
+        if not hasattr(client, "keys"):
+            logger.debug("fetch_memory_for_context short-circuit: client lacks keys().")
+            return keys
         all_keys = client.keys(pattern="conversation:*")
 
         # Filter out expired keys and sort by timestamp
@@ -718,6 +711,8 @@ def fetch_memory_for_context() -> List[str]:
             exists, ttl = verify_ttl(key)
             if exists:
                 try:
+                    if not hasattr(client, "get"):
+                        continue
                     data = client.get(key)
                     if data:
                         try:
@@ -737,7 +732,7 @@ def fetch_memory_for_context() -> List[str]:
 
         # Sort keys by timestamp (newest first)
         valid_keys.sort(key=lambda x: x[1], reverse=True)
-        keys = [k[0] for k in valid_keys]
+        keys = [str(k[0]) for k in valid_keys]
 
         logger.info("Fetched %d valid conversation keys", len(keys))
         return keys
@@ -968,6 +963,9 @@ def delete_from_memory(key: str) -> bool:
     client = get_redis_client()
     if client is None:
         logger.debug("delete_from_memory short-circuit: MEMORY_SERVICES disabled.")
+        return False
+    if not hasattr(client, "delete"):
+        logger.debug("delete_from_memory short-circuit: client lacks delete().")
         return False
     redis_key = normalize_conversation_key(key)
     try:

@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from src.monitor.lib.progress import progress_dots, _SPINNER_FRAMES
+from monitor.lib.progress import progress_dots, _SPINNER_FRAMES
 
 
 class _FakeStderr(io.StringIO):

@@ -7,7 +7,7 @@ import os
 import errno
 from pathlib import Path
 from typing import Optional
-import appdirs
+from monitor._stubs import appdirs
 import logging
 
 logger = logging.getLogger(__name__)

@@ -62,7 +62,7 @@ def monitor_model_performance_command(args: dict[str, Any]) -> Any:
         return f"Error monitoring model performance: {exc}"
 
 
-def twitch_summary_command(arg: Any = None) -> None:
+def twitch_summary_command(arg: Any | None = None) -> None:
     """Summarize the conversation history for Twitch broadcasting.
 
     Args:
@@ -89,7 +89,7 @@ def twitch_summary_command(arg: Any = None) -> None:
         )
 
 
-def linkedin_summary_command(arg: Any = None) -> None:
+def linkedin_summary_command(arg: Any | None = None) -> None:
     """Summarize the conversation history for LinkedIn broadcasting.
 
     Args:
@@ -107,7 +107,7 @@ def linkedin_summary_command(arg: Any = None) -> None:
         if not summary:
             return
         print(summary)
-        if send_linkedin_message:
+        if send_linkedin_message is not None:
             send_linkedin_message(summary)
     except Exception as exc:
         logger.error(

@@ -89,7 +89,7 @@ def test_extract_empty_text():
 @pytest.fixture
 def fake_clipboard(monkeypatch):
     """Replace pyperclip.copy with a buffer the test can inspect."""
-    import pyperclip
+    pyperclip = pytest.importorskip("pyperclip")
     buf = {"value": None}
     monkeypatch.setattr(pyperclip, "copy", lambda v: buf.update(value=v))
     return buf
@@ -225,7 +225,7 @@ def test_clipboard_failure_prints_payload_with_notice(monkeypatch, capsys):
     copy from terminal, and surface why the clipboard didn't work."""
     _seed_response(monkeypatch, "```python\nfallback content\n```")
 
-    import pyperclip
+    pyperclip = pytest.importorskip("pyperclip")
 
     def raise_clipboard_error(value):
         # PyperclipException is the real type but Exception works for
@@ -248,7 +248,7 @@ def test_clipboard_failure_doesnt_count_as_success(monkeypatch, capsys):
     and pastes stale content from their clipboard."""
     _seed_response(monkeypatch, "```python\nx\n```")
 
-    import pyperclip
+    pyperclip = pytest.importorskip("pyperclip")
     monkeypatch.setattr(
         pyperclip, "copy",
         lambda v: (_ for _ in ()).throw(Exception("nope")),

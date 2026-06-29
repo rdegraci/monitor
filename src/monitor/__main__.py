@@ -1,6 +1,6 @@
 import os
 import shutil
-import appdirs
+from monitor._stubs import appdirs
 import importlib.resources
 import importlib.util
 

@@ -11,7 +11,7 @@ import os
 import time
 import logging
 import json
-import appdirs
+from monitor._stubs import appdirs
 import importlib.resources
 import uuid
 import shutil
@@ -35,7 +35,6 @@ from monitor.lib.redis_utils import configure_redis_utils
 from monitor.lib.preferences import load_user_preferences_prompt
 from monitor.lib.external_services import configure_external_services
 # configure_protocol_engine is imported lazily at its call site (see NOTE above).
-from monitor.lib.logging import configure_logging
 from monitor.lib.keyboard import configure_function_key_insertions
 from monitor.lib.keyboard import configure_voice_to_text
 from monitor.lib.ripgrep_search import configure_rip_grep
@@ -1910,6 +1909,8 @@ def load_environment_globals():
 
 
 def start_logging():
+    from monitor.lib.logging import configure_logging
+
     configure_logging()
 
 
