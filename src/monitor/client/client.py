@@ -1,4 +1,6 @@
-import requests
+from typing import Any
+
+from monitor._stubs import requests
 
 def main():
     print("Simple Chat Client (HTTP POST mode)")

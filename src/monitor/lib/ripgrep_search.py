@@ -12,8 +12,8 @@ SEARCH_EVALUATION_DIVISOR = 15
 # request-serialized harness indefinitely.
 SEARCH_TIMEOUT_SECONDS = 30
 
-DEFAULT_EXCLUDE_EXTENSIONS = []
-DEFAULT_EXCLUDE_GLOBS = []
+DEFAULT_EXCLUDE_EXTENSIONS: list[str] = []
+DEFAULT_EXCLUDE_GLOBS: list[str] = []
 
 def _coerce_to_list(value: list[str] | tuple[str, ...] | str | None) -> list[str]:
     """Coerce a value into a list of strings.

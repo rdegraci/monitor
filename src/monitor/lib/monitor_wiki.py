@@ -258,5 +258,8 @@ def configure_project_wiki_paths(start_path: str | os.PathLike[str] | None) -> N
         return
 
     project_identity_path = resolve_project_identity_path(start_path)
-    _config.PROJECT_WIKI_IDENTITY_PATH = str(project_identity_path)
-    _config.PROJECT_WIKI_PATH = str(project_wiki_dir_for_start_path(start_path))
+    project_wiki_path = project_wiki_dir_for_start_path(start_path)
+    if project_identity_path is None or project_wiki_path is None:
+        return
+    _config.PROJECT_WIKI_IDENTITY_PATH = str(project_identity_path)  # type: ignore[assignment]
+    _config.PROJECT_WIKI_PATH = str(project_wiki_path)  # type: ignore[assignment]

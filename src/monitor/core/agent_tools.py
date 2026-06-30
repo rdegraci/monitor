@@ -134,7 +134,7 @@ def _orchestration_enabled() -> bool:
         try:
             from monitor import config
         except Exception:
-            config = None
+            config = None  # type: ignore[assignment]
 
         # Prefer a direct attribute on the config module, fall back to a get method if present.
         val = getattr(config, "MONITOR_ENABLE_AGENT_ORCHESTRATION", None) if config is not None else None

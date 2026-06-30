@@ -1,7 +1,7 @@
 """Tests for config path resolution in Monitor OOP."""
 from __future__ import annotations
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor_oop.core.config_path_context import ConfigPathContext
 from monitor_oop.core.config_path_service import ConfigPathService

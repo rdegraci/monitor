@@ -38,14 +38,14 @@ from monitor.lib.macro_utils import (
 )
 from monitor.lib.colors import magenta, red, reset, yellow
 
-MACRO_VALUES = {}
+MACRO_VALUES: dict[str, str] = {}
 
 logger = logging.getLogger(__name__)
 
 # When adding macros via '<key=value' the macros are stored in EPHEMERAL_MACRO_VALUES
 # and are destroyed when monitor exits. If you want macros to persist, use the
 # :edit_macros command
-EPHEMERAL_MACRO_VALUES = {}
+EPHEMERAL_MACRO_VALUES: dict[str, str] = {}
 
 # Initialize macro values dictionary with hardcoded values
 # These are not visible dumping the macros via the 'macros' built in command.

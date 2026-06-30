@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor_oop.core.infrastructure import macro_store as macro_store_module
 from monitor_oop.core.infrastructure.macro_store import MacroStore

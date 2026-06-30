@@ -6,8 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import appdirs
-import yaml
+from monitor._stubs import appdirs, yaml
 
 from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
 

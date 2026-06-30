@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.formatted_text import to_formatted_text
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
-from pygments.lexers import BashLexer
+from monitor.lib.pygments_stubs import BashLexer, TerminalFormatter, highlight
 
 from monitor_oop.core.presentation.transcript_buffer import TranscriptEntry
 

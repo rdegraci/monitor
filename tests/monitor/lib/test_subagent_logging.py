@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import os
-import appdirs
+from monitor._stubs import appdirs
 
 import pytest
 

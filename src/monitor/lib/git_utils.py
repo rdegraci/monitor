@@ -3,8 +3,7 @@ import subprocess
 from typing import List, Optional, Tuple
 
 from colored import fg, attr
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
+from monitor.lib.pygments_stubs import TerminalFormatter, highlight
 
 logger = logging.getLogger(__name__)
 

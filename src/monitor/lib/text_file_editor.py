@@ -9,10 +9,9 @@ import difflib
 import logging
 import os
 from typing import Any, Dict, List, Optional
-from pygments import highlight
-from pygments.lexers import get_lexer_for_filename, TextLexer, DiffLexer
-from pygments.formatters import TerminalFormatter
-from pygments.util import ClassNotFound
+from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
+from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
+from monitor.lib.third_party_shims import ClassNotFound, get_lexer_for_filename, TextLexer
 
 from monitor.lib.colors import blue, red, yellow, green, reset, print_colored, print_blue, print_red, print_yellow, print_green
 from monitor.lib.file_io import (
@@ -58,7 +57,7 @@ def _truncate_diff(diff_text: str) -> str:
     return diff_text[:MAX_DIFF_RESULT_CHARS] + "\n... [diff truncated] ..."
 
 
-def print_with_insert_lines(content: str, start_line: int = 1, path: str = None):
+def print_with_insert_lines(content: str, start_line: int = 1, path: Optional[str] = None):
     """Print content with line numbers and optional syntax highlighting."""
     lines = content.splitlines()
     
@@ -97,7 +96,7 @@ def print_with_insert_lines(content: str, start_line: int = 1, path: str = None)
     print_colored("─" * 50, blue)
 
 
-def text_file_or_directory_view(command: str, path: str, view_range: Optional[List[int]] = None) -> str:
+def text_file_or_directory_view(command: str, path: Optional[str], view_range: Optional[List[int]] = None) -> str:
     """
     View the contents of a file with optional line range or list the contents of a directory. 
     When viewing files, supports syntax highlighting and line numbers. When viewing directories, 
@@ -121,8 +120,13 @@ def text_file_or_directory_view(command: str, path: str, view_range: Optional[Li
         print_red(f"Invalid command '{command}'. Must be 'view'")
         return f"Invalid command '{command}'. Must be 'view'"
     
-    isf = is_file(path)
-    isd = is_directory(path)
+    if path is None:
+        print_red("Path must be provided")
+        return "Path must be provided"
+    path_str = path
+
+    isf = is_file(path_str)
+    isd = is_directory(path_str)
     if not (isf or isd):
         print_red(f"Path not found: {path}")
         return f"Path not found: {path}"
@@ -142,7 +146,7 @@ def text_file_or_directory_view(command: str, path: str, view_range: Optional[Li
             print_red("view_range elements must be integers")
             return "view_range elements must be integers"
 
-        file_content = read_file(path)
+        file_content = read_file(path_str)
         if file_content is None:
             print_red("Error reading file or file does not exist.")
             return "Error reading file or file does not exist."
@@ -177,19 +181,19 @@ def text_file_or_directory_view(command: str, path: str, view_range: Optional[Li
         selected_lines = lines[actual_start:actual_end]
         content_to_display = ''.join(selected_lines)
         
-        print_with_insert_lines(content_to_display.rstrip('\n'), actual_start + 1, path)
+        print_with_insert_lines(content_to_display.rstrip('\n'), actual_start + 1, path_str)
         
         logger.info(f"Displayed lines {start_line}-{end_line} of {path} (total: {total_lines} lines)")
         return content_to_display
 
     if isd:
-        entries = list_directory(path)
+        entries = list_directory(path_str)
         if entries is None:
             print_red("Error reading directory or directory does not exist.")
             return "Error reading directory or directory does not exist."
         entries.sort()
         
-        print_blue(f"Directory: {path}")
+        print_blue(f"Directory: {path_str}")
         print_blue("─" * 50)
         
         directory_listing_lines = []
@@ -198,7 +202,7 @@ def text_file_or_directory_view(command: str, path: str, view_range: Optional[Li
             directory_listing_lines.append("(empty directory)")
         else:
             for entry in entries:
-                entry_path = f"{path}/{entry}"
+                entry_path = f"{path_str}/{entry}"
                 if is_directory(entry_path):
                     text = f"📁 {entry}/"
                     print_blue(text)
@@ -217,7 +221,7 @@ def text_file_or_directory_view(command: str, path: str, view_range: Optional[Li
         if content is None:
             print_red("Error reading file or file does not exist.")
             return "Error reading file or file does not exist."
-        print_with_insert_lines(content, 1, path)
+        print_with_insert_lines(content, 1, path_str)
         logger.info(f"Displayed entire file {path} ({content.count(chr(10)) + (1 if content and not content.endswith(chr(10)) else 0)} lines)")
         return content
     else:

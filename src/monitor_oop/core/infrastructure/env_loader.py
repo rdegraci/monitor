@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs
 from dotenv import find_dotenv, load_dotenv
 
 from monitor_oop.core.models import RuntimeConfig

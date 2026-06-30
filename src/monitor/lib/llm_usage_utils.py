@@ -6,9 +6,11 @@ from typing import Any, Optional, Tuple, Union
 from monitor import config
 
 try:
-    from monitor.lib import rate_limiter
+    from monitor.lib import rate_limiter as rate_limiter_module
 except Exception:
     rate_limiter = None
+else:
+    rate_limiter = rate_limiter_module
 
 logger = logging.getLogger(__name__)
 

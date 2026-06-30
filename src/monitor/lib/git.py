@@ -1,6 +1,6 @@
 import logging
 
-from pygments.lexers import BashLexer, DiffLexer
+from monitor.lib.pygments_stubs import BashLexer, DiffLexer
 
 from .git_utils import ensure_non_empty_string, run_git_capture, print_highlight_or_empty
 
@@ -173,11 +173,11 @@ def perform_git_diff_staged(silent: bool = False):
     if stdout == "":
         logger.debug("No changes detected in git diff")
         if not silent:
-            print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+            print_highlight_or_empty(stdout or "", DiffLexer(), "No differences found.")
         return ""
 
     if not silent:
-        print_highlight_or_empty(stdout, DiffLexer(), "No differences found.")
+        print_highlight_or_empty(stdout or "", DiffLexer(), "No differences found.")
     return stdout
 
 

@@ -20,3 +20,4 @@ TerminalFormatter: Any = _load_optional_attr("pygments.formatters", "TerminalFor
 MarkdownLexer: Any = _load_optional_attr("pygments.lexers", "MarkdownLexer")
 BashLexer: Any = _load_optional_attr("pygments.lexers", "BashLexer")
 DiffLexer: Any = _load_optional_attr("pygments.lexers", "DiffLexer")
+SwiftLexer: Any = _load_optional_attr("pygments.lexers", "SwiftLexer")

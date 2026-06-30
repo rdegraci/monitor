@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs
 
 import monitor_oop.core.infrastructure.user_config_seeder as user_config_seeder_module
 from monitor_oop.core.infrastructure.yaml_config_loader import YamlConfigLoader

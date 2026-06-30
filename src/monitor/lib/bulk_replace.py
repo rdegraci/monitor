@@ -252,7 +252,7 @@ def bulk_replace_in_files(
     for path, _original, new_content, _count in pending:
         v_ok, v_err, _tier = verify_file_content(path, new_content)
         if not v_ok:
-            verification_failures.append({"path": path, "error": v_err})
+            verification_failures.append({"path": path, "error": v_err or ""})
     if verification_failures:
         msg = "verification failed; no changes written (batch is all-or-nothing)"
         print_red(msg)

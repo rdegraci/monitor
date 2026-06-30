@@ -229,7 +229,7 @@ def allowed_tool_names_for_profile(
     for group in extra_groups or ():
         if group in TOOL_GROUPS:
             groups.add(group)
-    allowed_names = set()
+    allowed_names: set[str] = set()
     for group in groups:
         allowed_names.update(TOOL_GROUPS.get(group, ()))
     return allowed_names
@@ -272,6 +272,8 @@ def _lease_turns_for_group(group: str) -> int:
     raw_value = overrides.get(group) if isinstance(overrides, dict) else None
     if raw_value is None:
         raw_value = getattr(config, "TOOL_PROFILE_AUTO_WIDEN_TURNS", 2)
+    if raw_value is None:
+        raw_value = 2
     try:
         turns = int(raw_value)
     except (TypeError, ValueError):

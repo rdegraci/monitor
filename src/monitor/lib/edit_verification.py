@@ -46,7 +46,7 @@ except Exception:  # pragma: no cover - depends on interpreter version
     tomllib = None  # type: ignore
 
 try:
-    import yaml  # type: ignore
+    from monitor._stubs import yaml  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore
 

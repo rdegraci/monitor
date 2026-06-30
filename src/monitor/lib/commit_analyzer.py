@@ -4,9 +4,7 @@ from textwrap import dedent
 
 import litellm
 
-from pygments import highlight
-from pygments.lexers import DiffLexer
-from pygments.formatters import TerminalFormatter
+from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
 
 from monitor.lib.macro_utils import recursive_macro_expand
 from monitor.lib.git_utils import run_git_capture

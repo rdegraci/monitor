@@ -1,6 +1,7 @@
-import os
 import logging
-from tavily import TavilyClient
+import os
+
+from monitor._stubs import TavilyClient
 
 from monitor.lib.display_output import print_colored_info
 

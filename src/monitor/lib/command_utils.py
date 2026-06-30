@@ -4,8 +4,10 @@ import logging
 try:
     from termcolor import colored
 except ImportError:
-    def colored(text, color):
-        return text
+    from typing import Any, cast
+
+    def colored(text: Any, color: Any, on_color: Any = None, attrs: Any = None, no_color: Any = None, force_color: Any = None) -> str:  # type: ignore[misc]
+        return cast(str, str(text))
 
 logger = logging.getLogger(__name__)
 

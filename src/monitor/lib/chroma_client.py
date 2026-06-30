@@ -18,7 +18,7 @@ class ChromaClientError(RuntimeError):
     """Raised when a Chroma operation cannot be completed."""
 
 
-def create_client(path: str | Path) -> chromadb.PersistentClient:
+def create_client(path: str | Path) -> Any:
     """Create a persistent Chroma client for the given database path.
 
     Args:

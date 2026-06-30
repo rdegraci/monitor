@@ -26,10 +26,10 @@ def _print_above_prompt(text):
 USER_FUNCTION_KEYS = tuple(f"f{i}" for i in range(1, 9))
 
 VOICE_TO_TEXT = None
-FUNCTION_KEY_INSERTIONS = {}
-FUNCTION_KEY_GROUPS = {}
-ACTIVE_FUNCTION_KEY_GROUP = None
-ACTIVE_FUNCTION_KEY_MAPPING = {}
+FUNCTION_KEY_INSERTIONS: dict[str, str] = {}
+FUNCTION_KEY_GROUPS: dict[str, str] = {}
+ACTIVE_FUNCTION_KEY_GROUP: str | None = None
+ACTIVE_FUNCTION_KEY_MAPPING: dict[str, str] = {}
 FUNCTION_KEY_SELECTOR_STATE = {
     "open": False,
     "preview_group": None,
@@ -321,7 +321,7 @@ def get_function_key_selector_data():
     }
 
 
-_selector_open_filter = Condition(lambda: FUNCTION_KEY_SELECTOR_STATE.get("open", False))
+_selector_open_filter = Condition(lambda: bool(FUNCTION_KEY_SELECTOR_STATE.get("open", False)))
 
 
 def _preview_pending():

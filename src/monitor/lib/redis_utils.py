@@ -837,6 +837,8 @@ def prepend_memory_to_history() -> None:
             exists, ttl = verify_ttl(key)
             if exists:
                 try:
+                    if not hasattr(client, "get"):
+                        continue
                     value = client.get(key)
                 except RedisError as e:
                     logger.warning(

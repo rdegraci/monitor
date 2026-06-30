@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor_oop.core.infrastructure.model_config_loader import ModelConfigLoader
 

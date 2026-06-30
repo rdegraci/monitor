@@ -1,12 +1,25 @@
+# mypy: ignore-errors
+from monitor.lib.science_shims import (
+    pandas as pd,
+    sklearn_ensemble,
+    sklearn_linear_model,
+    sklearn_metrics,
+    sklearn_model_selection,
+)
+
+if pd is None or sklearn_ensemble is None or sklearn_linear_model is None or sklearn_metrics is None or sklearn_model_selection is None:
+    raise ImportError("Scientific dependencies are required for modeling.py")
+
+RandomForestRegressor = sklearn_ensemble.RandomForestRegressor
+LinearRegression = sklearn_linear_model.LinearRegression
+mean_squared_error = sklearn_metrics.mean_squared_error
+train_test_split = sklearn_model_selection.train_test_split
+
+
 def train_model(file_path, model_type='random_forest', target_column=''):
     """
     Train a machine learning model using specified parameters.
     """
-    import pandas as pd
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.linear_model import LinearRegression
-    from sklearn.metrics import mean_squared_error
 
     try:
         # Load dataset

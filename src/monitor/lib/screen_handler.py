@@ -432,7 +432,10 @@ class ScreenHandler:
 
         # Update per-instance sessions index to include this new session.
         try:
-            self.add_session_to_index(session_name, meta_path=str(meta_path), created_at=meta["created_at"])
+            created_at = meta.get("created_at")
+            if not isinstance(created_at, str):
+                created_at = None
+            self.add_session_to_index(session_name, meta_path=str(meta_path), created_at=created_at)
         except Exception:
             logger.exception("Failed adding session %s to sessions index %s", session_name, str(self.sessions_file))
 
@@ -701,8 +704,10 @@ class ScreenHandler:
                 state = "unknown"
                 try:
                     meta = self.session_metadata(name)
-                    if meta and "socket_path" in meta and meta["socket_path"]:
-                        sock_path = meta["socket_path"]
+                    if meta and "socket_path" in meta:
+                        sock_path = meta.get("socket_path")
+                        if not isinstance(sock_path, str) or not sock_path:
+                            continue
                         # Try to connect to the UNIX socket and read a single JSON response
                         try:
                             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
@@ -888,6 +893,8 @@ class ScreenHandler:
         live_idx = 0
         for entry in entries:
             sess_name = entry.get("session_name")
+            if not isinstance(sess_name, str):
+                continue
             created_at = entry.get("created_at")
             meta_path = entry.get("meta_path")
 

@@ -1,6 +1,7 @@
 import logging
 import os
-import requests
+
+from monitor._stubs import requests
 
 from monitor import config
 logger = logging.getLogger(__name__)

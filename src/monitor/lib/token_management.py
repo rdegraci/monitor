@@ -121,12 +121,12 @@ def set_last_request_token_usage(last_used_tokens: int, used_estimate: bool) -> 
         from monitor import config  # For safe circular import resolution
 
         if not hasattr(config, "LAST_REQUEST_TOKEN_COUNT"):
-            config.LAST_REQUEST_TOKEN_COUNT = None
+            setattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
         if not hasattr(config, "LAST_REQUEST_USED_ESTIMATE"):
-            config.LAST_REQUEST_USED_ESTIMATE = False
+            setattr(config, "LAST_REQUEST_USED_ESTIMATE", False)
 
-        config.LAST_REQUEST_TOKEN_COUNT = int(last_used_tokens)
-        config.LAST_REQUEST_USED_ESTIMATE = bool(used_estimate)
+        setattr(config, "LAST_REQUEST_TOKEN_COUNT", int(last_used_tokens))
+        setattr(config, "LAST_REQUEST_USED_ESTIMATE", bool(used_estimate))
     except Exception as e:
         logger.error(f"Error setting last request token usage: {str(e)}", exc_info=True)
 
@@ -145,11 +145,11 @@ def get_last_request_token_usage() -> tuple[int | None, bool]:
         from monitor import config  # For safe circular import resolution
 
         if not hasattr(config, "LAST_REQUEST_TOKEN_COUNT"):
-            config.LAST_REQUEST_TOKEN_COUNT = None
+            setattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
         if not hasattr(config, "LAST_REQUEST_USED_ESTIMATE"):
-            config.LAST_REQUEST_USED_ESTIMATE = False
+            setattr(config, "LAST_REQUEST_USED_ESTIMATE", False)
 
-        return config.LAST_REQUEST_TOKEN_COUNT, bool(config.LAST_REQUEST_USED_ESTIMATE)
+        return getattr(config, "LAST_REQUEST_TOKEN_COUNT"), bool(getattr(config, "LAST_REQUEST_USED_ESTIMATE"))
     except Exception as e:
         logger.error(f"Error getting last request token usage: {str(e)}", exc_info=True)
         return None, False

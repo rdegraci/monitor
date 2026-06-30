@@ -127,6 +127,8 @@ class AgentListener:
     def _accept_loop(self) -> None:
         while self._running:
             try:
+                if self._srv is None:
+                    break
                 conn, _ = self._srv.accept()
             except OSError:
                 break  # server socket closed by stop()

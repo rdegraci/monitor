@@ -61,7 +61,7 @@ from monitor.lib.todo import (
     update_todo,
 )
 
-TOOL_STATE = {}
+TOOL_STATE: dict[str, bool] = {}
 
 # Callable registry keyed by tool name. Entries here are executable
 # implementations; separate description catalogs control which tools are

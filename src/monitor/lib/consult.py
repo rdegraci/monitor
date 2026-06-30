@@ -11,7 +11,7 @@ from typing import List, Dict, Optional, Tuple
 import os
 import webbrowser
 import re
-from graphviz import Source
+from monitor.lib.third_party_shims import Source
 
 
 class Consult:

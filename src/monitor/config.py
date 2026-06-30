@@ -6,12 +6,14 @@
 # Environment variable assignments (os.environ, etc.) are not IO and do not need exception wrapping.
 # The intent: All config file IO errors are logged and detected immediately, never silently handled or ignored.
 
-import yaml
+from __future__ import annotations
+
 import os
+
+from monitor._stubs import appdirs, yaml
 import time
 import logging
 import json
-from monitor._stubs import appdirs
 import importlib.resources
 import uuid
 import shutil
@@ -491,7 +493,7 @@ MEMORY_CONTEXT_MAX_ENTRIES = 20
 SUBAGENT_MEMORY_SERVICES = False
 STARTUP_TIME = None
 HISTORY_FILE = None
-CONVERSATION_HISTORY = []
+CONVERSATION_HISTORY: list = []
 MAX_TOKEN_COUNT = None
 OLD_MAX_TOKEN_COUNT = None
 MACRO_DELIMITER_OPEN = None
@@ -570,7 +572,7 @@ TWITCH_CLIENT_API = None
 LINKEDIN_CLIENT_API = None
 DEFAULT_EXCLUDE_EXTENSIONS = None
 DEFAULT_EXCLUDE_GLOBS = None
-FUNCTION_KEY_INSERTIONS = {}
+FUNCTION_KEY_INSERTIONS: dict[str, str] = {}
 # Cost-display feature. SHOW_COST_ESTIMATE is read from config.yaml
 # (default True if absent). SESSION_COST_USD accumulates the litellm-reported
 # cost of each LLM response in this session; it resets to 0 on set_model().
@@ -595,7 +597,7 @@ SESSION_COST_USD = 0.0
 # reasoning multiplier, folding in single-turn upgrades the steady
 # REASONING_EFFORT does not. Cleared on :reset_history (new session); persists
 # across model switches since it is already keyed per model.
-SESSION_CALIBRATION_BY_MODEL = {}
+SESSION_CALIBRATION_BY_MODEL: dict[str, dict[str, float | int]] = {}
 # F: fuel-tank gauge — a per-session cumulative-token budget, the draining
 # counterpart to U:. Rendered before C: as F: = budget - SESSION_TOTAL_TOKENS,
 # shown as the exact remaining token count plus percent. Unlike C: (a refillable
@@ -683,7 +685,7 @@ CURRENT_TURN_IS_COLLATION = False
 # short-lived leases at query-prep time, widened for explicit intents on the
 # current turn, then consumed by tool-catalog filtering. Cleared/reset on the
 # next user turn, :reset_history, and set_model().
-CURRENT_TURN_TOOL_GROUPS = set()
+CURRENT_TURN_TOOL_GROUPS: set[str] = set()
 # Base static tool profile advertised to the model on normal turns. The runtime
 # :tools command changes this without editing config.yaml.
 TOOL_PROFILE = "coding"
@@ -699,14 +701,14 @@ TOOL_PROFILE_AUTO_WIDEN_REFRESH_ON_USE = True
 # Cap on simultaneously leased temporary groups. 0 disables the cap.
 TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS = 2
 # Optional per-group future-turn lease overrides, keyed by internal group name.
-TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP = {}
+TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP: dict[str, int] = {}
 # Optional internal group names that should never auto-widen from user intent.
-TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS = []
+TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS: list = []
 # Whether to print notices when temporary tool groups are widened/expired.
 SHOW_TOOL_PROFILE_NOTICES = True
 # Temporary leased widen groups that remain active for upcoming turns. Mapping
 # of internal group name -> remaining FUTURE user turns.
-TOOL_PROFILE_GROUP_LEASES = {}
+TOOL_PROFILE_GROUP_LEASES: dict[str, int] = {}
 # Error-driven reasoning escalation. When True, a tool result that looks like a
 # failure (test/build/lint error, traceback, non-zero exit) escalates
 # reasoning_effort to "high" for the remainder of that user turn — so the model
@@ -730,19 +732,19 @@ COST_W_RED = 0.60
 # returns 0 for an unknown model. Populated from the YAML ``model_pricing:``
 # block at startup; keyed by full model name; values are per-token rate dicts.
 # See lib/model_pricing.py for the lookup precedence (override > shipped).
-MODEL_PRICING_OVERRIDES = {}
+MODEL_PRICING_OVERRIDES: dict[str, dict[str, float]] = {}
 # Per-turn cost ledger. Each entry is the accumulated USD cost for one
 # user-message-bounded turn. A new 0.0 is appended each time the harness
 # observes a fresh user message; all LLM calls between user messages
 # (including tool-call rounds) add into the LAST entry. Used by the U:
 # indicator to show "last 10 turns" and "last turn" alongside the
 # cumulative session total. Resets on set_model() and :reset_history.
-TURN_COSTS_USD = []
+TURN_COSTS_USD: list[float] = []
 # Per-turn round-trip ledger, parallel to TURN_COSTS_USD: one entry per turn
 # (a bucket opens on each user message), incremented on every LLM completion in
 # that turn. RT: in the prompt reads the last entry — how many model round-trips
 # the previous turn took. Resets on set_model() and :reset_history.
-TURN_ROUND_TRIPS = []
+TURN_ROUND_TRIPS: list[int] = []
 # How many recent turns to roll up for the middle dollar value in the U:
 # indicator. 10 captures recent-trajectory context (was this a brief flurry
 # or sustained spend?) without leaking back so far that the number looks
@@ -767,7 +769,7 @@ AUTO_COMPACT_THRESHOLD_RATIO = 0.30
 # above. Lets a model with an absolute cost cliff (e.g. gpt-5.4 base's 128K
 # long-context tier) compact at a lower fraction than the global default without
 # over-compacting other models. Resolved via effective_auto_compact_ratio().
-AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL = {}
+AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL: dict[str, float] = {}
 
 
 def effective_auto_compact_ratio(model=None):
@@ -2163,6 +2165,7 @@ def set_model(model_key: str) -> bool:
     SESSION_LOOP_DETECTOR_TRIPS = 0
     TURN_COSTS_USD = []
     TURN_ROUND_TRIPS = []
+    globals()["RESPONSE_ID"] = None
     CURRENT_TURN_REASONING_OVERRIDE = None
     CURRENT_TURN_IS_COLLATION = False
     CURRENT_TURN_TOOL_GROUPS = set()
@@ -2185,7 +2188,7 @@ def set_model(model_key: str) -> bool:
     # S1: clear the Responses API previous_response_id. Response IDs are
     # session-scoped to the model that produced them; reusing a prior-model
     # ID against the new model's API will be rejected by the provider.
-    RESPONSE_ID = None
+    globals()["RESPONSE_ID"] = None
 
     # S2: refresh the tool catalog. configure_tools() chooses between the
     # anthropic and openai editor tool sets based on the active model; a

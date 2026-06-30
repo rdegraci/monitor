@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-import appdirs
+from monitor._stubs import appdirs
 
 from monitor_oop.core.infrastructure import env_loader as env_loader_module
 from monitor_oop.core.infrastructure.env_loader import EnvLoader

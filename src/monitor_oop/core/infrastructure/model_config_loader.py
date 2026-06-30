@@ -1,7 +1,7 @@
 """Model configuration loading for Monitor OOP."""
 from __future__ import annotations
 
-import appdirs
+from monitor._stubs import appdirs
 import json
 import logging
 from dataclasses import dataclass

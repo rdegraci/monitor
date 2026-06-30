@@ -509,7 +509,10 @@ class MonitorTUI:
 
         try:
             fut = run_in_terminal(work)
-            fut.add_done_callback(done)
+            if hasattr(fut, "add_done_callback"):
+                fut.add_done_callback(done)
+            else:
+                done(fut)
         except Exception:
             # Degrade gracefully rather than corrupt the screen.
             logger.exception("run_in_terminal failed")

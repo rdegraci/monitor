@@ -1,13 +1,11 @@
-import logging
-import litellm
-import requests
 import json
+import logging
 import os
 
+import litellm
+from monitor.lib.pygments_stubs import BashLexer, DiffLexer, MarkdownLexer, SwiftLexer, TerminalFormatter, highlight
 
-from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer, SwiftLexer
-from pygments.formatters import TerminalFormatter
+from monitor._stubs import requests
 
 from monitor.lib.colors import red, yellow, blue, reset
 
@@ -19,7 +17,7 @@ DEFAULT_HTTP_TIMEOUT = 30
 
 ARTIFACT_SERVER=None
 JOKES_FILE=None
-JOKES = []
+JOKES: list[str] = []
 TWITTER_CLIENT_API=None
 TWITCH_CLIENT_API=None
 LINKEDIN_CLIENT_API=None

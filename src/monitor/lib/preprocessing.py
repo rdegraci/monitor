@@ -1,5 +1,7 @@
-import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from monitor.lib.science_shims import pandas as pd, sklearn_preprocessing
+
+MinMaxScaler = sklearn_preprocessing.MinMaxScaler
+StandardScaler = sklearn_preprocessing.StandardScaler
 
 
 def clean_missing_values(file_path, fill_value=0):

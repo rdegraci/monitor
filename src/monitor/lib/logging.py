@@ -51,7 +51,7 @@ DEFAULT_LOGGING = {
 
 # Ensure file_path exists in DEFAULT_LOGGING to avoid KeyError in _load_logging_config.
 DEFAULT_LOGGING['file_path'] = os.path.join(
-    DEFAULT_LOGGING['log_dir'], DEFAULT_LOGGING['app_log_filename']
+    str(DEFAULT_LOGGING['log_dir']), str(DEFAULT_LOGGING['app_log_filename'])
 )
 
 

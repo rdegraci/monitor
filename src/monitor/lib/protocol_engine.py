@@ -11,9 +11,7 @@ import threading
 import time
 
 from colored import attr, fg
-from pygments import highlight
-from pygments.formatters import TerminalFormatter
-from pygments.lexers import BashLexer, DiffLexer, MarkdownLexer
+from monitor.lib.pygments_stubs import BashLexer, DiffLexer, MarkdownLexer, TerminalFormatter, highlight
 
 from monitor import config
 from monitor.lib import rate_limiter
@@ -72,7 +70,7 @@ red = fg("red")
 yellow = fg("yellow")
 reset = attr("reset")
 
-MESSAGE_HISTORY = []
+MESSAGE_HISTORY: list = []
 
 # H-pe2: serializes modify_source_code / stream_code invocations because they
 # share the module-level ENGINE singleton (chunks, message_history, source_file,
@@ -553,7 +551,7 @@ class ProtocolEngine:
           - C-style block: /* ... */
           - HTML comments: <!-- ... -->
         """
-        comments = []
+        comments: list = []
         if not text:
             return comments
 
@@ -1140,9 +1138,9 @@ def _try_perform_git_diff_file(path: str):
     try:
         from monitor.lib.git import perform_git_diff_file
     except Exception:
-        perform_git_diff_file = None
+        perform_git_diff_file = None  # type: ignore[assignment]
 
-    if not perform_git_diff_file:
+    if perform_git_diff_file is None:
         return None, "perform_git_diff_file not available"
 
     try:
@@ -1304,7 +1302,7 @@ def modify_source_code(source_file: str, modification_request: str, print_func=p
             return msg
 
 
-def _modify_source_code_locked(source_file: str, modification_request: str, print_func=print) -> str:
+def _modify_source_code_locked(source_file: str, modification_request: str, print_func=print):
     model = _configure_protocol_engine_turn_model() or config.MODEL
     logger.debug(
         "modify_source_code called: file=%s, req-length=%d, model=%s",
@@ -1312,7 +1310,8 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
         len(modification_request) if modification_request else 0,
         model,
     )
-    ENGINE.reset_state()
+    if ENGINE is not None:
+        ENGINE.reset_state()
 
     # Hard size guard. Refuse files larger than MAX_SOURCE_FILE_BYTES rather
     # than loading them into memory and kicking off an enormous chunked edit;
@@ -1357,6 +1356,8 @@ def _modify_source_code_locked(source_file: str, modification_request: str, prin
         logger.error("Error reading file %s: %s", source_file, str(e))
         return {"ok": False, "file": source_file, "error": f"Error reading file {source_file}: {str(e)}"}
     try:
+        if ENGINE is None:
+            return {"ok": False, "file": source_file, "error": "Engine is unavailable."}
         modified_script = ENGINE.fetch_modified_script(
             script_content=source_content,
             modification_request=modification_request,

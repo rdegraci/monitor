@@ -36,14 +36,14 @@ def _play_windows_sound() -> bool:
         )
         for alias in aliases:
             try:
-                winsound.PlaySound(alias, winsound.SND_ALIAS | winsound.SND_ASYNC)
+                winsound.PlaySound(alias, winsound.SND_ALIAS | winsound.SND_ASYNC)  # type: ignore[attr-defined]
                 logger.debug("_play_windows_sound: played alias %s", alias)
                 return True
             except Exception as exc:
                 logger.debug("_play_windows_sound: alias %s failed: %s", alias, exc)
 
         try:
-            winsound.Beep(800, 200)
+            winsound.Beep(800, 200)  # type: ignore[attr-defined]
             logger.debug("_play_windows_sound: used winsound.Beep as fallback")
             return True
         except Exception as exc:

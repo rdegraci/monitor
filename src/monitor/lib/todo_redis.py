@@ -2,6 +2,7 @@ import json
 import logging
 from threading import Lock
 from typing import Any, Dict, List
+
 from .redis_utils import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 TODO_KEY_FORMAT = "todo:{session_id}:coding_task"
 TASK_CONTEXT_KEY_FORMAT = "todo:{session_id}:coding_task_context"
 TODO_TTL = 28800  # 8 hours — single source of truth for todo expiry
-_TODO_MEMORY_STORE = {}
+_TODO_MEMORY_STORE: dict[str, str] = {}
 _TODO_MEMORY_LOCK = Lock()
 
 
@@ -29,7 +30,8 @@ def save_todo_to_memory(session_id: str, todos: List[Dict], ttl: int = TODO_TTL)
     except Exception as e:
         logger.error("Failed to serialize todos for session_id=%s: %s", session_id, e)
         return
-    client.setex(key, ttl, payload)
+    if hasattr(client, "setex"):
+        client.setex(key, ttl, payload)
 
 
 def read_todo_from_memory(session_id: str) -> List[Dict]:
@@ -51,6 +53,8 @@ def read_todo_from_memory(session_id: str) -> List[Dict]:
                 "Malformed in-memory todo data for session_id=%s: %s", session_id, e
             )
             return []
+    if not hasattr(client, "get"):
+        return []
     data = client.get(key)
     if not data:
         return []
@@ -75,7 +79,8 @@ def clear_todo_from_memory(session_id: str):
         with _TODO_MEMORY_LOCK:
             _TODO_MEMORY_STORE.pop(key, None)
         return
-    client.delete(key)
+    if hasattr(client, "delete"):
+        client.delete(key)
 
 
 def save_task_context_to_memory(session_id: str, context: Dict[str, Any], ttl: int = TODO_TTL):
@@ -95,7 +100,8 @@ def save_task_context_to_memory(session_id: str, context: Dict[str, Any], ttl: i
     except Exception as e:
         logger.error("Failed to serialize task context for session_id=%s: %s", session_id, e)
         return
-    client.setex(key, ttl, payload)
+    if hasattr(client, "setex"):
+        client.setex(key, ttl, payload)
 
 
 def read_task_context_from_memory(session_id: str) -> Dict[str, Any]:
@@ -118,6 +124,8 @@ def read_task_context_from_memory(session_id: str) -> Dict[str, Any]:
                 "Malformed in-memory task context for session_id=%s: %s", session_id, e
             )
             return {}
+    if not hasattr(client, "get"):
+        return {}
     data = client.get(key)
     if not data:
         return {}
@@ -142,4 +150,5 @@ def clear_task_context_from_memory(session_id: str):
         with _TODO_MEMORY_LOCK:
             _TODO_MEMORY_STORE.pop(key, None)
         return
-    client.delete(key)
+    if hasattr(client, "delete"):
+        client.delete(key)

@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import appdirs
+from monitor._stubs import appdirs
 from prompt_toolkit.history import FileHistory
 
 from monitor_oop.core.command_processor import CommandProcessor

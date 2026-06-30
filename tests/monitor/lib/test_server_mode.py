@@ -1,5 +1,5 @@
 import time
-import requests
+from monitor._stubs import requests
 import os
 import signal
 import socket

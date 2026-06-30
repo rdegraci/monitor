@@ -44,19 +44,17 @@ except Exception:
     # we gracefully disable this enhanced detection and continue to use
     # mimetypes as a portable fallback.
     HAVE_MAGIC = False
-    MAGIC_MODULE = None
+    MAGIC_MODULE = None  # type: ignore[assignment]
 
 from monitor.lib.colors import print_yellow, print_blue, print_red, yellow, blue, red, reset
 
-from pygments import highlight
-from pygments.lexers import BashLexer, MarkdownLexer, DiffLexer
-from pygments.formatters import TerminalFormatter
+from monitor.lib.pygments_stubs import BashLexer, DiffLexer, MarkdownLexer, TerminalFormatter, highlight
 
 from monitor.lib.file_io import file_exists, read_file, write_file, create_file as fileio_create_file, delete_file, list_directory
 
 logger = logging.getLogger(__name__)
 
-def list_directory_contents(path: str = None):
+def list_directory_contents(path: str | None = None):
     """
     List the contents of a directory.
 
@@ -463,14 +461,17 @@ def run_file_type(path: str):
             # Fallback: use Python's mimetypes and pathlib to guess the mime type.
             # This is less accurate than 'file' or python-magic, but portable across platforms.
             try:
-                mime_type, encoding = mimetypes.guess_type(path)
-                if not mime_type:
+                guessed_type, encoding = mimetypes.guess_type(path)
+                mime_type = guessed_type  # type: ignore[assignment]
+                if mime_type is None:
                     # Attempt to infer from extension or default to binary stream
                     ext = Path(path).suffix.lower()
                     if ext:
                         # Let mimetypes try registry again; otherwise default
-                        mime_type = mimetypes.types_map.get(ext, None)
-                    if not mime_type:
+                        guessed_type = mimetypes.types_map.get(ext, None)
+                        if isinstance(guessed_type, str):
+                            mime_type = guessed_type  # type: ignore[assignment]
+                    if mime_type is None:
                         mime_type = "application/octet-stream"
                 logger.debug("Guessed mime type for %s: %s (encoding: %s)", path, mime_type, encoding)
                 return json.dumps({

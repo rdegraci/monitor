@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import appdirs
+from monitor._stubs import appdirs, yaml
 import pytest
-import yaml
 
 from monitor_oop.core.infrastructure import config_loader as config_loader_module
 from monitor_oop.core.infrastructure.config_loader import ConfigLoader

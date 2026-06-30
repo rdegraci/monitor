@@ -1,7 +1,15 @@
+from __future__ import annotations
+
+import threading
+from typing import Any
+
+from monitor._stubs import np, pyaudio, whisper
+
+
 class VoiceToText:
     """Encapsulates Whisper STT and microphone recording for press-to-record workflows."""
 
-    def __init__(self, model_name="base", rate=16000, channels=1, chunk=1024):
+    def __init__(self, model_name: str = "base", rate: int = 16_000, channels: int = 1, chunk: int = 1_024):
         """
         Initialize Whisper model and PyAudio parameters.
 
@@ -46,12 +54,7 @@ class VoiceToText:
         """
         print("Initializing whisper/pyaudio")
 
-        import whisper
-        import pyaudio
-        import numpy as np
-        import threading
-
-        self.model = whisper.load_model(model_name)
+        self.model = whisper.load_model(self.model_name)
 
         if self._recording:
             print("Already recording.")

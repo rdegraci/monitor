@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-import appdirs
+from monitor._stubs import appdirs
 import pytest
 
 from monitor_oop.core.infrastructure.model_config_path_service import (

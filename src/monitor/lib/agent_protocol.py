@@ -207,9 +207,13 @@ def sanitize_usage(usage: Any) -> Optional[Dict[str, Any]]:
     model = usage.get("model")
     if not isinstance(model, str) or not model:
         return None
+    cost_value = usage.get("cost_usd")
+    token_value = usage.get("total_tokens")
+    if cost_value is None or token_value is None:
+        return None
     try:
-        cost = float(usage.get("cost_usd"))
-        tokens = int(usage.get("total_tokens"))
+        cost = float(cost_value)
+        tokens = int(token_value)
     except (TypeError, ValueError):
         return None
     if cost < 0 or tokens < 0:

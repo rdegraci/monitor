@@ -1,5 +1,4 @@
-import joblib
-import requests
+from monitor._stubs import joblib, requests
 
 
 def deploy_model(model_path, endpoint_url, deployment_platform):
