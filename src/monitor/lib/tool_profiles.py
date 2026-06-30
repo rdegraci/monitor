@@ -48,6 +48,7 @@ TOOL_GROUPS = {
         "save_task_checkpoint",
         "record_task_scope_change",
     },
+
     EDIT_GROUP: {
         "modify_source_code",
         "create_file",
@@ -134,7 +135,19 @@ _PROFILE_INTENT_PATTERNS = {
         re.compile(r"\bpatch\b", re.IGNORECASE),
         re.compile(r"\brefactor\b", re.IGNORECASE),
         re.compile(r"\brename\b", re.IGNORECASE),
+        re.compile(r"\bmake the change\b", re.IGNORECASE),
+        re.compile(r"\bpatch the file\b", re.IGNORECASE),
+        re.compile(r"\brefactor this\b", re.IGNORECASE),
+        re.compile(r"\brename the symbol\b", re.IGNORECASE),
+        re.compile(r"\bimplement x\b", re.IGNORECASE),
         re.compile(r"\bchange\b.{0,24}\b(?:code|function|file|implementation)\b", re.IGNORECASE | re.DOTALL),
+    ),
+    TASK_GROUP: (
+        re.compile(r"\bmake a todo\b", re.IGNORECASE),
+        re.compile(r"\badd a todo\b", re.IGNORECASE),
+        re.compile(r"\btrack this work\b", re.IGNORECASE),
+        re.compile(r"\bset acceptance criteria\b", re.IGNORECASE),
+        re.compile(r"\bcreate a plan\b", re.IGNORECASE),
     ),
 }
 
@@ -163,14 +176,25 @@ _EXPLICIT_GROUP_PATTERNS = {
     ),
     MEMORY_GROUP: (
         re.compile(r"\bremember this\b", re.IGNORECASE),
+        re.compile(r"\bremember to\b", re.IGNORECASE),
+        re.compile(r"\bremember my\b", re.IGNORECASE),
+        re.compile(r"\bremember our\b", re.IGNORECASE),
         re.compile(r"\bwhat do you remember\b", re.IGNORECASE),
+        re.compile(r"\bwhat do you recall\b", re.IGNORECASE),
+        re.compile(r"\bremember that\b", re.IGNORECASE),
         re.compile(r"\bforget this\b", re.IGNORECASE),
+        re.compile(r"\bforget that\b", re.IGNORECASE),
+        re.compile(r"\bforget my\b", re.IGNORECASE),
+        re.compile(r"\bforget our\b", re.IGNORECASE),
         re.compile(r"\bmemory tool\b", re.IGNORECASE),
     ),
     AGENT_GROUP: (
         re.compile(r"\bsub-?agent\b", re.IGNORECASE),
         re.compile(r"\bspawn an? agent\b", re.IGNORECASE),
         re.compile(r"\borchestrate\b", re.IGNORECASE),
+        re.compile(r"\buse an agent\b", re.IGNORECASE),
+        re.compile(r"\bsend to another agent\b", re.IGNORECASE),
+        re.compile(r"\bcoordinate agents\b", re.IGNORECASE),
         re.compile(r"\bagent_(?:create|send|gather|list|kill)\b", re.IGNORECASE),
     ),
 }
