@@ -22,6 +22,7 @@ from monitor.lib.built_in_commands import (
     linkedin_summary_command,
     open_preferences_command,
     print_tools_command,
+    sessions_command,
     reset_conversation_history_command,
     twitch_summary_command,
     edit_macros_command,
@@ -393,6 +394,11 @@ def configure_built_ins() -> None:
                     "command": "tools",
                     "function": _make_callable(print_tools_command),
                     "description": "Show or set the tool profile (:tools, :tools list, :tools coding, :tools catalog).",
+                },
+                {
+                    "command": "sessions",
+                    "function": _make_callable(sessions_command),
+                    "description": "Print the five most recent session folder paths.",
                 },
                 {
                     "command": "settings",

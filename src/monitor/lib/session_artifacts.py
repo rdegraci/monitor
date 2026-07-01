@@ -201,6 +201,21 @@ def list_session_folders() -> list[Path]:
     return sorted(folders)
 
 
+def list_most_recent_session_folders(limit: int = 5) -> list[Path]:
+    """Return the most recent session folders newest-first.
+
+    Args:
+        limit: Maximum number of folders to return.
+
+    Returns:
+        A list of the newest session folders, capped at ``limit``.
+    """
+    folders = list_session_folders()
+    if not folders:
+        return []
+    return list(reversed(folders[-limit:]))
+
+
 def get_most_recent_session_folder() -> Path | None:
     """Return the newest session folder by lexicographic sort.
 

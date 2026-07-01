@@ -33,6 +33,7 @@ from monitor.lib.built_ins_external_utils import (
     monitor_model_performance_command,
     twitch_summary_command,
 )
+from monitor.lib.session_artifacts import get_sessions_root, list_most_recent_session_folders
 from monitor.lib.built_ins_history_utils import (
     _format_elapsed,
     cost_debug_command,
@@ -114,6 +115,29 @@ _SUPPORTED_WIKI_FIX_KINDS = {
     "semantic_stale_workflow_claim",
     "semantic_stale_ownership_claim",
 }
+
+
+def sessions_command(arg=None):
+    """Print the five most recent session folder paths.
+
+    Args:
+        arg: Optional dispatcher argument.
+
+    Returns:
+        None.
+    """
+    if arg is not None and str(arg).strip() in {"help", "?", "-h", "--help"}:
+        print("Print the five most recent session folder paths.")
+        print("Usage: : (or /) sessions")
+        return
+
+    root = get_sessions_root()
+    folders = list_most_recent_session_folders(limit=5)
+    if not folders:
+        print(f"No session folders found under {root}")
+        return
+    for folder in folders:
+        print(str(folder.resolve()))
 
 
 def print_tools_command(arg=None):

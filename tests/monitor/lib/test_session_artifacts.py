@@ -56,3 +56,27 @@ def test_get_most_recent_session_folder_returns_latest(tmp_path, monkeypatch) ->
     newer.mkdir()
     monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
     assert session_artifacts.get_most_recent_session_folder() == newer
+
+
+def test_list_most_recent_session_folders_returns_limit_and_order(tmp_path, monkeypatch) -> None:
+    """Verify recent session folders are returned newest-first and capped."""
+    root = tmp_path / "sessions"
+    root.mkdir()
+    for name in [
+        "20260101_12_34_a",
+        "20260102_12_34_b",
+        "20260103_12_34_c",
+        "20260104_12_34_d",
+        "20260105_12_34_e",
+        "20260106_12_34_f",
+    ]:
+        (root / name).mkdir()
+    monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
+    folders = session_artifacts.list_most_recent_session_folders(limit=5)
+    assert folders == [
+        root / "20260106_12_34_f",
+        root / "20260105_12_34_e",
+        root / "20260104_12_34_d",
+        root / "20260103_12_34_c",
+        root / "20260102_12_34_b",
+    ]

@@ -31,7 +31,7 @@ from monitor.lib.os import (
 )
 
 from monitor.lib.db_storage import execute_duckdb, execute_psql, execute_mc
-from monitor.lib.built_in_commands import deploy_model_command, monitor_model_performance_command
+from monitor.lib.built_in_commands import deploy_model_command, monitor_model_performance_command, sessions_command
 
 from monitor.lib.text_file_editor import (
     text_file_or_directory_view,
@@ -95,6 +95,7 @@ AVAILABLE_TOOLS = {
     "evaluate_model": evaluate_model,
     "deploy_model": deploy_model_command,
     "monitor_model_performance": monitor_model_performance_command,
+    "sessions": sessions_command,
     "modify_source_code": modify_source_code,
     "find_files": find_files,
     "run_python_tests": run_python_tests,
