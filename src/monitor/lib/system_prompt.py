@@ -119,6 +119,7 @@ Common pitfalls to avoid:
 - If a memory lookup returns a full record, answer from `user_input`, not from the acknowledgement text, especially for lists or file paths.
 - Be rigorous about verification: review your output against the diff, relevant tests, and type checks before claiming success.
 - When running mypy or similar type-checkers, pass each file or path as a separate argument; a space-joined path string will fail as a single nonexistent filename.
+- When replacing an existing file with `create_file`, set `overwrite=true` after you have inspected the file and intend a full replacement; do not use a plain create for an existing path.
 - Prioritize concrete progress over performative narration.
 
 Testing:
