@@ -16,7 +16,7 @@ from monitor.lib.model_pricing import (
 )
 from monitor import config
 from monitor.lib.display_output import print_colored_error
-from monitor.lib.session_artifacts import append_log_entry, ensure_session_folder, write_contract, write_feature_list, write_progress_note
+from monitor.lib.session_artifacts import ensure_session_folder
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 
 logger = logging.getLogger(__name__)
@@ -46,11 +46,7 @@ def reset_conversation_history_command(arg: Any | None = None) -> None:
         )
         session_id = str(getattr(config, "SESSION_ID", "session") or "session")
         timestamp_prefix = getattr(config, "STARTUP_TIME", None) or time.strftime("%Y%m%d_%H_%M")
-        paths = ensure_session_folder(timestamp_prefix, session_id)
-        write_feature_list(paths, {"session_id": session_id, "items": []})
-        write_progress_note(paths, "# Progress\n\n- Session started.\n")
-        write_contract(paths, "# Contract\n\n- Session started.\n")
-        append_log_entry(paths, "start", "session started")
+        ensure_session_folder(timestamp_prefix, session_id)
         config.TOTAL_TOKEN_COUNT = 0
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
