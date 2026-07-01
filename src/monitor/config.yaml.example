@@ -4,6 +4,7 @@ MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/res
 MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
+SESSIONS_FOLDER: sessions  # Root folder name under the Monitor user config directory for session artifacts
 
 # Optional more-capable model to swap in for a single turn when the reasoning
 # auto-bump fires (see REASONING_MODEL_PREFIX and ESCALATE_REASONING_ON_TOOL_FAILURE).

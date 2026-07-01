@@ -44,6 +44,7 @@ from monitor.lib.ripgrep_search import configure_rip_grep
 logger = logging.getLogger(__name__)
 
 PENDING_LLM_PREFIXES: list[str] = []
+SESSIONS_FOLDER = "sessions"
 
 
 def enqueue_next_llm_prefix(prefix: str) -> None:
@@ -909,7 +910,7 @@ def configure_globals():
     global MONITOR_AGENT_MAX_BREADTH, MONITOR_AGENT_MAX_TOTAL, MONITOR_AGENT_HEARTBEAT_TIMEOUT
     global MONITOR_AGENT_IDLE_TIMEOUT
     global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE, TOOL_OUTPUT_TOKEN_LIMIT
-    global CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES
+    global CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES, SESSIONS_FOLDER
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -1272,6 +1273,7 @@ def configure_globals():
         logger.warning("Invalid EMBEDCODESERV_TIMEOUT value %r; defaulting to 90", raw_timeout)
         EMBEDCODESERV_TIMEOUT = 90
     ENABLE_AUTO_SUMMARIZE_ON_LIMIT = yaml_config.get("ENABLE_AUTO_SUMMARIZE_ON_LIMIT")
+    SESSIONS_FOLDER = yaml_config.get("SESSIONS_FOLDER", SESSIONS_FOLDER)
 
     # Override the soft auto-compaction threshold from YAML if provided. Clamp
     # to (0, 1] to keep the trigger sane — 0 or negative would compact on

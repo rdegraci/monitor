@@ -1,8 +1,10 @@
-import os
-import shutil
-from monitor._stubs import appdirs
 import importlib.resources
 import importlib.util
+import os
+import shutil
+from pathlib import Path
+
+from monitor._stubs import appdirs
 
 from .app import main as app_main
 
@@ -18,8 +20,10 @@ def ensure_user_config_file(src_filename, dest_filename):
         print(f"Copied default {src_filename} to {dest}")
 
 def main():
-    ensure_user_config_file("config.yaml.example","config.yaml")
-    ensure_user_config_file("macros.json","macros.json")
+    ensure_user_config_file("config.yaml.example", "config.yaml")
+    sessions_root = Path(appdirs.user_config_dir("monitor")) / "sessions"
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    ensure_user_config_file("macros.json", "macros.json")
     ensure_user_config_file("preferences.prompt","preferences.prompt")
     ensure_user_config_file("model_config.json", "model_config.json")
     ensure_user_config_file("non_interactive_commands.json", "non_interactive_commands.json")

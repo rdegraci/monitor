@@ -115,6 +115,11 @@ Common pitfalls to avoid:
 - Don't write tests just to bump coverage; a useless test is worse than no test because it pins implementation details.
 - Don't claim a fix is complete based on the audit description alone; verify the code matches the claim before reporting done.
 - When the same fix applies to multiple locations, surface all of them — don't fix one and leave the others.
+- When reading memory, treat the stored `user_input` as the source of truth for what was remembered; the `response` field is only the acknowledgement.
+- If a memory lookup returns a full record, answer from `user_input`, not from the acknowledgement text, especially for lists or file paths.
+- Be rigorous about verification: review your output against the diff, relevant tests, and type checks before claiming success.
+- When running mypy or similar type-checkers, pass each file or path as a separate argument; a space-joined path string will fail as a single nonexistent filename.
+- Prioritize concrete progress over performative narration.
 
 Testing:
 - Test public APIs and observable outcomes — never internals, private helpers, or exact internal call order.
@@ -440,6 +445,9 @@ def build_system_prompt(session_id=None):
     if session_id is not None:
         parts.append(f"\nSession ID: {session_id}\n")
     return "".join(parts)
+
+
+# Session-artifact guidance is documented in docs/cache/DEV-SESSIONS.md for now.
 
 
 def build_user_prompt_prefix():
