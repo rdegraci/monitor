@@ -30,6 +30,7 @@ from monitor.lib.monitor_wiki import (
     ensure_configured_project_wiki,
     has_substantive_configured_project_wiki,
 )
+from monitor.lib.session_artifacts import get_session_folder_path
 
 
 # Per-project override of the runtime prompt files. Captured once at startup
@@ -410,7 +411,7 @@ def _project_wiki_prompt_block() -> str:
     )
 
 
-def build_system_prompt(session_id=None):
+def build_system_prompt(session_id=None, session_folder=None):
     """Return the assembled system prompt: platform invariants, project
     instructions, optional project wiki pointer, and an optional session-ID
     line.
@@ -420,6 +421,9 @@ def build_system_prompt(session_id=None):
     concatenated here at build time so a single system message goes over
     the wire. That message lands in the cached prefix and is paid for once
     per session instead of being prepended to every user message.
+
+    Session artifacts are also described here so the model can maintain the
+    active per-session folder throughout the turn loop.
 
     Orchestration guidance is appended conditionally: a sub-agent (--agent
     mode) gets the "you are a sub-agent" block; an orchestrator with the
@@ -434,6 +438,24 @@ def build_system_prompt(session_id=None):
         # system-level guidance.
         parts.append("\n--- Project instructions ---\n\n")
         parts.append(project)
+
+    resolved_session_folder = session_folder
+    if resolved_session_folder is not None:
+        parts.append(
+            "\n--- Session artifacts ---\n\n"
+            f"Active session folder: `{resolved_session_folder}`\n\n"
+            "Files in the active session folder:\n"
+            "- feature_list.json\n"
+            "- progress.md\n"
+            "- contract.md\n"
+            "- log.md\n\n"
+            "Rules:\n"
+            "- Initialize these artifacts at session start.\n"
+            "- Update progress.md and feature_list.json as the session evolves.\n"
+            "- Append to log.md for each meaningful turn or event; never overwrite prior entries.\n"
+            "- Treat contract.md as the working agreement for the session; update it only when the agreement changes.\n"
+            "- When resuming after a crash, load the newest session folder and continue from these files.\n"
+        )
 
     project_wiki = _project_wiki_prompt_block()
     if project_wiki:

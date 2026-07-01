@@ -35,6 +35,52 @@ def test_append_log_entry_appends_without_overwriting(tmp_path, monkeypatch) -> 
     assert "body text" in log_text
 
 
+def test_seed_session_artifacts_creates_starter_files_with_expected_content(tmp_path, monkeypatch) -> None:
+    """Verify seeding creates all starter artifacts with expected default content."""
+    monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
+    paths = session_artifacts.ensure_session_folder("20260101_12_34", "abc/def")
+    session_artifacts.seed_session_artifacts(paths, "abc/def")
+
+    assert paths.feature_list.is_file()
+    assert paths.progress.is_file()
+    assert paths.contract.is_file()
+    assert paths.log.is_file()
+
+    feature_list_text = paths.feature_list.read_text(encoding="utf-8")
+    progress_text = paths.progress.read_text(encoding="utf-8")
+    contract_text = paths.contract.read_text(encoding="utf-8")
+    log_text = paths.log.read_text(encoding="utf-8")
+
+    assert "abc/def" in feature_list_text
+    assert feature_list_text.strip()
+    assert progress_text.strip()
+    assert contract_text.strip()
+    assert "Session started" in log_text
+
+
+def test_seed_session_artifacts_preserves_existing_file_contents(tmp_path, monkeypatch) -> None:
+    """Verify reseeding does not overwrite any pre-existing artifact content."""
+    monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
+    paths = session_artifacts.ensure_session_folder("20260101_12_34", "abc")
+
+    original_feature_list = '{"session_id": "custom", "items": ["keep me"]}\n'
+    original_progress = "# Custom progress\n\nDo not replace.\n"
+    original_contract = "# Custom contract\n\nDo not replace.\n"
+    original_log = "custom log entry\n"
+
+    paths.feature_list.write_text(original_feature_list, encoding="utf-8")
+    paths.progress.write_text(original_progress, encoding="utf-8")
+    paths.contract.write_text(original_contract, encoding="utf-8")
+    paths.log.write_text(original_log, encoding="utf-8")
+
+    session_artifacts.seed_session_artifacts(paths, "abc")
+
+    assert paths.feature_list.read_text(encoding="utf-8") == original_feature_list
+    assert paths.progress.read_text(encoding="utf-8") == original_progress
+    assert paths.contract.read_text(encoding="utf-8") == original_contract
+    assert paths.log.read_text(encoding="utf-8") == original_log
+
+
 def test_list_session_folders_returns_sorted_entries(tmp_path, monkeypatch) -> None:
     """Verify session folders are returned sorted lexicographically."""
     root = tmp_path / "sessions"

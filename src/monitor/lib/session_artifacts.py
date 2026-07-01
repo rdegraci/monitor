@@ -44,7 +44,10 @@ def get_sessions_root() -> Path:
     Returns:
         The Monitor sessions root under the user config directory.
     """
-    return Path(appdirs.user_config_dir("monitor")) / "sessions"
+    from monitor import config
+
+    folder_name = getattr(config, "SESSIONS_FOLDER", "sessions")
+    return Path(appdirs.user_config_dir("monitor")) / folder_name
 
 
 def normalize_session_identifier(session_identifier: str) -> str:
@@ -85,6 +88,26 @@ def get_session_folder_path(timestamp_prefix: str, session_identifier: str) -> P
         Absolute path to the session folder.
     """
     return get_sessions_root() / build_session_folder_name(timestamp_prefix, session_identifier)
+
+
+def get_latest_session_folder_path(session_identifier: str) -> Path | None:
+    """Return the newest on-disk session folder for a session identifier.
+
+    Args:
+        session_identifier: Session identifier to match in folder names.
+
+    Returns:
+        The newest matching session folder, or ``None`` if none exist.
+    """
+    normalized = normalize_session_identifier(session_identifier)
+    folders = [
+        folder
+        for folder in list_session_folders()
+        if folder.name.endswith(f"_{normalized}")
+    ]
+    if not folders:
+        return None
+    return folders[-1]
 
 
 def resolve_session_artifact_paths(timestamp_prefix: str, session_identifier: str) -> SessionArtifactPaths:
@@ -139,6 +162,22 @@ def _write_text(path: Path, content: str, *, append: bool = False) -> None:
         file_handle.write(content)
 
 
+def _write_text_if_missing(path: Path, content: str) -> bool:
+    """Write text to a path only if the file does not already exist.
+
+    Args:
+        path: Target path.
+        content: Text to write when the file is missing.
+
+    Returns:
+        True if the file was created and written, otherwise False.
+    """
+    if path.exists():
+        return False
+    _write_text(path, content)
+    return True
+
+
 def write_feature_list(paths: SessionArtifactPaths, payload: dict[str, Any]) -> None:
     """Write the session feature list payload.
 
@@ -186,6 +225,44 @@ def append_log_entry(paths: SessionArtifactPaths, op: str, title: str, body: str
     else:
         lines.append("")
     _write_text(paths.log, "\n".join(lines) + "\n", append=True)
+
+
+def seed_session_artifacts(paths: SessionArtifactPaths, session_id: str) -> None:
+    """Seed initial session artifact files without overwriting existing content.
+
+    Args:
+        paths: Resolved session artifact paths.
+        session_id: Session identifier to record in seeded content.
+    """
+    _write_text_if_missing(
+        paths.feature_list,
+        json.dumps(
+            {
+                "features": [],
+                "session_id": session_id,
+                "status": "active",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    _write_text_if_missing(
+        paths.progress,
+        "# Session Progress\n\nSession started. Track progress updates here.\n",
+    )
+    _write_text_if_missing(
+        paths.contract,
+        (
+            "# Session Contract\n\n"
+            "- Maintain the contract as requirements evolve.\n"
+            "- Keep the progress note updated with meaningful milestones.\n"
+            "- Track planned and completed work in the feature list.\n"
+            "- Append important events and decisions to the log.\n"
+        ),
+    )
+    if _write_text_if_missing(paths.log, ""):
+        append_log_entry(paths, "startup", "Session started")
 
 
 def list_session_folders() -> list[Path]:

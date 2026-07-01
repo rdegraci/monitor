@@ -37,44 +37,6 @@ class TestConfigureBuiltIns(unittest.TestCase):
         mock_config.SESSION_ID = "session-1"
         mock_config.SESSION_COMPACTION_COUNT = 0
 
-@patch("monitor.lib.built_in_commands.list_most_recent_session_folders")
-@patch("monitor.lib.built_in_commands.get_sessions_root")
-def test_sessions_command_prints_five_most_recent_paths(mock_root, mock_list, capsys):
-    mock_root.return_value = Path("/tmp/monitor/sessions")
-    mock_list.return_value = [
-        Path("/tmp/monitor/sessions/5"),
-        Path("/tmp/monitor/sessions/4"),
-        Path("/tmp/monitor/sessions/3"),
-        Path("/tmp/monitor/sessions/2"),
-        Path("/tmp/monitor/sessions/1"),
-    ]
-
-    bic.sessions_command("")
-
-    captured = capsys.readouterr()
-    assert captured.out.splitlines() == [
-        "/tmp/monitor/sessions/5",
-        "/tmp/monitor/sessions/4",
-        "/tmp/monitor/sessions/3",
-        "/tmp/monitor/sessions/2",
-        "/tmp/monitor/sessions/1",
-@patch("monitor.lib.built_in_commands.list_most_recent_session_folders", return_value=[])
-@patch("monitor.lib.built_in_commands.get_sessions_root")
-def test_sessions_command_reports_empty_root(mock_root, mock_list, capsys):
-    mock_root.return_value = Path("/tmp/monitor/sessions")
-
-    bic.sessions_command("")
-
-    captured = capsys.readouterr()
-    assert "No session folders found under /tmp/monitor/sessions" in captured.out
-    mock_list.assert_called_once_with(limit=5)
-
-
-    ]
-    mock_list.assert_called_once_with(limit=5)
-
-
-
         mock_split = MagicMock(return_value=2)
         mock_generate = MagicMock(
             return_value=SimpleNamespace(

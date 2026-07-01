@@ -40,10 +40,17 @@ def test_main_creates_sessions_root(monkeypatch, tmp_path):
     def fake_ensure(src_filename, dest_filename):
         created.append((src_filename, dest_filename))
 
+    def fake_reset_history():
+        (tmp_path / "sessions").mkdir(parents=True, exist_ok=True)
+
     main_module = importlib.import_module("monitor.__main__")
     monkeypatch.setattr(appdirs, "user_config_dir", fake_user_config_dir)
     monkeypatch.setattr(main_module, "ensure_user_config_file", fake_ensure)
     monkeypatch.setattr(main_module, "app_main", lambda: None)
+    monkeypatch.setattr(
+        "monitor.lib.built_ins_history_utils.reset_conversation_history_command",
+        fake_reset_history,
+    )
 
     main_module.main()
 

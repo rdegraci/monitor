@@ -1,9 +1,10 @@
 import logging
-import litellm
-import monitor.lib.llm_utils as llm_utils
 import signal
 import threading
 import uuid
+
+import litellm
+import monitor.lib.llm_utils as llm_utils
 
 logger = logging.getLogger(__name__)
 
@@ -489,7 +490,10 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                         _old_portion = list(_cfg().CONVERSATION_HISTORY[:_split_idx])
                         _preserved = list(_cfg().CONVERSATION_HISTORY[_split_idx:])
                         summary_response = generate_conversation_summary(
-                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            build_system_prompt(
+                                session_id=getattr(_cfg(), "SESSION_ID", None),
+                                session_folder=getattr(_cfg(), "SESSION_ARTIFACTS_PATH", None),
+                            ),
                             _old_portion,
                             _cfg().SUMMARIZATION_CONFIG,
                             _cfg().MODEL,
@@ -518,7 +522,10 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
                         reset_conversation_with_partial_summary(
                             summary_content or "",
-                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            build_system_prompt(
+                                session_id=getattr(_cfg(), "SESSION_ID", None),
+                                session_folder=getattr(_cfg(), "SESSION_ARTIFACTS_PATH", None),
+                            ),
                             _preserved,
                             _cfg().CONVERSATION_HISTORY,
                             logger,
@@ -655,7 +662,10 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                         _old_portion = list(_cfg().CONVERSATION_HISTORY[:_split_idx])
                         _preserved = list(_cfg().CONVERSATION_HISTORY[_split_idx:])
                         summary_response = generate_conversation_summary(
-                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            build_system_prompt(
+                                session_id=getattr(_cfg(), "SESSION_ID", None),
+                                session_folder=getattr(_cfg(), "SESSION_ARTIFACTS_PATH", None),
+                            ),
                             _old_portion,
                             _cfg().SUMMARIZATION_CONFIG,
                             _cfg().MODEL,
@@ -684,7 +694,10 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
                         reset_conversation_with_partial_summary(
                             summary_content or "",
-                            build_system_prompt(session_id=getattr(_cfg(), "SESSION_ID", None)),
+                            build_system_prompt(
+                                session_id=getattr(_cfg(), "SESSION_ID", None),
+                                session_folder=getattr(_cfg(), "SESSION_ARTIFACTS_PATH", None),
+                            ),
                             _preserved,
                             _cfg().CONVERSATION_HISTORY,
                             logger,

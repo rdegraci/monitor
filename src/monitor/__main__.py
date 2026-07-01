@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from monitor._stubs import appdirs
+from monitor import config
 
 from .app import main as app_main
 
@@ -19,9 +20,16 @@ def ensure_user_config_file(src_filename, dest_filename):
             shutil.copy(str(src), dest)
         print(f"Copied default {src_filename} to {dest}")
 
+def _initialize_session_artifacts() -> None:
+    """Initialize the active session artifacts at startup."""
+    from monitor.lib.built_ins_history_utils import reset_conversation_history_command
+
+    reset_conversation_history_command()
+
+
 def main():
     ensure_user_config_file("config.yaml.example", "config.yaml")
-    sessions_root = Path(appdirs.user_config_dir("monitor")) / "sessions"
+    sessions_root = Path(appdirs.user_config_dir("monitor")) / config.SESSIONS_FOLDER
     sessions_root.mkdir(parents=True, exist_ok=True)
     ensure_user_config_file("macros.json", "macros.json")
     ensure_user_config_file("preferences.prompt","preferences.prompt")
@@ -30,6 +38,8 @@ def main():
     ensure_user_config_file("interactive_commands.json", "interactive_commands.json")
     ensure_user_config_file("directives/echo.prompt", "directives/echo.prompt")
     ensure_user_config_file("directives/greet.prompt", "directives/greet.prompt")
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    _initialize_session_artifacts()
     app_main()
 
 if __name__ == "__main__":

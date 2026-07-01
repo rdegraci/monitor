@@ -1,7 +1,7 @@
 import logging
-import time
-import sys
 import os
+import sys
+import time
 
 import litellm
 
@@ -372,7 +372,7 @@ def process_pipeline_directives(directives):
     """
     current_input = None
     for idx, directive in enumerate(directives):
-        history = [{"role": "system", "content": build_system_prompt(config.SESSION_ID)}]
+        history = [{"role": "system", "content": build_system_prompt(config.SESSION_ID, getattr(config, "SESSION_ARTIFACTS_PATH", None))}]
         if current_input:
             history.append({"role": "user", "content": build_prefixed_model_text(current_input)})
         history.append({"role": "user", "content": build_prefixed_model_text(directive)})
@@ -738,7 +738,7 @@ def prepare_chat_session():
         lambda message, conversation_history, count_message_tokens, update_token_usage: append_to_history_with_count(
             message, conversation_history, count_message_tokens, update_token_usage
         ),
-        build_system_prompt(config.SESSION_ID),
+        build_system_prompt(config.SESSION_ID, getattr(config, "SESSION_ARTIFACTS_PATH", None)),
         config.HISTORY_FILE,
         logger,
         config,
@@ -1209,7 +1209,7 @@ def prepare_query_context(user_prompt):
         check_limits,
         generate_conversation_summary,
         reset_conversation_with_summary,
-        build_system_prompt(config.SESSION_ID),
+        build_system_prompt(config.SESSION_ID, getattr(config, "SESSION_ARTIFACTS_PATH", None)),
         config,  # Always pass live config for in-function reads
         post_social_media_summaries,
         logger,
