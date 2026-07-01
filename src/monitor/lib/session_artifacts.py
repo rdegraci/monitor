@@ -199,3 +199,15 @@ def list_session_folders() -> list[Path]:
         return []
     folders = [entry for entry in root.iterdir() if entry.is_dir()]
     return sorted(folders)
+
+
+def get_most_recent_session_folder() -> Path | None:
+    """Return the newest session folder by lexicographic sort.
+
+    Returns:
+        The most recent session folder, or ``None`` if no folders exist.
+    """
+    folders = list_session_folders()
+    if not folders:
+        return None
+    return folders[-1]

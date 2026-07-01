@@ -44,3 +44,15 @@ def test_list_session_folders_returns_sorted_entries(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
     folders = session_artifacts.list_session_folders()
     assert folders == [root / "20260101_12_34_a", root / "20260102_12_34_b"]
+
+
+def test_get_most_recent_session_folder_returns_latest(tmp_path, monkeypatch) -> None:
+    """Verify the newest session folder is chosen by lexicographic order."""
+    root = tmp_path / "sessions"
+    root.mkdir()
+    older = root / "20260101_12_34_a"
+    newer = root / "20260102_12_34_b"
+    older.mkdir()
+    newer.mkdir()
+    monkeypatch.setattr(session_artifacts.appdirs, "user_config_dir", lambda _name: str(tmp_path))
+    assert session_artifacts.get_most_recent_session_folder() == newer
