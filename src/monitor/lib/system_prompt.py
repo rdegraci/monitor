@@ -121,6 +121,8 @@ Common pitfalls to avoid:
 - When running mypy or similar type-checkers, pass each file or path as a separate argument; a space-joined path string will fail as a single nonexistent filename.
 - When replacing an existing file with `create_file`, set `overwrite=true` after you have inspected the file and intend a full replacement; do not use a plain create for an existing path.
 - Prioritize concrete progress over performative narration.
+- Session artifacts live under the Monitor user config directory in a timestamped per-session folder. When session tools or reset logic create or update `feature_list.json`, `progress.md`, `contract.md`, or `log.md`, keep those files in the active session folder and use `log.md` as an append-only timeline.
+- If a session crash or restart happens, use the newest session folder by timestamped folder name to recover the latest `contract.md`, `progress.md`, and `feature_list.json` state before resuming work.
 
 Testing:
 - Test public APIs and observable outcomes — never internals, private helpers, or exact internal call order.
