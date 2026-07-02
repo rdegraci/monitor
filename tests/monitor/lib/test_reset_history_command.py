@@ -120,3 +120,13 @@ def test_reset_history_produces_single_system_message():
 
     assert len(config.CONVERSATION_HISTORY) == 1
     assert config.CONVERSATION_HISTORY[0]["role"] == "system"
+
+
+def test_reset_history_can_suppress_notice(capsys):
+    """Startup initialization should be able to reset history without printing noise."""
+    from monitor.lib import built_ins_history_utils as built_in_commands
+
+    capsys.readouterr()
+    built_in_commands.reset_conversation_history_command(emit_notice=False)
+
+    assert capsys.readouterr().out == ""

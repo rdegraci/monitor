@@ -16,17 +16,23 @@ from monitor.lib.model_pricing import (
 )
 from monitor import config
 from monitor.lib.display_output import print_colored_error
+from monitor.lib.session_artifact_sync import sync_session_artifacts
 from monitor.lib.session_artifacts import ensure_session_folder, seed_session_artifacts
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 
 logger = logging.getLogger(__name__)
 
 
-def reset_conversation_history_command(arg: Any | None = None) -> None:
+def reset_conversation_history_command(
+    arg: Any | None = None,
+    *,
+    emit_notice: bool = True,
+) -> None:
     """Reset conversation state to a freshly-started session baseline.
 
     Args:
         arg: Ignored dispatcher argument.
+        emit_notice: When True, print the user-facing reset confirmation.
 
     Returns:
         None.
@@ -49,6 +55,7 @@ def reset_conversation_history_command(arg: Any | None = None) -> None:
                 ),
             }
         )
+        sync_session_artifacts(paths)
         config.TOTAL_TOKEN_COUNT = 0
         config.SESSION_TOTAL_TOKENS = 0
         config.SESSION_COST_USD = 0.0
@@ -68,7 +75,8 @@ def reset_conversation_history_command(arg: Any | None = None) -> None:
             config.RESPONSE_ID = None
         if hasattr(config, "last_summary_time"):
             config.last_summary_time = time.time()
-        print("Conversation history was reset to initial system prompt.")
+        if emit_notice:
+            print("Conversation history was reset to initial system prompt.")
     except Exception as exc:
         logger.error("Failed to reset conversation history: %s", exc, exc_info=True)
 

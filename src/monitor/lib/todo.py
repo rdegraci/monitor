@@ -293,19 +293,20 @@ def add_discovered_work(
     )
 
 
-def get_task_context() -> str:
+def get_task_context(*, emit_summary: bool = True) -> str:
     """Return session-scoped task context for resume/recovery decisions."""
     session_id = _resolve_session_id()
     context = _read_task_context(session_id)
     logger.info("get_task_context session=%s", session_id)
-    _print_todo_action(
-        "?",
-        (
-            f"context criteria={len(context['acceptance_criteria'])} "
-            f"scope_changes={len(context['scope_changes'])} "
-            f"checkpoint={'yes' if context['checkpoint'] else 'no'}"
-        ),
-    )
+    if emit_summary:
+        _print_todo_action(
+            "?",
+            (
+                f"context criteria={len(context['acceptance_criteria'])} "
+                f"scope_changes={len(context['scope_changes'])} "
+                f"checkpoint={'yes' if context['checkpoint'] else 'no'}"
+            ),
+        )
     return json.dumps(context)
 
 
@@ -384,7 +385,7 @@ def record_task_scope_change(summary: str, material: bool = True) -> str:
     )
 
 
-def list_todos() -> str:
+def list_todos(*, emit_summary: bool = True) -> str:
     """Return the current session's plan as a JSON array, highest priority first.
 
     Ties keep insertion order (stable sort). Storage stays insertion-ordered;
@@ -409,7 +410,8 @@ def list_todos() -> str:
         _todo_store.save_todo_to_memory(session_id=session_id, todos=todos)
     ordered = sorted(todos, key=lambda e: -_priority_of(e))
     logger.info("list_todos session=%s count=%d", session_id, len(ordered))
-    _print_todo_action("=", f"listed {len(ordered)} item{'s' if len(ordered) != 1 else ''}")
+    if emit_summary:
+        _print_todo_action("=", f"listed {len(ordered)} item{'s' if len(ordered) != 1 else ''}")
     return json.dumps(ordered)
 
 

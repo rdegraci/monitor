@@ -24,7 +24,7 @@ def _initialize_session_artifacts() -> None:
     """Initialize the active session artifacts at startup."""
     from monitor.lib.built_ins_history_utils import reset_conversation_history_command
 
-    reset_conversation_history_command()
+    reset_conversation_history_command(emit_notice=False)
 
 
 def main():
