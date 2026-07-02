@@ -54,6 +54,21 @@ def test_collation_orchestrator_equal_base_no_swap():
                               orchestrator_model=BASE, collation_active=True) == BASE
 
 
+def test_ollama_base_with_reasoning_override_uses_adv():
+    assert resolve_turn_model("ollama/llama3.1", ADV, True, PREFIX,
+                              orchestrator_model=ORCH, collation_active=False) == ADV
+
+
+def test_ollama_base_with_collation_uses_orchestrator():
+    assert resolve_turn_model("ollama/llama3.1", None, False, PREFIX,
+                              orchestrator_model=ORCH, collation_active=True) == ORCH
+
+
+def test_ollama_base_with_non_reasoning_override_does_not_swap():
+    assert resolve_turn_model("ollama/llama3.1", "anthropic/claude-sonnet-4-6", True, PREFIX,
+                              orchestrator_model=ORCH, collation_active=False) == "ollama/llama3.1"
+
+
 # --- effective_turn_effort -------------------------------------------------
 
 def test_effort_collation_floors_to_orchestrator():

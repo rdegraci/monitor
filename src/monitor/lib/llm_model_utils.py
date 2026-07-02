@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 OPENAI_PREFIX = "openai/"
+OLLAMA_PREFIX = "ollama/"
 TYPE_KEY = "type"
 NAME_KEY = "name"
 DESCRIPTION_KEY = "description"
@@ -31,6 +32,62 @@ def strip_openai_prefix(model_name):
     prefix = OPENAI_PREFIX
     if lower.startswith(prefix):
         return model_name[len(prefix) :]
+    return model_name
+
+
+def get_model_provider(model_name: Optional[str]) -> Optional[str]:
+    """Return the normalized provider prefix for a model identifier.
+
+    Args:
+        model_name: A model name like ``openai/gpt-4o`` or ``ollama/llama3.1``.
+
+    Returns:
+        The lower-cased provider name before the first slash when present, or
+        None when unavailable.
+    """
+    if not isinstance(model_name, str):
+        return None
+    value = model_name.strip()
+    if not value or "/" not in value:
+        return None
+    provider = value.split("/", 1)[0].strip().lower()
+    return provider or None
+
+
+def is_ollama_model(model_name: Optional[str]) -> bool:
+    """Check whether a model identifier targets the Ollama provider."""
+    return get_model_provider(model_name) == "ollama"
+
+
+def normalize_steady_provider_model(model_name: Optional[str], provider: Optional[str]) -> Optional[str]:
+    """Normalize special steady-provider model semantics for routing decisions.
+
+    Phase 2 supports configurations where the steady provider is selected via a
+    provider sentinel such as ``MODEL="OLLAMA"`` while the concrete runtime
+    canonical model is resolved separately. This helper maps that sentinel to a
+    provider-qualified identifier shape for provider checks while leaving normal
+    model names untouched.
+
+    Args:
+        model_name: The configured steady/base model value.
+        provider: Optional steady provider selector.
+
+    Returns:
+        The original ``model_name`` for standard model identifiers. When the
+        steady provider is Ollama and ``model_name`` is the special provider
+        sentinel, returns ``"ollama/"`` so downstream provider detection treats
+        it as Ollama.
+    """
+    if isinstance(model_name, str):
+        stripped = model_name.strip()
+        if stripped:
+            if stripped.lower().startswith(OLLAMA_PREFIX):
+                return stripped
+            if stripped.upper() == "OLLAMA" and isinstance(provider, str) and provider.strip().lower() == "ollama":
+                return OLLAMA_PREFIX
+            return model_name
+    if isinstance(provider, str) and provider.strip().lower() == "ollama":
+        return OLLAMA_PREFIX
     return model_name
 
 
@@ -80,7 +137,8 @@ def higher_reasoning_effort(effort, floor):
 
 
 def resolve_turn_model(base_model, adv_model, override_active, prefix,
-                       *, orchestrator_model=None, collation_active=False):
+                       *, orchestrator_model=None, collation_active=False,
+                       steady_provider=None):
     """Resolve the model actually used for a turn's LLM calls.
 
     Priority (first that applies wins):
@@ -90,28 +148,45 @@ def resolve_turn_model(base_model, adv_model, override_active, prefix,
       2. reasoning override active -> ``adv_model``
       3. otherwise -> ``base_model``
 
-    A target only swaps in if it is set, distinct from ``base_model``, and (like
-    ``base_model``) reasoning-capable — otherwise sending ``reasoning_effort`` to
-    it would error. Pure (no config access) so the call site (llm_utils) and the
-    cost-attribution site (token_management) compute the same effective model.
+    A target only swaps in if it is set, distinct from ``base_model``, and is
+    reasoning-capable. For normal non-Ollama setups, the steady/base model must
+    also be reasoning-capable before swapping so ``reasoning_effort`` is not sent
+    to an incompatible target. For Ollama steady-provider turns, the base model
+    is allowed to be an Ollama runtime canonical model while the swap target is a
+    reasoning-capable OpenAI model; in that mixed-provider case the base model is
+    not required to match ``prefix`` before allowing the swap.
+
+    This helper stays pure (no config access) so the call site (llm_utils) and
+    the cost-attribution site (token_management) compute the same effective
+    model. ``steady_provider`` also supports the special ``MODEL="OLLAMA"``
+    semantics by normalizing provider detection without altering ordinary model
+    names.
 
     Args:
-        base_model: The configured default model (config.MODEL).
+        base_model: The configured default model (config.MODEL), or a runtime
+            canonical steady model such as ``ollama/llama3.1``.
         adv_model: The configured advanced-reasoning model, or None.
         override_active: Whether a per-turn reasoning override is set.
-        prefix: REASONING_MODEL_PREFIX — models must contain it for a swap.
+        prefix: REASONING_MODEL_PREFIX — swap targets must contain it.
         orchestrator_model: ORCHESTRATOR_MODEL, or None.
         collation_active: Whether this turn folds sub-agent results (synthesis).
+        steady_provider: Optional steady provider selector used to normalize
+            special provider sentinel values such as ``MODEL="OLLAMA"``.
 
     Returns:
         str: the resolved model per the priority above.
     """
+    normalized_base_model = normalize_steady_provider_model(base_model, steady_provider)
+
+    def _base_allows_reasoning_swap():
+        return is_reasoning_model(normalized_base_model, prefix) or is_ollama_model(normalized_base_model)
+
     def _swappable(target):
         return (
             isinstance(target, str)
             and target
             and target != base_model
-            and is_reasoning_model(base_model, prefix)
+            and _base_allows_reasoning_swap()
             and is_reasoning_model(target, prefix)
         )
 
