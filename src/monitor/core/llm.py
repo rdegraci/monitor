@@ -396,13 +396,11 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         # Determine input window limit (prefer MODEL_INPUT_WINDOW, then MODEL_CONTEXT_WINDOW)
         input_window_limit = None
         try:
-            iw = getattr(_cfg(), "MODEL_INPUT_WINDOW", None)
-            cw = getattr(_cfg(), "MODEL_CONTEXT_WINDOW", None)
-            input_window_limit = (
-                iw
-                if isinstance(iw, int) and iw > 0
-                else (cw if isinstance(cw, int) and cw > 0 else None)
-            )
+            input_window_limit = getattr(_cfg(), "MODEL_INPUT_WINDOW", None)
+            if not isinstance(input_window_limit, int) or input_window_limit <= 0:
+                input_window_limit = getattr(_cfg(), "MODEL_CONTEXT_WINDOW", None)
+                if not isinstance(input_window_limit, int) or input_window_limit <= 0:
+                    input_window_limit = None
         except Exception:
             input_window_limit = None
 

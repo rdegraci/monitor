@@ -414,7 +414,7 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
                     prefix,
                     orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
                     collation_active=collation,
-                    steady_provider="ollama" if isinstance(model, str) and model.lower().startswith("ollama/") else None,
+                    steady_provider="ollama" if isinstance(model, str) and (model.lower().startswith("ollama/") or model.upper() == "OLLAMA") else None,
                 )
                 if swapped != model:
                     kwargs["model"] = swapped

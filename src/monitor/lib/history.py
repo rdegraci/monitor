@@ -724,6 +724,8 @@ def _get_responses_chain_compaction_pressure(config, logger):
         input_window = getattr(config, "MODEL_INPUT_WINDOW", None)
         if not isinstance(input_window, int) or input_window <= 0:
             input_window = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+            if not isinstance(input_window, int) or input_window <= 0:
+                input_window = getattr(config, "MAX_TOKEN_COUNT", None)
 
         telemetry_params = {
             responses_adapter.REQUEST_PARAM_MODEL: getattr(config, "MODEL", None),

@@ -1098,6 +1098,7 @@ def _configure_protocol_engine_turn_model():
         getattr(config, "ADV_REASONING_MODEL", None),
         bool(getattr(config, "CURRENT_TURN_REASONING_OVERRIDE", None)),
         getattr(config, "REASONING_MODEL_PREFIX", "") or "",
+        steady_provider="ollama" if isinstance(getattr(config, "MODEL", None), str) and (getattr(config, "MODEL", None).lower().startswith("ollama/") or getattr(config, "MODEL", None).upper() == "OLLAMA") else None,
     )
     _configure_protocol_engine_limits(resolved_model)
     ENGINE.model = resolved_model

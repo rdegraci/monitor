@@ -852,7 +852,7 @@ def apply_model_switch_if_needed(last_model):
 
     # Model has changed - update MAX_TOKEN_COUNT to live window, and log this event.
     old_max_token_count = config.MAX_TOKEN_COUNT
-    config.MAX_TOKEN_COUNT = config.MODEL_CONTEXT_WINDOW  # fetch latest window size
+    config.MAX_TOKEN_COUNT = config.MODEL_INPUT_WINDOW or config.MODEL_CONTEXT_WINDOW  # fetch latest window size
     logger.info(
         f"Model switched: new config.MODEL: {config.MODEL}, context_window: {config.MODEL_CONTEXT_WINDOW}, MAX_TOKEN_COUNT updated from {old_max_token_count} to {config.MAX_TOKEN_COUNT}"
     )

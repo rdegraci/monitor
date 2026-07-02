@@ -328,6 +328,7 @@ def llm_command(arg: str | None = None) -> None:
             f"Active model set to: {active_config.MODEL}\n"
             f"MODEL_CONTEXT_WINDOW = {active_config.MODEL_CONTEXT_WINDOW}\n"
             f"MODEL_OUTPUT_WINDOW = {active_config.MODEL_OUTPUT_WINDOW}\n"
+            f"MODEL_INPUT_WINDOW = {active_config.MODEL_INPUT_WINDOW}\n"
             f"MODEL_MAX_TPM = {active_config.MODEL_MAX_TPM}\n"
             f"CONVERSATION_MAX_SIZE = {active_config.CONVERSATION_MAX_SIZE}"
         )

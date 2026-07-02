@@ -134,7 +134,9 @@ def _safe_truncate_output(tool_name: str, stdout: str) -> str:
         return stdout
 
     try:
-        model_window = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+        model_window = getattr(config, "MODEL_INPUT_WINDOW", None)
+        if not isinstance(model_window, int) or model_window <= 0:
+            model_window = getattr(config, "MODEL_CONTEXT_WINDOW", None)
         if model_window:
             base_limit = int(model_window)
         else:
