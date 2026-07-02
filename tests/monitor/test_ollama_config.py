@@ -20,6 +20,9 @@ def _invoke_yaml_loader(yaml_overrides: dict[str, object]) -> None:
             "BASE_URL": "http://127.0.0.1:11434",
             "CONTEXT_WINDOW": 128_000,
             "OUTPUT_WINDOW": 8_192,
+            "TEMPERATURE": 0.6,
+            "TOP_P": 0.95,
+            "TOP_K": 20,
         },
         **yaml_overrides,
     }
@@ -39,6 +42,9 @@ def test_ollama_config_derives_runtime_windows() -> None:
     assert config.MODEL_INPUT_WINDOW == 119_808
     assert config.MAX_TOKEN_COUNT == 128_000
     assert config.OLLAMA_BASE_URL == "http://127.0.0.1:11434"
+    assert config.OLLAMA_TEMPERATURE == 0.6
+    assert config.OLLAMA_TOP_P == 0.95
+    assert config.OLLAMA_TOP_K == 20
 
 
 def test_ollama_steady_model_allows_adv_reasoning_swap() -> None:

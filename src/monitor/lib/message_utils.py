@@ -245,6 +245,13 @@ def sanitize_messages(messages):
             logger.debug("Error checking/removing tool_calls at index %s: %s", idx, str(e), exc_info=True)
 
         role = nm.get('role', 'assistant')
+        if idx == 0:
+            logger.info(
+                "sanitize_messages first normalized message; role=%s content_type=%s keys=%s",
+                role,
+                type(nm.get('content')).__name__,
+                sorted(list(nm.keys())),
+            )
 
         # Ensure non-assistant roles do not carry tool_calls
         if role != 'assistant' and 'tool_calls' in nm:

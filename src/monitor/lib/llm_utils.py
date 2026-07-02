@@ -152,6 +152,44 @@ def validate_tool_message_order(messages):
                 in_tool_phase = False
 
 
+
+
+def _extract_assistant_text(message):
+    """Extract assistant text from provider-specific message shapes.
+
+    Args:
+        message: A provider response message object or dict.
+
+    Returns:
+        A best-effort assistant text string.
+    """
+    if isinstance(message, dict):
+        content = message.get("content")
+        text = message.get("text")
+    else:
+        content = getattr(message, "content", None)
+        text = getattr(message, "text", None)
+
+    if isinstance(content, str) and content:
+        return content
+    if isinstance(text, str) and text:
+        return text
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                if isinstance(item.get("text"), str):
+                    parts.append(item.get("text", ""))
+                elif isinstance(item.get("content"), str):
+                    parts.append(item.get("content", ""))
+                else:
+                    parts.append(str(item))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    if content is None:
+        return ""
+    return str(content)
 def determine_response_type(response_message):
     """Determine the type of response and how to handle it"""
     logger.debug("Determining response type...")
@@ -168,9 +206,28 @@ def process_direct_response(response_message):
     """Process a direct (non-function-call) response from LLM"""
     from monitor.lib.token_management import count_message_tokens, update_token_usage
 
-    logger.debug("Processing direct LLM response...")
+    logger.info("Processing direct LLM response; response_message_type=%s", type(response_message).__name__)
     assistant_message = normalize_message(response_message)
     assistant_content = assistant_message.get("content", "")
+    extracted_content = _extract_assistant_text(response_message)
+    if isinstance(extracted_content, str) and extracted_content and assistant_content != extracted_content:
+        logger.info("Direct response extractor found alternate assistant text shape")
+        assistant_content = extracted_content
+    if isinstance(assistant_content, list):
+        logger.info("Direct response content arrived as list; normalizing to text")
+        assistant_content = "".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in assistant_content
+        )
+    elif assistant_content is None:
+        logger.info("Direct response content is None; normalizing to empty string")
+        assistant_content = ""
+    logger.info(
+        "Direct response normalized; assistant_message_keys=%s content_type=%s content_length=%s",
+        sorted(list(assistant_message.keys())) if isinstance(assistant_message, dict) else type(assistant_message).__name__,
+        type(assistant_content).__name__,
+        len(assistant_content) if isinstance(assistant_content, str) else -1,
+    )
 
     # Log and update conversation history
     if (config.CONVERSATION_LOG_FILE and not config.CONVERSATION_LOG_FILE.closed):
@@ -204,6 +261,12 @@ def extract_tool_calls(response):
         raise ValueError("Malformed response: missing choices for tool extraction")
 
     msg = response.choices[0].message
+    logger.info(
+        "Extracting tool calls; response_type=%s message_type=%s finish_reason=%s",
+        type(response).__name__,
+        type(msg).__name__,
+        getattr(response.choices[0], "finish_reason", None),
+    )
     tool_calls = getattr(msg, "tool_calls", None) or []
     try:
         ids_presence = []
@@ -335,7 +398,20 @@ def process_response_by_finish_reason(response):
         return None  # Indicate need for another tool call
 
     if finish_reason == "stop":
-        assistant_content = choices[0].message.content
+        assistant_message = choices[0].message
+        assistant_content = _extract_assistant_text(assistant_message)
+        logger.info(
+            "Stop finish_reason received; assistant_message_type=%s content_type=%s content_preview=%r",
+            type(assistant_message).__name__,
+            type(assistant_content).__name__,
+            assistant_content[:120] if isinstance(assistant_content, str) else assistant_content,
+        )
+        if isinstance(assistant_content, list):
+            logger.info("Stop response content arrived as list; joining text blocks")
+            assistant_content = "".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in assistant_content
+            )
         if (config.CONVERSATION_LOG_FILE and not config.CONVERSATION_LOG_FILE.closed):
             try:
                 config.CONVERSATION_LOG_FILE.write(f"AI: {assistant_content}\n")
@@ -343,6 +419,7 @@ def process_response_by_finish_reason(response):
                 logger.exception("Failed writing assistant content to conversation log file")
 
         if assistant_content is None or assistant_content == {}:
+            logger.info("Stop response content was empty; returning default acknowledgement")
             return "Ok."
         return assistant_content
 
@@ -366,6 +443,15 @@ def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, A
         base_url = getattr(config, "OLLAMA_BASE_URL", None)
         if isinstance(base_url, str) and base_url.strip():
             kwargs["api_base"] = base_url.strip()
+        ollama_temperature = getattr(config, "OLLAMA_TEMPERATURE", None)
+        if isinstance(ollama_temperature, (int, float)):
+            kwargs["temperature"] = float(ollama_temperature)
+        ollama_top_p = getattr(config, "OLLAMA_TOP_P", None)
+        if isinstance(ollama_top_p, (int, float)):
+            kwargs["top_p"] = float(ollama_top_p)
+        ollama_top_k = getattr(config, "OLLAMA_TOP_K", None)
+        if isinstance(ollama_top_k, int):
+            kwargs["top_k"] = ollama_top_k
         kwargs.pop("reasoning_effort", None)
     return kwargs
 

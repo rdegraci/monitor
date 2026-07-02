@@ -72,6 +72,14 @@ def test_determine_response_type_tool_call_and_function_and_direct():
     assert determine_response_type(m_direct) == 'direct'
 
 
+
+def test_extract_assistant_text_prefers_text_attribute():
+    class Msg:
+        content = None
+        text = "hello from text"
+
+    assert llm_utils._extract_assistant_text(Msg()) == "hello from text"
+
 def test_process_direct_response_appends_and_returns_content(monkeypatch, tmp_path):
     # Prepare a dummy conversation history and log file
     from monitor import config
@@ -90,6 +98,7 @@ def test_process_direct_response_appends_and_returns_content(monkeypatch, tmp_pa
         if hasattr(msg, 'content'):
             result['content'] = msg.content
             
+
         return result
     
     def mock_count_message_tokens(msg):
@@ -272,6 +281,57 @@ def test_call_litellm_completion_adds_ollama_api_base_and_drops_reasoning_effort
     assert "reasoning_effort" not in captured
 
 
+def test_call_litellm_completion_applies_ollama_sampling_knobs(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return {"choices": []}
+
+    monkeypatch.setattr(llm_utils.litellm, "completion", fake_completion)
+
+    from monitor import config
+
+    config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.OLLAMA_TEMPERATURE = 0.6
+    config.OLLAMA_TOP_P = 0.95
+    config.OLLAMA_TOP_K = 20
+    config.REASONING_MODEL_PREFIX = "openai/gpt-5"
+    config.CURRENT_TURN_REASONING_OVERRIDE = None
+
+    llm_utils.call_litellm_completion(
+        "ollama/llama3.1",
+        [{"role": "user", "content": "hi"}],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+    )
+
+    assert captured["temperature"] == 0.6
+    assert captured["top_p"] == 0.95
+    assert captured["top_k"] == 20
+
+
+def test_provider_request_normalization_skips_ollama_knobs_for_non_ollama_model():
+    kwargs = {
+        "model": "openai/gpt-5.4",
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+
+    from monitor import config
+
+    config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.OLLAMA_TEMPERATURE = 0.6
+    config.OLLAMA_TOP_P = 0.95
+    config.OLLAMA_TOP_K = 20
+
+    normalized = llm_utils._apply_provider_request_normalization(kwargs)
+
+    assert normalized["model"] == "openai/gpt-5.4"
+    assert "api_base" not in normalized
+    assert "top_k" not in normalized
+    assert "top_p" not in normalized
+
+
 # New tests for safe_extract_total_tokens, compute_token_delta, and apply_usage_delta
 
 def test_safe_extract_total_tokens_various():
@@ -294,7 +354,6 @@ def test_safe_extract_total_tokens_various():
     with pytest.raises(ValueError):
         safe_extract_total_tokens({'usage': {'foo': 'bar'}})
 
-
 def test_compute_token_delta():
     # current None => delta 0
     assert compute_token_delta(None, 10) == 0
@@ -303,6 +362,28 @@ def test_compute_token_delta():
     # numeric string subtraction
     assert compute_token_delta('30', '10') == 20
     # invalid current (non-numeric string) returns 0
+
+
+def test_process_direct_response_joins_list_content(monkeypatch, tmp_path):
+    from monitor import config
+
+    config.CONVERSATION_HISTORY = []
+    config.CONVERSATION_LOG_FILE = open(tmp_path / "conv.log", "w")
+
+    class ResponseMessage:
+        def __init__(self):
+            self.role = "assistant"
+            self.content = [{"text": "hello"}, {"text": " world"}]
+
+    monkeypatch.setattr(llm_utils, "normalize_message", lambda msg: {"role": "assistant", "content": msg.content})
+    monkeypatch.setattr("monitor.lib.token_management.count_message_tokens", lambda msg: 1)
+    monkeypatch.setattr("monitor.lib.token_management.update_token_usage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(llm_utils, "append_to_history_with_count", lambda message, history=None, *args, **kwargs: (history or config.CONVERSATION_HISTORY).append(message))
+
+    content = llm_utils.process_direct_response(ResponseMessage())
+
+    assert content == "hello world"
+    config.CONVERSATION_LOG_FILE.close()
     assert compute_token_delta('bad', '10') == 0
 
 

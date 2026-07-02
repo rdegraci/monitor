@@ -11,11 +11,15 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 # - Runtime canonical model becomes ollama/<OLLAMA.MODEL>.
 # - OLLAMA.BASE_URL defaults to http://127.0.0.1:11434 when omitted.
 # - OLLAMA.CONTEXT_WINDOW and OLLAMA.OUTPUT_WINDOW are required in Ollama mode.
+# - OLLAMA.TEMPERATURE / OLLAMA.TOP_P / OLLAMA.TOP_K are optional Ollama-only sampling knobs.
 # OLLAMA:
 #   MODEL: llama3.1
 #   BASE_URL: http://127.0.0.1:11434
 #   CONTEXT_WINDOW: 128000
 #   OUTPUT_WINDOW: 8192
+#   TEMPERATURE: 0.6
+#   TOP_P: 0.95
+#   TOP_K: 20
 # SESSIONS_FOLDER controls the root directory name under the Monitor user
 # config directory where session artifacts are stored. The default is
 # "sessions" if this key is omitted.

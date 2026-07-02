@@ -338,8 +338,23 @@ def query(user_prompt):
         logger.error("Initial LLM completion returned no choices; rolled back uncommitted user turn.")
         return ConversationResult.ERROR
 
+    logger.info(
+        "Initial LLM completion received; response_type=%s has_choices=%s choice_count=%s",
+        type(response).__name__,
+        bool(getattr(response, "choices", None)),
+        len(getattr(response, "choices", []) or []),
+    )
     # Get response message
     response_message = response.choices[0].message
+    try:
+        logger.info(
+            "Initial response message extracted; message_type=%s raw_content_type=%s raw_content_preview=%r",
+            type(response_message).__name__,
+            type(getattr(response_message, "content", None)).__name__,
+            getattr(response_message, "content", None)[:120] if isinstance(getattr(response_message, "content", None), str) else getattr(response_message, "content", None),
+        )
+    except Exception:
+        logger.exception("Failed to log initial response message shape")
 
     # Subagent logging: attempt to record the prompt and reply if agent mode is enabled.
     if getattr(config, "AGENT", False):

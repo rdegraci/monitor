@@ -882,6 +882,9 @@ OLLAMA_MODEL_OUTPUT_WINDOW = None
 OLLAMA_MODEL_INPUT_WINDOW = None
 OLLAMA_MODEL_INPUT_TIER = None
 OLLAMA_MODEL_MAX_TPM = None
+OLLAMA_TEMPERATURE = None
+OLLAMA_TOP_P = None
+OLLAMA_TOP_K = None
 
 
 def _derive_ollama_model_settings(ollama_config, model_name):
@@ -964,6 +967,7 @@ def configure_globals():
     global CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES, SESSIONS_FOLDER
     global OLLAMA, OLLAMA_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL_CONTEXT_WINDOW, OLLAMA_MODEL_OUTPUT_WINDOW
     global OLLAMA_MODEL_INPUT_WINDOW, OLLAMA_MODEL_INPUT_TIER, OLLAMA_MODEL_MAX_TPM
+    global OLLAMA_TEMPERATURE, OLLAMA_TOP_P, OLLAMA_TOP_K
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -992,6 +996,18 @@ def configure_globals():
             logger.error("OLLAMA configuration 'BASE_URL' must be a non-empty string")
             raise RuntimeError("Invalid OLLAMA BASE_URL")
         OLLAMA_BASE_URL = ollama_base_url.strip()
+        OLLAMA_TEMPERATURE = OLLAMA.get("TEMPERATURE")
+        if not isinstance(OLLAMA_TEMPERATURE, (int, float)) and OLLAMA_TEMPERATURE is not None:
+            logger.error("OLLAMA configuration 'TEMPERATURE' must be numeric when provided")
+            raise RuntimeError("Invalid OLLAMA TEMPERATURE")
+        OLLAMA_TOP_P = OLLAMA.get("TOP_P")
+        if not isinstance(OLLAMA_TOP_P, (int, float)) and OLLAMA_TOP_P is not None:
+            logger.error("OLLAMA configuration 'TOP_P' must be numeric when provided")
+            raise RuntimeError("Invalid OLLAMA TOP_P")
+        OLLAMA_TOP_K = OLLAMA.get("TOP_K")
+        if not isinstance(OLLAMA_TOP_K, int) and OLLAMA_TOP_K is not None:
+            logger.error("OLLAMA configuration 'TOP_K' must be an integer when provided")
+            raise RuntimeError("Invalid OLLAMA TOP_K")
         (
             OLLAMA_MODEL_CONTEXT_WINDOW,
             OLLAMA_MODEL_OUTPUT_WINDOW,
@@ -1013,6 +1029,9 @@ def configure_globals():
         OLLAMA_MODEL_INPUT_WINDOW = None
         OLLAMA_MODEL_INPUT_TIER = None
         OLLAMA_MODEL_MAX_TPM = None
+        OLLAMA_TEMPERATURE = None
+        OLLAMA_TOP_P = None
+        OLLAMA_TOP_K = None
 
     # Safely compute input window
     if OLLAMA_MODEL is None:

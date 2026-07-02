@@ -891,14 +891,27 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
 
 def process_response_by_type(response_type, response, response_message):
     """Route the response to appropriate handler based on type"""
-    logger.debug(f"Handling response of type: {response_type}")
+    logger.info(
+        "Handling response by type; response_type=%s response_message_type=%s content_type=%s",
+        response_type,
+        type(response_message).__name__,
+        type(getattr(response_message, "content", None)).__name__,
+    )
 
     if response_type == "tool_call":
         return handle_tool_call(response)
     elif response_type == "function_call":
         return handle(response_message.function_call)
     else:
-        return process_direct_response(response_message)
+        result = process_direct_response(response_message)
+        logger.info(
+            "Processed direct response; result_type=%s result_preview=%r",
+            type(result).__name__,
+            result[:120] if isinstance(result, str) else result,
+        )
+        if not isinstance(result, str) or not result.strip():
+            print("[monitor] empty direct response after normalization")
+        return result
 
 
 def get_llm_initial_completion():
