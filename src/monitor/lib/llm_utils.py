@@ -352,6 +352,24 @@ def process_response_by_finish_reason(response):
     logger.error(f"Unexpected finish_reason: {finish_reason} - {choices[0]}")
     return f"Unexpected finish reason: {finish_reason}"
 
+def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize provider-specific request kwargs before dispatch.
+
+    Args:
+        kwargs: The completion kwargs built for LiteLLM.
+
+    Returns:
+        The normalized kwargs dictionary.
+    """
+    model_name = kwargs.get("model")
+    if isinstance(model_name, str) and model_name.lower().startswith("ollama/"):
+        base_url = getattr(config, "OLLAMA_BASE_URL", None)
+        if isinstance(base_url, str) and base_url.strip():
+            kwargs["api_base"] = base_url.strip()
+        kwargs.pop("reasoning_effort", None)
+    return kwargs
+
+
 def call_litellm_completion(model: str, messages: list, tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]]):
     """
     Wrapper that adds `reasoning_effort` and `max_completion_tokens` when the
@@ -456,6 +474,7 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
         if isinstance(_cap, int) and _cap > 0:
             kwargs["max_completion_tokens"] = _cap
 
+    kwargs = _apply_provider_request_normalization(kwargs)
     return litellm.completion(**kwargs)
 
 

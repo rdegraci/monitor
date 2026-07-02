@@ -244,6 +244,34 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
     assert 'max_completion_tokens' in captured and captured['max_completion_tokens'] == 50
 
 
+def test_call_litellm_completion_adds_ollama_api_base_and_drops_reasoning_effort(monkeypatch):
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return {"choices": []}
+
+    monkeypatch.setattr(llm_utils.litellm, "completion", fake_completion)
+
+    from monitor import config
+
+    config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.REASONING_MODEL_PREFIX = "openai/gpt-5"
+    config.REASONING_EFFORT = "high"
+    config.REASONING_MAX_COMPLETION_TOKENS = 10_000
+    config.CURRENT_TURN_REASONING_OVERRIDE = None
+
+    llm_utils.call_litellm_completion(
+        "ollama/llama3.1",
+        [{"role": "user", "content": "hi"}],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+    )
+
+    assert captured["api_base"] == "http://127.0.0.1:11434"
+    assert "reasoning_effort" not in captured
+
+
 # New tests for safe_extract_total_tokens, compute_token_delta, and apply_usage_delta
 
 def test_safe_extract_total_tokens_various():

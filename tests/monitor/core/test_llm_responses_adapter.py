@@ -86,6 +86,22 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             # Should not raise
             adapter.validate_responses_config()
 
+    @patch("monitor.core.llm_responses_adapter.OpenAI")
+    def test_configure_responses_adapter_uses_ollama_base_url(self, mock_openai):
+        """Verify Ollama steady models configure the Responses client base URL."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(
+            MODEL="ollama/llama3.1",
+            OLLAMA_BASE_URL="http://127.0.0.1:11434",
+            OPENAI_API_KEY=None,
+        )
+
+        with patch.object(adapter, "config", cfg):
+            adapter.configure_responses_adapter()
+
+        mock_openai.assert_called_once_with(base_url="http://127.0.0.1:11434")
+
     def test_calculate_followup_payload_budget_tool_result_request(self):
         """The pure reserve calculator should derive a payload budget from the
         usable window and named reserve buckets."""
@@ -93,6 +109,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         budget = adapter.calculate_followup_payload_budget(
             request_class=adapter.FOLLOWUP_REQUEST_CLASS_TOOL,
+
             input_window=10_000,
             base_safety_ratio=0.85,
             hidden_chain_reserve_by_class={

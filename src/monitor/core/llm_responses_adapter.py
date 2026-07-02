@@ -826,6 +826,14 @@ def configure_responses_adapter():
         if xai_api_key:
             client_kwargs["api_key"] = xai_api_key
         logger.info("Configuring Responses adapter for xAI with model=%s", model_name)
+    elif isinstance(model_name, str) and model_name.lower().startswith("ollama/"):
+        ollama_base_url = getattr(config, "OLLAMA_BASE_URL", None)
+        if isinstance(ollama_base_url, str) and ollama_base_url.strip():
+            client_kwargs["base_url"] = ollama_base_url.strip()
+        ollama_api_key = getattr(config, "OPENAI_API_KEY", None)
+        if ollama_api_key:
+            client_kwargs["api_key"] = ollama_api_key
+        logger.info("Configuring Responses adapter for Ollama-compatible endpoint with model=%s", model_name)
     else:
         logger.info("Configuring Responses adapter for OpenAI with model=%s", model_name)
 
