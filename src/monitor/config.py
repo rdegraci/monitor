@@ -874,6 +874,57 @@ MAX_FILE_WRITE_BYTES = 1_048_576
 # :ttl built-in command.
 ANTHROPIC_CACHE_TTL = "1h"
 
+OLLAMA = None
+OLLAMA_MODEL = None
+OLLAMA_BASE_URL = None
+OLLAMA_MODEL_CONTEXT_WINDOW = None
+OLLAMA_MODEL_OUTPUT_WINDOW = None
+OLLAMA_MODEL_INPUT_WINDOW = None
+OLLAMA_MODEL_INPUT_TIER = None
+OLLAMA_MODEL_MAX_TPM = None
+
+
+def _derive_ollama_model_settings(ollama_config, model_name):
+    try:
+        if not isinstance(ollama_config, dict):
+            logger.error("OLLAMA config must be a dictionary")
+            raise RuntimeError("OLLAMA config must be a dict")
+        if not isinstance(model_name, str) or not model_name.strip():
+            logger.error("OLLAMA model name must be a non-empty string")
+            raise RuntimeError("OLLAMA model name must be a non-empty string")
+
+        model_name = model_name.strip()
+        context_window = ollama_config.get("CONTEXT_WINDOW")
+        output_window = ollama_config.get("OUTPUT_WINDOW")
+
+        if not isinstance(context_window, int) or context_window <= 0:
+            logger.error(
+                f"OLLAMA[{model_name!r}] CONTEXT_WINDOW must be a positive integer"
+            )
+            raise RuntimeError("Invalid OLLAMA CONTEXT_WINDOW")
+        if not isinstance(output_window, int) or output_window <= 0:
+            logger.error(
+                f"OLLAMA[{model_name!r}] OUTPUT_WINDOW must be a positive integer"
+            )
+            raise RuntimeError("Invalid OLLAMA OUTPUT_WINDOW")
+
+        input_window = context_window - output_window
+        if input_window <= 0:
+            logger.error(
+                f"OLLAMA[{model_name!r}] computed MODEL_INPUT_WINDOW <= 0 "
+                f"(context={context_window}, output={output_window})"
+            )
+            raise RuntimeError("Invalid OLLAMA input window")
+
+        return context_window, output_window, input_window
+    except Exception as e:
+        logger.error(
+            f"Failed to derive OLLAMA model settings for model {model_name!r}: {e}",
+            exc_info=True,
+        )
+        raise
+
+
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
     global FOLLOWUP_BASE_SAFETY_RATIO, FOLLOWUP_TOPLEVEL_RESERVE_TOKENS
@@ -911,58 +962,103 @@ def configure_globals():
     global MONITOR_AGENT_IDLE_TIMEOUT
     global FUNCTION_KEY_INSERTIONS, SHOW_COST_ESTIMATE, TOOL_OUTPUT_TOKEN_LIMIT
     global CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES, SESSIONS_FOLDER
+    global OLLAMA, OLLAMA_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL_CONTEXT_WINDOW, OLLAMA_MODEL_OUTPUT_WINDOW
+    global OLLAMA_MODEL_INPUT_WINDOW, OLLAMA_MODEL_INPUT_TIER, OLLAMA_MODEL_MAX_TPM
 
     SESSION_ID = str(uuid.uuid4())
 
     yaml_config = load_yaml_config()
 
+    OLLAMA = yaml_config.get("OLLAMA")
+    if OLLAMA is not None and not isinstance(OLLAMA, dict):
+        logger.error("OLLAMA configuration must be a mapping if present")
+        raise RuntimeError("OLLAMA configuration must be a dict if present")
+
     MODEL = yaml_config.get("MODEL")
     MODEL_CONTEXT_WINDOW = yaml_config.get("MODEL_CONTEXT_WINDOW")
     MODEL_OUTPUT_WINDOW = yaml_config.get("MODEL_OUTPUT_WINDOW")
 
-    # Safely compute input window
-    MODEL_INPUT_WINDOW = None
-    if isinstance(MODEL_CONTEXT_WINDOW, int) and isinstance(MODEL_OUTPUT_WINDOW, int):
-        iw = MODEL_CONTEXT_WINDOW - MODEL_OUTPUT_WINDOW
-        if iw > 0:
-            MODEL_INPUT_WINDOW = iw
-        else:
-            logger.warning(
-                f"Computed MODEL_INPUT_WINDOW <= 0 (context={MODEL_CONTEXT_WINDOW}, output={MODEL_OUTPUT_WINDOW}); disabling input budgeting"
-            )
+    if MODEL == "OLLAMA":
+        if not isinstance(OLLAMA, dict):
+            logger.error("MODEL is OLLAMA but top-level OLLAMA configuration is missing or invalid")
+            raise RuntimeError("MODEL is OLLAMA but OLLAMA config is missing")
+        ollama_model = OLLAMA.get("MODEL")
+        if not isinstance(ollama_model, str) or not ollama_model.strip():
+            logger.error("OLLAMA configuration requires a non-empty 'MODEL' string")
+            raise RuntimeError("OLLAMA config missing MODEL")
+        OLLAMA_MODEL = ollama_model.strip()
+        ollama_base_url = OLLAMA.get("BASE_URL", "http://127.0.0.1:11434")
+        if not isinstance(ollama_base_url, str) or not ollama_base_url.strip():
+            logger.error("OLLAMA configuration 'BASE_URL' must be a non-empty string")
+            raise RuntimeError("Invalid OLLAMA BASE_URL")
+        OLLAMA_BASE_URL = ollama_base_url.strip()
+        (
+            OLLAMA_MODEL_CONTEXT_WINDOW,
+            OLLAMA_MODEL_OUTPUT_WINDOW,
+            OLLAMA_MODEL_INPUT_WINDOW,
+        ) = _derive_ollama_model_settings(OLLAMA, OLLAMA_MODEL)
+        MODEL = f"ollama/{OLLAMA_MODEL}"
+        MODEL_CONTEXT_WINDOW = OLLAMA_MODEL_CONTEXT_WINDOW
+        MODEL_OUTPUT_WINDOW = OLLAMA_MODEL_OUTPUT_WINDOW
+        MODEL_INPUT_WINDOW = OLLAMA_MODEL_INPUT_WINDOW
+        MODEL_INPUT_TIER = None
+        MODEL_MAX_TPM = None
+        OLLAMA_MODEL_INPUT_TIER = None
+        OLLAMA_MODEL_MAX_TPM = None
     else:
-        logger.debug(
-            f"Skipping MODEL_INPUT_WINDOW computation: MODEL_CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW!r}, MODEL_OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW!r}"
-        )
+        OLLAMA_MODEL = None
+        OLLAMA_BASE_URL = None
+        OLLAMA_MODEL_CONTEXT_WINDOW = None
+        OLLAMA_MODEL_OUTPUT_WINDOW = None
+        OLLAMA_MODEL_INPUT_WINDOW = None
+        OLLAMA_MODEL_INPUT_TIER = None
+        OLLAMA_MODEL_MAX_TPM = None
+
+    # Safely compute input window
+    if OLLAMA_MODEL is None:
+        MODEL_INPUT_WINDOW = None
+        if isinstance(MODEL_CONTEXT_WINDOW, int) and isinstance(MODEL_OUTPUT_WINDOW, int):
+            iw = MODEL_CONTEXT_WINDOW - MODEL_OUTPUT_WINDOW
+            if iw > 0:
+                MODEL_INPUT_WINDOW = iw
+            else:
+                logger.warning(
+                    f"Computed MODEL_INPUT_WINDOW <= 0 (context={MODEL_CONTEXT_WINDOW}, output={MODEL_OUTPUT_WINDOW}); disabling input budgeting"
+                )
+        else:
+            logger.debug(
+                f"Skipping MODEL_INPUT_WINDOW computation: MODEL_CONTEXT_WINDOW={MODEL_CONTEXT_WINDOW!r}, MODEL_OUTPUT_WINDOW={MODEL_OUTPUT_WINDOW!r}"
+            )
 
     # MODEL_MAX_TPM, if it exists, will override the MODEL_INPUT_TIER
     # otherwise, MODEL_MAX_TPM will be set via MODEL_INPUT_TIER
-    MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
-    MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
-    if MODEL_MAX_TPM is None:
-        # Guarded lookups: ensure reverse mapping and model_tpm_mapping are dicts before accessing,
-        # and fall back to None if any lookup fails. This prevents runtime errors during startup.
-        try:
-            reversed_model = get_model_reverse_mapping().get(MODEL)
-        except Exception as e:
-            logger.error(
-                f"Failed to get reverse model mapping for MODEL '{MODEL}': {e}",
-                exc_info=True,
-            )
-            reversed_model = None
+    if OLLAMA_MODEL is None:
+        MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
+        MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
+        if MODEL_MAX_TPM is None:
+            # Guarded lookups: ensure reverse mapping and model_tpm_mapping are dicts before accessing,
+            # and fall back to None if any lookup fails. This prevents runtime errors during startup.
+            try:
+                reversed_model = get_model_reverse_mapping().get(MODEL)
+            except Exception as e:
+                logger.error(
+                    f"Failed to get reverse model mapping for MODEL '{MODEL}': {e}",
+                    exc_info=True,
+                )
+                reversed_model = None
 
-        model_tpm = None
-        if isinstance(model_tpm_mapping, dict) and reversed_model in model_tpm_mapping:
-            model_tpm = model_tpm_mapping.get(reversed_model)
-        if isinstance(model_tpm, dict) and MODEL_INPUT_TIER in model_tpm:
-            MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER)
-        else:
-            # Could not determine MODEL_MAX_TPM from mappings; set to None to indicate unknown.
-            logger.warning(
-                f"Could not determine MODEL_MAX_TPM for MODEL='{MODEL}', reversed_model='{reversed_model}', "
-                f"MODEL_INPUT_TIER='{MODEL_INPUT_TIER}'. MODEL_MAX_TPM set to None."
-            )
-            MODEL_MAX_TPM = None
+            model_tpm = None
+            if isinstance(model_tpm_mapping, dict) and reversed_model in model_tpm_mapping:
+                model_tpm = model_tpm_mapping.get(reversed_model)
+            if isinstance(model_tpm, dict) and MODEL_INPUT_TIER in model_tpm:
+                MODEL_MAX_TPM = model_tpm.get(MODEL_INPUT_TIER)
+            else:
+                # Could not determine MODEL_MAX_TPM from mappings; set to None to indicate unknown.
+                logger.warning(
+                    f"Could not determine MODEL_MAX_TPM for MODEL='{MODEL}', reversed_model='{reversed_model}', "
+                    f"MODEL_INPUT_TIER='{MODEL_INPUT_TIER}'. MODEL_MAX_TPM set to None."
+                )
+                MODEL_MAX_TPM = None
 
     CONVERSATION_MAX_SIZE = yaml_config.get("CONVERSATION_MAX_SIZE")
     RATE_LIMITING_CONFIG = yaml_config.get(
@@ -1130,12 +1226,12 @@ def configure_globals():
     ESCALATE_REASONING_ON_TOOL_FAILURE = yaml_config.get(
         "ESCALATE_REASONING_ON_TOOL_FAILURE", True
     )
-    # Floor for the effort of auto-bumped turns. Validate against known levels;
-    # a typo silently sending a bad reasoning_effort to the provider is worse
-    # than ignoring it.
     _bump_effort_raw = yaml_config.get("REASONING_BUMP_EFFORT")
     if _bump_effort_raw is None:
         REASONING_BUMP_EFFORT = None
+    # Floor for the effort of auto-bumped turns. Validate against known levels;
+    # a typo silently sending a bad reasoning_effort to the provider is worse
+    # than ignoring it.
     elif (
         isinstance(_bump_effort_raw, str)
         and _bump_effort_raw.lower() in {"minimal", "low", "medium", "high", "xhigh"}
@@ -1148,9 +1244,21 @@ def configure_globals():
             _bump_effort_raw,
         )
         REASONING_BUMP_EFFORT = None
+
     # Optional single-turn reasoning-bump model swap. Unset → resolved to the
     # corresponding MODEL* value at the call site (llm_utils).
-    ADV_REASONING_MODEL = yaml_config.get("ADV_REASONING_MODEL")
+    _adv_reasoning_model_raw = yaml_config.get("ADV_REASONING_MODEL")
+    if isinstance(_adv_reasoning_model_raw, str) and _adv_reasoning_model_raw.strip():
+        _adv_reasoning_model = _adv_reasoning_model_raw.strip()
+        _adv_reasoning_model_lc = _adv_reasoning_model.lower()
+        if _adv_reasoning_model_lc == "ollama" or _adv_reasoning_model_lc.startswith("ollama/"):
+            logger.error(
+                f"ADV_REASONING_MODEL {_adv_reasoning_model!r} cannot resolve to Ollama or an ollama/<model> string"
+            )
+            raise RuntimeError("ADV_REASONING_MODEL may not target Ollama")
+        ADV_REASONING_MODEL = _adv_reasoning_model
+    else:
+        ADV_REASONING_MODEL = _adv_reasoning_model_raw
     ADV_REASONING_MODEL_OUTPUT_WINDOW = yaml_config.get("ADV_REASONING_MODEL_OUTPUT_WINDOW")
     COMMIT_MODEL = yaml_config.get("COMMIT_MODEL")
     COMMIT_REASONING_EFFORT = yaml_config.get("COMMIT_REASONING_EFFORT")
@@ -1703,7 +1811,7 @@ def configure_globals():
                 DEFAULT_EXCLUDE_EXTENSIONS = parsed_exts
             else:
                 DEFAULT_EXCLUDE_EXTENSIONS = yaml_config.get(
-                    "DEFAULT_EXCLUDE_EXTENSIONS", 
+                    "DEFAULT_EXCLUDE_EXTENSIONS",
                     [
                         "png",
                         "jpg",
@@ -1725,7 +1833,7 @@ def configure_globals():
             raise RuntimeError("Failed to parse DEFAULT_EXCLUDE_EXTENSIONS environment variable") from e
     else:
         DEFAULT_EXCLUDE_EXTENSIONS = yaml_config.get(
-            "DEFAULT_EXCLUDE_EXTENSIONS", 
+            "DEFAULT_EXCLUDE_EXTENSIONS",
             [
                 "png",
                 "jpg",
@@ -1758,7 +1866,7 @@ def configure_globals():
                 DEFAULT_EXCLUDE_GLOBS = parsed_globs
             else:
                 DEFAULT_EXCLUDE_GLOBS = yaml_config.get(
-                    "DEFAULT_EXCLUDE_GLOBS", 
+                    "DEFAULT_EXCLUDE_GLOBS",
                     [
                         "node_modules/**",
                         ".venv/**",
@@ -1772,7 +1880,7 @@ def configure_globals():
             raise RuntimeError("Failed to parse DEFAULT_EXCLUDE_GLOBS environment variable") from e
     else:
         DEFAULT_EXCLUDE_GLOBS = yaml_config.get(
-            "DEFAULT_EXCLUDE_GLOBS", 
+            "DEFAULT_EXCLUDE_GLOBS",
             [
                 "node_modules/**",
                 ".venv/**",

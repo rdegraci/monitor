@@ -1,9 +1,21 @@
-MODEL: openai/gpt-5.4-mini-2026-03-17  # Fully qualified primary LLM model (provider/model:version) used for standard responses
-MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens)
-MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens)
-MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits
+MODEL: openai/gpt-5.4-mini-2026-03-17  # Fully qualified primary LLM model (provider/model:version) used for standard responses. Set to OLLAMA to use the provider-scoped OLLAMA block below.
+MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens). Ignored when MODEL: OLLAMA.
+MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens). Ignored when MODEL: OLLAMA.
+MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits. Ignored when MODEL: OLLAMA.
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
+
+# Ollama provider mode:
+# - Set MODEL: OLLAMA to activate this provider.
+# - OLLAMA.MODEL is the local Ollama model name.
+# - Runtime canonical model becomes ollama/<OLLAMA.MODEL>.
+# - OLLAMA.BASE_URL defaults to http://127.0.0.1:11434 when omitted.
+# - OLLAMA.CONTEXT_WINDOW and OLLAMA.OUTPUT_WINDOW are required in Ollama mode.
+# OLLAMA:
+#   MODEL: llama3.1
+#   BASE_URL: http://127.0.0.1:11434
+#   CONTEXT_WINDOW: 128000
+#   OUTPUT_WINDOW: 8192
 # SESSIONS_FOLDER controls the root directory name under the Monitor user
 # config directory where session artifacts are stored. The default is
 # "sessions" if this key is omitted.
