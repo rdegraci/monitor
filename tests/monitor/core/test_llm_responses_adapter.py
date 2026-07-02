@@ -1166,6 +1166,68 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert isinstance(second_kwargs["input"], list)
         assert "previous_response_id" not in third_kwargs
         assert third_kwargs["input"] == [{"role": "user", "content": "say hi"}]
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_call_responses_api_context_retry_starts_fresh_chain(
+        self,
+        mock_rate_limiter,
+        _mock_update,
+        _mock_get_tools,
+        mock_progress_dots,
+    ):
+        """Retrying after context exhaustion should not reuse the old response chain."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeBadRequestError(Exception):
+            """Provider-shaped bad request for testing."""
+
+            def __init__(self, message, code):
+                super().__init__(f"{message} ({code})")
+                self.code = code
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        fake_client.responses.create.side_effect = [
+            FakeBadRequestError("context too large", "context_length_exceeded"),
+            self._fake_response("resp_2", total_tokens=1, output=[]),
+        ]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID="resp_stale",
+            RATE_LIMITER=True,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        messages = [{"role": "user", "content": "new prompt after failure"}]
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                messages,
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        assert fake_client.responses.create.call_count == 2
+        first_kwargs = fake_client.responses.create.call_args_list[0].kwargs
+        retry_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert first_kwargs["previous_response_id"] == "resp_stale"
+        assert retry_kwargs["input"] == messages
+        assert "previous_response_id" not in retry_kwargs
+        assert cfg.RESPONSE_ID == "resp_2"
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     def test_context_length_exceeded_returns_user_friendly_error(self, mock_progress_dots):
         """Verify context-length failures are converted into a friendly error message."""

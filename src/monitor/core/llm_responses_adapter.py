@@ -906,7 +906,13 @@ def _cancellable_responses_create(create_callable, params, progress_label=None):
             except Exception:
                 pass
 
-def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, request_id=None):
+def call_responses_api(
+    messages,
+    tool_descriptions,
+    gemini_tool_descriptions,
+    request_id=None,
+    allow_chain_retry=True,
+):
     """Make the actual call to the OpenAI Responses API.
 
     This method supports cancellable behavior: pressing Ctrl-C during any Responses API call
@@ -954,7 +960,17 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
 
         # Determine input: if a previous response id exists, send only the new user input
         if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
-            params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
+            if allow_chain_retry:
+                params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
+                logger.info(
+                    "Reusing previous_response_id=%s for chained Responses API call",
+                    getattr(config, "RESPONSE_ID"),
+                )
+            else:
+                logger.info(
+                    "Starting a fresh Responses API request even though RESPONSE_ID=%s exists because chained retry has been disabled for this call",
+                    getattr(config, "RESPONSE_ID"),
+                )
             # Extract most recent user message content
             user_text = None
             try:
@@ -972,10 +988,16 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                     )
                 except Exception:
                     user_text = ""
-            params[REQUEST_PARAM_INPUT] = user_text
-            logger.debug(
-                "Sending only the new user input alongside previous_response_id to OpenAI Responses API"
-            )
+            if REQUEST_PREV_RESPONSE_ID in params:
+                params[REQUEST_PARAM_INPUT] = user_text
+                logger.debug(
+                    "Sending only the new user input alongside previous_response_id to OpenAI Responses API"
+                )
+            else:
+                params[REQUEST_PARAM_INPUT] = messages
+                logger.info(
+                    "Falling back to full prepared messages because this call is starting a fresh Responses API chain"
+                )
         else:
             # First-call: send prepared messages as input (may include system preferences)
             params[REQUEST_PARAM_INPUT] = messages
@@ -1647,6 +1669,7 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
                             tool_descriptions,
                             gemini_tool_descriptions,
                             request_id=request_id,
+                            allow_chain_retry=False,
                         )
 
                     logger.exception(
@@ -2386,8 +2409,29 @@ def call_responses_api(messages, tool_descriptions, gemini_tool_descriptions, re
         return wrapper
 
     except Exception as e:
-        if getattr(e, "code", None) == "context_length_exceeded":
+        if _is_context_length_exceeded_error(e):
             _log_context_length_exceeded(e, params)
+            if allow_chain_retry and params.get(REQUEST_PREV_RESPONSE_ID):
+                logger.warning(
+                    "Initial Responses API call exceeded the provider context window while reusing previous_response_id=%s; retrying with a fresh request chain",
+                    params.get(REQUEST_PREV_RESPONSE_ID),
+                )
+                try:
+                    setattr(config, "RESPONSE_ID", None)
+                    logger.warning(
+                        "Cleared config.RESPONSE_ID after oversized chained request so the retry starts a fresh response chain"
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to clear config.RESPONSE_ID after oversized chained request"
+                    )
+                return call_responses_api(
+                    messages,
+                    tool_descriptions,
+                    gemini_tool_descriptions,
+                    request_id=request_id,
+                    allow_chain_retry=False,
+                )
         logger.error(f"Responses API call failed: {e}", exc_info=True)
         raise
 
