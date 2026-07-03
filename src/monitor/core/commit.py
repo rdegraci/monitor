@@ -5,9 +5,8 @@ import subprocess
 import tempfile
 from textwrap import dedent
 
-import litellm
-
 from monitor import config
+from monitor.lib import llm_utils
 from monitor.lib.llm_utils import is_reasoning_model
 from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
@@ -263,8 +262,16 @@ def get_suggested_commit_message(diff_output):
             },
             {"role": "user", "content": query_input},
         ]
+        native_model = kwargs["model"]
+        if isinstance(native_model, str) and native_model.lower().startswith("ollama/"):
+            native_model = native_model.split("/", 1)[1]
         with progress_dots("Generating commit message"):
-            response = litellm.completion(**kwargs)
+            response = llm_utils.call_litellm_completion(
+                native_model,
+                kwargs["messages"],
+                tool_descriptions=[],
+                gemini_tool_descriptions=[],
+            )
         logger.debug("Generated suggested commit message.")
         return response.choices[0].message.content or ""
     except Exception as e:

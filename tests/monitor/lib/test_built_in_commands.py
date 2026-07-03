@@ -420,7 +420,7 @@ def test_wiki_fix_command_rejects_unsupported_finding_kind(mock_error):
     mock_error.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_previews_diff_for_semantic_stale_location_claim(
     mock_completion,
     tmp_path,
@@ -464,7 +464,7 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_location_claim(
     mock_completion.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_previews_diff_for_semantic_stale_authority_claim(
     mock_completion,
     tmp_path,
@@ -508,7 +508,7 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_authority_claim(
     mock_completion.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_previews_diff_for_semantic_stale_workflow_claim(
     mock_completion,
     tmp_path,
@@ -552,7 +552,7 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_workflow_claim(
     mock_completion.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_previews_diff_for_semantic_stale_ownership_claim(
     mock_completion,
     tmp_path,
@@ -597,7 +597,7 @@ def test_wiki_fix_command_previews_diff_for_semantic_stale_ownership_claim(
 
 
 @patch("monitor.lib.built_in_commands.print_colored_error")
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_rejects_empty_llm_replacement(mock_completion, mock_error, tmp_path):
     mock_completion.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content=""))]
@@ -626,7 +626,7 @@ def test_wiki_fix_command_rejects_empty_llm_replacement(mock_completion, mock_er
 
 
 @patch("monitor.lib.built_in_commands.print_colored_error")
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_rejects_oversized_llm_replacement(mock_completion, mock_error, tmp_path):
     mock_completion.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="x" * 401))]
@@ -655,7 +655,7 @@ def test_wiki_fix_command_rejects_oversized_llm_replacement(mock_completion, moc
 
 
 @patch("monitor.lib.built_in_commands.print_colored_error")
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_rejects_unchanged_llm_replacement(mock_completion, mock_error, tmp_path):
     claim = "The authoritative implementation lives in src/monitor/lib/missing_server.py"
     mock_completion.return_value = MagicMock(
@@ -683,7 +683,7 @@ def test_wiki_fix_command_rejects_unchanged_llm_replacement(mock_completion, moc
     mock_error.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_apply_writes_previewed_text_to_disk(
     mock_completion,
     tmp_path,
@@ -726,7 +726,7 @@ def test_wiki_fix_command_apply_writes_previewed_text_to_disk(
     mock_completion.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_apply_writes_previewed_ownership_text_to_disk(
     mock_completion,
     tmp_path,
@@ -795,7 +795,7 @@ def test_wiki_fix_command_apply_requires_stored_preview(mock_error, tmp_path):
     mock_error.assert_called_once()
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_llm_all_previews_all_supported_findings(
     mock_completion,
     tmp_path,
@@ -881,7 +881,7 @@ def test_wiki_fix_command_apply_all_requires_stored_previews(mock_error, tmp_pat
     assert "llm_all" in mock_error.call_args[0][0]
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_apply_all_applies_all_supported_previews(
     mock_completion,
     tmp_path,
@@ -938,7 +938,7 @@ def test_wiki_fix_command_apply_all_applies_all_supported_previews(
     assert mock_completion.call_count == 2
 
 
-@patch("monitor.lib.built_in_commands.litellm.completion")
+@patch("monitor.lib.built_in_commands.llm_utils.call_litellm_completion")
 def test_wiki_fix_command_auto_all_previews_then_applies_supported_findings(
     mock_completion,
     tmp_path,
@@ -1042,8 +1042,8 @@ def test_wiki_init_command_no_project_wiki(monkeypatch, capsys):
 def test_wiki_init_command_preview_drafts_without_writing(tmp_path, monkeypatch, capsys):
     repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
 
-    with patch.object(bic, "litellm") as mock_litellm:
-        mock_litellm.completion.return_value = MagicMock(
+    with patch.object(bic, "llm_utils") as mock_litellm:
+        mock_litellm.call_litellm_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
         )
         result = bic.wiki_init_command("")
@@ -1060,8 +1060,8 @@ def test_wiki_init_command_strips_code_fences(tmp_path, monkeypatch):
     repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
     fenced = "```markdown\n" + _WIKI_INIT_DRAFT + "```\n"
 
-    with patch.object(bic, "litellm") as mock_litellm:
-        mock_litellm.completion.return_value = MagicMock(
+    with patch.object(bic, "llm_utils") as mock_litellm:
+        mock_litellm.call_litellm_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=fenced))]
         )
         result = bic.wiki_init_command("")
@@ -1073,8 +1073,8 @@ def test_wiki_init_command_strips_code_fences(tmp_path, monkeypatch):
 def test_wiki_init_command_apply_writes_when_placeholder(tmp_path, monkeypatch, capsys):
     repo, wiki_dir, index = _wiki_init_env(tmp_path, monkeypatch)
 
-    with patch.object(bic, "litellm") as mock_litellm:
-        mock_litellm.completion.return_value = MagicMock(
+    with patch.object(bic, "llm_utils") as mock_litellm:
+        mock_litellm.call_litellm_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
         )
         bic.wiki_init_command("")
@@ -1097,10 +1097,10 @@ def test_wiki_init_command_apply_refuses_when_substantive_without_force(
         encoding="utf-8",
     )
 
-    with patch.object(bic, "litellm") as mock_litellm, patch.object(
+    with patch.object(bic, "llm_utils") as mock_litellm, patch.object(
         bic, "print_colored_error"
     ) as mock_error:
-        mock_litellm.completion.return_value = MagicMock(
+        mock_litellm.call_litellm_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
         )
         bic.wiki_init_command("")
@@ -1118,8 +1118,8 @@ def test_wiki_init_command_apply_force_overwrites_substantive(tmp_path, monkeypa
         "# Project Wiki Index\n\n## Overview\n- Old content.\n", encoding="utf-8"
     )
 
-    with patch.object(bic, "litellm") as mock_litellm:
-        mock_litellm.completion.return_value = MagicMock(
+    with patch.object(bic, "llm_utils") as mock_litellm:
+        mock_litellm.call_litellm_completion.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content=_WIKI_INIT_DRAFT))]
         )
         bic.wiki_init_command("")

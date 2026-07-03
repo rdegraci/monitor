@@ -1,6 +1,7 @@
 import pytest
 import logging
 import monitor.lib.history as history
+from monitor.lib import llm_utils
 from unittest import mock
 from unittest.mock import patch  # Added for mocking core.llm.get_llm_completion
 from types import SimpleNamespace
@@ -48,6 +49,119 @@ def fake_litellm_completion_func(**kwargs):
             self.usage = SimpleNamespace(total_tokens=7)
 
     return Resp()
+
+
+def make_completion_wrapper():
+    return lambda **kwargs: llm_utils.call_litellm_completion(
+        kwargs["model"],
+        kwargs["messages"],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+    )
+
+
+def test_generate_conversation_summary_routes_ollama_through_native_wrapper(monkeypatch, logger):
+    """Verify Ollama summarization calls the native completion path, not LiteLLM."""
+    from monitor import config as global_config
+
+    captured = {}
+
+    class Resp:
+        class Choice:
+            def __init__(self):
+                self.message = SimpleNamespace(role="summary", content="Short summary.")
+
+        def __init__(self):
+            self.choices = [self.Choice()]
+            self.usage = SimpleNamespace(total_tokens=7)
+
+    def fake_native_completion(messages, model, tools=None):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["tools"] = tools
+        return Resp()
+
+    monkeypatch.setattr(llm_utils, "_call_native_ollama_completion", fake_native_completion)
+    monkeypatch.setattr(global_config, "OLLAMA_MODEL", "ornith:9b", raising=False)
+
+    local_config = DummyConfig()
+    local_config.MODEL = "ollama/ornith:9b"
+
+    response = history.generate_conversation_summary(
+        "System prompt.",
+        [{"role": "user", "content": "Hello"}],
+        local_config.SUMMARIZATION_CONFIG,
+        local_config.MODEL,
+        make_completion_wrapper(),
+        count_message_tokens_always_10,
+        mock.Mock(wait_if_needed=mock.Mock(), add_request=mock.Mock()),
+        logger,
+        local_config,
+    )
+
+    assert captured["model"] == "ornith:9b"
+    assert captured["tools"] == []
+    assert captured["messages"][0]["role"] == "system"
+    assert response.choices[0].message.content == "Short summary."
+
+
+def test_append_conversation_history_uses_native_ollama_summary_path(monkeypatch, logger):
+    """Verify history-triggered summarization uses the native Ollama path."""
+    from monitor import config as global_config
+
+    captured = {}
+
+    class Resp:
+        class Choice:
+            def __init__(self):
+                self.message = SimpleNamespace(role="summary", content="Short summary.")
+
+        def __init__(self):
+            self.choices = [self.Choice()]
+            self.usage = SimpleNamespace(total_tokens=7)
+
+    def fake_native_completion(messages, model, tools=None):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["tools"] = tools
+        return Resp()
+
+    monkeypatch.setattr(llm_utils, "_call_native_ollama_completion", fake_native_completion)
+    monkeypatch.setattr(global_config, "OLLAMA_MODEL", "ornith:9b", raising=False)
+    monkeypatch.setattr(history.litellm, "completion", lambda **kwargs: (_ for _ in ()).throw(AssertionError("LiteLLM shim should not be called")))
+
+    local_config = DummyConfig()
+    local_config.MODEL = "ollama/ornith:9b"
+    local_config.TOTAL_TOKEN_COUNT = 900
+    local_config.MAX_TOKEN_COUNT = 1_000
+    local_config.CONVERSATION_HISTORY = [{"role": "system", "content": "System prompt."}]
+    local_config.SUMMARIZATION_CONFIG["triggers"]["summary_token_ratio"] = 0.5
+    local_config.SUMMARIZATION_CONFIG["triggers"]["token_reduction_factor"] = 0.7
+    local_config.SUMMARIZATION_CONFIG["triggers"]["maximum_summary_tokens"] = 200
+
+    def fake_check_limits(*args, **kwargs):
+        return {
+            "should_summarize": True,
+            "trigger_reasons": {"tokens": True, "history": False, "time": False, "memory": False},
+            "metrics": {"token_count": 910, "token_limit": 700, "over_token_limit": True},
+        }
+
+    history.append_conversation_history(
+        "Hello",
+        local_config.CONVERSATION_HISTORY,
+        lambda *_args, **_kwargs: None,
+        lambda max_t, total_t: max_t,
+        fake_check_limits,
+        history.generate_conversation_summary,
+        lambda *args, **kwargs: None,
+        "System prompt.",
+        local_config,
+        lambda *args, **kwargs: None,
+        logger,
+    )
+
+    assert captured["model"] == "ornith:9b"
+    assert captured["messages"][0]["role"] == "system"
 
 
 @pytest.fixture

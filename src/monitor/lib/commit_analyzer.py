@@ -2,8 +2,7 @@ import logging
 import re
 from textwrap import dedent
 
-import litellm
-
+from monitor.lib import llm_utils
 from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
 
 from monitor.lib.macro_utils import recursive_macro_expand
@@ -109,8 +108,11 @@ class CommitAnalyzer:
             "Provide a 2-3 sentence summary that captures the purpose and progress of this development branch."
         )
         self.logger.debug("Sending commit log to LLM (%s) for analysis", self.llm_model)
-        response = litellm.completion(
-            model=self.llm_model, messages=[{"role": "user", "content": prompt}]
+        response = llm_utils.call_litellm_completion(
+            self.llm_model,
+            [{"role": "user", "content": prompt}],
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
         )
         summary = (response.choices[0].message.content or "").strip()
         self.logger.info("Successfully generated summary using LLM")
@@ -138,8 +140,11 @@ class CommitAnalyzer:
             "1. First suggestion\n2. Second suggestion\n...and so on."
         )
         self.logger.debug("Sending summary to LLM (%s) for next steps", self.llm_model)
-        response = litellm.completion(
-            model=self.llm_model, messages=[{"role": "user", "content": prompt}]
+        response = llm_utils.call_litellm_completion(
+            self.llm_model,
+            [{"role": "user", "content": prompt}],
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
         )
         suggestions_text = (response.choices[0].message.content or "").strip()
         self.logger.info("Successfully generated next steps using LLM")

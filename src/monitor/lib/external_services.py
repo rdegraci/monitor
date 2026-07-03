@@ -2,12 +2,12 @@ import json
 import logging
 import os
 
-import litellm
+from monitor.lib import llm_utils
 from monitor.lib.pygments_stubs import BashLexer, DiffLexer, MarkdownLexer, SwiftLexer, TerminalFormatter, highlight
 
 from monitor._stubs import requests
 
-from monitor.lib.colors import red, yellow, blue, reset
+from monitor.lib.colors import blue, red, reset, yellow
 
 logger = logging.getLogger(__name__)
 
@@ -201,14 +201,14 @@ def joke_for_twitch(arg=""):
     """
     try:
         logger.info("Requesting joke generation from LLM model: %s", config.MODEL)
-        response = litellm.completion(
-            model=config.MODEL,
-            messages=[
+        response = llm_utils.call_litellm_completion(
+            config.MODEL,
+            [
                 {"role": "system", "content": f"You are a great comedian."},
                 {"role": "user", "content": instructions}
             ],
-            temperature=0.9,
-            top_p=0.9
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
         )
     except Exception as e:
         logger.error("Error during joke generation with LLM: %s", str(e), exc_info=True)

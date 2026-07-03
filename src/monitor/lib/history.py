@@ -434,12 +434,19 @@ def append_conversation_history(
             response = None
             summary_was_from_truncated_fallback = False
             try:
+                from monitor.lib import llm_utils
+
                 response = generate_summary_func(
                     system_prompt,
                     conversation_history,
                     config.SUMMARIZATION_CONFIG,
                     config.MODEL,
-                    litellm.completion,
+                    lambda **kwargs: llm_utils.call_litellm_completion(
+                        kwargs["model"],
+                        kwargs["messages"],
+                        tool_descriptions=[],
+                        gemini_tool_descriptions=[],
+                    ),
                     count_message_tokens,
                     rate_limiter.RATE_LIMITER,
                     logger,
@@ -1071,7 +1078,7 @@ def generate_conversation_summary(
     conversation_history: list,
     summarization_config: dict,
     model_name: str,
-    litellm_completion_func: Callable,
+    completion_func: Callable,
     count_message_tokens_func: Callable,
     rate_limiter_obj: object,
     logger: HistoryLogger,
@@ -1088,7 +1095,7 @@ def generate_conversation_summary(
         conversation_history (list): Full conversation to summarize.
         summarization_config (dict): Contains the LLM prompt template, thresholds.
         model_name (str): Name/id for the LM backend.
-        litellm_completion_func (Callable): LLM API client (such as litellm.completion).
+        completion_func (Callable): LLM API client (such as litellm.completion).
         count_message_tokens_func (Callable):  Canonical message token counting helper (lib/token_management.py).
         rate_limiter_obj (object): To throttle requests as needed.
         logger (object): For diagnostics and warnings.
@@ -1096,7 +1103,7 @@ def generate_conversation_summary(
 
     Uses summary_token_ratio from monitor.config (via summarization_config['triggers']['summary_token_ratio']) to limit maximum summary length. If not set, defaults to 0.5. The maximum allowed summary tokens will be computed as:
         max_summary_tokens = int(config.MAX_TOKEN_COUNT * summarization_config['triggers'].get('token_reduction_factor', 0.7) * summarization_config['triggers'].get('summary_token_ratio', 0.5))
-    This will be passed to litellm_completion_func as max_tokens. A warning is logged if the ratio is missing from monitor.config.
+    This will be passed to completion_func as max_tokens. A warning is logged if the ratio is missing from monitor.config.
     
     Returns:
         object: The raw completion/response object from the LLM.
@@ -1138,7 +1145,7 @@ def generate_conversation_summary(
         # the previous bug where only ``max_completion_tokens`` was passed and
         # got silently dropped for providers that expect ``max_tokens``,
         # leaving the summary call uncapped.
-        response = litellm_completion_func(
+        response = completion_func(
             model=model_name,
             messages=[
                 {"role": "system", "content": f"{system_prompt}"},

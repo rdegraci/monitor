@@ -71,6 +71,7 @@ logger = logging.getLogger(__name__)
 TTS = TextToSpeech()
 
 
+
 class AttrDict(dict):
     """
     Dictionary subclass whose entries can be accessed by attributes (as well as normally).
@@ -466,6 +467,12 @@ def _call_native_ollama_completion(
     ollama_top_k = getattr(config, "OLLAMA_TOP_K", None)
     if isinstance(ollama_top_k, int):
         options["top_k"] = ollama_top_k
+    ollama_context_window = getattr(config, "OLLAMA_MODEL_CONTEXT_WINDOW", None)
+    if isinstance(ollama_context_window, int):
+        options["num_ctx"] = ollama_context_window
+    ollama_output_window = getattr(config, "OLLAMA_MODEL_OUTPUT_WINDOW", None)
+    if isinstance(ollama_output_window, int):
+        options["num_predict"] = ollama_output_window
     logger.info(
         "Dispatching native Ollama call with model=%s base_url=%s options=%s message_count=%s tool_count=%s",
         model,
@@ -647,6 +654,35 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
             native_model,
             tools=native_tools,
         )
+    return _call_litellm_completion_with_guard(**kwargs)
+
+
+def _call_litellm_completion_with_guard(**kwargs: Any):
+    """Call LiteLLM only after rejecting Ollama provider requests.
+
+    Args:
+        **kwargs: Completion kwargs forwarded to LiteLLM.
+
+    Returns:
+        The LiteLLM completion response.
+
+    Raises:
+        RuntimeError: If an Ollama model is about to be routed through LiteLLM.
+    """
+    model_name = kwargs.get("model")
+    if isinstance(model_name, str) and model_name.lower().startswith("ollama/"):
+        import traceback
+
+        stack_trace = "".join(traceback.format_stack())
+        logger.critical(
+            "Fatal: Ollama model sent to LiteLLM completion. model=%s\n%s",
+            model_name,
+            stack_trace,
+        )
+        raise RuntimeError(
+            f"Fatal: LiteLLM completion invoked for Ollama model '{model_name}'."
+        )
+
     return litellm.completion(**kwargs)
 
 

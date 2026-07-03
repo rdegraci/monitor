@@ -3,6 +3,7 @@ import os
 import sys
 import time
 
+import monitor.lib.llm_utils as llm_utils
 import litellm
 
 from prompt_toolkit.key_binding import KeyBindings
@@ -908,7 +909,7 @@ def apply_model_switch_if_needed(last_model):
                         config.CONVERSATION_HISTORY,
                         config.SUMMARIZATION_CONFIG,
                         config.MODEL,
-                        litellm.completion,
+                        llm_utils.call_litellm_completion,
                         count_message_tokens,
                         rate_limiter.RATE_LIMITER,
                         logger,

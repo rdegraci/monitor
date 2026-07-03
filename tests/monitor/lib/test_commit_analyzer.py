@@ -14,7 +14,7 @@ def _llm(content):
     return resp
 
 
-@patch("monitor.lib.commit_analyzer.litellm.completion")
+@patch("monitor.lib.commit_analyzer.llm_utils.call_litellm_completion")
 @patch("monitor.lib.commit_analyzer.run_git_capture")
 def test_analyze_and_next_steps_happy_path(mock_git, mock_llm):
     """Summary then next-steps; the diff is sent to the LLM only once (not re-sent)."""
@@ -33,7 +33,7 @@ def test_analyze_and_next_steps_happy_path(mock_git, mock_llm):
     assert steps == ["Do X", "Do Y"]
 
     # The next-steps prompt must not re-embed the diff (sent once in analyze_commits).
-    next_steps_prompt = mock_llm.call_args_list[1].kwargs["messages"][0]["content"]
+    next_steps_prompt = mock_llm.call_args_list[1].args[1][0]["content"]
     assert "new_code_line" not in next_steps_prompt
 
 
@@ -56,7 +56,7 @@ def test_no_commits_yields_message_and_no_fabricated_steps(mock_git):
     assert analyzer.suggest_next_steps(summary) == []
 
 
-@patch("monitor.lib.commit_analyzer.litellm.completion", side_effect=RuntimeError("api down"))
+@patch("monitor.lib.commit_analyzer.llm_utils.call_litellm_completion", side_effect=RuntimeError("api down"))
 @patch("monitor.lib.commit_analyzer.run_git_capture")
 def test_analyze_commits_raises_on_llm_error(mock_git, mock_llm):
     """LLM failure propagates instead of returning a placeholder summary."""
@@ -66,7 +66,7 @@ def test_analyze_commits_raises_on_llm_error(mock_git, mock_llm):
         analyzer.analyze_commits()
 
 
-@patch("monitor.lib.commit_analyzer.litellm.completion", side_effect=RuntimeError("api down"))
+@patch("monitor.lib.commit_analyzer.llm_utils.call_litellm_completion", side_effect=RuntimeError("api down"))
 @patch("monitor.lib.commit_analyzer.run_git_capture")
 def test_suggest_next_steps_raises_on_llm_error_no_fabrication(mock_git, mock_llm):
     """LLM failure propagates instead of returning fabricated generic steps."""
@@ -76,7 +76,7 @@ def test_suggest_next_steps_raises_on_llm_error_no_fabrication(mock_git, mock_ll
         analyzer.suggest_next_steps("some summary")
 
 
-@patch("monitor.lib.commit_analyzer.litellm.completion")
+@patch("monitor.lib.commit_analyzer.llm_utils.call_litellm_completion")
 @patch("monitor.lib.commit_analyzer.run_git_capture")
 def test_commit_log_is_capped(mock_git, mock_llm):
     """A huge commit log is truncated before going to the LLM."""

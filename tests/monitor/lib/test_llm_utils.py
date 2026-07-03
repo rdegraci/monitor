@@ -346,6 +346,8 @@ def test_native_ollama_completion_uses_client_host_and_options(monkeypatch):
     config.OLLAMA_TEMPERATURE = 0.6
     config.OLLAMA_TOP_P = 0.95
     config.OLLAMA_TOP_K = 20
+    config.OLLAMA_MODEL_CONTEXT_WINDOW = 16_384
+    config.OLLAMA_MODEL_OUTPUT_WINDOW = 4_096
 
     response = llm_utils._call_native_ollama_completion(
         [{"role": "user", "content": "hi"}],
@@ -355,7 +357,13 @@ def test_native_ollama_completion_uses_client_host_and_options(monkeypatch):
     assert captured["host"] == "http://127.0.0.1:11434"
     assert captured["model"] == "ornith:9b"
     assert captured["tools"] is None
-    assert captured["options"] == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+    assert captured["options"] == {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "num_ctx": 16_384,
+        "num_predict": 4_096,
+    }
     assert response["choices"][0]["message"]["content"] == "hello"
 
 
@@ -392,6 +400,8 @@ def test_native_ollama_completion_logs_request_payload(monkeypatch, caplog):
     config.OLLAMA_TEMPERATURE = 0.6
     config.OLLAMA_TOP_P = 0.95
     config.OLLAMA_TOP_K = 20
+    config.OLLAMA_MODEL_CONTEXT_WINDOW = 16_384
+    config.OLLAMA_MODEL_OUTPUT_WINDOW = 4_096
 
     with caplog.at_level("INFO"):
         llm_utils._call_native_ollama_completion(
@@ -410,11 +420,19 @@ def test_native_ollama_completion_logs_request_payload(monkeypatch, caplog):
         {"role": "user", "content": "hi"},
     ]
     assert captured["tools"] == tools
-    assert captured["options"] == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+    assert captured["options"] == {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "num_ctx": 16_384,
+        "num_predict": 4_096,
+    }
     assert any("Ollama native request payload:" in record.message for record in caplog.records)
     assert any("system context" in record.message for record in caplog.records)
     assert any("search_repo" in record.message for record in caplog.records)
     assert any("temperature" in record.message for record in caplog.records)
+    assert any("num_ctx" in record.message for record in caplog.records)
+    assert any("num_predict" in record.message for record in caplog.records)
 
 
 def test_provider_request_normalization_skips_ollama_knobs_for_non_ollama_model():

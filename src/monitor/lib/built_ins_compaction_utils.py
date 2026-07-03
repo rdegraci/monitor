@@ -2,6 +2,7 @@
 
 import logging
 
+import monitor.lib.llm_utils as llm_utils
 import litellm
 
 from monitor import config
@@ -113,7 +114,7 @@ def compact_command(arg: str | None = None) -> None:
             old_portion,
             active_config.SUMMARIZATION_CONFIG,
             active_config.MODEL,
-            litellm.completion,
+            llm_utils.call_litellm_completion,
             count_message_tokens,
             rate_limiter.RATE_LIMITER,
             active_logger,

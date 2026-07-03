@@ -6,11 +6,12 @@ Each diagram is rendered to a deterministic SVG file (e.g., consult_graph.svg),
 and browser tab openings are managed to avoid tab spam.
 """
 
-import litellm
-from typing import List, Dict, Optional, Tuple
 import os
-import webbrowser
 import re
+import webbrowser
+from typing import Dict, List, Optional, Tuple
+
+from monitor.lib import llm_utils
 from monitor.lib.third_party_shims import Source
 
 
@@ -231,10 +232,11 @@ class Consult:
             "Sending prompt to LLM %s with temperature: %s", self.model, temperature
         )
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=llm_messages,
-                temperature=temperature,
+            response = llm_utils.call_litellm_completion(
+                self.model,
+                llm_messages,
+                tool_descriptions=[],
+                gemini_tool_descriptions=[],
             )
             reply = response.choices[0].message.content.strip()
             self.logger.debug("Received LLM response. Length: %d chars", len(reply))

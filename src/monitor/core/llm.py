@@ -496,7 +496,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _old_portion,
                             _cfg().SUMMARIZATION_CONFIG,
                             _cfg().MODEL,
-                            litellm.completion,
+                            call_litellm_completion,
                             count_message_tokens,
                             rate_limiter.RATE_LIMITER,
                             logger,
@@ -668,7 +668,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _old_portion,
                             _cfg().SUMMARIZATION_CONFIG,
                             _cfg().MODEL,
-                            litellm.completion,
+                            call_litellm_completion,
                             count_message_tokens,
                             rate_limiter.RATE_LIMITER,
                             logger,
@@ -842,7 +842,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             steady_provider="ollama" if isinstance(getattr(_cfg(), "MODEL", None), str) and getattr(_cfg(), "MODEL", None).lower().startswith("ollama/") else None,
         )
         response, was_cancelled = cancellable_call_litellm_completion(
-            _cfg().MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
+            resolved_model, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
         )
         if was_cancelled:
             try:

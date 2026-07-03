@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import monitor.core.commit as commit
+from monitor.lib import llm_utils
 
 
 class TestCommitCommand(unittest.TestCase):
@@ -81,7 +82,7 @@ class TestCommitCommand(unittest.TestCase):
         with self.assertRaises(Exception):
             commit.get_staged_diff(silent=True)
 
-    @patch("monitor.core.commit.litellm.completion")
+    @patch("monitor.core.commit.llm_utils.call_litellm_completion")
     @patch("monitor.core.commit.build_commit_message_query_input")
     def test_get_suggested_commit_message_builds_and_completes(
         self, mock_build, mock_completion
@@ -103,7 +104,7 @@ class TestCommitCommand(unittest.TestCase):
         self.assertFalse(hasattr(commit, "query"))
         self.assertTrue(mock_completion.called)
 
-    @patch("monitor.core.commit.litellm.completion")
+    @patch("monitor.core.commit.llm_utils.call_litellm_completion")
     @patch("monitor.core.commit.build_commit_message_query_input")
     def test_get_suggested_commit_message_uses_commit_reasoning_overrides(
         self, mock_build, mock_completion
@@ -122,10 +123,31 @@ class TestCommitCommand(unittest.TestCase):
             result = commit.get_suggested_commit_message("diff --git ...")
 
         self.assertEqual(result, "Suggested commit")
+
+    @patch("monitor.core.commit.llm_utils.call_litellm_completion")
+    @patch("monitor.core.commit.build_commit_message_query_input")
+    def test_get_suggested_commit_message_routes_ollama_to_native_completion(
+        self, mock_build, mock_completion
+    ):
+        """Ollama commit messages should go through the native adapter path."""
+        from monitor import config
+
+        config.COMMIT_MODEL = "ollama/ornith:9b"
+        config.MODEL = "ollama/ornith:9b"
+        config.REASONING_MODEL_PREFIX = "openai/gpt-5"
+        config.COMMIT_REASONING_EFFORT = None
+        config.COMMIT_REASONING_MAX_COMPLETION_TOKENS = None
+        mock_build.return_value = "query_input"
+        message = MagicMock()
+        message.content = "Suggested commit"
+        mock_completion.return_value.choices = [MagicMock(message=message)]
+
+        result = commit.get_suggested_commit_message("diff --git ...")
+
+        self.assertEqual(result, "Suggested commit")
         kwargs = mock_completion.call_args.kwargs
-        self.assertEqual(kwargs.get("model"), "openai/gpt-5.4")
-        self.assertEqual(kwargs.get("reasoning_effort"), "high")
-        self.assertEqual(kwargs.get("max_completion_tokens"), 8000)
+        self.assertEqual(kwargs.get("tool_descriptions"), [])
+        self.assertEqual(kwargs.get("gemini_tool_descriptions"), [])
 
     @patch("os.unlink")
     @patch("monitor.core.commit.subprocess.run")

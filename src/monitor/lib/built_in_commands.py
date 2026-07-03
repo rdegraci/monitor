@@ -6,7 +6,7 @@ import sys
 from typing import Any, Dict
 
 from monitor._stubs import appdirs
-import litellm
+from monitor.lib import llm_utils
 from colored import attr, fg
 from monitor.lib.pygments_stubs import BashLexer, MarkdownLexer, TerminalFormatter, highlight
 
@@ -365,15 +365,17 @@ def wiki_init_command(arg=None):
             f"{orientation}"
         )
         try:
-            response = litellm.completion(
-                model=config.MODEL,
-                messages=[
+            response = llm_utils.call_litellm_completion(
+                config.MODEL,
+                [
                     {
                         "role": "system",
                         "content": "You write compact, high-signal project wiki indexes.",
                     },
                     {"role": "user", "content": prompt},
                 ],
+                tool_descriptions=[],
+                gemini_tool_descriptions=[],
             )
         except Exception as e:
             logger.error("Failed to draft wiki INDEX with LLM: %s", e, exc_info=True)
@@ -529,15 +531,17 @@ def _draft_wiki_fix_preview_for_finding(lint_result, finding):
         "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
     )
     try:
-        response = litellm.completion(
-            model=config.MODEL,
-            messages=[
+        response = llm_utils.call_litellm_completion(
+            config.MODEL,
+            [
                 {
                     "role": "system",
                     "content": "You produce minimal, localized wiki edits only.",
                 },
                 {"role": "user", "content": prompt},
             ],
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
         )
     except Exception as e:
         logger.error("Failed to draft wiki fix with LLM: %s", e, exc_info=True)

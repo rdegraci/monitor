@@ -1,5 +1,6 @@
-import litellm
 import logging
+
+from monitor.lib import llm_utils
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,14 @@ def summarize_conversation_for_platform(platform: str, model, conversation_histo
 
     try:
         logger.debug("Calling litellm completion with model: %s for platform: %s", model, platform)
-        response = litellm.completion(
-            model=model,
-            messages=[
+        response = llm_utils.call_litellm_completion(
+            model,
+            [
                 {"role": "system", "content": f"{system_prompt}"},
                 {"role": "user", "content": instructions}
-            ]
+            ],
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
         )
         logger.debug("Successfully received response from litellm for platform: %s", platform)
     except Exception as e:
