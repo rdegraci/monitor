@@ -89,6 +89,14 @@ def configure_tools():
         # tools aren't guaranteed to work cross-provider either.
         remove_text_file_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+    elif provider == 'ollama':
+        # Ollama steady-provider sessions use the generic/default tool catalog.
+        # Keep the provider-neutral surgical tools available and strip hosted-
+        # provider-specific editor schemas so local models are not forced down
+        # Anthropic- or OpenAI-specific editor-tool protocols.
+        add_text_file_neutral_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
     else:
         logger.warning(
             "configure_tools: unrecognized provider prefix %r for MODEL=%r; "

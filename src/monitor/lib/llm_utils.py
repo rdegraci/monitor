@@ -8,7 +8,7 @@ of extraction; any future refactorings should update both caller sites as needed
 import logging
 import re
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import litellm
 
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import httpcore
     import httpx
+    import ollama
     from monitor.lib import rate_limiter
 else:
     httpcore = import_module("httpcore")
@@ -25,6 +26,10 @@ else:
         from monitor.lib import rate_limiter
     except Exception:
         rate_limiter = None
+    try:
+        import ollama
+    except Exception:
+        ollama = None
 
 from monitor import config
 from monitor.lib.history import append_to_history_with_count
@@ -50,6 +55,7 @@ from monitor.lib.llm_output_utils import (
     build_summarization_followup_params,
     serialize_tool_output,
 )
+from monitor.lib.ollama_adapter import adapt_ollama_chat_response
 from monitor.lib.llm_usage_utils import (
     compute_token_delta,
     safe_extract_total_tokens,
@@ -429,6 +435,47 @@ def process_response_by_finish_reason(response):
     logger.error(f"Unexpected finish_reason: {finish_reason} - {choices[0]}")
     return f"Unexpected finish reason: {finish_reason}"
 
+
+
+def _call_native_ollama_completion(messages: list, model: str):
+    """Call Ollama directly with the native Python client.
+
+    Args:
+        messages: Chat messages in Ollama-compatible format.
+        model: The Ollama model tail (e.g. ``ornith:9b``).
+
+    Returns:
+        The native Ollama response object.
+    """
+    native_ollama = cast(Any, ollama)
+    if native_ollama is None:
+        raise RuntimeError("ollama Python package is not available")
+    base_url = getattr(config, "OLLAMA_BASE_URL", None)
+    options = {}
+    ollama_temperature = getattr(config, "OLLAMA_TEMPERATURE", None)
+    if isinstance(ollama_temperature, (int, float)):
+        options["temperature"] = float(ollama_temperature)
+    ollama_top_p = getattr(config, "OLLAMA_TOP_P", None)
+    if isinstance(ollama_top_p, (int, float)):
+        options["top_p"] = float(ollama_top_p)
+    ollama_top_k = getattr(config, "OLLAMA_TOP_K", None)
+    if isinstance(ollama_top_k, int):
+        options["top_k"] = ollama_top_k
+    logger.info(
+        "Dispatching native Ollama call with model=%s base_url=%s options=%s message_count=%s",
+        model,
+        base_url,
+        options,
+        len(messages) if isinstance(messages, list) else -1,
+    )
+    if isinstance(base_url, str) and base_url.strip():
+        client = native_ollama.Client(host=base_url.strip())
+    else:
+        client = native_ollama.Client()
+    return adapt_ollama_chat_response(
+        client.chat(model=model, messages=messages, options=options or None)
+    )
+
 def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize provider-specific request kwargs before dispatch.
 
@@ -561,6 +608,19 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
             kwargs["max_completion_tokens"] = _cap
 
     kwargs = _apply_provider_request_normalization(kwargs)
+    model_name = kwargs.get("model")
+    if isinstance(model_name, str) and model_name.lower().startswith("ollama/"):
+        native_model = getattr(
+            config,
+            "OLLAMA_MODEL",
+            model_name.split("/", 1)[1] if "/" in model_name else model_name,
+        )
+        native_messages = kwargs.get("messages", [])
+        if not isinstance(native_messages, list):
+            native_messages = []
+        if not isinstance(native_model, str):
+            native_model = str(native_model)
+        return _call_native_ollama_completion(native_messages, native_model)
     return litellm.completion(**kwargs)
 
 

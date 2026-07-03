@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from monitor.lib import llm_utils
@@ -253,42 +255,87 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
     assert 'max_completion_tokens' in captured and captured['max_completion_tokens'] == 50
 
 
-def test_call_litellm_completion_adds_ollama_api_base_and_drops_reasoning_effort(monkeypatch):
+def test_call_litellm_completion_routes_steady_ollama_to_native_client(monkeypatch):
     captured = {}
 
-    def fake_completion(**kwargs):
-        captured.update(kwargs)
-        return {"choices": []}
+    def fake_native(messages, model):
+        captured["messages"] = messages
+        captured["model"] = model
+        return {"message": {"content": "native"}}
 
+    def fake_completion(**kwargs):
+        raise AssertionError("LiteLLM should not be called for steady Ollama requests")
+
+    monkeypatch.setattr(llm_utils, "_call_native_ollama_completion", fake_native)
     monkeypatch.setattr(llm_utils.litellm, "completion", fake_completion)
 
     from monitor import config
 
     config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.OLLAMA_MODEL = "ornith:9b"
     config.REASONING_MODEL_PREFIX = "openai/gpt-5"
     config.REASONING_EFFORT = "high"
     config.REASONING_MAX_COMPLETION_TOKENS = 10_000
     config.CURRENT_TURN_REASONING_OVERRIDE = None
 
-    llm_utils.call_litellm_completion(
+    response = llm_utils.call_litellm_completion(
         "ollama/llama3.1",
         [{"role": "user", "content": "hi"}],
         tool_descriptions=[],
         gemini_tool_descriptions=[],
     )
 
-    assert captured["api_base"] == "http://127.0.0.1:11434"
-    assert "reasoning_effort" not in captured
+    assert response == {"message": {"content": "native"}}
+    assert captured["model"] == "ornith:9b"
+    assert captured["messages"] == [{"role": "user", "content": "hi"}]
 
 
-def test_call_litellm_completion_applies_ollama_sampling_knobs(monkeypatch):
+def test_call_litellm_completion_uses_litellm_for_non_ollama_models(monkeypatch):
     captured = {}
+
+    def fake_native(messages, model):
+        raise AssertionError("Native Ollama client should not handle non-Ollama models")
 
     def fake_completion(**kwargs):
         captured.update(kwargs)
         return {"choices": []}
 
+    monkeypatch.setattr(llm_utils, "_call_native_ollama_completion", fake_native)
     monkeypatch.setattr(llm_utils.litellm, "completion", fake_completion)
+
+    from monitor import config
+
+    config.REASONING_MODEL_PREFIX = "openai/gpt-5"
+    config.REASONING_EFFORT = "high"
+    config.REASONING_MAX_COMPLETION_TOKENS = 10_000
+    config.CURRENT_TURN_REASONING_OVERRIDE = True
+    config.ADV_REASONING_MODEL = "openai/gpt-5.4"
+    config.ADV_REASONING_MODEL_OUTPUT_WINDOW = 4_096
+
+    llm_utils.call_litellm_completion(
+        "openai/gpt-5",
+        [{"role": "user", "content": "hi"}],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+    )
+
+    assert captured["model"] == "openai/gpt-5.4"
+    assert captured["messages"] == [{"role": "user", "content": "hi"}]
+
+def test_native_ollama_completion_uses_client_host_and_options(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, host=None):
+            captured["host"] = host
+
+        def chat(self, model, messages, options=None):
+            captured["model"] = model
+            captured["messages"] = messages
+            captured["options"] = options
+            return {"message": {"content": "hello"}, "done": True}
+
+    monkeypatch.setattr(llm_utils, "ollama", SimpleNamespace(Client=FakeClient))
 
     from monitor import config
 
@@ -296,19 +343,16 @@ def test_call_litellm_completion_applies_ollama_sampling_knobs(monkeypatch):
     config.OLLAMA_TEMPERATURE = 0.6
     config.OLLAMA_TOP_P = 0.95
     config.OLLAMA_TOP_K = 20
-    config.REASONING_MODEL_PREFIX = "openai/gpt-5"
-    config.CURRENT_TURN_REASONING_OVERRIDE = None
 
-    llm_utils.call_litellm_completion(
-        "ollama/llama3.1",
+    response = llm_utils._call_native_ollama_completion(
         [{"role": "user", "content": "hi"}],
-        tool_descriptions=[],
-        gemini_tool_descriptions=[],
+        "ornith:9b",
     )
 
-    assert captured["temperature"] == 0.6
-    assert captured["top_p"] == 0.95
-    assert captured["top_k"] == 20
+    assert captured["host"] == "http://127.0.0.1:11434"
+    assert captured["model"] == "ornith:9b"
+    assert captured["options"] == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+    assert response["choices"][0]["message"]["content"] == "hello"
 
 
 def test_provider_request_normalization_skips_ollama_knobs_for_non_ollama_model():

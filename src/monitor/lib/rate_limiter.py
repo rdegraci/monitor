@@ -140,13 +140,24 @@ class RateLimiter:
         # None, so degrade to a safe default here instead of crashing on
         # None * safety_factor. Rate limiting stays on, just at a generic cap.
         if not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit <= 0:
-            logger.warning(
-                "RateLimiter: limit is %r (MODEL_MAX_TPM unresolved); falling back to "
-                "default %d tokens / %ss window. Set MODEL_MAX_TPM explicitly, or use a "
-                "MODEL / MODEL_INPUT_TIER that resolves in model_config.json, for accurate "
-                "rate limiting.",
-                limit, 800000, window_seconds,
-            )
+            model_name = getattr(config, "MODEL", None)
+            if isinstance(model_name, str) and model_name.lower().startswith("ollama/"):
+                logger.info(
+                    "RateLimiter: limit is %r for local Ollama model %r; using default "
+                    "%d tokens / %ss window without MODEL_MAX_TPM resolution.",
+                    limit,
+                    model_name,
+                    800000,
+                    window_seconds,
+                )
+            else:
+                logger.warning(
+                    "RateLimiter: limit is %r (MODEL_MAX_TPM unresolved); falling back to "
+                    "default %d tokens / %ss window. Set MODEL_MAX_TPM explicitly, or use a "
+                    "MODEL / MODEL_INPUT_TIER that resolves in model_config.json, for accurate "
+                    "rate limiting.",
+                    limit, 800000, window_seconds,
+                )
             limit = 800000
         self.limit = limit
         self.window_seconds = window_seconds

@@ -110,6 +110,20 @@ class TestTokenManagement(unittest.TestCase):
 
         self.assertAlmostEqual(config.SESSION_COST_USD, 0.0052, places=6)
 
+
+    def test_update_token_usage_skips_litellm_cost_for_ollama_models(self):
+        """Local Ollama responses should keep zero cost without LiteLLM pricing."""
+        config.TOTAL_TOKEN_COUNT = 0
+        config.SESSION_COST_USD = 0.0
+        config.MODEL = "ollama/ornith:9b"
+
+        mock_response = MagicMock()
+        mock_response.usage.total_tokens = 100
+
+        with patch("litellm.completion_cost", side_effect=AssertionError("should not price ollama")):
+            update_token_usage(mock_response, model="ollama/ornith:9b")
+
+        self.assertEqual(config.SESSION_COST_USD, 0.0)
     def test_session_total_tokens_persists_across_total_token_count_reset(self):
         """SESSION_TOTAL_TOKENS is the cumulative session counter — it must
         keep growing across update_token_usage calls even when

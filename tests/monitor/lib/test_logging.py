@@ -51,7 +51,34 @@ class TestLoggingConfig(unittest.TestCase):
         self.assertTrue(called_path.endswith(".log"))
         # Root logger should have a StreamHandler for console
         handlers = app_logging.logging.getLogger().handlers
+        self.assertEqual(app_logging.logging.getLogger().level, app_logging.logging.DEBUG)
+        mock_file_handler.return_value.setLevel.assert_called_with(app_logging.logging.DEBUG)
         self.assertTrue(any(isinstance(h, app_logging.logging.StreamHandler) for h in handlers))
+
+    @patch("monitor.lib.logging.RotatingFileHandler")
+    @patch("monitor.lib.logging.os.makedirs")
+    def test_configure_logging_honors_warning_level(self, mock_makedirs, mock_file_handler):
+        tmp_dir = tempfile.gettempdir()
+        file_path = os.path.join(tmp_dir, "test_app_warning_{pid}.log")
+        fake_config = SimpleNamespace(
+            LOGGING_LEVEL="WARNING",
+            LOG_FILE_PATH=file_path,
+            LOG_FORMAT="%(message)s",
+            LOG_DATE_FORMAT="%S",
+            LOG_MAX_BYTES=1000,
+            LOG_BACKUP_COUNT=1,
+            CONSOLE_LOGGING_ENABLED=True,
+            LOG_ENCODING="utf-8",
+        )
+        with patch.object(app_logging, "config", fake_config):
+            root = app_logging.logging.getLogger()
+            for h in root.handlers[:]:
+                root.removeHandler(h)
+            mock_file_handler.return_value.level = app_logging.logging.NOTSET
+            app_logging.configure_logging()
+
+        self.assertEqual(app_logging.logging.getLogger().level, app_logging.logging.DEBUG)
+        mock_file_handler.return_value.setLevel.assert_called_with(app_logging.logging.DEBUG)
 
     @patch("monitor.lib.logging.RotatingFileHandler")
     @patch("monitor.lib.logging.os.makedirs")
@@ -77,6 +104,8 @@ class TestLoggingConfig(unittest.TestCase):
             app_logging.configure_logging()
 
         handlers = app_logging.logging.getLogger().handlers
+        self.assertEqual(app_logging.logging.getLogger().level, app_logging.logging.DEBUG)
+        mock_file_handler.return_value.setLevel.assert_called_with(app_logging.logging.DEBUG)
         # Only file handler should be added by our code (plus any leftovers cleared)
         # Since we patched RotatingFileHandler, we can't check type directly.
         # Ensure that there is no StreamHandler
@@ -148,6 +177,12 @@ class TestLoggingConfig(unittest.TestCase):
         self.assertIsInstance(logger, app_logging.logging.Logger)
         # Ensure we can emit a log without error
         logger.debug("debug message")
+
+    @patch("monitor.lib.logging.logging.shutdown")
+    def test_shutdown_logging_safely_calls_logging_shutdown(self, mock_shutdown):
+        app_logging._shutdown_logging_safely()
+
+        mock_shutdown.assert_called_once_with()
 
 
 if __name__ == "__main__":

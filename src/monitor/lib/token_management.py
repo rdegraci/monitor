@@ -314,10 +314,20 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                         orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
                         collation_active=bool(getattr(config, "CURRENT_TURN_IS_COLLATION", False)),
                     )
-                try:
-                    cost = litellm.completion_cost(completion_response=cost_response)
-                except Exception:
-                    cost = 0
+                cost = 0.0
+                if isinstance(effective_model, str) and effective_model.lower().startswith("ollama/"):
+                    cost = 0.0
+                else:
+                    try:
+                        if isinstance(effective_model, str) and effective_model:
+                            cost = litellm.completion_cost(
+                                completion_response=cost_response,
+                                model=effective_model,
+                            )
+                        else:
+                            cost = litellm.completion_cost(completion_response=cost_response)
+                    except Exception:
+                        cost = 0
                 # Fallback: when litellm doesn't know the model (returns 0
                 # or raises), use our local pricing table. The same
                 # tokens-times-rates math, just sourced from

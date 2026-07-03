@@ -28,6 +28,7 @@ globals are missing or empty.
 No test code or run-on-main logic will be present in this file.
 """
 
+import atexit
 import logging
 import os
 from logging.handlers import RotatingFileHandler
@@ -165,6 +166,15 @@ def _inject_pid_into_logfile_path(log_path, pid=None):
     return log_path
 
 
+def _shutdown_logging_safely():
+    """Shut down logging while stdlib modules are still available.
+
+    This prevents late interpreter-finalization logging from hitting a
+    RotatingFileHandler after parts of the ``os`` module have been cleared.
+    """
+    logging.shutdown()
+
+
 def configure_logging():
     """
     Configure the root logger using logging-related globals from monitor.config.
@@ -194,7 +204,10 @@ def configure_logging():
     formatter = logging.Formatter(log_cfg['format'], log_cfg['date_format'])
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(_resolve_log_level(log_cfg['level']))
+    resolved_level = _resolve_log_level(log_cfg['level'])
+    # Keep the root logger permissive so the file handler can capture every
+    # record, while the console handler applies the user-facing WARNING filter.
+    root_logger.setLevel(logging.DEBUG)
 
     # Remove all existing handlers
     for handler in root_logger.handlers[:]:
@@ -212,6 +225,7 @@ def configure_logging():
             backupCount=log_cfg['backup_count'],
             encoding=log_cfg.get('encoding', 'utf-8'),
         )
+        file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     except Exception as e:
@@ -221,6 +235,7 @@ def configure_logging():
     # Console logging if enabled
     if log_cfg.get('console_logging_enabled', True):
         console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.WARNING)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
 
@@ -239,3 +254,6 @@ def get_logger(name):
         Logger: Configured logger instance
     """
     return logging.getLogger(name)
+
+
+atexit.register(_shutdown_logging_safely)

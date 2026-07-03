@@ -33,6 +33,7 @@ from monitor.lib.token_management import (
 )
 from monitor.lib.system_prompt import build_system_prompt
 from monitor.lib.progress import progress_dots
+from monitor.lib.llm_model_utils import resolve_turn_model
 
 from monitor.lib.llm_utils import (
     dict_to_attr,
@@ -831,6 +832,15 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
         # replaces the entry in place instead of double-counting.
         request_id = uuid.uuid4().hex
 
+        resolved_model = resolve_turn_model(
+            getattr(_cfg(), "MODEL", "") or "",
+            getattr(_cfg(), "ADV_REASONING_MODEL", None),
+            bool(getattr(_cfg(), "CURRENT_TURN_REASONING_OVERRIDE", None)),
+            getattr(_cfg(), "REASONING_MODEL_PREFIX", "") or "",
+            orchestrator_model=getattr(_cfg(), "ORCHESTRATOR_MODEL", None),
+            collation_active=bool(getattr(_cfg(), "CURRENT_TURN_IS_COLLATION", False)),
+            steady_provider="ollama" if isinstance(getattr(_cfg(), "MODEL", None), str) and getattr(_cfg(), "MODEL", None).lower().startswith("ollama/") else None,
+        )
         response, was_cancelled = cancellable_call_litellm_completion(
             _cfg().MODEL, messages, TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS
         )
@@ -878,7 +888,12 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
             logger.info(f"{log_prefix} LLM token usage: {details}")
         except Exception:
             pass
-        update_token_usage(actual_used, used_estimate=fallback_estimated, response=response)
+        update_token_usage(
+            actual_used,
+            used_estimate=fallback_estimated,
+            response=response,
+            model=resolved_model,
+        )
         rate_limiter.RATE_LIMITER.add_request(actual_used, request_id=request_id)
 
         logger.debug(f"{log_prefix} Received response from the language model.")
