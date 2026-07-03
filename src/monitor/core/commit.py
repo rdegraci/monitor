@@ -6,11 +6,10 @@ import tempfile
 from textwrap import dedent
 
 from monitor import config
-from monitor.lib import llm_utils
-from monitor.lib.llm_utils import is_reasoning_model
 from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged
+from monitor.lib.llm_utils import call_litellm_completion, is_reasoning_model
 from monitor.lib.macros import MACRO_VALUES
 from monitor.lib.progress import progress_dots
 
@@ -58,10 +57,11 @@ def _get_commit_generation_config():
         getattr(config, "COMMIT_REASONING_MAX_COMPLETION_TOKENS", None)
         or getattr(config, "REASONING_MAX_COMPLETION_TOKENS", None)
     )
-    print(
-        "Resolved commit config: "
-        f"model={model!r}, reasoning_effort={effort!r}, "
-        f"reasoning_max_completion_tokens={token_cap!r}"
+    logger.info(
+        "Resolved commit config: model=%r reasoning_effort=%r reasoning_max_completion_tokens=%r",
+        model,
+        effort,
+        token_cap,
     )
     return {
         "model": model,
@@ -101,6 +101,7 @@ def _build_commit_completion_kwargs(
         ):
             kwargs["max_completion_tokens"] = reasoning_max_completion_tokens
     return kwargs
+
 
 
 def _should_use_reasoning_kwargs(model):
@@ -262,15 +263,14 @@ def get_suggested_commit_message(diff_output):
             },
             {"role": "user", "content": query_input},
         ]
-        native_model = kwargs["model"]
-        if isinstance(native_model, str) and native_model.lower().startswith("ollama/"):
-            native_model = native_model.split("/", 1)[1]
         with progress_dots("Generating commit message"):
-            response = llm_utils.call_litellm_completion(
-                native_model,
+            response = call_litellm_completion(
+                kwargs["model"],
                 kwargs["messages"],
                 tool_descriptions=[],
                 gemini_tool_descriptions=[],
+                reasoning_effort=kwargs.get("reasoning_effort"),
+                max_completion_tokens=kwargs.get("max_completion_tokens"),
             )
         logger.debug("Generated suggested commit message.")
         return response.choices[0].message.content or ""

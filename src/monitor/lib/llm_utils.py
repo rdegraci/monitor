@@ -529,7 +529,17 @@ def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, A
     return kwargs
 
 
-def call_litellm_completion(model: str, messages: list, tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]]):
+def call_litellm_completion(
+    model: str,
+    messages: list,
+    tool_descriptions: List[Dict[str, Any]],
+    gemini_tool_descriptions: List[Dict[str, Any]],
+    reasoning_effort: Any = None,
+    max_completion_tokens: Any = None,
+    temperature: Any = None,
+    top_p: Any = None,
+    top_k: Any = None,
+):
     """
     Wrapper that adds `reasoning_effort` and `max_completion_tokens` when the
     model name contains the configured reasoning model prefix.
@@ -554,6 +564,16 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
     }
     if tools is not None:
         kwargs["tools"] = tools
+    if isinstance(reasoning_effort, str) and reasoning_effort.strip():
+        kwargs["reasoning_effort"] = reasoning_effort.strip()
+    if isinstance(max_completion_tokens, int) and max_completion_tokens > 0:
+        kwargs["max_completion_tokens"] = max_completion_tokens
+    if isinstance(temperature, (int, float)):
+        kwargs["temperature"] = float(temperature)
+    if isinstance(top_p, (int, float)):
+        kwargs["top_p"] = float(top_p)
+    if isinstance(top_k, int):
+        kwargs["top_k"] = top_k
 
     prefix = getattr(config, "REASONING_MODEL_PREFIX", None)
     if isinstance(prefix, str):

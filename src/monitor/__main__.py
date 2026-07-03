@@ -5,7 +5,6 @@ from pathlib import Path
 
 from monitor import config
 from monitor._stubs import appdirs
-from monitor.lib import litellm_shim
 
 from .app import main as app_main
 
@@ -22,13 +21,6 @@ def ensure_user_config_file(src_filename, dest_filename):
         print(f"Copied default {src_filename} to {dest}")
 
 
-def _patch_litellm_completion() -> None:
-    """Patch LiteLLM completion to fail fast with a stack trace."""
-    import litellm
-
-    litellm.completion = litellm_shim.completion
-
-
 def _initialize_session_artifacts() -> None:
     """Initialize the active session artifacts at startup."""
     from monitor.lib.built_ins_history_utils import reset_conversation_history_command
@@ -37,7 +29,6 @@ def _initialize_session_artifacts() -> None:
 
 
 def main():
-    _patch_litellm_completion()
     ensure_user_config_file("config.yaml.example", "config.yaml")
     sessions_root = Path(appdirs.user_config_dir("monitor")) / config.SESSIONS_FOLDER
     sessions_root.mkdir(parents=True, exist_ok=True)
