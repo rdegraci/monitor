@@ -258,9 +258,10 @@ def test_call_litellm_completion_sets_reasoning_kwargs(monkeypatch):
 def test_call_litellm_completion_routes_steady_ollama_to_native_client(monkeypatch):
     captured = {}
 
-    def fake_native(messages, model):
+    def fake_native(messages, model, tools=None):
         captured["messages"] = messages
         captured["model"] = model
+        captured["tools"] = tools
         return {"message": {"content": "native"}}
 
     def fake_completion(**kwargs):
@@ -288,6 +289,7 @@ def test_call_litellm_completion_routes_steady_ollama_to_native_client(monkeypat
     assert response == {"message": {"content": "native"}}
     assert captured["model"] == "ornith:9b"
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
+    assert captured["tools"] == []
 
 
 def test_call_litellm_completion_uses_litellm_for_non_ollama_models(monkeypatch):
@@ -329,9 +331,10 @@ def test_native_ollama_completion_uses_client_host_and_options(monkeypatch):
         def __init__(self, host=None):
             captured["host"] = host
 
-        def chat(self, model, messages, options=None):
+        def chat(self, model, messages, tools=None, options=None):
             captured["model"] = model
             captured["messages"] = messages
+            captured["tools"] = tools
             captured["options"] = options
             return {"message": {"content": "hello"}, "done": True}
 
@@ -351,8 +354,67 @@ def test_native_ollama_completion_uses_client_host_and_options(monkeypatch):
 
     assert captured["host"] == "http://127.0.0.1:11434"
     assert captured["model"] == "ornith:9b"
+    assert captured["tools"] is None
     assert captured["options"] == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
     assert response["choices"][0]["message"]["content"] == "hello"
+
+
+def test_native_ollama_completion_logs_request_payload(monkeypatch, caplog):
+    """Verify the request payload logged for Ollama matches the sent content."""
+    captured = {}
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_repo",
+                "description": "Search the repository",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    class FakeClient:
+        def __init__(self, host=None):
+            captured["host"] = host
+
+        def chat(self, model, messages, tools=None, options=None):
+            captured["model"] = model
+            captured["messages"] = messages
+            captured["tools"] = tools
+            captured["options"] = options
+            return {"message": {"content": "hello"}, "done": True}
+
+    monkeypatch.setattr(llm_utils, "ollama", SimpleNamespace(Client=FakeClient))
+
+    from monitor import config
+
+    config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.OLLAMA_TEMPERATURE = 0.6
+    config.OLLAMA_TOP_P = 0.95
+    config.OLLAMA_TOP_K = 20
+
+    with caplog.at_level("INFO"):
+        llm_utils._call_native_ollama_completion(
+            [
+                {"role": "system", "content": "system context"},
+                {"role": "user", "content": "hi"},
+            ],
+            "ornith:9b",
+            tools=tools,
+        )
+
+    assert captured["host"] == "http://127.0.0.1:11434"
+    assert captured["model"] == "ornith:9b"
+    assert captured["messages"] == [
+        {"role": "system", "content": "system context"},
+        {"role": "user", "content": "hi"},
+    ]
+    assert captured["tools"] == tools
+    assert captured["options"] == {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+    assert any("Ollama native request payload:" in record.message for record in caplog.records)
+    assert any("system context" in record.message for record in caplog.records)
+    assert any("search_repo" in record.message for record in caplog.records)
+    assert any("temperature" in record.message for record in caplog.records)
 
 
 def test_provider_request_normalization_skips_ollama_knobs_for_non_ollama_model():

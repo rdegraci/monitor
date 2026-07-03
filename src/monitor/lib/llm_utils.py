@@ -437,12 +437,17 @@ def process_response_by_finish_reason(response):
 
 
 
-def _call_native_ollama_completion(messages: list, model: str):
+def _call_native_ollama_completion(
+    messages: list,
+    model: str,
+    tools: list[dict[str, Any]] | None = None,
+):
     """Call Ollama directly with the native Python client.
 
     Args:
         messages: Chat messages in Ollama-compatible format.
         model: The Ollama model tail (e.g. ``ornith:9b``).
+        tools: Optional tool schemas to send with the Ollama request.
 
     Returns:
         The native Ollama response object.
@@ -462,19 +467,33 @@ def _call_native_ollama_completion(messages: list, model: str):
     if isinstance(ollama_top_k, int):
         options["top_k"] = ollama_top_k
     logger.info(
-        "Dispatching native Ollama call with model=%s base_url=%s options=%s message_count=%s",
+        "Dispatching native Ollama call with model=%s base_url=%s options=%s message_count=%s tool_count=%s",
         model,
         base_url,
         options,
         len(messages) if isinstance(messages, list) else -1,
+        len(tools) if isinstance(tools, list) else 0,
     )
     if isinstance(base_url, str) and base_url.strip():
         client = native_ollama.Client(host=base_url.strip())
     else:
         client = native_ollama.Client()
-    return adapt_ollama_chat_response(
-        client.chat(model=model, messages=messages, options=options or None)
+    request_payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "options": options or None,
+        "host": base_url,
+    }
+    if tools is not None:
+        request_payload["tools"] = tools
+    logger.info("Ollama native request payload: %r", request_payload)
+    response = client.chat(
+        model=model,
+        messages=messages,
+        tools=tools,
+        options=options or None,
     )
+    return adapt_ollama_chat_response(response)
 
 def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize provider-specific request kwargs before dispatch.
@@ -618,9 +637,16 @@ def call_litellm_completion(model: str, messages: list, tool_descriptions: List[
         native_messages = kwargs.get("messages", [])
         if not isinstance(native_messages, list):
             native_messages = []
+        native_tools = kwargs.get("tools")
+        if not isinstance(native_tools, list):
+            native_tools = None
         if not isinstance(native_model, str):
             native_model = str(native_model)
-        return _call_native_ollama_completion(native_messages, native_model)
+        return _call_native_ollama_completion(
+            native_messages,
+            native_model,
+            tools=native_tools,
+        )
     return litellm.completion(**kwargs)
 
 
