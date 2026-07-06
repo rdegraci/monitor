@@ -232,6 +232,8 @@ def configure_logging():
         print(f"Failed to set up file logging: {e}")
         raise
 
+    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
     # Console logging if enabled
     if log_cfg.get('console_logging_enabled', True):
         console_handler = logging.StreamHandler()
