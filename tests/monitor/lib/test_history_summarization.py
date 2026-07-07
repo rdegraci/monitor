@@ -57,6 +57,7 @@ def make_completion_wrapper():
         kwargs["messages"],
         tool_descriptions=[],
         gemini_tool_descriptions=[],
+        max_completion_tokens=kwargs.get("max_completion_tokens") or kwargs.get("max_tokens"),
     )
 
 

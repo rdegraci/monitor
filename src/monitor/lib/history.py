@@ -1151,15 +1151,11 @@ def generate_conversation_summary(
         if max_summary_tokens > maximum_summary_tokens:
             max_summary_tokens = maximum_summary_tokens
 
-        # Pass the output cap under both parameter names. Different providers
-        # accept different names (OpenAI Chat Completions: ``max_tokens``;
-        # OpenAI Responses + newer reasoning models: ``max_completion_tokens``;
-        # Anthropic via litellm: ``max_tokens``). ``drop_params=True`` lets
-        # litellm silently drop whichever isn't supported by the underlying
-        # provider, so passing both ensures at least one cap survives — fixing
-        # the previous bug where only ``max_completion_tokens`` was passed and
-        # got silently dropped for providers that expect ``max_tokens``,
-        # leaving the summary call uncapped.
+        # Pass the summary cap using the wrapper's supported parameter name.
+        # ``call_litellm_completion`` translates provider differences further
+        # down the stack, but callers of ``completion_func`` may be thin
+        # adapters or tests with a narrower signature, so sending
+        # ``max_tokens`` here can raise unexpectedly before LiteLLM sees it.
         response = completion_func(
             model=model_name,
             messages=[
@@ -1167,7 +1163,6 @@ def generate_conversation_summary(
                 {"role": "user", "content": summarization_config['prompt']['template'].format(messages=str(messages))},
             ],
             max_completion_tokens=max_summary_tokens,
-            max_tokens=max_summary_tokens,
             drop_params=True
         )
         if hasattr(response, "usage") and hasattr(response.usage, "total_tokens"):
