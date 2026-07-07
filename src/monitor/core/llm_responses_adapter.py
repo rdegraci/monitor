@@ -964,7 +964,10 @@ def call_responses_api(
         )
 
         # Build request parameters, include only non-None values
-        params = {REQUEST_PARAM_MODEL: request_model}
+        params = {
+            REQUEST_PARAM_MODEL: request_model,
+            "prompt_cache_retention": "24h",
+        }
 
         # Determine input: if a previous response id exists, send only the new user input
         if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
@@ -1395,7 +1398,10 @@ def call_responses_api(
                         gemini_tool_descriptions,
                         followup_resolved_model,
                     )
-                    followup_params = {REQUEST_PARAM_MODEL: followup_request_model}
+                    followup_params = {
+                        REQUEST_PARAM_MODEL: followup_request_model,
+                        "prompt_cache_retention": "24h",
+                    }
                     # Ensure previous_response_id is the last persisted response id
                     if hasattr(config, "RESPONSE_ID") and getattr(config, "RESPONSE_ID"):
                         followup_params[REQUEST_PREV_RESPONSE_ID] = getattr(config, "RESPONSE_ID")
@@ -1771,7 +1777,7 @@ def call_responses_api(
                             )
 
                             # Map sanitized helper output into API parameter names, ensure instruction appended after outputs
-                            summary_params = {}
+                            summary_params = {"prompt_cache_retention": "24h"}
 
                             # model -> REQUEST_PARAM_MODEL: use returned sfp['model'] if present, else fallback
                             try:
@@ -2003,6 +2009,7 @@ def call_responses_api(
                                         combined_input.extend(summary_input_messages)
                                         summary_params = {
                                             REQUEST_PARAM_MODEL: summary_request_model,
+                                            "prompt_cache_retention": "24h",
                                             REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                             REQUEST_PARAM_INPUT: combined_input,
                                             REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
@@ -2010,6 +2017,7 @@ def call_responses_api(
                                     except Exception:
                                         summary_params = {
                                             REQUEST_PARAM_MODEL: summary_request_model,
+                                            "prompt_cache_retention": "24h",
                                             REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                             REQUEST_PARAM_INPUT: summary_input_messages,
                                             REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
@@ -2051,6 +2059,7 @@ def call_responses_api(
                                     logger.exception("Failed to build summary_input_messages in fallback; using instruction-only payload")
                                     summary_params = {
                                         REQUEST_PARAM_MODEL: summary_request_model,
+                                        "prompt_cache_retention": "24h",
                                         REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                         REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
                                         REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,
@@ -2058,6 +2067,7 @@ def call_responses_api(
                             except Exception:
                                 summary_params = {
                                     REQUEST_PARAM_MODEL: summary_request_model,
+                                    "prompt_cache_retention": "24h",
                                     REQUEST_PREV_RESPONSE_ID: getattr(config, "RESPONSE_ID"),
                                     REQUEST_PARAM_INPUT: {"role": USER_ROLE, "content": summary_instruction},
                                     REQUEST_PARAM_MAX_OUTPUT_TOKENS: computed_summary_tokens,

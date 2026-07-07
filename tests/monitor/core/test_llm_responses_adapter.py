@@ -405,12 +405,15 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert first_kwargs["model"] == "gpt-4o-mini"
         assert first_kwargs["input"] == messages
 
+        assert first_kwargs["prompt_cache_retention"] == "24h"
+
         # RESPONSE_ID should be updated to first id before follow-up
         assert cfg.RESPONSE_ID == "resp_2"  # after the second call it should be the follow-up id
 
         # Assert second call (follow-up) used previous_response_id and function_call_output payload
         second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
         assert second_kwargs["model"] == "gpt-4o-mini"
+        assert second_kwargs["prompt_cache_retention"] == "24h"
         assert second_kwargs["previous_response_id"] == "resp_1"
         assert isinstance(second_kwargs["input"], list)
         assert second_kwargs["input"][0]["type"] == "function_call_output"

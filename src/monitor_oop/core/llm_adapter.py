@@ -82,6 +82,7 @@ class ResponsesOpenAiAdapter:
         kwargs: dict[str, Any] = {
             "model": model,
             "input": input,
+            "prompt_cache_retention": "24h",
         }
         if tools is not None:
             kwargs["tools"] = tools

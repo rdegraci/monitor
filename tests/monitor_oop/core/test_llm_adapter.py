@@ -53,4 +53,5 @@ def test_complete_omits_empty_optional_fields_from_openai_request(monkeypatch) -
     assert captured_kwargs == {
         "model": "gpt-4o",
         "input": [{"role": "user", "content": "hello"}],
+        "prompt_cache_retention": "24h",
     }
