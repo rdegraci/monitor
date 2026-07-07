@@ -142,6 +142,21 @@ def append_to_history_with_count(
                     round_trips = []
                 round_trips.append(0)
                 config.TURN_ROUND_TRIPS = round_trips
+                turn_cached = getattr(config, "TURN_CACHED_INPUT_TOKENS", None)
+                if not isinstance(turn_cached, list):
+                    turn_cached = []
+                turn_cached.append(0)
+                config.TURN_CACHED_INPUT_TOKENS = turn_cached
+                turn_uncached = getattr(config, "TURN_UNCACHED_INPUT_TOKENS", None)
+                if not isinstance(turn_uncached, list):
+                    turn_uncached = []
+                turn_uncached.append(0)
+                config.TURN_UNCACHED_INPUT_TOKENS = turn_uncached
+                turn_output = getattr(config, "TURN_OUTPUT_TOKENS", None)
+                if not isinstance(turn_output, list):
+                    turn_output = []
+                turn_output.append(0)
+                config.TURN_OUTPUT_TOKENS = turn_output
         except Exception:
             logger.debug("Failed to open new turn cost/round-trip bucket on user message", exc_info=True)
     except Exception as e:

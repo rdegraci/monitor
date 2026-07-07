@@ -479,6 +479,7 @@ def _extract_usage_tokens(response):
         if usage is None:
             return 0, 0, 0
 
+        total = _read_usage_field(usage, "total_tokens", "total_token_count", "total", default=0) or 0
         # Input tokens: prefer prompt_tokens (Chat Completions),
         # fall back to input_tokens (Responses API).
         prompt = _read_usage_field(usage, "prompt_tokens", "input_tokens", default=0) or 0
@@ -500,8 +501,25 @@ def _extract_usage_tokens(response):
                 if cached:
                     break
 
-        uncached_input = max(0, int(prompt) - int(cached))
-        return uncached_input, int(cached), int(output)
+        prompt = int(prompt or 0)
+        total = int(total or 0)
+        cached = int(cached or 0)
+        output = int(output or 0)
+
+        if prompt <= 0 and total > 0 and output > 0:
+            prompt = max(0, total - output)
+        if output <= 0 and total > 0 and prompt > 0:
+            output = max(0, total - prompt)
+        if prompt <= 0 and cached > 0:
+            prompt = cached
+        if total > 0 and prompt > total:
+            prompt = total
+        if total > 0 and output > total:
+            output = total
+        uncached_input = max(0, prompt - cached)
+        if total > 0 and uncached_input == 0 and cached > 0 and output == 0 and total > cached:
+            output = max(0, total - cached)
+        return uncached_input, cached, output
     except Exception as e:
         logger.debug("Failed to extract usage tokens: %s", e, exc_info=True)
         return 0, 0, 0

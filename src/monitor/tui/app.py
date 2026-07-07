@@ -299,14 +299,19 @@ class MonitorTUI:
             logger.debug("status recompute failed", exc_info=True)
             return
         plain = _strip_ansi(raw)
-        # The stats line is the one carrying the H: indicator; cwd + the
-        # `monitor … ]]` prompt line are rendered separately (live cwd / input).
-        stats = ""
-        for line in plain.splitlines():
-            if "H:" in line:
-                stats = line.strip()
-                break
-        self._status_line = stats
+        # The stats block starts at the line carrying H: and may now include
+        # a following cache-composition line. cwd + the `monitor … ]]` prompt
+        # line are rendered separately (live cwd / input).
+        stats_lines = []
+        lines = plain.splitlines()
+        for index, line in enumerate(lines):
+            if "H:" not in line:
+                continue
+            stats_lines.append(line.strip())
+            if index + 1 < len(lines) and lines[index + 1].strip().startswith("Cache "):
+                stats_lines.append(lines[index + 1].strip())
+            break
+        self._status_line = "\n".join(stats_lines)
 
     def _agent_status(self) -> str:
         try:

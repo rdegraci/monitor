@@ -6,6 +6,7 @@ import math
 import os
 import sys
 from datetime import datetime
+from typing import Any
 
 from monitor.lib.pygments_stubs import MarkdownLexer, TerminalFormatter, highlight
 
@@ -28,6 +29,93 @@ def _format_dollars(value, cumulative):
     if cumulative:
         return f"{value:.3f}" if value < 1.0 else f"{value:.2f}"
     return f"{value:.4f}" if value < 1.0 else f"{value:.2f}"
+
+
+def _format_compact_tokens(value: int) -> str:
+    """Format a token count compactly for the cache-composition line."""
+
+    abs_value = abs(int(value))
+    if abs_value >= 1_000_000:
+        formatted = f"{abs_value / 1_000_000:.1f}".rstrip("0").rstrip(".")
+        prefix = "-" if value < 0 else ""
+        return f"{prefix}{formatted}M"
+    if abs_value >= 1_000:
+        formatted = f"{abs_value / 1_000:.1f}".rstrip("0").rstrip(".")
+        prefix = "-" if value < 0 else ""
+        return f"{prefix}{formatted}k"
+    return str(int(value))
+
+
+def _build_cache_segment(cached_tokens: int, uncached_tokens: int, output_tokens: int, prefix: str) -> str:
+    """Build one compact cache segment for either last-request or session telemetry."""
+
+    total_tokens = cached_tokens + uncached_tokens + output_tokens
+    if total_tokens <= 0:
+        return ""
+
+    def _format_pct(value: int) -> str:
+        """Format a cache-mix percentage, preserving small non-zero shares."""
+
+        pct = (value / total_tokens) * 100
+        if pct == 0:
+            return "0%"
+        if pct > 99.95:
+            return "100%"
+        if pct >= 99:
+            return f"{pct:.2f}%"
+        if pct >= 10:
+            return f"{pct:.0f}%"
+        if pct >= 1:
+            return f"{pct:.1f}%"
+        return f"{pct:.2f}%"
+
+    return (
+        f"C{prefix}:{_format_compact_tokens(cached_tokens)} "
+        f"(K:{_format_pct(cached_tokens)} I:{_format_pct(uncached_tokens)} O:{_format_pct(output_tokens)})"
+    )
+
+
+def _build_cache_composition_line(model: str | None) -> str:
+    """Build the compact cache-composition second line for last-request and session telemetry."""
+
+    turn_cached_tokens = getattr(config, "TURN_CACHED_INPUT_TOKENS", None) or []
+    turn_uncached_tokens = getattr(config, "TURN_UNCACHED_INPUT_TOKENS", None) or []
+    turn_output_tokens = getattr(config, "TURN_OUTPUT_TOKENS", None) or []
+    last_line = ""
+    if (
+        isinstance(turn_cached_tokens, list)
+        and isinstance(turn_uncached_tokens, list)
+        and isinstance(turn_output_tokens, list)
+        and turn_cached_tokens
+        and turn_uncached_tokens
+        and turn_output_tokens
+        and all(isinstance(series[-1], int) and series[-1] >= 0 for series in (turn_cached_tokens, turn_uncached_tokens, turn_output_tokens))
+    ):
+        last_line = _build_cache_segment(turn_cached_tokens[-1], turn_uncached_tokens[-1], turn_output_tokens[-1], "l")
+
+    session_line = ""
+    try:
+        from monitor.lib.model_pricing import session_empirical_pricing_mix
+
+        mix: dict[str, Any] = session_empirical_pricing_mix(model)
+        session_total_tokens = mix.get("total_tokens")
+        session_cached_tokens = mix.get("cached_input_tokens", 0)
+        session_uncached_tokens = mix.get("uncached_input_tokens", 0)
+        session_output_tokens = mix.get("output_tokens", 0)
+        if isinstance(session_total_tokens, int) and session_total_tokens > 0 and all(
+            isinstance(value, int)
+            for value in (session_cached_tokens, session_uncached_tokens, session_output_tokens)
+        ):
+            session_line = _build_cache_segment(
+                session_cached_tokens,
+                session_uncached_tokens,
+                session_output_tokens,
+                "s",
+            )
+    except Exception:
+        logger.debug("Failed to load cache composition telemetry", exc_info=True)
+
+    return "   ".join(part for part in (last_line, session_line) if part)
 
 
 def _fuel_color(remaining_percent):
@@ -426,5 +514,7 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         logger.error(f"Error rendering RT round-trip count: {e}", exc_info=True)
 
     stats_str = " ".join(parts)
+    cache_line = _build_cache_composition_line(model)
+    cache_suffix = f"\n{cache_line}" if cache_line else ""
 
-    return f"\n{cwd}\n{stats_str}\nmonitor {model_str} {reasoning_str} ]] "
+    return f"\n{cwd}\n{stats_str}{cache_suffix}\nmonitor {model_str} {reasoning_str} ]] "

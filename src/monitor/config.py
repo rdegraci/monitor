@@ -746,6 +746,14 @@ TURN_COSTS_USD: list[float] = []
 # that turn. RT: in the prompt reads the last entry — how many model round-trips
 # the previous turn took. Resets on set_model() and :reset_history.
 TURN_ROUND_TRIPS: list[int] = []
+# Per-turn cache-mix ledgers, parallel to TURN_COSTS_USD / TURN_ROUND_TRIPS.
+# Each bucket accumulates provider-reported token composition across all model
+# round-trips in that user-message-bounded turn so the cache display can show a
+# turn aggregate instead of only the final completion. Resets on set_model() and
+# :reset_history.
+TURN_CACHED_INPUT_TOKENS: list[int] = []
+TURN_UNCACHED_INPUT_TOKENS: list[int] = []
+TURN_OUTPUT_TOKENS: list[int] = []
 # How many recent turns to roll up for the middle dollar value in the U:
 # indicator. 10 captures recent-trajectory context (was this a brief flurry
 # or sustained spend?) without leaking back so far that the number looks
@@ -2294,6 +2302,9 @@ def set_model(model_key: str) -> bool:
     SESSION_LOOP_DETECTOR_TRIPS = 0
     TURN_COSTS_USD = []
     TURN_ROUND_TRIPS = []
+    TURN_CACHED_INPUT_TOKENS = []
+    TURN_UNCACHED_INPUT_TOKENS = []
+    TURN_OUTPUT_TOKENS = []
     globals()["RESPONSE_ID"] = None
     CURRENT_TURN_REASONING_OVERRIDE = None
     CURRENT_TURN_IS_COLLATION = False

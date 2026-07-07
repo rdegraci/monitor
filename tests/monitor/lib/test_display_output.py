@@ -223,6 +223,83 @@ class TestDisplayOutput(unittest.TestCase):
         self.assertNotIn("t ", result.split("H:")[1] if "H:" in result else "")
         self.assertNotIn("5t", result)
 
+    def test_cache_composition_lines_render_for_last_request_and_session(self):
+        with patch.object(
+            display_output.config,
+            "SESSION_CALIBRATION_BY_MODEL",
+            {
+                "openai/gpt-5.4": {
+                    "cost_usd": 0.0,
+                    "total_tokens": 1_000,
+                    "cached_input_tokens": 640,
+                    "uncached_input_tokens": 120,
+                    "output_tokens": 240,
+                    "effort_weighted_tokens": 0.0,
+                    "effort_weight_tokens": 0,
+                }
+            },
+        ), patch.object(
+            display_output.config,
+            "TURN_CACHED_INPUT_TOKENS",
+            [320],
+            create=True,
+        ), patch.object(
+            display_output.config,
+            "TURN_UNCACHED_INPUT_TOKENS",
+            [60],
+            create=True,
+        ), patch.object(
+            display_output.config,
+            "TURN_OUTPUT_TOKENS",
+            [120],
+            create=True,
+        ):
+            result = format_prompt_display(
+                conversation_count=5,
+                tokens_remaining=900000,
+                model="openai/gpt-5.4",
+            )
+
+        self.assertIn("Cl:320 (K:64% I:12% O:24%)   Cs:640 (K:64% I:12% O:24%)", result)
+
+    def test_cache_composition_lines_omitted_when_no_token_mix(self):
+        with patch.object(display_output.config, "SESSION_CALIBRATION_BY_MODEL", {}), \
+             patch.object(display_output.config, "TURN_CACHED_INPUT_TOKENS", [], create=True), \
+             patch.object(display_output.config, "TURN_UNCACHED_INPUT_TOKENS", [], create=True), \
+             patch.object(display_output.config, "TURN_OUTPUT_TOKENS", [], create=True):
+            result = format_prompt_display(
+                conversation_count=5,
+                tokens_remaining=900000,
+                model="openai/gpt-5.4",
+            )
+
+        self.assertNotIn("Cl:", result)
+        self.assertNotIn("Cs:", result)
+
+    def test_cache_composition_preserves_small_nonzero_percentages(self):
+        with patch.object(
+            display_output.config,
+            "SESSION_CALIBRATION_BY_MODEL",
+            {
+                "openai/gpt-5.4": {
+                    "cost_usd": 0.0,
+                    "total_tokens": 595_200,
+                    "cached_input_tokens": 594_900,
+                    "uncached_input_tokens": 200,
+                    "output_tokens": 100,
+                    "effort_weighted_tokens": 0.0,
+                    "effort_weight_tokens": 0,
+                }
+            },
+        ):
+            result = format_prompt_display(
+                conversation_count=5,
+                tokens_remaining=900000,
+                model="openai/gpt-5.4",
+            )
+
+        self.assertIn("Cs:594.9k (K:99.95% I:0.03% O:0.02%)", result)
+
 
 class TestFuelGauge(unittest.TestCase):
     """The F: fuel tank: SESSION_TOKEN_BUDGET - SESSION_TOTAL_TOKENS, drawn

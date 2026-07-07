@@ -124,6 +124,12 @@ def set_last_request_token_usage(last_used_tokens: int, used_estimate: bool) -> 
             setattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
         if not hasattr(config, "LAST_REQUEST_USED_ESTIMATE"):
             setattr(config, "LAST_REQUEST_USED_ESTIMATE", False)
+        if not hasattr(config, "LAST_REQUEST_CACHED_INPUT_TOKENS"):
+            setattr(config, "LAST_REQUEST_CACHED_INPUT_TOKENS", None)
+        if not hasattr(config, "LAST_REQUEST_UNCACHED_INPUT_TOKENS"):
+            setattr(config, "LAST_REQUEST_UNCACHED_INPUT_TOKENS", None)
+        if not hasattr(config, "LAST_REQUEST_OUTPUT_TOKENS"):
+            setattr(config, "LAST_REQUEST_OUTPUT_TOKENS", None)
 
         setattr(config, "LAST_REQUEST_TOKEN_COUNT", int(last_used_tokens))
         setattr(config, "LAST_REQUEST_USED_ESTIMATE", bool(used_estimate))
@@ -375,6 +381,33 @@ def update_token_usage(tokens_or_response, *, used_estimate: bool = False, respo
                     from monitor.lib.llm_model_utils import effective_turn_effort
 
                     uncached_input, cached_input, output_tokens = _extract_usage_tokens(cost_response)
+                    setattr(config, "LAST_REQUEST_UNCACHED_INPUT_TOKENS", int(uncached_input))
+                    setattr(config, "LAST_REQUEST_CACHED_INPUT_TOKENS", int(cached_input))
+                    setattr(config, "LAST_REQUEST_OUTPUT_TOKENS", int(output_tokens))
+                    try:
+                        turn_cached = getattr(config, "TURN_CACHED_INPUT_TOKENS", None)
+                        if not isinstance(turn_cached, list):
+                            turn_cached = []
+                        if not turn_cached:
+                            turn_cached.append(0)
+                        turn_cached[-1] = turn_cached[-1] + int(cached_input)
+                        config.TURN_CACHED_INPUT_TOKENS = turn_cached
+                        turn_uncached = getattr(config, "TURN_UNCACHED_INPUT_TOKENS", None)
+                        if not isinstance(turn_uncached, list):
+                            turn_uncached = []
+                        if not turn_uncached:
+                            turn_uncached.append(0)
+                        turn_uncached[-1] = turn_uncached[-1] + int(uncached_input)
+                        config.TURN_UNCACHED_INPUT_TOKENS = turn_uncached
+                        turn_output = getattr(config, "TURN_OUTPUT_TOKENS", None)
+                        if not isinstance(turn_output, list):
+                            turn_output = []
+                        if not turn_output:
+                            turn_output.append(0)
+                        turn_output[-1] = turn_output[-1] + int(output_tokens)
+                        config.TURN_OUTPUT_TOKENS = turn_output
+                    except Exception:
+                        logger.debug("Failed to accumulate per-turn cache composition", exc_info=True)
                     # All calibration stats are attributed to the effective model
                     # so a single-turn swap to ADV_REASONING_MODEL never pollutes
                     # the configured default's rate calibration.

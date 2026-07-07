@@ -137,6 +137,20 @@ def test_extract_responses_api_shape():
     assert output == 300
 
 
+def test_extract_responses_api_shape_recovers_output_from_total_minus_cached():
+    """When only total_tokens and cached input detail are present, recover output from the remainder."""
+    response = {
+        "usage": {
+            "total_tokens": 24_296,
+            "input_tokens_details": {"cached_tokens": 23_600},
+        }
+    }
+    uncached, cached, output = model_pricing._extract_usage_tokens(response)
+    assert uncached == 0
+    assert cached == 23_600
+    assert output == 696
+
+
 def test_extract_no_usage_block_returns_zeros():
     response = SimpleNamespace()
     assert model_pricing._extract_usage_tokens(response) == (0, 0, 0)
