@@ -1,6 +1,7 @@
 """Responses-via-LiteLLM adapter for the isolated Monitor OOP application."""
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -82,6 +83,7 @@ class ResponsesOpenAiAdapter:
         kwargs: dict[str, Any] = {
             "model": model,
             "input": input,
+            "prompt_cache_key": self._build_prompt_cache_key(model, "turn"),
             "prompt_cache_retention": "24h",
         }
         if tools is not None:
@@ -93,6 +95,21 @@ class ResponsesOpenAiAdapter:
         if max_output_tokens is not None:
             kwargs["max_output_tokens"] = max_output_tokens
         return kwargs
+
+    def _build_prompt_cache_key(self, model: str, request_shape: str) -> str:
+        """Build a stable prompt cache key for Responses API requests."""
+
+        model_name = str(model or "unknown")
+        shape = str(request_shape or "turn")
+        model_token = model_name.replace("openai/", "")[:16]
+        shape_token = shape[:12]
+        cache_key = f"m:r:v1:m:{model_token}:q:{shape_token}"
+        if len(cache_key) <= 64:
+            return cache_key
+
+        hash_input = f"{model_name}|{shape}".encode("utf-8")
+        digest = hashlib.sha256(hash_input).hexdigest()[:16]
+        return f"m:r:v1:h:{digest}"
 
     def _extract_output_text(self, response: Any) -> str:
         try:

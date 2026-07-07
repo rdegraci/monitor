@@ -19,6 +19,19 @@ def test_extract_text_prefers_output_text() -> None:
     assert adapter.extract_text(OutputTextResponse("hello world")) == "hello world"
 
 
+def test_build_prompt_cache_key_hashes_when_compact_key_would_exceed_limit() -> None:
+    """Verify oversized cache keys still satisfy the provider length limit."""
+
+    adapter = ResponsesOpenAiAdapter()
+    cache_key = adapter._build_prompt_cache_key(
+        "openai/very-long-model-name-that-keeps-going-past-normal",
+        "tool-followup-shape-that-is-long",
+    )
+
+    assert cache_key == "m:r:v1:m:very-long-model-:q:tool-followu"
+    assert len(cache_key) <= 64
+
+
 def test_complete_omits_empty_optional_fields_from_openai_request(monkeypatch) -> None:
     """Verify the OpenAI Responses request omits unset optional fields.
 
@@ -53,5 +66,6 @@ def test_complete_omits_empty_optional_fields_from_openai_request(monkeypatch) -
     assert captured_kwargs == {
         "model": "gpt-4o",
         "input": [{"role": "user", "content": "hello"}],
+        "prompt_cache_key": "m:r:v1:m:gpt-4o:q:turn",
         "prompt_cache_retention": "24h",
     }

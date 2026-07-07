@@ -1,9 +1,11 @@
-import logging
+import hashlib
 import json
-import threading
+import logging
 import signal
+import threading
 import uuid
 from copy import deepcopy
+
 from openai import OpenAI
 
 XAI_BASE_URL = "https://api.x.ai/v1"
@@ -88,6 +90,32 @@ SUMMARY_MAX_OUTPUT_TOKENS = 2048
 FOLLOWUP_REQUEST_CLASS_FRESH = "fresh_request"
 FOLLOWUP_REQUEST_CLASS_CHAINED = "chained_user_followup"
 FOLLOWUP_REQUEST_CLASS_TOOL = "tool_result_followup"
+def _build_prompt_cache_key(request_model, request_shape):
+    """Build a stable prompt cache key for Responses API requests.
+
+    Args:
+        request_model: The provider-facing model name for this request.
+        request_shape: A coarse request-shape label such as ``turn``,
+            ``tool-followup``, or ``summary``.
+
+    Returns:
+        str: A versioned cache key scoped by session, model, and request shape.
+    """
+    session_id = str(getattr(config, "SESSION_ID", None) or "default")
+    model_name = str(request_model or "unknown")
+    shape = str(request_shape or "turn")
+    session_token = session_id[-8:]
+    model_token = model_name.replace("openai/", "")[:16]
+    shape_token = shape[:12]
+    cache_key = f"m:r:v1:s:{session_token}:m:{model_token}:q:{shape_token}"
+    if len(cache_key) <= 64:
+        return cache_key
+
+    hash_input = f"{session_id}|{model_name}|{shape}".encode("utf-8")
+    digest = hashlib.sha256(hash_input).hexdigest()[:16]
+    return f"m:r:v1:h:{digest}"
+
+
 FOLLOWUP_REQUEST_CLASS_SUMMARIZATION = "summarization_followup"
 FOLLOWUP_BUDGET_DECISION_SEND = "send"
 FOLLOWUP_BUDGET_DECISION_SEND_TRIMMED = "send_trimmed"
@@ -966,6 +994,7 @@ def call_responses_api(
         # Build request parameters, include only non-None values
         params = {
             REQUEST_PARAM_MODEL: request_model,
+            "prompt_cache_key": _build_prompt_cache_key(request_model, "turn"),
             "prompt_cache_retention": "24h",
         }
 
@@ -1400,6 +1429,10 @@ def call_responses_api(
                     )
                     followup_params = {
                         REQUEST_PARAM_MODEL: followup_request_model,
+                        "prompt_cache_key": _build_prompt_cache_key(
+                            followup_request_model,
+                            "tool-followup",
+                        ),
                         "prompt_cache_retention": "24h",
                     }
                     # Ensure previous_response_id is the last persisted response id
@@ -1777,7 +1810,13 @@ def call_responses_api(
                             )
 
                             # Map sanitized helper output into API parameter names, ensure instruction appended after outputs
-                            summary_params = {"prompt_cache_retention": "24h"}
+                            summary_params = {
+                                "prompt_cache_key": _build_prompt_cache_key(
+                                    summary_request_model,
+                                    "summary",
+                                ),
+                                "prompt_cache_retention": "24h",
+                            }
 
                             # model -> REQUEST_PARAM_MODEL: use returned sfp['model'] if present, else fallback
                             try:

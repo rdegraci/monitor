@@ -102,6 +102,31 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         mock_openai.assert_called_once_with(base_url="http://127.0.0.1:11434")
 
+    def test_build_prompt_cache_key_uses_session_model_and_shape(self):
+        """Prompt cache keys should be stable across same-session request shapes."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(SESSION_ID="session-123")
+
+        with patch.object(adapter, "config", cfg):
+            assert adapter._build_prompt_cache_key("gpt-5.4", "turn") == (
+                "m:r:v1:s:sion-123:m:gpt-5.4:q:turn"
+            )
+
+
+    def test_build_prompt_cache_key_hashes_when_compact_key_would_exceed_limit(self):
+        """Prompt cache keys should fall back to a short hash when needed."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(SESSION_ID="session-identifier-that-is-far-longer-than-expected")
+        request_model = "openai/very-long-model-name-that-keeps-going-past-normal"
+        request_shape = "tool-followup-shape-that-is-long"
+
+        with patch.object(adapter, "config", cfg):
+            cache_key = adapter._build_prompt_cache_key(request_model, request_shape)
+
+        assert cache_key == "m:r:v1:s:expected:m:very-long-model-:q:tool-followu"
+        assert len(cache_key) <= 64
     def test_calculate_followup_payload_budget_tool_result_request(self):
         """The pure reserve calculator should derive a payload budget from the
         usable window and named reserve buckets."""
@@ -406,6 +431,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert first_kwargs["input"] == messages
 
         assert first_kwargs["prompt_cache_retention"] == "24h"
+        assert first_kwargs["prompt_cache_key"] == "m:r:v1:s:default:m:gpt-4o-mini:q:turn"
 
         # RESPONSE_ID should be updated to first id before follow-up
         assert cfg.RESPONSE_ID == "resp_2"  # after the second call it should be the follow-up id
@@ -413,6 +439,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         # Assert second call (follow-up) used previous_response_id and function_call_output payload
         second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
         assert second_kwargs["model"] == "gpt-4o-mini"
+        assert second_kwargs["prompt_cache_key"] == "m:r:v1:s:default:m:gpt-4o-mini:q:summary"
         assert second_kwargs["prompt_cache_retention"] == "24h"
         assert second_kwargs["previous_response_id"] == "resp_1"
         assert isinstance(second_kwargs["input"], list)
