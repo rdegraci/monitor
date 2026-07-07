@@ -19,8 +19,8 @@ def test_extract_text_prefers_output_text() -> None:
     assert adapter.extract_text(OutputTextResponse("hello world")) == "hello world"
 
 
-def test_build_prompt_cache_key_hashes_when_compact_key_would_exceed_limit() -> None:
-    """Verify oversized cache keys still satisfy the provider length limit."""
+def test_build_prompt_cache_key_truncates_tokens_within_length_limit() -> None:
+    """Verify oversized cache keys keep readable truncated tokens within the length limit."""
 
     adapter = ResponsesOpenAiAdapter()
     cache_key = adapter._build_prompt_cache_key(

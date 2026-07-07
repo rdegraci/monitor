@@ -114,8 +114,8 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             )
 
 
-    def test_build_prompt_cache_key_hashes_when_compact_key_would_exceed_limit(self):
-        """Prompt cache keys should fall back to a short hash when needed."""
+    def test_build_prompt_cache_key_truncates_tokens_within_length_limit(self):
+        """Prompt cache keys should keep readable truncated tokens within the length limit."""
         from monitor.core import llm_responses_adapter as adapter
 
         cfg = SimpleNamespace(SESSION_ID="session-identifier-that-is-far-longer-than-expected")
@@ -410,7 +410,8 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             PRESENCE_PENALTY=None,
             MAX_COMPLETION_TOKENS=None,
             RATE_LIMITER=True,  # just truthy flag for has-attr check, we will use mock_rate_limiter.RATE_LIMITER below
-            MODEL_INPUT_WINDOW=None,
+            MODEL_INPUT_WINDOW=128_000,
+            TOOL_OUTPUT_TOKEN_LIMIT=1_024,
         )
 
         # Provide a mock RATE_LIMITER instance with add_request
@@ -439,7 +440,9 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         # Assert second call (follow-up) used previous_response_id and function_call_output payload
         second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
         assert second_kwargs["model"] == "gpt-4o-mini"
-        assert second_kwargs["prompt_cache_key"] == "m:r:v1:s:default:m:gpt-4o-mini:q:summary"
+        assert second_kwargs["prompt_cache_key"] == (
+            "m:r:v1:s:default:m:gpt-4o-mini:q:tool-followu"
+        )
         assert second_kwargs["prompt_cache_retention"] == "24h"
         assert second_kwargs["previous_response_id"] == "resp_1"
         assert isinstance(second_kwargs["input"], list)
