@@ -118,6 +118,21 @@ def reset_conversation_history_command(
         config.SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED = 0
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
+        # Responses-chain cost-tier telemetry: a fresh session has no prior
+        # billed request. Seed LAST_BILLED_INPUT_TOKENS with the rebuilt history's
+        # size (just the system prompt) — the approximate billed input of the
+        # NEXT request — so the C: gauge shows a small counting-up value
+        # (e.g. C:5945 (5% 1%)) instead of dropping into the window "% remaining"
+        # fallback, which reads backwards (e.g. 99%). Mirrors :break_chain.
+        config.SESSION_TIER_CROSSINGS = 0
+        config.SESSION_RESPONSES_REQUESTS = 0
+        try:
+            from monitor.lib.token_management import count_message_tokens
+            config.LAST_BILLED_INPUT_TOKENS = int(
+                count_message_tokens(getattr(config, "CONVERSATION_HISTORY", []) or [])
+            )
+        except Exception:
+            config.LAST_BILLED_INPUT_TOKENS = 0
         config.TURN_COSTS_USD = []
         config.TURN_ROUND_TRIPS = []
         config.TURN_CACHED_INPUT_TOKENS = []
@@ -164,6 +179,28 @@ def break_chain_command(arg: Any | None = None, *, emit_notice: bool = True) -> 
         tier = int(getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 128000) or 128000)
         if hasattr(config, "RESPONSE_ID"):
             config.RESPONSE_ID = None
+        # Instant C:-gauge confirmation. The next request re-sends visible history
+        # inline, so approximate the new billed size from the current conversation
+        # and update LAST_BILLED_INPUT_TOKENS now — C: drops back under the cliff
+        # immediately instead of waiting a turn to self-correct. The estimate
+        # excludes tool schemas / system preferences the send path adds, so it
+        # slightly under-counts — fine for a display gauge; the real value lands
+        # on the next request. Only done when a chain was actually broken, so the
+        # no-op case doesn't clobber a genuine last-billed value.
+        new_billed = None
+        if had_chain:
+            try:
+                from monitor.lib.token_management import count_message_tokens
+                new_billed = int(
+                    count_message_tokens(getattr(config, "CONVERSATION_HISTORY", []) or [])
+                )
+                config.LAST_BILLED_INPUT_TOKENS = new_billed
+            except Exception:
+                logger.debug(
+                    "[CHAIN-BREAK] could not estimate post-break billed size; "
+                    "C: will self-correct on the next request.",
+                    exc_info=True,
+                )
         if emit_notice:
             if not had_chain:
                 print(
@@ -171,23 +208,29 @@ def break_chain_command(arg: Any | None = None, *, emit_notice: bool = True) -> 
                     "sends full history inline. Conversation left untouched."
                 )
             else:
-                msg = (
+                parts = [
                     "Responses chain broken (RESPONSE_ID cleared). Conversation "
                     "history preserved — the next request re-sends visible history "
-                    "inline and starts a fresh chain"
-                )
+                    "inline and starts a fresh chain."
+                ]
                 if prior_billed > 0:
-                    msg += f"; last billed input was {prior_billed} tokens"
-                    if tier > 0 and prior_billed >= tier:
-                        msg += (
-                            f" (over the {tier}-token 2x cliff — this drops you "
-                            "back to the short-context tier)"
-                        )
-                print(msg + ".")
+                    over = (
+                        f" (over the {tier}-token 2x cliff)"
+                        if tier > 0 and prior_billed >= tier
+                        else ""
+                    )
+                    parts.append(f"Billed input was {prior_billed} tokens{over}.")
+                if new_billed is not None:
+                    parts.append(
+                        f"C: now reflects ~{new_billed} tokens — back in the "
+                        "short-context tier."
+                    )
+                print(" ".join(parts))
         logger.info(
             "[CHAIN-BREAK] manual :break_chain — RESPONSE_ID cleared "
-            "(had_chain=%s, prior_billed=%s, tier=%s); conversation history preserved.",
-            had_chain, prior_billed, tier,
+            "(had_chain=%s, prior_billed=%s, new_billed=%s, tier=%s); "
+            "conversation history preserved.",
+            had_chain, prior_billed, new_billed, tier,
         )
     except Exception as exc:
         logger.error("Failed to break Responses chain: %s", exc, exc_info=True)

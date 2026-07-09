@@ -2363,9 +2363,18 @@ def set_model(model_key: str) -> bool:
     SESSION_COMPACTION_COUNT = 0
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0
-    LAST_BILLED_INPUT_TOKENS = 0
     SESSION_TIER_CROSSINGS = 0
     SESSION_RESPONSES_REQUESTS = 0
+    # Seed LAST_BILLED_INPUT_TOKENS from current visible history (the approximate
+    # billed size of the next request on the new model) rather than 0, so the C:
+    # gauge counts up from a small value instead of dropping into the backwards
+    # "% remaining" window fallback (e.g. the startup render, since set_model runs
+    # after the startup reset). Mirrors :reset_history / :break_chain.
+    try:
+        from monitor.lib.token_management import count_message_tokens as _cmt
+        LAST_BILLED_INPUT_TOKENS = int(_cmt(CONVERSATION_HISTORY or []))
+    except Exception:
+        LAST_BILLED_INPUT_TOKENS = 0
     TURN_COSTS_USD = []
     TURN_ROUND_TRIPS = []
     TURN_CACHED_INPUT_TOKENS = []
