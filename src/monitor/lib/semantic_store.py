@@ -1,16 +1,27 @@
-
 import litellm
 import json
 import os
 import logging
 import traceback
 
+import monitor.config
 from monitor.lib.redis_utils import (
     save_to_memory,
     update_memory
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _bump_config_counter(counter_name):
+    current_value = getattr(monitor.config, counter_name, 0)
+    try:
+        next_value = int(current_value) + 1
+    except (TypeError, ValueError):
+        next_value = 1
+    setattr(monitor.config, counter_name, next_value)
+    return next_value
+
 
 class SemanticStore:
     """
@@ -32,6 +43,7 @@ class SemanticStore:
             "Respond ONLY with a JSON object: {\"to_remember\": ..., \"key\": ...} or null if none."
         )
         self.litellm = litellm
+        self.model = "openai/gpt-4o"
 
     def process(self, user_prompt):
         """
@@ -39,24 +51,34 @@ class SemanticStore:
         and calls the Redis memory tool accordingly.
         """
         logger.debug("[SemanticStore] Incoming user_prompt: %s", user_prompt)
+        try:
+            prompt_chars = len(user_prompt) if user_prompt is not None else 0
+        except Exception:
+            prompt_chars = 0
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_prompt}
         ]
+        _bump_config_counter("SESSION_SPEND_MEMORY_CALLS")
+        logger.info("[SPEND][MEMORY] event=call model=%s chars=%s", self.model, prompt_chars)
         try:
             completion = self.litellm.completion(
-                model="openai/gpt-4o",
+                model=self.model,
                 messages=messages,
                 api_key=self.openai_api_key
             )
             logger.debug("[SemanticStore] Raw LLM completion result: %r", completion)
         except Exception as e:
+            _bump_config_counter("SESSION_SPEND_MEMORY_FAILURES")
+            logger.info("[SPEND][MEMORY] event=failure model=%s chars=%s", self.model, prompt_chars)
             logger.error("[SemanticStore] LLM completion call failed: %s\n%s", e, traceback.format_exc())
             return None
         try:
             result = json.loads(completion['choices'][0]['message']['content'])
             logger.debug("[SemanticStore] Parsed JSON result from LLM: %r", result)
         except Exception as e:
+            _bump_config_counter("SESSION_SPEND_MEMORY_FAILURES")
+            logger.info("[SPEND][MEMORY] event=failure reason=parse_error model=%s chars=%s", self.model, prompt_chars)
             logger.error("[SemanticStore] Error parsing LLM response: %s\n%s", e, traceback.format_exc())
             logger.debug("[SemanticStore] Exiting early due to failed JSON parse.")
             return None
@@ -71,6 +93,8 @@ class SemanticStore:
                     key=result['key'],
                     value=result['to_remember']
                 )
+                _bump_config_counter("SESSION_SPEND_MEMORY_STORES")
+                logger.info("[SPEND][MEMORY] event=store model=%s key=%s chars=%s", self.model, result['key'], prompt_chars)
                 logger.info("[SemanticStore] Stored memory under key: %s", result['key'])
                 return outcome
             except Exception as e:
@@ -78,6 +102,8 @@ class SemanticStore:
                 logger.debug("[SemanticStore] Exiting early due to memory storage failure.")
                 return None
         else:
+            _bump_config_counter("SESSION_SPEND_MEMORY_NULLS")
+            logger.info("[SPEND][MEMORY] event=null model=%s chars=%s", self.model, prompt_chars)
             logger.debug("[SemanticStore] Exiting early: Nothing to remember or invalid response. Result: %r", result)
             logger.info("[SemanticStore] Nothing to remember or invalid response.")
             return None

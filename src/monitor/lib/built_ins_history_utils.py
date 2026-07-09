@@ -23,6 +23,46 @@ from monitor.lib.system_prompt import build_system_prompt, clear_project_instruc
 logger = logging.getLogger(__name__)
 
 
+def log_spend_summary() -> None:
+    """Emit a session-scoped spend summary to the standard log.
+
+    Returns:
+        None.
+    """
+    try:
+        # Responses-chain cost-tier rollup: what fraction of Responses requests
+        # this session were billed at/above the long-context 2x cliff
+        # (RESPONSES_CHAIN_TIER_TOKENS). See docs/cache/RESPONSES_CHAIN_BREAK.md.
+        _tier_crossings = int(getattr(config, "SESSION_TIER_CROSSINGS", 0) or 0)
+        _responses_requests = int(getattr(config, "SESSION_RESPONSES_REQUESTS", 0) or 0)
+        _over_tier_pct = (
+            100.0 * _tier_crossings / _responses_requests
+            if _responses_requests > 0
+            else 0.0
+        )
+        logger.info(
+            "[SPEND][SUMMARY] compactions=%s skips=%s failures=%s fallbacks=%s summary_tokens_total=%s memory_calls=%s memory_skips=%s memory_stores=%s memory_nulls=%s memory_failures=%s helper_calls=%s oversize_tool_outputs=%s trimmed_tool_tokens=%s tier_crossings=%s responses_requests=%s over_tier_pct=%.1f",
+            int(getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_COMPACTION_SKIPS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_COMPACTION_FAILURES", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_COMPACTION_FALLBACKS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_SUMMARY_TOKENS_TOTAL", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_MEMORY_CALLS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_MEMORY_SKIPS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_MEMORY_STORES", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_MEMORY_NULLS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_MEMORY_FAILURES", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_HELPER_CALLS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS", 0) or 0),
+            int(getattr(config, "SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED", 0) or 0),
+            _tier_crossings,
+            _responses_requests,
+            _over_tier_pct,
+        )
+    except Exception:
+        logger.exception("Failed to emit [SPEND][SUMMARY] log line")
+
+
 def reset_conversation_history_command(
     arg: Any | None = None,
     *,
@@ -63,6 +103,19 @@ def reset_conversation_history_command(
         # reset T:/U: against stale composition/effort data from the old session.
         config.SESSION_CALIBRATION_BY_MODEL = {}
         config.SESSION_COMPACTION_COUNT = 0
+        config.SESSION_SPEND_COMPACTION_SKIPS = 0
+        config.SESSION_SPEND_COMPACTION_FAILURES = 0
+        config.SESSION_SPEND_COMPACTION_FALLBACKS = 0
+        config.SESSION_SPEND_SUMMARY_TOKENS_TOTAL = 0
+        config.SESSION_SPEND_LAST_COMPACTION_TS = None
+        config.SESSION_SPEND_MEMORY_CALLS = 0
+        config.SESSION_SPEND_MEMORY_SKIPS = 0
+        config.SESSION_SPEND_MEMORY_STORES = 0
+        config.SESSION_SPEND_MEMORY_NULLS = 0
+        config.SESSION_SPEND_MEMORY_FAILURES = 0
+        config.SESSION_SPEND_HELPER_CALLS = 0
+        config.SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS = 0
+        config.SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED = 0
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
         config.TURN_COSTS_USD = []

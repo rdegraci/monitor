@@ -201,6 +201,7 @@ def joke_for_twitch(arg=""):
     """
     try:
         logger.info("Requesting joke generation from LLM model: %s", config.MODEL)
+        llm_utils.log_helper_model_usage("joke_generation", config.MODEL)
         response = llm_utils.call_litellm_completion(
             config.MODEL,
             [

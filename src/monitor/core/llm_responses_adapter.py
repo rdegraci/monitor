@@ -1165,6 +1165,38 @@ def call_responses_api(
                     effective_reasoning_tokens,
                     usage,
                 )
+                # [CHAIN-TIER telemetry — TELEMETRY-ONLY, no behavior change]
+                # Record the provider-billed input size of the request that just
+                # completed. This is the only accurate measure of Responses-chain
+                # size: visible history under-counts because the hidden chain
+                # (previous_response_id) is billed but not locally counted. Counts
+                # how often a request is billed at/above the long-context 2x cliff
+                # so we can measure the real over-tier rate on the live window
+                # before building the chain-break gate.
+                # See docs/cache/RESPONSES_CHAIN_BREAK.md.
+                billed_input = (
+                    effective_prompt_tokens
+                    if effective_prompt_tokens is not None
+                    else input_tokens
+                )
+                if isinstance(billed_input, int) and billed_input > 0:
+                    config.LAST_BILLED_INPUT_TOKENS = billed_input
+                    config.SESSION_RESPONSES_REQUESTS = (
+                        getattr(config, "SESSION_RESPONSES_REQUESTS", 0) + 1
+                    )
+                    _tier = getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 128000)
+                    if isinstance(_tier, int) and _tier > 0 and billed_input >= _tier:
+                        config.SESSION_TIER_CROSSINGS = (
+                            getattr(config, "SESSION_TIER_CROSSINGS", 0) + 1
+                        )
+                        logger.info(
+                            "[CHAIN-TIER] billed input=%d >= tier=%d; request billed at "
+                            "long-context 2x rate (session crossings=%d/%d)",
+                            billed_input,
+                            _tier,
+                            config.SESSION_TIER_CROSSINGS,
+                            config.SESSION_RESPONSES_REQUESTS,
+                        )
             except Exception:
                 pass
         except Exception:
@@ -1372,9 +1404,43 @@ def call_responses_api(
                 try:
                     _, current_request_model, _, _ = _resolve_responses_turn_settings()
                     token_limit = int(config.TOOL_OUTPUT_TOKEN_LIMIT)
+                    original_output_tokens = count_message_tokens(output_payload)
                     truncated_output = truncate_to_token_limit(
                         output_payload, token_limit, model=current_request_model
                     )
+                    truncated_output_tokens = count_message_tokens(truncated_output)
+                    if (
+                        isinstance(token_limit, int)
+                        and token_limit > 0
+                        and isinstance(original_output_tokens, int)
+                        and original_output_tokens > token_limit
+                    ):
+                        try:
+                            config.SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS = int(
+                                getattr(config, "SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS", 0) or 0
+                            ) + 1
+                            trimmed_delta = max(
+                                0,
+                                int(original_output_tokens)
+                                - int(truncated_output_tokens or 0),
+                            )
+                            config.SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED = int(
+                                getattr(config, "SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED", 0)
+                                or 0
+                            ) + trimmed_delta
+                        except Exception:
+                            logger.debug(
+                                "[SPEND][TOOL_OUTPUT] Failed to update session counters",
+                                exc_info=True,
+                            )
+                        logger.info(
+                            "[SPEND][TOOL_OUTPUT] event=oversize tool=%s tokens=%s limit=%s action=trimmed trimmed_tokens=%s model=%s",
+                            function_name,
+                            original_output_tokens,
+                            token_limit,
+                            max(0, int(original_output_tokens) - int(truncated_output_tokens or 0)),
+                            current_request_model,
+                        )
                 except Exception:
                     # If truncation fails for any reason, fall back to the original serialized payload.
                     logger.exception("Failed to truncate tool output; using full serialized output")

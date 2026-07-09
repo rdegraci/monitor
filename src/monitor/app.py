@@ -380,7 +380,9 @@ def main():
     try:
         import atexit
         from monitor.lib import agent_reporter
+        from monitor.lib.built_ins_history_utils import log_spend_summary
         reporter = agent_reporter.from_env()
+        atexit.register(log_spend_summary)
         if reporter is not None:
             agent_reporter.set_active(reporter)
             reporter.start_heartbeat()

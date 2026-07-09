@@ -9,7 +9,11 @@ from monitor import config
 from monitor.lib.colors import reset, yellow
 from monitor.lib.commit_analyzer import build_commit_message_query_input
 from monitor.lib.git import perform_git_commit, perform_git_diff_staged
-from monitor.lib.llm_utils import call_litellm_completion, is_reasoning_model
+from monitor.lib.llm_utils import (
+    call_litellm_completion,
+    is_reasoning_model,
+    log_helper_model_usage,
+)
 from monitor.lib.macros import MACRO_VALUES
 from monitor.lib.progress import progress_dots
 
@@ -264,6 +268,7 @@ def get_suggested_commit_message(diff_output):
             {"role": "user", "content": query_input},
         ]
         with progress_dots("Generating commit message"):
+            log_helper_model_usage("commit_message", kwargs["model"])
             response = call_litellm_completion(
                 kwargs["model"],
                 kwargs["messages"],

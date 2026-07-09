@@ -519,6 +519,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                         except Exception:
                             pass
 
+                        pre_compaction_tokens = estimated_tokens
                         reset_conversation_with_partial_summary(
                             summary_content or "",
                             build_system_prompt(
@@ -531,16 +532,38 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _cfg(),
                         )
                         summarization_attempted = True
-                        # Bump the session counter so the H:(N) <count>
-                        # indicator reflects how many compactions have fired
-                        # this session. Defensive try/except — if the config
-                        # global is somehow missing, don't break the LLM call.
+                        try:
+                            _post_compaction_tokens = count_message_tokens(
+                                _cfg().CONVERSATION_HISTORY
+                            )
+                        except Exception:
+                            _post_compaction_tokens = None
                         try:
                             _cfg().SESSION_COMPACTION_COUNT = (
                                 getattr(_cfg(), "SESSION_COMPACTION_COUNT", 0) + 1
                             )
+                            if isinstance(summary_content, str) and summary_content:
+                                _cfg().SESSION_SPEND_SUMMARY_TOKENS_TOTAL = (
+                                    int(getattr(_cfg(), "SESSION_SPEND_SUMMARY_TOKENS_TOTAL", 0) or 0)
+                                    + int(count_message_tokens({"role": "assistant", "content": summary_content}))
+                                )
+                            _last_ts = getattr(_cfg(), "SESSION_SPEND_LAST_COMPACTION_TS", None)
+                            _seconds_since_last = None
+                            if isinstance(_last_ts, (int, float)):
+                                _seconds_since_last = round(max(0.0, time.time() - float(_last_ts)), 3)
+                            _cfg().SESSION_SPEND_LAST_COMPACTION_TS = time.time()
+                            logger.info(
+                                "[SPEND][COMPACTION] event=success path=soft_threshold model=%s pre_tokens=%s post_tokens=%s summary_tokens=%s preserved_turns=%s fallback=%s seconds_since_last=%s",
+                                getattr(_cfg(), "MODEL", None),
+                                pre_compaction_tokens,
+                                _post_compaction_tokens,
+                                count_message_tokens({"role": "assistant", "content": summary_content}) if isinstance(summary_content, str) and summary_content else 0,
+                                _k,
+                                False,
+                                _seconds_since_last,
+                            )
                         except Exception:
-                            pass
+                            logger.exception("Failed to record [SPEND][COMPACTION] success telemetry")
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL
@@ -691,6 +714,7 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                         except Exception:
                             pass
 
+                        pre_compaction_tokens = estimated_tokens
                         reset_conversation_with_partial_summary(
                             summary_content or "",
                             build_system_prompt(
@@ -703,15 +727,38 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                             _cfg(),
                         )
                         summarization_attempted = True
-                        # Same counter bump as the soft-trigger path so the
-                        # H:(N) indicator counts every successful compaction
-                        # regardless of which threshold drove it.
+                        try:
+                            _post_compaction_tokens = count_message_tokens(
+                                _cfg().CONVERSATION_HISTORY
+                            )
+                        except Exception:
+                            _post_compaction_tokens = None
                         try:
                             _cfg().SESSION_COMPACTION_COUNT = (
                                 getattr(_cfg(), "SESSION_COMPACTION_COUNT", 0) + 1
                             )
+                            if isinstance(summary_content, str) and summary_content:
+                                _cfg().SESSION_SPEND_SUMMARY_TOKENS_TOTAL = (
+                                    int(getattr(_cfg(), "SESSION_SPEND_SUMMARY_TOKENS_TOTAL", 0) or 0)
+                                    + int(count_message_tokens({"role": "assistant", "content": summary_content}))
+                                )
+                            _last_ts = getattr(_cfg(), "SESSION_SPEND_LAST_COMPACTION_TS", None)
+                            _seconds_since_last = None
+                            if isinstance(_last_ts, (int, float)):
+                                _seconds_since_last = round(max(0.0, time.time() - float(_last_ts)), 3)
+                            _cfg().SESSION_SPEND_LAST_COMPACTION_TS = time.time()
+                            logger.info(
+                                "[SPEND][COMPACTION] event=success path=rate_limit model=%s pre_tokens=%s post_tokens=%s summary_tokens=%s preserved_turns=%s fallback=%s seconds_since_last=%s",
+                                getattr(_cfg(), "MODEL", None),
+                                pre_compaction_tokens,
+                                _post_compaction_tokens,
+                                count_message_tokens({"role": "assistant", "content": summary_content}) if isinstance(summary_content, str) and summary_content else 0,
+                                _k,
+                                False,
+                                _seconds_since_last,
+                            )
                         except Exception:
-                            pass
+                            logger.exception("Failed to record [SPEND][COMPACTION] success telemetry")
 
                     messages = prepare_messages_with_cache_control(
                         _cfg().CONVERSATION_HISTORY, _cfg().MODEL

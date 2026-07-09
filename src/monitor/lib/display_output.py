@@ -277,10 +277,44 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
         logger.error(f"Error in calculating fuel budget: {e}", exc_info=True)
 
     try:
+        # C: context gauge — see docs/cache/RESPONSES_CHAIN_BREAK.md.
+        # When a provider-billed input size is available (Responses API chain),
+        # report BILLED context (what the provider actually charges for) as:
+        #     C:<billed> (<% of 128k 2x cost cliff> <% of total context window>)
+        # The first percent tracks COST (proximity to the long-context 2x
+        # cliff); the second tracks CAPACITY (proximity to the model window).
+        # Each is colored independently by the SAME proximity thresholds
+        # (blue <70%, yellow >=70%, red >=100%). Sub-1% values render as 0.xx%,
+        # >=1% as a rounded whole percent. Visible history under-counts the
+        # hidden chain by ~5x, so the old window-based number read falsely
+        # reassuring ("98% free" while the billed chain was at 78% of the cliff).
+        # Non-billed callers (no chain yet, or a non-Responses model) keep the
+        # window-based behavior below.
+        _billed = getattr(config, "LAST_BILLED_INPUT_TOKENS", 0) or 0
+        _tier = getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 0) or 0
+        _win = getattr(config, "MODEL_INPUT_WINDOW", None)
+        if not isinstance(_win, int) or _win <= 0:
+            _win = getattr(config, "MODEL_CONTEXT_WINDOW", None)
+        _billed_cliff_ok = (
+            isinstance(_billed, int) and _billed > 0
+            and isinstance(_tier, int) and _tier > 0
+        )
+        if _billed_cliff_ok:
+            def _cliff_fmt(_p):
+                _col = red if _p >= 100 else (yellow if _p >= 70 else blue)
+                _s = f"{_p:.2f}%" if _p < 1.0 else f"{_p:.0f}%"
+                return f"{_col}{_s}{reset}"
+            _cliff_pct = 100.0 * _billed / _tier
+            _fields = [_cliff_fmt(_cliff_pct)]
+            if isinstance(_win, int) and _win > 0:
+                _fields.append(_cliff_fmt(100.0 * _billed / _win))
+            _num_color = red if _cliff_pct >= 100 else (yellow if _cliff_pct >= 70 else blue)
+            c_count = f"{_num_color}{_billed}{reset} (" + " ".join(_fields) + ")"
+
         if context_remaining is None:
             context_remaining = tokens_remaining
 
-        if context_remaining is not None:
+        if not _billed_cliff_ok and context_remaining is not None:
             if context_remaining < 0:
                 try:
                     logger.warning(f"Negative context_remaining detected in prompt: {context_remaining}. Total tokens: {config.TOTAL_TOKEN_COUNT}, Max allowed: {config.MAX_TOKEN_COUNT}")

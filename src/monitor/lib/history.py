@@ -468,6 +468,12 @@ def append_conversation_history(
                     config,
                 )
             except Exception as e:
+                try:
+                    config.SESSION_SPEND_COMPACTION_FALLBACKS = (
+                        int(getattr(config, "SESSION_SPEND_COMPACTION_FALLBACKS", 0) or 0) + 1
+                    )
+                except Exception:
+                    logger.debug("[SPEND][COMPACTION] Failed to increment fallback counter", exc_info=True)
                 logger.warning(
                     f"[SUMMARIZATION] Full-history summarization failed ({e}); "
                     f"falling back to truncated-history summarization."
@@ -489,11 +495,22 @@ def append_conversation_history(
                     )
                     summary_was_from_truncated_fallback = True
                 except Exception as e2:
+                    try:
+                        config.SESSION_SPEND_COMPACTION_FAILURES = (
+                            int(getattr(config, "SESSION_SPEND_COMPACTION_FAILURES", 0) or 0) + 1
+                        )
+                    except Exception:
+                        logger.debug("[SPEND][COMPACTION] Failed to increment failure counter", exc_info=True)
                     logger.error(
                         f"[SUMMARIZATION] Truncated-history fallback also failed ({e2}); "
                         f"conversation history will not be compacted this turn. "
                         f"Existing history is preserved.",
                         exc_info=True,
+                    )
+                    logger.info(
+                        "[SPEND][COMPACTION] event=skip reason=fallback_failed model=%s pre_tokens=%s",
+                        getattr(config, "MODEL", None),
+                        getattr(config, "TOTAL_TOKEN_COUNT", None),
                     )
                     response = None
 
@@ -507,10 +524,21 @@ def append_conversation_history(
                     )
 
             if not summary_content:
+                try:
+                    config.SESSION_SPEND_COMPACTION_SKIPS = (
+                        int(getattr(config, "SESSION_SPEND_COMPACTION_SKIPS", 0) or 0) + 1
+                    )
+                except Exception:
+                    logger.debug("[SPEND][COMPACTION] Failed to increment skip counter", exc_info=True)
                 logger.error(
                     "[SUMMARIZATION] No usable summary produced; "
                     "conversation history will not be compacted this turn. "
                     "Existing history is preserved."
+                )
+                logger.info(
+                    "[SPEND][COMPACTION] event=skip reason=no_summary model=%s pre_tokens=%s",
+                    getattr(config, "MODEL", None),
+                    getattr(config, "TOTAL_TOKEN_COUNT", None),
                 )
             else:
                 logger.info(

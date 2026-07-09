@@ -54,6 +54,7 @@ def summarize_conversation_for_platform(platform: str, model, conversation_histo
 
     try:
         logger.debug("Calling litellm completion with model: %s for platform: %s", model, platform)
+        llm_utils.log_helper_model_usage(f"summarizer:{platform}", model)
         response = llm_utils.call_litellm_completion(
             model,
             [

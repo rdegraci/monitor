@@ -232,6 +232,7 @@ class Consult:
             "Sending prompt to LLM %s with temperature: %s", self.model, temperature
         )
         try:
+            llm_utils.log_helper_model_usage("consult", self.model)
             response = llm_utils.call_litellm_completion(
                 self.model,
                 llm_messages,

@@ -365,6 +365,7 @@ def wiki_init_command(arg=None):
             f"{orientation}"
         )
         try:
+            llm_utils.log_helper_model_usage("wiki_init", config.MODEL)
             response = llm_utils.call_litellm_completion(
                 config.MODEL,
                 [
@@ -531,6 +532,7 @@ def _draft_wiki_fix_preview_for_finding(lint_result, finding):
         "Goal: replace the claim with a concise, neutral sentence that acknowledges the referenced path is stale or must be updated, without inventing a new path."
     )
     try:
+        llm_utils.log_helper_model_usage("wiki_fix", config.MODEL)
         response = llm_utils.call_litellm_completion(
             config.MODEL,
             [

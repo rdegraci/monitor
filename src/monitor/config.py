@@ -649,6 +649,31 @@ REASONING_EFFORT_RATE_MULTIPLIER = {
 # user can see how aggressively compaction is firing. Resets alongside the
 # cumulative cost counters on set_model() and :reset_history.
 SESSION_COMPACTION_COUNT = 0
+# Spend-telemetry counters for compaction behavior. These back the
+# end-of-session [SPEND][SUMMARY] log line and keep the first telemetry rollout
+# session-scoped, cheap, and grep-friendly in the existing log file.
+SESSION_SPEND_COMPACTION_SKIPS = 0
+SESSION_SPEND_COMPACTION_FAILURES = 0
+# Responses-chain cost-tier telemetry (TELEMETRY-ONLY rollout; see
+# RESPONSES_CHAIN_TIER_TOKENS and docs/cache/RESPONSES_CHAIN_BREAK.md).
+# LAST_BILLED_INPUT_TOKENS is the provider-billed input size of the most recent
+# Responses request — the only accurate measure of hidden-chain size, since
+# visible history under-counts it. SESSION_TIER_CROSSINGS / SESSION_RESPONSES_REQUESTS
+# let us compute the fraction of requests billed at the long-context 2x rate.
+LAST_BILLED_INPUT_TOKENS = 0
+SESSION_TIER_CROSSINGS = 0
+SESSION_RESPONSES_REQUESTS = 0
+SESSION_SPEND_COMPACTION_FALLBACKS = 0
+SESSION_SPEND_SUMMARY_TOKENS_TOTAL = 0
+SESSION_SPEND_LAST_COMPACTION_TS = None
+SESSION_SPEND_MEMORY_CALLS = 0
+SESSION_SPEND_MEMORY_SKIPS = 0
+SESSION_SPEND_MEMORY_STORES = 0
+SESSION_SPEND_MEMORY_NULLS = 0
+SESSION_SPEND_MEMORY_FAILURES = 0
+SESSION_SPEND_HELPER_CALLS = 0
+SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS = 0
+SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED = 0
 # Cumulative count of tool calls dispatched this session — incremented in
 # handle_tool_call for each tool call seen (whether it executed, errored,
 # or was rejected by the loop detector). Surfaced via :dump_metrics so
@@ -812,6 +837,22 @@ def effective_auto_compact_ratio(model=None):
 # Set to a very large number (e.g. 9999) to effectively disable compaction
 # while keeping the soft-threshold trigger as a logging signal.
 RECENT_TURNS_PRESERVED_ON_COMPACT = 6
+
+# Absolute provider-billed input-token boundary at which gpt-5.4 base crosses
+# into the long-context 2x pricing tier (input $2.50->$5.00/M, cached
+# $0.25->$0.50/M — the multiplier applies to ALL tokens in the call, including
+# the cached portion). This is an ABSOLUTE cost cliff, NOT a fraction of the
+# model window, so it is tracked in tokens rather than via a ratio (the
+# window-ratio compaction triggers watch VISIBLE history and never see the
+# hidden Responses chain, which is what actually gets billed).
+#
+# As of this rollout it is TELEMETRY-ONLY: the usage-capture path in
+# llm_responses_adapter records LAST_BILLED_INPUT_TOKENS and counts how often a
+# request is billed at/above this boundary (SESSION_TIER_CROSSINGS). No behavior
+# changes yet — the future chain-break gate (see docs/cache/RESPONSES_CHAIN_BREAK.md)
+# will use this boundary (with a margin) to clear RESPONSE_ID and reset billed
+# context back into the short-context tier.
+RESPONSES_CHAIN_TIER_TOKENS = 128000
 
 # How many recent "turns" (user-message-bounded segments) to keep tool
 # bodies verbatim. Tool results and bulky tool-call argument strings in
@@ -1535,6 +1576,27 @@ def configure_globals():
                 _k_raw, RECENT_TURNS_PRESERVED_ON_COMPACT,
             )
 
+    # Override RESPONSES_CHAIN_TIER_TOKENS from YAML if provided. Must be a
+    # positive integer (the absolute long-context cost cliff, in tokens).
+    # Invalid values fall back to the module-level default.
+    global RESPONSES_CHAIN_TIER_TOKENS
+    _tier_raw = yaml_config.get("RESPONSES_CHAIN_TIER_TOKENS")
+    if _tier_raw is not None:
+        try:
+            _tier_val = int(_tier_raw)
+            if _tier_val > 0:
+                RESPONSES_CHAIN_TIER_TOKENS = _tier_val
+            else:
+                logger.warning(
+                    "RESPONSES_CHAIN_TIER_TOKENS=%r must be > 0; keeping default %d",
+                    _tier_raw, RESPONSES_CHAIN_TIER_TOKENS,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "RESPONSES_CHAIN_TIER_TOKENS=%r is not an integer; keeping default %d",
+                _tier_raw, RESPONSES_CHAIN_TIER_TOKENS,
+            )
+
     # Override OLD_TOOL_BODY_TURNS_THRESHOLD from YAML. Same clamp shape as
     # the related thresholds — must be >= 1 (zero would demote everything,
     # including the in-flight turn). Invalid values fall back to the default.
@@ -2212,6 +2274,7 @@ def set_model(model_key: str) -> bool:
     global CONVERSATION_HISTORY, RESPONSE_ID, SESSION_TOTAL_TOKENS, SESSION_COST_USD
     global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
+    global LAST_BILLED_INPUT_TOKENS, SESSION_TIER_CROSSINGS, SESSION_RESPONSES_REQUESTS
     global CURRENT_TURN_IS_COLLATION, CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES
 
     # Validate MODEL_MAPPING
@@ -2300,6 +2363,9 @@ def set_model(model_key: str) -> bool:
     SESSION_COMPACTION_COUNT = 0
     SESSION_TOOL_CALL_COUNT = 0
     SESSION_LOOP_DETECTOR_TRIPS = 0
+    LAST_BILLED_INPUT_TOKENS = 0
+    SESSION_TIER_CROSSINGS = 0
+    SESSION_RESPONSES_REQUESTS = 0
     TURN_COSTS_USD = []
     TURN_ROUND_TRIPS = []
     TURN_CACHED_INPUT_TOKENS = []

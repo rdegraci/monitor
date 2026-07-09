@@ -1,5 +1,5 @@
 MODEL: openai/gpt-5.4-mini-2026-03-17  # Fully qualified primary LLM model (provider/model:version) used for standard responses. Set to OLLAMA to use the provider-scoped OLLAMA block below.
-MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens). Ignored when MODEL: OLLAMA.
+MODEL_CONTEXT_WINDOW: 1050000  # Maximum tokens the model can accept as input context (tokens). Ignored when MODEL: OLLAMA.
 MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens). Ignored when MODEL: OLLAMA.
 MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits. Ignored when MODEL: OLLAMA.
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
@@ -94,7 +94,7 @@ AUTO_COMPACT_THRESHOLD_RATIO: 0.50
 # swap is NOT compacted separately — the history is shared and sized for the
 # primary, so there is no per-swap ratio.
 AUTO_COMPACT_THRESHOLD_RATIO_BY_MODEL:
-  openai/gpt-5.4-2026-03-05: 0.12   # base: dodge the 128K long-context 2x tier
+  openai/gpt-5.4-2026-03-05: 0.10   # base: dodge the 128K long-context 2x tier
 
 # F: fuel-tank gauge — a per-session cumulative-token budget, shown before C:
 # in the status line as F: = budget - SESSION_TOTAL_TOKENS (the exact remaining
@@ -213,6 +213,17 @@ RECENT_TURNS_PRESERVED_ON_COMPACT: 12
 # Must be ≤ RECENT_TURNS_PRESERVED_ON_COMPACT. Setting equal disables the
 # demoted-but-preserved tier (bodies go straight from verbatim to gone).
 OLD_TOOL_BODY_TURNS_THRESHOLD: 8
+
+# Absolute provider-billed input-token boundary at which gpt-5.4 base crosses
+# into the long-context 2x pricing tier (input $2.50->$5.00/M, cached
+# $0.25->$0.50/M — the 2x applies to ALL tokens in the call, INCLUDING cached).
+# TELEMETRY-ONLY today: the Responses usage path records LAST_BILLED_INPUT_TOKENS
+# and counts how often a request is billed at/above this boundary
+# (grep "[CHAIN-TIER]" in the app log; SESSION_TIER_CROSSINGS / SESSION_RESPONSES_REQUESTS).
+# This is an ABSOLUTE cost cliff, independent of MODEL_CONTEXT_WINDOW — the
+# window-ratio compaction triggers watch VISIBLE history and never see the hidden
+# Responses chain that actually gets billed. See docs/cache/RESPONSES_CHAIN_BREAK.md.
+RESPONSES_CHAIN_TIER_TOKENS: 128000
 
 # Cap on output tokens for non-reasoning model calls. Sent as
 # max_completion_tokens so the provider truncates long completions instead

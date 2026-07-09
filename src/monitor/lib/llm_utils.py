@@ -529,6 +529,25 @@ def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, A
     return kwargs
 
 
+def log_helper_model_usage(feature: str, model: str | None) -> None:
+    """Record helper-model usage in the session log and counters.
+
+    Args:
+        feature: Name of the helper feature invoking the model.
+        model: Model name used for the helper request.
+
+    Returns:
+        None.
+    """
+    try:
+        config.SESSION_SPEND_HELPER_CALLS = int(
+            getattr(config, "SESSION_SPEND_HELPER_CALLS", 0) or 0
+        ) + 1
+    except Exception:
+        logger.debug("[SPEND][HELPER] Failed to bump helper-call counter", exc_info=True)
+    logger.info("[SPEND][HELPER] feature=%s model=%s", feature, model)
+
+
 def call_litellm_completion(
     model: str,
     messages: list,
