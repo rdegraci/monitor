@@ -18,6 +18,7 @@ from monitor.lib.commit_analysis import next_steps
 from monitor.lib.git import get_default_branch
 from monitor.lib.built_in_commands import clean_missing_values_command, normalize_data_command
 from monitor.lib.built_in_commands import (
+    break_chain_command,
     edit_function_keys_command,
     linkedin_summary_command,
     open_preferences_command,
@@ -434,6 +435,11 @@ def configure_built_ins() -> None:
                     "command": "reset_history",
                     "function": _make_callable(reset_conversation_history_command),
                     "description": "Reset the conversation history.",
+                },
+                {
+                    "command": "break_chain",
+                    "function": _make_callable(break_chain_command),
+                    "description": "Break the Responses chain (clear RESPONSE_ID) but KEEP conversation history, dropping billed context back under the 2x cost cliff.",
                 },
                 {
                     "command": "compact",

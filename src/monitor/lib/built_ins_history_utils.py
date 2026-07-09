@@ -137,6 +137,62 @@ def reset_conversation_history_command(
         logger.error("Failed to reset conversation history: %s", exc, exc_info=True)
 
 
+def break_chain_command(arg: Any | None = None, *, emit_notice: bool = True) -> None:
+    """Break the Responses API chain WITHOUT clearing conversation history.
+
+    Clears ``config.RESPONSE_ID`` so the next request starts a fresh Responses
+    chain and re-sends the (visible) conversation history inline, instead of
+    reusing the provider-retained ``previous_response_id`` chain. This drops the
+    billed input from the accumulated hidden chain back to the size of local
+    visible history — pulling you out of the long-context 2x pricing tier — while
+    preserving your working context (unlike :reset_history, which wipes it).
+
+    Use when the ``C:`` gauge shows you at/over the 128k cost cliff.
+    See docs/cache/RESPONSES_CHAIN_BREAK.md.
+
+    Args:
+        arg: Ignored dispatcher argument.
+        emit_notice: When True, print a user-facing confirmation.
+
+    Returns:
+        None.
+    """
+    del arg
+    try:
+        had_chain = bool(getattr(config, "RESPONSE_ID", None))
+        prior_billed = int(getattr(config, "LAST_BILLED_INPUT_TOKENS", 0) or 0)
+        tier = int(getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 128000) or 128000)
+        if hasattr(config, "RESPONSE_ID"):
+            config.RESPONSE_ID = None
+        if emit_notice:
+            if not had_chain:
+                print(
+                    "No active Responses chain to break; the next request already "
+                    "sends full history inline. Conversation left untouched."
+                )
+            else:
+                msg = (
+                    "Responses chain broken (RESPONSE_ID cleared). Conversation "
+                    "history preserved — the next request re-sends visible history "
+                    "inline and starts a fresh chain"
+                )
+                if prior_billed > 0:
+                    msg += f"; last billed input was {prior_billed} tokens"
+                    if tier > 0 and prior_billed >= tier:
+                        msg += (
+                            f" (over the {tier}-token 2x cliff — this drops you "
+                            "back to the short-context tier)"
+                        )
+                print(msg + ".")
+        logger.info(
+            "[CHAIN-BREAK] manual :break_chain — RESPONSE_ID cleared "
+            "(had_chain=%s, prior_billed=%s, tier=%s); conversation history preserved.",
+            had_chain, prior_billed, tier,
+        )
+    except Exception as exc:
+        logger.error("Failed to break Responses chain: %s", exc, exc_info=True)
+
+
 def cost_debug_command(arg: str | None = None) -> None:
     """Dump cost-tracking state for diagnosing the ``U:`` indicator.
 

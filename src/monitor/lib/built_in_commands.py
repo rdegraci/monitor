@@ -37,6 +37,7 @@ from monitor.lib.session_artifacts import get_sessions_root, list_most_recent_se
 from monitor.lib.built_ins_history_utils import (
     _format_elapsed,
     cost_debug_command,
+    break_chain_command,
     dump_history_command,
     dump_metrics_command,
     fuel_debug_command,
