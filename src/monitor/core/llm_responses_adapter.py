@@ -1703,6 +1703,41 @@ def call_responses_api(
                     if follow_tokens is None:
                         follow_tokens = 0
 
+                    # [CHAIN-TIER telemetry] Tool-follow-up requests are billed
+                    # too — and carry the DEEPEST chain (most likely over the 2x
+                    # cliff) — but flow through this separate path, not the
+                    # initial usage site above. Count them here so
+                    # SESSION_RESPONSES_REQUESTS / SESSION_TIER_CROSSINGS reflect
+                    # ALL billed requests, not just the first of each turn (which
+                    # otherwise makes over_tier_pct a severe undercount on
+                    # tool-heavy turns). See docs/cache/RESPONSES_CHAIN_BREAK.md.
+                    try:
+                        _fu = getattr(followup_response, "usage", None)
+                        if _fu is not None:
+                            if isinstance(_fu, dict):
+                                _fb = _fu.get("input_tokens") or _fu.get("prompt_tokens")
+                            else:
+                                _fb = getattr(_fu, "input_tokens", None) or getattr(_fu, "prompt_tokens", None)
+                            if isinstance(_fb, int) and _fb > 0:
+                                config.LAST_BILLED_INPUT_TOKENS = _fb
+                                config.SESSION_RESPONSES_REQUESTS = (
+                                    getattr(config, "SESSION_RESPONSES_REQUESTS", 0) + 1
+                                )
+                                _fu_tier = getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 128000)
+                                if isinstance(_fu_tier, int) and _fu_tier > 0 and _fb >= _fu_tier:
+                                    config.SESSION_TIER_CROSSINGS = (
+                                        getattr(config, "SESSION_TIER_CROSSINGS", 0) + 1
+                                    )
+                                    logger.info(
+                                        "[CHAIN-TIER] billed input=%d >= tier=%d (follow-up); request "
+                                        "billed at long-context 2x rate (session crossings=%d/%d)",
+                                        _fb, _fu_tier,
+                                        config.SESSION_TIER_CROSSINGS,
+                                        config.SESSION_RESPONSES_REQUESTS,
+                                    )
+                    except Exception:
+                        logger.debug("[CHAIN-TIER] failed to record follow-up billed-input telemetry", exc_info=True)
+
                     # Update token usage and rate limiter for follow-up
                     try:
                         update_token_usage(
@@ -2378,6 +2413,38 @@ def call_responses_api(
 
                         if summary_tokens is None:
                             summary_tokens = 0
+
+                        # [CHAIN-TIER telemetry] The summarization/rebase
+                        # follow-up is also a billed Responses request against
+                        # the chain. Count it here too so over_tier_pct covers
+                        # ALL billed requests (initial + tool follow-up + this).
+                        # See docs/cache/RESPONSES_CHAIN_BREAK.md.
+                        try:
+                            _su = getattr(summary_response, "usage", None)
+                            if _su is not None:
+                                if isinstance(_su, dict):
+                                    _sb = _su.get("input_tokens") or _su.get("prompt_tokens")
+                                else:
+                                    _sb = getattr(_su, "input_tokens", None) or getattr(_su, "prompt_tokens", None)
+                                if isinstance(_sb, int) and _sb > 0:
+                                    config.LAST_BILLED_INPUT_TOKENS = _sb
+                                    config.SESSION_RESPONSES_REQUESTS = (
+                                        getattr(config, "SESSION_RESPONSES_REQUESTS", 0) + 1
+                                    )
+                                    _su_tier = getattr(config, "RESPONSES_CHAIN_TIER_TOKENS", 128000)
+                                    if isinstance(_su_tier, int) and _su_tier > 0 and _sb >= _su_tier:
+                                        config.SESSION_TIER_CROSSINGS = (
+                                            getattr(config, "SESSION_TIER_CROSSINGS", 0) + 1
+                                        )
+                                        logger.info(
+                                            "[CHAIN-TIER] billed input=%d >= tier=%d (summarization); request "
+                                            "billed at long-context 2x rate (session crossings=%d/%d)",
+                                            _sb, _su_tier,
+                                            config.SESSION_TIER_CROSSINGS,
+                                            config.SESSION_RESPONSES_REQUESTS,
+                                        )
+                        except Exception:
+                            logger.debug("[CHAIN-TIER] failed to record summarization billed-input telemetry", exc_info=True)
 
                         # Update token usage and rate limiter for summary
                         try:
