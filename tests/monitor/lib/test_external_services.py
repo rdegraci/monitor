@@ -144,11 +144,15 @@ def test_joke_for_twitch_generates_and_saves(tmp_path, monkeypatch, capsys):
         jokes_file=str(jokes_path),
     )
 
-    # Mock LLM completion to return a new joke
+    # Mock LLM completion to return a new joke. joke_for_twitch now calls
+    # llm_utils.call_litellm_completion(model, messages, ...) (positional args),
+    # not litellm.completion directly, so patch that path.
     mock_completion = SimpleNamespace(
         choices=[SimpleNamespace(message={"content": "brand new joke"})]
     )
-    monkeypatch.setattr(es.litellm, "completion", lambda **kwargs: mock_completion)
+    monkeypatch.setattr(
+        es.llm_utils, "call_litellm_completion", lambda *args, **kwargs: mock_completion
+    )
 
     sent = {"message": None}
     monkeypatch.setattr(es, "send_twitch_message_command", lambda msg: sent.update({"message": msg}))

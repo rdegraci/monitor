@@ -204,6 +204,9 @@ def ripgrep_search_tool(
         use_default_excludes=use_default_excludes,
         regex=regex,
     )
+    # Colors print to the terminal for the user; the escape codes are stripped
+    # centrally in the tool-result builders (create_tool_result_message /
+    # build_function_call_output_item) before the output reaches the model.
     print(result)
     return result
 

@@ -2,11 +2,26 @@
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from monitor.lib.llm_model_utils import strip_openai_prefix
 
 logger = logging.getLogger(__name__)
+
+# ANSI escape sequences (SGR colors from e.g. `rg --pretty`, plus CSI/OSC forms).
+# Terminal colors are for the USER; the LLM gains nothing from the escape codes
+# but pays tokens for them (and they bloat the retained Responses chain + pollute
+# logs). Stripped centrally at the two tool-result builders below so EVERY tool's
+# output reaches the model clean while terminal prints stay colored.
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+
+
+def strip_ansi(text):
+    """Remove ANSI escape sequences from ``text`` (no-op for non-strings)."""
+    if not isinstance(text, str) or "\x1b" not in text:
+        return text
+    return _ANSI_ESCAPE_RE.sub("", text)
 
 
 def serialize_tool_output(result_or_error) -> str:
@@ -89,6 +104,9 @@ def build_function_call_output_item(
         if serialized_output is not None
         else serialize_tool_output(result_or_error)
     )
+    # Strip terminal color codes before the output reaches the model (Responses
+    # path). See strip_ansi above.
+    output_str = strip_ansi(output_str)
     item: Dict[str, Any] = {
         "call_id": call_id,
         "id": call_id,

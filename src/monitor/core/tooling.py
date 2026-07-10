@@ -16,6 +16,7 @@ from monitor.lib.token_management import (
     count_message_tokens,
     update_token_usage,
 )  # All token counting/estimation now centralized here
+from monitor.lib.llm_output_utils import strip_ansi
 
 LARGE_FILE_TOKEN_THRESHOLD = 1000
 RECURSIVE_DIR_TOKEN_ESTIMATE = 500
@@ -755,6 +756,11 @@ def create_tool_result_message(result, error, tool_call_id):
         except Exception as e:
             logger.warning(f"Failed to JSON-encode tool result for tool_call_id={tool_call_id}; falling back to str(): {str(e)}")
             content = str(content)
+
+    # Strip terminal color codes before the result reaches the model (Chat path).
+    # This is the single normalization point for Chat tool results; the Responses
+    # path is handled in build_function_call_output_item. See strip_ansi.
+    content = strip_ansi(content)
 
     # Validate tool_call_id before returning the message
     try:

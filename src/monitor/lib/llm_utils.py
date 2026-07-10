@@ -425,7 +425,11 @@ def process_response_by_finish_reason(response):
             except Exception:
                 logger.exception("Failed writing assistant content to conversation log file")
 
-        if assistant_content is None or assistant_content == {}:
+        # _extract_assistant_text normalizes a None content to "" (empty string),
+        # so check for falsy content (None, "", {}) — not just None/{} — otherwise
+        # an empty assistant response returns "" to the user instead of the
+        # intended acknowledgement.
+        if not assistant_content or assistant_content == {}:
             logger.info("Stop response content was empty; returning default acknowledgement")
             return "Ok."
         return assistant_content
