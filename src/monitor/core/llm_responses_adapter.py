@@ -1197,6 +1197,18 @@ def call_responses_api(
                             config.SESSION_TIER_CROSSINGS,
                             config.SESSION_RESPONSES_REQUESTS,
                         )
+                    # Consecutive-over-cliff turn counter. Updated at the INITIAL
+                    # request only (this site), so a single tool-heavy turn's
+                    # follow-ups don't inflate it — it tracks turns, not requests.
+                    # Increments while over the cliff, resets the moment a turn
+                    # comes in under it. Drives the C: gauge's "(N)" marker.
+                    if isinstance(_tier, int) and _tier > 0:
+                        if billed_input >= _tier:
+                            config.SESSION_TURNS_OVER_CLIFF = (
+                                getattr(config, "SESSION_TURNS_OVER_CLIFF", 0) + 1
+                            )
+                        else:
+                            config.SESSION_TURNS_OVER_CLIFF = 0
             except Exception:
                 pass
         except Exception:

@@ -309,7 +309,15 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
             if isinstance(_win, int) and _win > 0:
                 _fields.append(_cliff_fmt(100.0 * _billed / _win))
             _num_color = red if _cliff_pct >= 100 else (yellow if _cliff_pct >= 70 else blue)
-            c_count = f"{_num_color}{_billed}{reset} (" + " ".join(_fields) + ")"
+            # Consecutive-over-cliff turn marker "(N)" — shown only when > 0
+            # (i.e. currently over the cliff). Escalates yellow (1-2) -> red (3+):
+            # sustained red = "you've been paying 2x for N turns, break now".
+            _turns_over = getattr(config, "SESSION_TURNS_OVER_CLIFF", 0) or 0
+            _turns_str = ""
+            if isinstance(_turns_over, int) and _turns_over > 0:
+                _turns_color = red if _turns_over >= 3 else yellow
+                _turns_str = f" {_turns_color}({_turns_over}){reset}"
+            c_count = f"{_num_color}{_billed}{reset}{_turns_str} (" + " ".join(_fields) + ")"
 
         if context_remaining is None:
             context_remaining = tokens_remaining

@@ -663,6 +663,12 @@ SESSION_SPEND_COMPACTION_FAILURES = 0
 LAST_BILLED_INPUT_TOKENS = 0
 SESSION_TIER_CROSSINGS = 0
 SESSION_RESPONSES_REQUESTS = 0
+# Consecutive turns whose (initial) request was billed at/above the 2x cliff.
+# Increments each over-cliff turn, resets to 0 the moment a turn comes in under
+# the cliff or the chain is shed (:break_chain / :reset_history). Surfaced in the
+# C: gauge as a "(N)" marker so "how long have I been over the cliff right now"
+# is visible for the break decision.
+SESSION_TURNS_OVER_CLIFF = 0
 SESSION_SPEND_COMPACTION_FALLBACKS = 0
 SESSION_SPEND_SUMMARY_TOKENS_TOTAL = 0
 SESSION_SPEND_LAST_COMPACTION_TS = None
@@ -2275,6 +2281,7 @@ def set_model(model_key: str) -> bool:
     global SESSION_COMPACTION_COUNT, TURN_COSTS_USD, CURRENT_TURN_REASONING_OVERRIDE
     global SESSION_TOOL_CALL_COUNT, SESSION_LOOP_DETECTOR_TRIPS, TURN_ROUND_TRIPS
     global LAST_BILLED_INPUT_TOKENS, SESSION_TIER_CROSSINGS, SESSION_RESPONSES_REQUESTS
+    global SESSION_TURNS_OVER_CLIFF
     global CURRENT_TURN_IS_COLLATION, CURRENT_TURN_TOOL_GROUPS, TOOL_PROFILE_GROUP_LEASES
 
     # Validate MODEL_MAPPING
@@ -2365,6 +2372,7 @@ def set_model(model_key: str) -> bool:
     SESSION_LOOP_DETECTOR_TRIPS = 0
     SESSION_TIER_CROSSINGS = 0
     SESSION_RESPONSES_REQUESTS = 0
+    SESSION_TURNS_OVER_CLIFF = 0
     # Seed LAST_BILLED_INPUT_TOKENS from current visible history (the approximate
     # billed size of the next request on the new model) rather than 0, so the C:
     # gauge counts up from a small value instead of dropping into the backwards

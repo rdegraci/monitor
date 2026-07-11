@@ -126,6 +126,7 @@ def reset_conversation_history_command(
         # fallback, which reads backwards (e.g. 99%). Mirrors :break_chain.
         config.SESSION_TIER_CROSSINGS = 0
         config.SESSION_RESPONSES_REQUESTS = 0
+        config.SESSION_TURNS_OVER_CLIFF = 0
         try:
             from monitor.lib.token_management import count_message_tokens
             config.LAST_BILLED_INPUT_TOKENS = int(
@@ -189,6 +190,10 @@ def break_chain_command(arg: Any | None = None, *, emit_notice: bool = True) -> 
         # no-op case doesn't clobber a genuine last-billed value.
         new_billed = None
         if had_chain:
+            # Shedding the chain drops you back under the cliff — clear the
+            # consecutive-over-cliff turn counter so the C: gauge's (N) marker
+            # resets immediately.
+            config.SESSION_TURNS_OVER_CLIFF = 0
             try:
                 from monitor.lib.token_management import count_message_tokens
                 new_billed = int(
