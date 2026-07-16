@@ -101,7 +101,15 @@ from monitor.lib.summarizers import summarize_conversation_for_linkedin
 from monitor.lib.summarizers import summarize_conversation_for_twitch
 from monitor.lib.system_prompt import build_system_prompt, clear_project_instructions_cache
 from monitor.lib.tool_loading import list_tools
-from monitor.lib.tool_profiles import profile_names, profile_phrase_snapshot, tool_profile_snapshot
+from monitor.lib.tool_profiles import (
+    DEFAULT_TOOL_PROFILE,
+    PROFILE_SUMMARIES,
+    NON_CODING_GROUPS,
+    profile_names,
+    profile_phrase_snapshot,
+    profile_schema_token_report,
+    tool_profile_snapshot,
+)
 
 reasoning_command.__globals__["config"] = config
 llm_command.__globals__["config"] = config
@@ -150,20 +158,29 @@ def print_tools_command(arg=None):
 
     if arg_text in {"help", "?", "-h", "--help"}:
         print("Show or set the static tool profile used to advertise tools to the model.")
-        print("Usage: : (or /) tools [show|list|catalog|minimal|coding|review|full]")
+        print(
+            f"Default profile is '{DEFAULT_TOOL_PROFILE}' — read/search/git, task, edit, "
+            "verify, and memory tools for normal repository work."
+        )
+        print("Usage: : (or /) tools [show|list|catalog|tokens|minimal|coding|review|full]")
         print("Examples:")
         print("  :tools")
         print("  :tools list")
         print("  :tools coding")
         print("  :tools catalog")
+        print("  :tools tokens")
         return
 
     if arg_text == "list":
         print("Available tool profiles:")
-        print("  minimal  read/search/git/task core")
-        print("  coding   minimal + edit/write + verify")
-        print("  review   minimal + verify (no write tools)")
-        print("  full     all available tools")
+        for name in profile_names():
+            summary = PROFILE_SUMMARIES.get(name, "")
+            suffix = " (default)" if name == DEFAULT_TOOL_PROFILE else ""
+            print(f"  {name}{suffix}  {summary}")
+        print("")
+        print("Groups excluded from the default coding profile until widened:")
+        print(f"  {', '.join(NON_CODING_GROUPS)}")
+        print("Use ':tools phrases' to inspect auto-widen triggers.")
         return
 
     if arg_text == "phrases":
@@ -201,6 +218,17 @@ def print_tools_command(arg=None):
         if isinstance(name, str) and name:
             tool_names.append(name)
 
+    if arg_text == "tokens":
+        report = profile_schema_token_report(tools)
+        print("Advertised tool-schema size by profile:")
+        for profile_name in profile_names():
+            entry = report.get(profile_name, {})
+            print(
+                f"  {profile_name}: tools={entry.get('tool_count', 0)} "
+                f"schema_tokens={entry.get('schema_tokens', 0)}"
+            )
+        return
+
     if arg_text in {"catalog", "show_all", "names"}:
         print(f"Tool profile: {snapshot['base_profile']}")
         print(f"Current turn groups: {', '.join(snapshot['current_turn_groups']) or '(none)'}")
@@ -214,6 +242,11 @@ def print_tools_command(arg=None):
     active_count = len(tool_names)
     loaded_count = len(tools_info) if isinstance(tools_info, dict) else 0
     print(f"Tool profile: {snapshot['base_profile']}")
+    if snapshot["base_profile"] == DEFAULT_TOOL_PROFILE:
+        print(f"Profile mode: {PROFILE_SUMMARIES.get(DEFAULT_TOOL_PROFILE, '')}")
+        excluded = [group for group in NON_CODING_GROUPS if group not in snapshot["base_groups"]]
+        if excluded:
+            print(f"Excluded until widened: {', '.join(excluded)}")
     print(f"Base groups: {', '.join(snapshot['base_groups'])}")
     print(
         f"Current turn groups: "
@@ -222,7 +255,7 @@ def print_tools_command(arg=None):
     print(f"Leased groups: {snapshot['leased_groups'] or '(none)'}")
     print(f"Advertised tool count: {active_count}")
     print(f"Loaded tool count: {loaded_count}")
-    print("Use ':tools list' for profiles or ':tools catalog' to print current advertised tool names.")
+    print("Use ':tools list' for profiles, ':tools catalog' for names, ':tools tokens' for schema size.")
 
 
 def _strip_markdown_fences(text):

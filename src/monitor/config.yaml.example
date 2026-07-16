@@ -459,18 +459,10 @@ RESPONSES_API: True
 #          reviews through but increases prompt size proportionally.
 TOOL_OUTPUT_TOKEN_LIMIT: 16384
 
-# Static tool-profile selection. This controls which tool schemas are ADVERTISED
-# to the model by default; it does NOT remove the underlying Python tool
-# implementations. Change at runtime with `:tools <profile>`.
-#
-# Valid values:
-#   minimal  Read/search/git/task core only
-#   coding   minimal + edit/write + verify tools
-#   review   minimal + verify tools (no write tools)
-#   full     All available tools
-# Default in code is `coding`, so these are commented out unless you want to
-# override that default explicitly.
-# TOOL_PROFILE: coding
+# Default day-to-day profile: read/search/git, task, edit, verify, and memory.
+# Network, db, and agent groups stay out until you widen explicitly
+# (``:tools full``) or intent-based auto-widen leases them in.
+TOOL_PROFILE: coding
 #
 # When enabled, EXPLICIT user intent can temporarily widen the advertised tool
 # set beyond TOOL_PROFILE for a short lease. Examples: "search the web",

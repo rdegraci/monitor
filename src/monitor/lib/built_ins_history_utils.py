@@ -674,6 +674,12 @@ def dump_metrics_command(arg: str | None = None) -> None:
         "conversation_length": len(history),
         "user_message_count": user_msg_count,
     }
+    try:
+        from monitor.lib.tool_profiles import tool_profile_snapshot
+
+        payload["tool_profile"] = tool_profile_snapshot()
+    except Exception:
+        logger.debug("Failed to attach tool_profile snapshot to dump_metrics", exc_info=True)
 
     try:
         with open(expanded, "w", encoding="utf-8") as file_handle:

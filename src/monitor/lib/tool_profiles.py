@@ -1,7 +1,16 @@
-"""Static tool-profile and temporary auto-widening helpers."""
+"""Static tool-profile and temporary auto-widening helpers.
+
+The default ``coding`` profile is the day-to-day repository workflow:
+read/search/git, task planning, deterministic edits (plus ``modify_source_code``
+as a compatibility fallback), verification, and session memory. Network,
+database, and agent tool groups stay out of the advertised catalog until the
+user widens the profile explicitly (``:tools full``) or intent-based auto-widen
+leases them in.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Iterable
@@ -9,6 +18,16 @@ from typing import Iterable
 from monitor import config
 
 logger = logging.getLogger(__name__)
+
+# User-facing default for normal repository work (see PROFILE_GROUPS below).
+DEFAULT_TOOL_PROFILE = "coding"
+
+PROFILE_SUMMARIES = {
+    "minimal": "Read/search/git and task tools only (no edit or verify).",
+    "coding": "Default repo workflow: read/search/git, task, edit, verify, memory.",
+    "review": "Read/search/git, task, and verify (no write tools).",
+    "full": "All tool groups including network, db, and agent.",
+}
 
 CORE_READ_GROUP = "core_read"
 TASK_GROUP = "task"
@@ -18,6 +37,14 @@ NETWORK_GROUP = "network"
 DB_GROUP = "db"
 MEMORY_GROUP = "memory"
 AGENT_GROUP = "agent"
+
+# Groups withheld from the default coding profile; available via ``full`` or
+# temporary auto-widen when the user asks for web/db/agent work.
+NON_CODING_GROUPS = (
+    NETWORK_GROUP,
+    DB_GROUP,
+    AGENT_GROUP,
+)
 
 TOOL_GROUPS = {
     CORE_READ_GROUP: {
@@ -103,10 +130,33 @@ TOOL_NAME_TO_GROUP = {
 
 PROFILE_GROUPS = {
     "minimal": (CORE_READ_GROUP, TASK_GROUP),
-    "coding": (CORE_READ_GROUP, TASK_GROUP, EDIT_GROUP, VERIFY_GROUP),
+    # Default day-to-day repo loop: read/search/git → task → edit → verify,
+    # plus session memory. Network, db, and agent stay out unless widened.
+    "coding": (
+        CORE_READ_GROUP,
+        TASK_GROUP,
+        EDIT_GROUP,
+        VERIFY_GROUP,
+        MEMORY_GROUP,
+    ),
     "review": (CORE_READ_GROUP, TASK_GROUP, VERIFY_GROUP),
     "full": tuple(TOOL_GROUPS.keys()),
 }
+
+# Minimal tool-name sets used by tests and diagnostics for the coding loop.
+CODING_LOOP_READ_TOOLS = frozenset(
+    {"cat_file", "perform_git_status", "ripgrep_search_tool", "find_files"}
+)
+CODING_LOOP_EDIT_TOOLS = frozenset(
+    {
+        "text_file_str_replace_in_file",
+        "text_file_create",
+        "text_file_insert_text_at_line",
+        "bulk_replace_in_files",
+        "modify_source_code",
+    }
+)
+CODING_LOOP_VERIFY_TOOLS = frozenset({"run_python_tests", "type_check_python"})
 
 _PROFILE_INTENT_PATTERNS = {
     VERIFY_GROUP: (
@@ -206,7 +256,7 @@ def normalize_profile_name(profile: str | None) -> str:
         cleaned = profile.strip().lower()
         if cleaned in PROFILE_GROUPS:
             return cleaned
-    return "coding"
+    return DEFAULT_TOOL_PROFILE
 
 
 def descriptor_name(descriptor) -> str | None:
@@ -506,3 +556,91 @@ def profile_phrase_snapshot() -> dict:
         "memory": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[MEMORY_GROUP]],
         "agent": [pattern.pattern for pattern in _EXPLICIT_GROUP_PATTERNS[AGENT_GROUP]],
     }
+
+
+def all_grouped_tool_names() -> set[str]:
+    """Return every tool name assigned to a profile group."""
+    return set(TOOL_NAME_TO_GROUP.keys())
+
+
+def non_coding_tool_names() -> set[str]:
+    """Return tool names in groups excluded from the default coding profile."""
+    names: set[str] = set()
+    for group in NON_CODING_GROUPS:
+        names.update(TOOL_GROUPS.get(group, ()))
+    return names
+
+
+def described_tool_names(descriptors) -> set[str]:
+    """Collect logical tool names from a descriptor catalog."""
+    if not isinstance(descriptors, list):
+        return set()
+    names: set[str] = set()
+    for descriptor in descriptors:
+        name = descriptor_name(descriptor)
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def ungrouped_described_tool_names(descriptors) -> set[str]:
+    """Return described tools that are not mapped to any profile group."""
+    return {
+        name
+        for name in described_tool_names(descriptors)
+        if name not in TOOL_NAME_TO_GROUP
+    }
+
+
+def excluded_groups_for_profile(profile: str | None = None) -> tuple[str, ...]:
+    """Return tool groups not included in the given static profile."""
+    active = set(profile_groups(profile))
+    return tuple(group for group in TOOL_GROUPS if group not in active)
+
+
+def estimate_descriptor_schema_tokens(descriptors) -> int:
+    """Estimate serialized tool-schema tokens for a descriptor list."""
+    if not isinstance(descriptors, list) or not descriptors:
+        return 0
+    try:
+        from monitor.lib.token_management import count_message_tokens
+
+        serialized = json.dumps(descriptors, sort_keys=True, default=str)
+        return int(count_message_tokens(serialized) or 0)
+    except Exception:
+        logger.debug("Failed to estimate tool-schema tokens", exc_info=True)
+        return 0
+
+
+def profile_schema_token_report(
+    descriptors,
+    *,
+    profiles: Iterable[str] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Compare advertised tool counts and schema tokens across profiles."""
+    resolved_profiles = list(profiles) if profiles is not None else profile_names()
+    report: dict[str, dict[str, int]] = {}
+    for profile in resolved_profiles:
+        normalized = normalize_profile_name(profile)
+        if normalized == "full":
+            filtered = list(descriptors) if isinstance(descriptors, list) else []
+        else:
+            filtered = filter_descriptors_by_names(
+                descriptors,
+                allowed_tool_names_for_profile(normalized),
+            )
+        report[normalized] = {
+            "tool_count": len(filtered),
+            "schema_tokens": estimate_descriptor_schema_tokens(filtered),
+        }
+    return report
+
+
+def coding_profile_supports_repo_loop() -> bool:
+    """Return True when the coding profile includes read, edit, and verify tools."""
+    allowed = allowed_tool_names_for_profile(DEFAULT_TOOL_PROFILE)
+    return (
+        bool(allowed & CODING_LOOP_READ_TOOLS)
+        and bool(allowed & CODING_LOOP_EDIT_TOOLS)
+        and bool(allowed & CODING_LOOP_VERIFY_TOOLS)
+    )

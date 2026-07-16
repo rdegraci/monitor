@@ -163,6 +163,33 @@ Use the exact names shown by the relevant built-in listings and prompts.
 Depending on front-end/input mode, built-ins are typically invoked with `:` or
 `/`, for example `:tasks` or `/tasks`.
 
+### Tool profiles (coding-first default)
+
+Monitor advertises a subset of its tool schemas to the model based on the active
+**tool profile**. The default is `coding`, which covers the normal repository
+loop: read/search/git, task planning, deterministic edits (plus
+`modify_source_code` as a fallback), verification, and session memory.
+
+Network, database, and agent tools are withheld from the default profile to save
+schema tokens. They become available when you:
+
+- switch profiles explicitly, e.g. `:tools full`
+- ask for them in natural language (auto-widen leases the relevant group for a
+  few turns)
+
+Useful commands:
+
+```text
+:tools
+:tools list
+:tools catalog
+:tools tokens
+:tools full
+```
+
+`:tools tokens` compares advertised schema size across profiles. Session metrics
+from `:dump_metrics` also include the active tool-profile snapshot.
+
 ### Show visible macros
 
 ```text

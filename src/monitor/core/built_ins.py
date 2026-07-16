@@ -394,7 +394,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "tools",
                     "function": _make_callable(print_tools_command),
-                    "description": "Show or set the tool profile (:tools, :tools list, :tools coding, :tools catalog).",
+                    "description": "Show or set the tool profile (:tools, :tools list, :tools coding, :tools catalog, :tools tokens).",
                 },
                 {
                     "command": "sessions",
