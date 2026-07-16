@@ -344,7 +344,77 @@ def parse_function_args(function_args):
         raise
 
 
+def _tool_telemetry_fields(tool_call, result, error):
+    """Return payload-free fields for one concise tool-call telemetry line."""
+    function_block = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+    name = function_block.get("name", "(invalid)") if isinstance(function_block, dict) else "(invalid)"
+    args_raw = function_block.get("arguments", {}) if isinstance(function_block, dict) else {}
+    try:
+        args = parse_function_args(args_raw)
+    except Exception:
+        args = {}
+    path = "-"
+    if isinstance(args, dict):
+        for key in ("path", "file_path", "target_file", "filename", "directory"):
+            value = args.get(key)
+            if isinstance(value, (str, os.PathLike)) and str(value):
+                path = str(value)[:240]
+                break
+
+    output_tokens = 0
+    if error is None and result is not None:
+        try:
+            serialized = result if isinstance(result, str) else json.dumps(result, default=str)
+            output_tokens = int(count_message_tokens(serialized) or 0)
+        except Exception:
+            logger.debug("Failed to count tool output for telemetry", exc_info=True)
+
+    token_limit = getattr(config, "TOOL_OUTPUT_TOKEN_LIMIT", 0)
+    truncated = bool(
+        error is None
+        and getattr(config, "RESPONSES_API", False)
+        and isinstance(token_limit, int)
+        and token_limit > 0
+        and output_tokens > token_limit
+    )
+    return str(name), path, output_tokens, truncated
+
+
+def _emit_tool_telemetry(tool_call, result, error, status=None):
+    """Record the tool name for the turn and emit one concise telemetry line."""
+    try:
+        name, path, output_tokens, truncated = _tool_telemetry_fields(
+            tool_call, result, error
+        )
+        turn_tools = getattr(config, "CURRENT_TURN_TOOL_CALLS", None)
+        if not isinstance(turn_tools, list):
+            turn_tools = []
+        turn_tools.append(name)
+        config.CURRENT_TURN_TOOL_CALLS = turn_tools
+        logger.info(
+            "[SPEND][TOOL] tool=%s path=%r out_tokens=%s truncated=%s status=%s",
+            name,
+            path,
+            output_tokens,
+            str(truncated).lower(),
+            status or ("error" if error else "ok"),
+        )
+    except Exception:
+        logger.debug("Failed to emit [SPEND][TOOL] telemetry", exc_info=True)
+
+
 def execute_tool_call(tool_call):
+    """Execute one tool and emit one short, payload-free telemetry record."""
+    result = None
+    error = None
+    try:
+        result, error = _execute_tool_call(tool_call)
+        return result, error
+    finally:
+        _emit_tool_telemetry(tool_call, result, error)
+
+
+def _execute_tool_call(tool_call):
     """Execute a single tool call and return the result
 
     All token counting and estimation is performed using centralized helpers in lib.token_management.
@@ -557,6 +627,7 @@ def handle_tool_call(response, _depth=0):
                 f"{max_reps} times in a row. The result isn't going to change. "
                 "Change your approach, try different arguments, or ask the user for guidance."
             )
+            _emit_tool_telemetry(tool_call, result, error, status="loop_rejected")
         else:
             try:
                 result, error = execute_tool_call(tool_call)

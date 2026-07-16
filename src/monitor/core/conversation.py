@@ -315,6 +315,68 @@ def update_conversation_logs(user_input, conversation_log_file=config.CONVERSATI
         config.CONVERSATION_LOG_FILE.write(USER_LOG_FORMAT.format(input=user_input))
 
 
+def _turn_telemetry_baseline():
+    """Capture session counters needed to describe one completed user turn."""
+    return {
+        "turn_index": len(getattr(config, "TURN_COSTS_USD", []) or []),
+        "compactions": int(getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0),
+        "tier_crossings": int(getattr(config, "SESSION_TIER_CROSSINGS", 0) or 0),
+    }
+
+
+def _turn_ledger_value(name, index, default):
+    """Read one synchronized turn-ledger value without risking the request path."""
+    values = getattr(config, name, None)
+    if isinstance(values, list) and 0 <= index < len(values):
+        value = values[index]
+        if isinstance(value, (int, float)):
+            return value
+    return default
+
+
+def _emit_turn_telemetry(baseline, status):
+    """Emit one compact, payload-free spend line at the end of a user turn."""
+    try:
+        baseline = baseline if isinstance(baseline, dict) else {}
+        turn_index = int(baseline.get("turn_index", 0) or 0)
+        tools = getattr(config, "CURRENT_TURN_TOOL_CALLS", None)
+        tool_counts = {}
+        if isinstance(tools, list):
+            for name in tools:
+                key = str(name)
+                tool_counts[key] = tool_counts.get(key, 0) + 1
+        tool_names = ",".join(
+            name if count == 1 else f"{name}*{count}"
+            for name, count in tool_counts.items()
+        ) or "-"
+        compacted = (
+            int(getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0)
+            > int(baseline.get("compactions", 0) or 0)
+        )
+        over_tier = (
+            int(getattr(config, "SESSION_TIER_CROSSINGS", 0) or 0)
+            > int(baseline.get("tier_crossings", 0) or 0)
+        )
+        logger.info(
+            "[SPEND][TURN] turn_id=%s status=%s cost_usd=%.6f billed_input=%s "
+            "cached_input=%s uncached_input=%s output=%s rt_count=%s tools=%s "
+            "over_tier=%s compacted=%s",
+            turn_index + 1,
+            status,
+            float(_turn_ledger_value("TURN_COSTS_USD", turn_index, 0.0)),
+            int(getattr(config, "LAST_BILLED_INPUT_TOKENS", 0) or 0),
+            int(_turn_ledger_value("TURN_CACHED_INPUT_TOKENS", turn_index, 0)),
+            int(_turn_ledger_value("TURN_UNCACHED_INPUT_TOKENS", turn_index, 0)),
+            int(_turn_ledger_value("TURN_OUTPUT_TOKENS", turn_index, 0)),
+            int(_turn_ledger_value("TURN_ROUND_TRIPS", turn_index, 0)),
+            tool_names,
+            str(over_tier).lower(),
+            str(compacted).lower(),
+        )
+    except Exception:
+        logger.debug("Failed to emit [SPEND][TURN] telemetry", exc_info=True)
+
+
 def query(user_prompt):
     """
     Process a user query and return the response after executing necessary commands.
@@ -325,58 +387,65 @@ def query(user_prompt):
     """
     logger.debug("Processing user query...")
 
-    # Prepare the conversation context
-    rollback_state = prepare_query_context(user_prompt)
-
-    # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
-    response, error = get_llm_initial_completion()
-    if error:
-        rollback_uncommitted_user_turn(rollback_state)
-        return ConversationResult.ERROR
-
-    if response is None or not getattr(response, "choices", None):
-        rollback_uncommitted_user_turn(rollback_state)
-        logger.error("Initial LLM completion returned no choices; rolled back uncommitted user turn.")
-        return ConversationResult.ERROR
-
-    logger.info(
-        "Initial LLM completion received; response_type=%s has_choices=%s choice_count=%s",
-        type(response).__name__,
-        bool(getattr(response, "choices", None)),
-        len(getattr(response, "choices", []) or []),
-    )
-    # Get response message
-    response_message = response.choices[0].message
+    telemetry_baseline = _turn_telemetry_baseline()
+    turn_status = "error"
     try:
+        # Prepare the conversation context
+        rollback_state = prepare_query_context(user_prompt)
+
+        # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
+        response, error = get_llm_initial_completion()
+        if error:
+            rollback_uncommitted_user_turn(rollback_state)
+            return ConversationResult.ERROR
+
+        if response is None or not getattr(response, "choices", None):
+            rollback_uncommitted_user_turn(rollback_state)
+            logger.error("Initial LLM completion returned no choices; rolled back uncommitted user turn.")
+            return ConversationResult.ERROR
+
         logger.info(
-            "Initial response message extracted; message_type=%s raw_content_type=%s raw_content_preview=%r",
-            type(response_message).__name__,
-            type(getattr(response_message, "content", None)).__name__,
-            getattr(response_message, "content", None)[:120] if isinstance(getattr(response_message, "content", None), str) else getattr(response_message, "content", None),
+            "Initial LLM completion received; response_type=%s has_choices=%s choice_count=%s",
+            type(response).__name__,
+            bool(getattr(response, "choices", None)),
+            len(getattr(response, "choices", []) or []),
         )
-    except Exception:
-        logger.exception("Failed to log initial response message shape")
-
-    # Subagent logging: attempt to record the prompt and reply if agent mode is enabled.
-    if getattr(config, "AGENT", False):
+        # Get response message
+        response_message = response.choices[0].message
         try:
-            prompt_text = user_prompt if isinstance(user_prompt, str) else str(user_prompt)
-            reply_text = ""
-            if hasattr(response_message, "content"):
-                reply_text = response_message.content
-            else:
-                reply_text = str(response_message)
-            try:
-                subagent_logging.append_interaction(prompt_text=prompt_text, reply_text=reply_text)
-            except Exception:
-                logger.exception("subagent_logging.append_interaction failed")
+            logger.info(
+                "Initial response message extracted; message_type=%s raw_content_type=%s raw_content_preview=%r",
+                type(response_message).__name__,
+                type(getattr(response_message, "content", None)).__name__,
+                getattr(response_message, "content", None)[:120] if isinstance(getattr(response_message, "content", None), str) else getattr(response_message, "content", None),
+            )
         except Exception:
-            logger.exception("Failed to prepare subagent logging interaction data")
+            logger.exception("Failed to log initial response message shape")
 
-    # Determine how to handle the response
-    return process_response_by_type(
-        response_type := determine_response_type(response_message), response, response_message
-    )
+        # Subagent logging: attempt to record the prompt and reply if agent mode is enabled.
+        if getattr(config, "AGENT", False):
+            try:
+                prompt_text = user_prompt if isinstance(user_prompt, str) else str(user_prompt)
+                reply_text = ""
+                if hasattr(response_message, "content"):
+                    reply_text = response_message.content
+                else:
+                    reply_text = str(response_message)
+                try:
+                    subagent_logging.append_interaction(prompt_text=prompt_text, reply_text=reply_text)
+                except Exception:
+                    logger.exception("subagent_logging.append_interaction failed")
+            except Exception:
+                logger.exception("Failed to prepare subagent logging interaction data")
+
+        # Determine how to handle the response
+        result = process_response_by_type(
+            response_type := determine_response_type(response_message), response, response_message
+        )
+        turn_status = "error" if result == ConversationResult.ERROR else "ok"
+        return result
+    finally:
+        _emit_turn_telemetry(telemetry_baseline, turn_status)
 
 
 def process_pipeline_directives(directives):
@@ -1117,6 +1186,8 @@ def prepare_query_context(user_prompt):
     Returns:
         dict: Rollback metadata for the just-appended user turn.
     """
+    # Reset concise per-turn telemetry before any tool can run.
+    config.CURRENT_TURN_TOOL_CALLS = []
     # Reset the per-turn collation flag before folding; _fold sets it True iff
     # sub-agent results land on this turn (turn-scoped, like the reasoning override).
     config.CURRENT_TURN_IS_COLLATION = False

@@ -457,7 +457,7 @@ RESPONSES_API: True
 #          reviewing large files in full.
 #   65536  Effectively unlimited for normal coding work. Lets large diff
 #          reviews through but increases prompt size proportionally.
-TOOL_OUTPUT_TOKEN_LIMIT: 32768
+TOOL_OUTPUT_TOKEN_LIMIT: 16384
 
 # Static tool-profile selection. This controls which tool schemas are ADVERTISED
 # to the model by default; it does NOT remove the underlying Python tool

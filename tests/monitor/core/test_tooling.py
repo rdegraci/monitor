@@ -49,6 +49,45 @@ class TestTooling(unittest.TestCase):
             self.assertEqual(result, 3)
             self.assertIsNone(err)
 
+    def test_execute_tool_call_emits_concise_tool_telemetry(self):
+        """Tool telemetry should include path, output size, and truncation state."""
+        tool_call = {
+            "function": {
+                "arguments": '{"path": "src/example.py"}',
+                "name": "read_example",
+            }
+        }
+        with (
+            patch.dict(
+                tooling.AVAILABLE_TOOLS,
+                {"read_example": lambda path: "large output"},
+                clear=True,
+            ),
+            patch.object(tooling, "count_message_tokens", return_value=20000),
+            patch.multiple(
+                tooling.config,
+                CURRENT_TURN_TOOL_CALLS=[],
+                RESPONSES_API=True,
+                TOOL_OUTPUT_TOKEN_LIMIT=16384,
+            ),
+            patch.object(tooling.logger, "info") as mock_info,
+        ):
+            result, err = tooling.execute_tool_call(tool_call)
+            recorded_tools = list(tooling.config.CURRENT_TURN_TOOL_CALLS)
+
+        self.assertEqual(result, "large output")
+        self.assertIsNone(err)
+        self.assertEqual(recorded_tools, ["read_example"])
+        mock_info.assert_called_once()
+        fmt, *args = mock_info.call_args.args
+        rendered = fmt % tuple(args)
+        self.assertIn("[SPEND][TOOL]", rendered)
+        self.assertIn("tool=read_example", rendered)
+        self.assertIn("path='src/example.py'", rendered)
+        self.assertIn("out_tokens=20000", rendered)
+        self.assertIn("truncated=true", rendered)
+        self.assertNotIn("large output", rendered)
+
     @patch("monitor.core.tooling.AVAILABLE_TOOLS", new_callable=dict)
     def test_execute_tool_call_missing(self, mock_available):
         """execute_tool_call should report error when tool is missing."""

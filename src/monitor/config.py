@@ -718,6 +718,11 @@ CURRENT_TURN_IS_COLLATION = False
 # current turn, then consumed by tool-catalog filtering. Cleared/reset on the
 # next user turn, :reset_history, and set_model().
 CURRENT_TURN_TOOL_GROUPS: set[str] = set()
+# Ordered tool names executed during the current user-message-bounded turn.
+# Reset when prepare_query_context starts a new turn and consumed by the concise
+# [SPEND][TURN] telemetry line. This intentionally stores names only, never
+# arguments or tool output.
+CURRENT_TURN_TOOL_CALLS: list[str] = []
 # Base static tool profile advertised to the model on normal turns. The runtime
 # :tools command changes this without editing config.yaml.
 TOOL_PROFILE = "coding"

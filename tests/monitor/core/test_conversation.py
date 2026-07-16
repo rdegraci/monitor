@@ -7,6 +7,38 @@ import datetime as dt
 
 
 class TestConversation(unittest.TestCase):
+    def test_emit_turn_telemetry_logs_aggregated_turn_metrics(self):
+        """Turn telemetry should emit one compact line from synchronized ledgers."""
+        values = {
+            "TURN_COSTS_USD": [0.125],
+            "TURN_ROUND_TRIPS": [4],
+            "TURN_CACHED_INPUT_TOKENS": [8000],
+            "TURN_UNCACHED_INPUT_TOKENS": [1200],
+            "TURN_OUTPUT_TOKENS": [900],
+            "LAST_BILLED_INPUT_TOKENS": 9200,
+            "SESSION_COMPACTION_COUNT": 2,
+            "SESSION_TIER_CROSSINGS": 3,
+            "CURRENT_TURN_TOOL_CALLS": ["cat_file", "run_python_tests"],
+        }
+        with patch.multiple(conversation.config, **values), patch.object(
+            conversation.logger, "info"
+        ) as mock_info:
+            conversation._emit_turn_telemetry(
+                {"turn_index": 0, "compactions": 1, "tier_crossings": 2},
+                "ok",
+            )
+
+        mock_info.assert_called_once()
+        fmt, *args = mock_info.call_args.args
+        rendered = fmt % tuple(args)
+        self.assertIn("[SPEND][TURN]", rendered)
+        self.assertIn("turn_id=1", rendered)
+        self.assertIn("cost_usd=0.125000", rendered)
+        self.assertIn("rt_count=4", rendered)
+        self.assertIn("tools=cat_file,run_python_tests", rendered)
+        self.assertIn("over_tier=true", rendered)
+        self.assertIn("compacted=true", rendered)
+
     @patch("monitor.core.conversation.prepare_query_context")
     @patch("monitor.core.conversation.get_llm_initial_completion")
     @patch("monitor.core.conversation.process_response_by_type")
