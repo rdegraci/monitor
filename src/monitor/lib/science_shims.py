@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from monitor.lib.optional_deps import load_optional
+
 
 def _load_module(module_name: str) -> Any:
     """Import an optional module and return None if unavailable."""
-    try:
-        return __import__(module_name, fromlist=["*"])
-    except Exception:
-        return None
+    return load_optional(module_name)
 
 
 pandas: Any = _load_module("pandas")

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-import chromadb
+from monitor.lib.optional_deps import import_optional
 
 
 class ChromaClientError(RuntimeError):
@@ -27,6 +27,7 @@ def create_client(path: str | Path) -> Any:
     Returns:
         A configured persistent Chroma client.
     """
+    chromadb = import_optional("chromadb", feature="ChromaDB")
     db_path = Path(path).expanduser()
     return chromadb.PersistentClient(path=str(db_path))
 

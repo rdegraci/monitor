@@ -1,10 +1,13 @@
-
 import re
+import shutil
 import subprocess
 import tempfile
 import os
 import sys
 import threading
+
+from monitor.lib.optional_deps import missing_extra_message
+
 
 class TextToSpeech:
     """
@@ -43,6 +46,10 @@ class TextToSpeech:
         Args:
             speakable (str): Cleaned text to speak.
         """
+        if shutil.which("tts") is None:
+            print(missing_extra_message("tts", feature="text-to-speech"))
+            return
+
         wav_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
@@ -108,5 +115,3 @@ class TextToSpeech:
             text (str): Assistant reply text to filter and read aloud.
         """
         self.speak(text)
-
-

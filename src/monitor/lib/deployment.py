@@ -1,4 +1,5 @@
 from monitor._stubs import joblib, requests
+from monitor.lib.optional_deps import OptionalDependencyError, require_extra
 
 
 def deploy_model(model_path, endpoint_url, deployment_platform):
@@ -6,6 +7,8 @@ def deploy_model(model_path, endpoint_url, deployment_platform):
     Deploy a machine learning model to a specified platform as a web service.
     """
     try:
+        if joblib is None:
+            require_extra("science", feature="model deployment")
         # Load the model
         model = joblib.load(model_path)
 
@@ -17,6 +20,8 @@ def deploy_model(model_path, endpoint_url, deployment_platform):
         response = requests.post(endpoint_url, files={'model': open(model_path, 'rb')})
 
         return f"Model deployed successfully to {endpoint_url} with status: {response.status_code}"
+    except OptionalDependencyError as e:
+        return str(e)
     except Exception as e:
         return f"Error deploying model: {str(e)}"
 

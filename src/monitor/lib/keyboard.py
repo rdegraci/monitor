@@ -95,7 +95,7 @@ def get_preview_range(cursor_position):
 def configure_voice_to_text():
     """Initialize the shared voice-to-text instance."""
     global VOICE_TO_TEXT
-    VOICE_TO_TEXT = VoiceToText()  # Configure with device/model as needed
+    VOICE_TO_TEXT = VoiceToText()  # Package checks happen on first record.
 
 
 def _normalize_function_key_groups(function_key_insertions):

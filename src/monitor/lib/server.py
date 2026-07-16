@@ -17,11 +17,29 @@ import time
 import traceback
 from typing import Any, Generator, Optional
 
-from flask import Flask, request, jsonify, Response
 from monitor.core.command_processing import internalize_command
 from monitor import config
+from monitor.lib.optional_deps import import_optional
 
 logger = logging.getLogger(__name__)
+
+# Populated lazily by ``_ensure_flask()`` so REPL startup does not require Flask.
+Flask = None
+request = None
+jsonify = None
+Response = None
+
+
+def _ensure_flask() -> None:
+    """Import Flask symbols or raise a clear optional-extra error."""
+    global Flask, request, jsonify, Response
+    if Flask is not None:
+        return
+    flask = import_optional("flask", feature="HTTP server mode")
+    Flask = flask.Flask
+    request = flask.request
+    jsonify = flask.jsonify
+    Response = flask.Response
 
 
 class SingleRequestMiddleware:
@@ -200,6 +218,7 @@ def make_flask_app():
         Flask: The configured Flask application, with WSGI middleware applied
                to serialize (single-thread) all incoming HTTP requests.
     """
+    _ensure_flask()
     app = Flask(__name__)
 
     @app.before_request

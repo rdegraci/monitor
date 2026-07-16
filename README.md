@@ -32,7 +32,11 @@ git clone <your-repo-url>
 cd <repo-dir>
 ```
 
-### 2. Install Monitor
+### 2. Install Monitor (lightweight core)
+
+The default install is sized for day-to-day repository coding (REPL, providers,
+git/search/edit/verify tools, Redis client for optional memory). Heavy extras
+are opt-in:
 
 ```sh
 pip install .
@@ -42,7 +46,24 @@ For development:
 
 ```sh
 pip install -e .
+pip install -r requirements-dev.txt
 ```
+
+Optional extras:
+
+| Extra | Install | Provides |
+|-------|---------|----------|
+| `voice` | `pip install '.[voice]'` | Whisper STT + PyAudio |
+| `tts` | `pip install '.[tts]'` | Coqui TTS |
+| `chroma` | `pip install '.[chroma]'` | ChromaDB + `chroma-db` CLI |
+| `science` | `pip install '.[science]'` | pandas, scikit-learn, joblib, graphviz |
+| `database` | `pip install '.[database]'` | DuckDB Python package (CLI still needed on PATH) |
+| `network` | `pip install '.[network]'` | Tavily web search |
+| `server` | `pip install '.[server]'` | Flask HTTP API (`--server`) |
+| `aws` | `pip install '.[aws]'` | boto3 |
+| `all` | `pip install '.[all]'` | Everything above |
+
+Missing extras fail at feature use with an install hint, not at REPL startup.
 
 ### 3. Optional: create a user `.env`
 
@@ -69,16 +90,16 @@ Values in the user file override values from the project file.
 
 ### 4. Optional platform dependencies
 
-Some features depend on external tools such as:
+Some features still depend on external tools outside pip:
 
 - `ripgrep`
 - `git`
-- `redis`
-- `duckdb`
-- `ffmpeg`
-- `graphviz`
+- `redis` (server process when `MEMORY_SERVICES` is enabled)
+- `duckdb` CLI (when using the `database` extra / DuckDB tools)
+- `ffmpeg` (voice)
+- `graphviz` system package (when using the `science` extra for DOT rendering)
 - `libmagic`
-- `portaudio`
+- `portaudio` (voice)
 
 On macOS with Homebrew:
 

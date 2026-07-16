@@ -198,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
         payload = run_command(args)
     except chroma_client.ChromaClientError as exc:
         raise SystemExit(str(exc)) from exc
+    except Exception as exc:
+        from monitor.lib.optional_deps import OptionalDependencyError
+
+        if isinstance(exc, OptionalDependencyError):
+            raise SystemExit(str(exc)) from exc
+        raise
     if payload is not None:
         print(chroma_client.write_json(payload))
     return 0

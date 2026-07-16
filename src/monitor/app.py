@@ -30,7 +30,6 @@ from monitor.core.version import VERSION
 from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
 from monitor.lib.macros import configure_macros
 from monitor.lib.monitor_wiki import configure_project_wiki_paths
-from monitor.lib.server import create_flask_server  # Import create_flask_server for server mode.
 from monitor.lib.signal_handler import setup_sigint_handler  # Import SIGINT handler for clean KeyboardInterrupt handling.
 from monitor.lib.system_prompt import configure_runtime_prompt_paths
 
@@ -425,6 +424,8 @@ and scripts can access the conversation query API during execution."""
 
     try:
         if args.server is not None:
+            from monitor.lib.server import create_flask_server
+
             config.SERVER_MODE = True
             host_address = args.server if args.server else "127.0.0.1"
             # Register the query function so that external modules can access it in server mode.

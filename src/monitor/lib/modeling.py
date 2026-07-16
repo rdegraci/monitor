@@ -1,4 +1,7 @@
 # mypy: ignore-errors
+"""ML training helpers that require the ``science`` extra."""
+
+from monitor.lib.optional_deps import OptionalDependencyError, require_extra
 from monitor.lib.science_shims import (
     pandas as pd,
     sklearn_ensemble,
@@ -7,26 +10,34 @@ from monitor.lib.science_shims import (
     sklearn_model_selection,
 )
 
-if pd is None or sklearn_ensemble is None or sklearn_linear_model is None or sklearn_metrics is None or sklearn_model_selection is None:
-    raise ImportError("Scientific dependencies are required for modeling.py")
 
-RandomForestRegressor = sklearn_ensemble.RandomForestRegressor
-LinearRegression = sklearn_linear_model.LinearRegression
-mean_squared_error = sklearn_metrics.mean_squared_error
-train_test_split = sklearn_model_selection.train_test_split
+def _require_science():
+    """Ensure pandas/sklearn are available or raise a clear install error."""
+    if (
+        pd is None
+        or sklearn_ensemble is None
+        or sklearn_linear_model is None
+        or sklearn_metrics is None
+        or sklearn_model_selection is None
+    ):
+        require_extra("science", feature="model training")
 
 
 def train_model(file_path, model_type='random_forest', target_column=''):
     """
     Train a machine learning model using specified parameters.
     """
-
     try:
+        _require_science()
+        RandomForestRegressor = sklearn_ensemble.RandomForestRegressor
+        LinearRegression = sklearn_linear_model.LinearRegression
+        train_test_split = sklearn_model_selection.train_test_split
+
         # Load dataset
         data = pd.read_csv(file_path)
         X = data.drop(target_column, axis=1)
         y = data[target_column]
-        
+
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -35,12 +46,16 @@ def train_model(file_path, model_type='random_forest', target_column=''):
             model = RandomForestRegressor()
         elif model_type == 'linear_regression':
             model = LinearRegression()
+        else:
+            return f"Error training model: unknown model_type {model_type!r}"
 
         # Train model
         model.fit(X_train, y_train)
-        
+
         # Return the trained model and test set for evaluation
         return model, (X_test, y_test)
+    except OptionalDependencyError as e:
+        return str(e)
     except Exception as e:
         return f"Error training model: {str(e)}"
 
@@ -48,33 +63,29 @@ def train_model(file_path, model_type='random_forest', target_column=''):
 def evaluate_model(model, test_data):
     """
     Evaluate a trained machine learning model.
-    
+
     Parameters:
     model: A trained machine learning model with a predict method.
     test_data: An array where:
         test_data[0]: Feature dataset (X_test) for validation.
         test_data[1]: True target values (y_test) for validation.
-    
+
     Returns:
     A dictionary with Mean Squared Error and predictions if successful.
     """
-    import pandas as pd
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.linear_model import LinearRegression
-    from sklearn.metrics import mean_squared_error
-
     try:
-        X_test = test_data[0]  # Get features from test_data
-        y_test = test_data[1]  # Get true target values from test_data
-        
-        predictions = model.predict(X_test)  # Predict on test set
-        mse = mean_squared_error(y_test, predictions)  # Calculate mean squared error
-        
+        _require_science()
+        mean_squared_error = sklearn_metrics.mean_squared_error
+        X_test = test_data[0]
+        y_test = test_data[1]
+        predictions = model.predict(X_test)
+        mse = mean_squared_error(y_test, predictions)
         return {
-            'Mean Squared Error': mse,
-            'Predictions': predictions  # Optional: return predictions for further analysis
+            "Mean Squared Error": mse,
+            "Predictions": predictions,
         }
+    except OptionalDependencyError as e:
+        return str(e)
     except ValueError as ve:
         return f"Value error during model evaluation: {str(ve)}"
     except AttributeError as ae:

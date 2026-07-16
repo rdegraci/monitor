@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from monitor.lib.optional_deps import load_optional
+
 
 def _load_attr(module_name: str, attr_name: str) -> Any:
     """Load an attribute from an optional dependency.
@@ -14,9 +16,8 @@ def _load_attr(module_name: str, attr_name: str) -> Any:
     Returns:
         The requested attribute when available, otherwise None.
     """
-    try:
-        module = __import__(module_name, fromlist=[attr_name])
-    except Exception:
+    module = load_optional(module_name)
+    if module is None:
         return None
     return getattr(module, attr_name, None)
 

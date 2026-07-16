@@ -36,8 +36,18 @@ def execute_duckdb(command: str):
             timeout=DEFAULT_DB_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
+        from monitor.lib.optional_deps import missing_extra_message
+
         logger.error("duckdb executable not found")
-        return json.dumps({"error": "duckdb executable not found"})
+        return json.dumps(
+            {
+                "error": (
+                    "duckdb executable not found. "
+                    + missing_extra_message("database", feature="DuckDB")
+                    + " Also ensure the duckdb CLI is on PATH (e.g. brew install duckdb)."
+                )
+            }
+        )
     except subprocess.TimeoutExpired:
         logger.error("duckdb command timed out after %ds", DEFAULT_DB_TIMEOUT_SECONDS)
         return json.dumps({"error": f"duckdb command timed out after {DEFAULT_DB_TIMEOUT_SECONDS}s"})

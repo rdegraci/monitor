@@ -374,6 +374,14 @@ class Consult:
             with open(dot_path, "w", encoding="utf-8") as f:
                 f.write(dot_code)
             self.logger.debug("Wrote DOT code to file: %s", dot_path)
+            if Source is None:
+                from monitor.lib.optional_deps import missing_extra_message
+
+                self.logger.error(
+                    "%s",
+                    missing_extra_message("science", feature="graphviz diagram rendering"),
+                )
+                return None
             # Use graphviz.Source to render the DOT file to SVG
             src = Source(dot_code, filename=svg_stub_path, format="svg")
             rendered = src.render(filename=svg_stub_path, format="svg", cleanup=True)

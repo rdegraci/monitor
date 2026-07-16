@@ -4,6 +4,13 @@ import threading
 from typing import Any
 
 from monitor._stubs import np, pyaudio, whisper
+from monitor.lib.optional_deps import require_extra
+
+
+def _require_voice() -> None:
+    """Ensure whisper/pyaudio (and numpy) are available for STT."""
+    if whisper is None or pyaudio is None or np is None:
+        require_extra("voice", feature="voice-to-text")
 
 
 class VoiceToText:
@@ -26,11 +33,13 @@ class VoiceToText:
         self._recording = False
         self._audio = None
         self._thread = None
+        self.model = None
 
     def _record_worker(self):
         """
         Thread worker for audio capture, runs while self._recording is True.
         """
+        _require_voice()
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paInt16, channels=self.channels, rate=self.rate,
                         input=True, frames_per_buffer=self.chunk)
@@ -52,6 +61,7 @@ class VoiceToText:
         """
         Start audio recording in a background thread. No effect if already recording.
         """
+        _require_voice()
         print("Initializing whisper/pyaudio")
 
         self.model = whisper.load_model(self.model_name)
