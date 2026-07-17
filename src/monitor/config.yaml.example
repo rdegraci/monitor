@@ -481,6 +481,15 @@ TOOL_PROFILE: coding
 # TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS: []
 # SHOW_TOOL_PROFILE_NOTICES: true
 
+# Live turn/tool activity feedback (PLAN Phase 3). When true, a single in-place
+# status line (e.g. "[RT 3 · run_python_tests · 8.2k input · $0.14 turn]") is
+# painted to stderr at request/tool/compaction boundaries so a long autonomous
+# turn does not look stalled. Tool NAMES and aggregate counters only — never
+# arguments, tool output, prompts, or credentials. Adds no model calls. Silent
+# in --script / piped / server / sub-agent contexts. Toggle at runtime with
+# ":activity on|off". Set false here to disable by default.
+# LIVE_TURN_FEEDBACK: true
+
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 
 history:

@@ -23,6 +23,7 @@ from monitor.lib.built_in_commands import (
     linkedin_summary_command,
     open_preferences_command,
     print_tools_command,
+    activity_command,
     sessions_command,
     reset_conversation_history_command,
     twitch_summary_command,
@@ -395,6 +396,11 @@ def configure_built_ins() -> None:
                     "command": "tools",
                     "function": _make_callable(print_tools_command),
                     "description": "Show or set the tool profile (:tools, :tools list, :tools coding, :tools catalog, :tools tokens).",
+                },
+                {
+                    "command": "activity",
+                    "function": _make_callable(activity_command),
+                    "description": "Show or toggle live turn/tool activity feedback (:activity on|off|toggle).",
                 },
                 {
                     "command": "sessions",

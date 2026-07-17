@@ -13,6 +13,7 @@ XAI_MODEL_PREFIX = "xai/"
 
 from monitor import config
 from monitor.core.tooling import execute_tool_call
+from monitor.lib import activity
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.token_management import count_message_tokens, update_token_usage, token_budgeter
 from monitor.lib import rate_limiter
@@ -1381,6 +1382,10 @@ def call_responses_api(
                     "id": call_id,
                 }
 
+                if isinstance(name, str) and name:
+                    activity.show(activity.STATE_RUNNING, rt_count=iteration, tool=name)
+                    activity.suspend_paint()
+
                 try:
                     result, error = execute_tool_call(tool_call)
                     if error:
@@ -1666,6 +1671,8 @@ def call_responses_api(
                         logger.exception(
                             "Rate-limit preflight check failed for follow-up responses.create; proceeding without gating"
                         )
+
+                    activity.show(activity.STATE_WAITING, rt_count=iteration + 1)
 
                     # Follow-up call with cancellable helper
                     followup_response = _cancellable_responses_create(client.responses.create, followup_params)

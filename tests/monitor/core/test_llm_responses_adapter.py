@@ -1617,6 +1617,112 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         side_effect=lambda params, *_args, **_kwargs: params,
     )
     @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        side_effect=lambda s, *_args, **_kwargs: s,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "{}",
+    )
+    @patch("monitor.core.llm_responses_adapter.execute_tool_call")
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    @patch("monitor.core.llm_responses_adapter.activity.suspend_paint")
+    @patch("monitor.core.llm_responses_adapter.activity.show")
+    def test_responses_tool_loop_emits_activity_feedback(
+        self,
+        mock_activity_show,
+        mock_suspend_paint,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_budgeter,
+        mock_progress_dots,
+    ):
+        """Responses API tool execution should surface live activity like Chat path."""
+        from monitor.core import llm_responses_adapter as adapter
+        from monitor.lib import activity
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=2,
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "run_python_tests",
+                    "arguments": "{}",
+                }
+            ],
+        )
+        second = self._fake_response("resp_2", total_tokens=1, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            RATE_LIMITER=True,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            MODEL_INPUT_WINDOW=272_000,
+            MODEL_CONTEXT_WINDOW=None,
+            FOLLOWUP_BASE_SAFETY_RATIO=0.85,
+            FOLLOWUP_TOPLEVEL_RESERVE_TOKENS=256,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_BY_CLASS={
+                "fresh_request": 0,
+                "chained_user_followup": 2000,
+                "tool_result_followup": 4000,
+                "summarization_followup": 2000,
+            },
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_PER_DEPTH=1000,
+            FOLLOWUP_HIDDEN_CHAIN_RESERVE_CAP_RATIO=0.5,
+            TOOL_OUTPUT_TOKEN_LIMIT=8_192,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+        mock_execute_tool_call.return_value = ({"ok": True}, None)
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "hello"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        mock_activity_show.assert_any_call(
+            activity.STATE_RUNNING,
+            rt_count=1,
+            tool="run_python_tests",
+        )
+        mock_suspend_paint.assert_called_once()
+        mock_activity_show.assert_any_call(
+            activity.STATE_WAITING,
+            rt_count=2,
+        )
+
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
         "monitor.core.llm_responses_adapter.serialize_tool_output",
         side_effect=lambda obj: "{}",
     )

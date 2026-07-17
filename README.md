@@ -211,6 +211,39 @@ Useful commands:
 `:tools tokens` compares advertised schema size across profiles. Session metrics
 from `:dump_metrics` also include the active tool-profile snapshot.
 
+### Live turn activity
+
+During a multi-round-trip turn, Monitor paints a single in-place status line so
+a long autonomous loop does not look stalled. While waiting on the model, that
+line is the familiar animated spinner with the live activity as its label:
+
+```text
+[RT 3 · request sent - processing ⠋ 12s]
+```
+
+Between model waits, tool names and running totals appear on the same line
+(then clear so tool stdout — diffs, ripgrep hits, file views — prints cleanly):
+
+```text
+[RT 3 · run_python_tests · 8.2k input · $0.14 turn]
+```
+
+It shows tool names and aggregate counters only — never tool arguments, output,
+prompts, or credentials — and adds no model calls. Ripgrep results, edit diffs,
+and other tool prints still go to the terminal as before. Activity feedback is
+on by default for the interactive REPL and silent for `--script`, piped output,
+server, and sub-agent runs. Toggle it at runtime:
+
+```text
+:activity          # show current state
+:activity off      # quiet
+:activity on
+:activity toggle
+```
+
+Set `LIVE_TURN_FEEDBACK: false` in config to disable by default. Full per-turn
+detail remains in the `[SPEND][TURN]` / `[SPEND][TOOL]` log lines.
+
 ### Show visible macros
 
 ```text

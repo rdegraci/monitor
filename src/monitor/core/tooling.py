@@ -12,6 +12,7 @@ from monitor.lib import rate_limiter
 
 from monitor.lib.protocol_engine import configure_protocol_engine_message_history
 from monitor.lib.tool_profiles import refresh_tool_group_lease_for_tool
+from monitor.lib import activity
 from monitor.lib.token_management import (
     count_message_tokens,
     update_token_usage,
@@ -613,6 +614,7 @@ def handle_tool_call(response, _depth=0):
 
         if loop_name and _check_repeated_call(loop_name, loop_args):
             max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
+            activity.show(activity.STATE_RETRYING, rt_count=_depth + 1, tool=loop_name)
             logger.warning(
                 "handle_tool_call: refusing repeated call to %s (>=%d times in a row this turn)",
                 loop_name, max_reps,
@@ -629,6 +631,11 @@ def handle_tool_call(response, _depth=0):
             )
             _emit_tool_telemetry(tool_call, result, error, status="loop_rejected")
         else:
+            # PLAN Phase 3: show which tool is running (name only, no args).
+            # Suspend the in-place line before the tool executes so stdout
+            # (diffs, ripgrep hits, file views) prints cleanly underneath.
+            activity.show(activity.STATE_RUNNING, rt_count=_depth + 1, tool=loop_name)
+            activity.suspend_paint()
             try:
                 result, error = execute_tool_call(tool_call)
             except Exception as e:
@@ -698,6 +705,9 @@ def handle_tool_call(response, _depth=0):
         logger.exception(
             "Reasoning escalation check failed; continuing at current effort."
         )
+
+    # PLAN Phase 3: tools done for this round; next model request is in flight.
+    activity.show(activity.STATE_WAITING, rt_count=_depth + 2)
 
     # Get second response from LLM (token usage is recorded by get_llm_completion via monitor.lib.token_management)
     second_response, error = get_llm_completion()

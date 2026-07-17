@@ -473,6 +473,12 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                     _compact_ratio * 100, input_window_limit,
                 )
                 try:
+                    from monitor.lib import activity
+
+                    activity.show(activity.STATE_COMPACTING)
+                except Exception:
+                    logger.debug("activity compacting hint failed", exc_info=True)
+                try:
                     # Partial-preserve compaction: only summarize the OLDER
                     # portion of history, keeping the last K user turns
                     # verbatim. The split index is the start of the K-th-to-last

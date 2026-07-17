@@ -258,6 +258,55 @@ def print_tools_command(arg=None):
     print("Use ':tools list' for profiles, ':tools catalog' for names, ':tools tokens' for schema size.")
 
 
+def activity_command(arg=None):
+    """Show or toggle live turn/tool activity feedback (PLAN Phase 3).
+
+    Usage:
+        :activity            Show current state.
+        :activity on|off     Enable or disable live feedback.
+        :activity toggle     Flip the current state.
+    """
+    from monitor.lib import activity
+
+    arg_text = "" if arg is None else str(arg).strip().lower()
+
+    if arg_text in {"help", "?", "-h", "--help"}:
+        print("Live turn/tool activity feedback (single in-place status line).")
+        print("Usage: : (or /) activity [on|off|toggle|show]")
+        print("Shows tool names and aggregate counters only — never arguments,")
+        print("tool output, prompts, or credentials. Adds no model calls.")
+        return
+
+    current = bool(getattr(config, "LIVE_TURN_FEEDBACK", True))
+
+    if arg_text in {"", "show", "status"}:
+        rendering = activity.activity_enabled()
+        print_yellow(
+            f"Live activity feedback: {'on' if current else 'off'} "
+            f"(currently rendering: {'yes' if rendering else 'no'})."
+        )
+        if current and not rendering:
+            print("Not rendering because output is non-TTY, server, or sub-agent mode.")
+        return
+
+    if arg_text in {"on", "true", "enable", "enabled"}:
+        config.LIVE_TURN_FEEDBACK = True
+    elif arg_text in {"off", "false", "disable", "disabled", "quiet"}:
+        config.LIVE_TURN_FEEDBACK = False
+        activity.clear()
+    elif arg_text == "toggle":
+        config.LIVE_TURN_FEEDBACK = not current
+        if not config.LIVE_TURN_FEEDBACK:
+            activity.clear()
+    else:
+        print_yellow(f"Unknown option {arg_text!r}. Use: on | off | toggle | show.")
+        return
+
+    print_yellow(
+        f"Live activity feedback set to: {'on' if config.LIVE_TURN_FEEDBACK else 'off'}."
+    )
+
+
 def _strip_markdown_fences(text):
     """Strip a single wrapping markdown code fence from LLM output.
 

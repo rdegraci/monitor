@@ -55,6 +55,11 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
 
         [Processing ⠋ 12s]
 
+    When ``message`` is omitted and live turn feedback has an active activity
+    string (PLAN Phase 3), that string is used as the spinner label instead —
+    e.g. ``[RT 3 · request sent - processing ⠋ 12s]`` — so the familiar spinner and the RT/tool
+    context share one line instead of overwriting each other.
+
     The spinner cycles at ``interval`` seconds per frame (default 0.1s =
     10fps, conventional for spinner libraries) and the elapsed counter
     ticks every second. After a brief startup grace window
@@ -76,9 +81,11 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
     use ``logging.info(message)`` directly.
 
     Args:
-        message: Label shown in the indicator, defaults to "Processing".
-                 Whitespace is trimmed; embedded ``]`` chars are kept
-                 (the indicator's closing bracket is appended literally).
+        message: Label shown in the indicator, defaults to the current
+                 live-activity string when available, otherwise
+                 "Processing". Whitespace is trimmed; embedded ``]``
+                 chars are kept (the indicator's closing bracket is
+                 appended literally).
         interval: Spinner frame interval in seconds (default 0.1).
 
     Yields:
@@ -98,7 +105,23 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
         yield
         return
 
-    label = (message or "Processing").strip() or "Processing"
+    fixed_label = None
+    if message is not None:
+        fixed_label = (message or "Processing").strip() or "Processing"
+
+    def _resolve_label() -> str:
+        if fixed_label is not None:
+            return fixed_label
+        try:
+            from monitor.lib import activity
+
+            current = activity.current_activity()
+            if isinstance(current, str) and current.strip():
+                return current.strip()
+        except Exception:
+            pass
+        return "Processing"
+
     stop_event = threading.Event()
     started = time.monotonic()
 
@@ -119,6 +142,7 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
         while not stop_event.is_set():
             elapsed_s = int(time.monotonic() - started)
             ch = _SPINNER_FRAMES[frame_idx % len(_SPINNER_FRAMES)]
+            label = _resolve_label()
             try:
                 sys.stderr.write(f"\r[{label} {ch} {elapsed_s}s]")
                 sys.stderr.flush()
@@ -146,4 +170,11 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
                 sys.stderr.write(_ERASE_LINE)
                 sys.stderr.flush()
             except (BrokenPipeError, OSError):
+                pass
+            # The spinner owned the line; activity's paint flag is stale.
+            try:
+                from monitor.lib import activity
+
+                activity.mark_line_cleared()
+            except Exception:
                 pass

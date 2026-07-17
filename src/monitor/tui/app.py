@@ -342,6 +342,17 @@ class MonitorTUI:
         agents = self._agent_status() or "agents — none"
         if self.processing:
             state = f"working {self._SPINNER[self.tick % len(self._SPINNER)]}"
+            # PLAN Phase 3: surface the live turn/tool activity (name + counters
+            # only) next to the working spinner, reusing the info bar rather
+            # than a second progress system.
+            try:
+                from monitor.lib import activity
+
+                current = activity.current_activity()
+            except Exception:
+                current = None
+            if current:
+                state = f"{state} · {current}"
         else:
             state = "idle"
         return (

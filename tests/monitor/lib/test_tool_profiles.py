@@ -7,6 +7,27 @@ from monitor.lib import tool_profiles as tp
 
 
 class TestToolProfiles(unittest.TestCase):
+    def setUp(self):
+        # Several tests mutate global tool-profile config; snapshot and restore
+        # so they don't leak into unrelated suites (e.g. the responses adapter
+        # tool-count assertions).
+        self._saved = {
+            "TOOL_PROFILE": getattr(config, "TOOL_PROFILE", "coding"),
+            "CURRENT_TURN_TOOL_GROUPS": set(getattr(config, "CURRENT_TURN_TOOL_GROUPS", set())),
+            "ENABLE_TOOL_PROFILE_AUTO_WIDEN": getattr(config, "ENABLE_TOOL_PROFILE_AUTO_WIDEN", True),
+            "TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS": getattr(config, "TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS", 2),
+            "TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS": list(getattr(config, "TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS", [])),
+            "TOOL_PROFILE_GROUP_LEASES": dict(getattr(config, "TOOL_PROFILE_GROUP_LEASES", {})),
+        }
+
+    def tearDown(self):
+        config.TOOL_PROFILE = self._saved["TOOL_PROFILE"]
+        config.CURRENT_TURN_TOOL_GROUPS = self._saved["CURRENT_TURN_TOOL_GROUPS"]
+        config.ENABLE_TOOL_PROFILE_AUTO_WIDEN = self._saved["ENABLE_TOOL_PROFILE_AUTO_WIDEN"]
+        config.TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS = self._saved["TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS"]
+        config.TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS = self._saved["TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS"]
+        config.TOOL_PROFILE_GROUP_LEASES = self._saved["TOOL_PROFILE_GROUP_LEASES"]
+
     def test_default_profile_is_coding(self):
         self.assertEqual(tp.DEFAULT_TOOL_PROFILE, "coding")
         self.assertEqual(tp.normalize_profile_name(None), "coding")

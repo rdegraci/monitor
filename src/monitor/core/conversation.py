@@ -85,6 +85,7 @@ from monitor.lib.summarizers import (
     summarize_conversation_for_twitch,
 )
 from monitor.lib.colors import blue, red, yellow, reset
+from monitor.lib import activity
 from monitor.lib.redis_utils import prepend_memory_to_history
 from monitor.lib.tool_profiles import (
     activate_turn_tool_group_leases,
@@ -393,6 +394,9 @@ def query(user_prompt):
         # Prepare the conversation context
         rollback_state = prepare_query_context(user_prompt)
 
+        # PLAN Phase 3: show that the first model request is in flight.
+        activity.show(activity.STATE_WAITING, rt_count=1)
+
         # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
         response, error = get_llm_initial_completion()
         if error:
@@ -445,6 +449,8 @@ def query(user_prompt):
         turn_status = "error" if result == ConversationResult.ERROR else "ok"
         return result
     finally:
+        # PLAN Phase 3: clear the in-place activity line before the reply prints.
+        activity.clear()
         _emit_turn_telemetry(telemetry_baseline, turn_status)
 
 
