@@ -110,48 +110,39 @@ brew services start redis
 
 ## Quick start
 
-Start the REPL:
+1. **Install** the lightweight core (see above).
+2. **Configure** a provider key in `~/.config/monitor/.env` (or a project `.env`).
+3. **Check** readiness (never prints secret values):
+
+```sh
+python -m monitor --check-config
+```
+
+4. **Run** the production REPL:
 
 ```sh
 python -m monitor
+# or: monitor
 ```
 
-or:
+5. **Ask for one coding task**, for example: “Show `git status` and summarize
+   changed files.” Use `:help` anytime for commands.
 
-```sh
-monitor
-```
+First launch seeds packaged defaults into the user config directory **only when
+those files are missing** (existing user files are never overwritten). Seeded
+files include `config.yaml`, `macros.json`, `preferences.prompt`,
+`model_config.json`, command catalogs, and starter directives.
 
-Startup begins in `src/monitor/__main__.py`, which copies packaged defaults into
-the user config directory only when those files are missing, then delegates to
-`src/monitor/app.py`.
+**Production entry point:** `monitor` / `python -m monitor`.  
+**Experimental:** `monitor-oop` / `python -m monitor_oop` — not recommended for
+day-to-day use; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-Packaged defaults seeded on startup include:
+Project instruction resolution order: `AGENTS.md`, else `MONITOR.md` /
+`build/MONITOR.md`, else packaged/appdir fallback. When `AGENTS.md` is present,
+project-local `MONITOR.md` / `MONITOR_CONVENTIONS.md` overrides are skipped.
 
-- `config.yaml`
-- `macros.json`
-- `preferences.prompt`
-- `model_config.json`
-- `interactive_commands.json`
-- `non_interactive_commands.json`
-- `directives/echo.prompt`
-- `directives/greet.prompt`
-
-The two command catalogs are distinct:
-- `interactive_commands.json` is used for REPL/TUI-style interactive routing
-- `non_interactive_commands.json` is used for script/server-style non-TTY routing
-
-`directives/echo.prompt` and `directives/greet.prompt` are shipped starter
-prompt files and can be edited after first launch.
-
-For project-local prompt guidance, the startup scope resolves instructions in
-this order:
-1. `AGENTS.md`
-2. otherwise `MONITOR.md` or `build/MONITOR.md`
-3. otherwise packaged/appdir fallback for Monitor instructions
-
-When `AGENTS.md` is present, Monitor does not read project-local `MONITOR.md`
-or `MONITOR_CONVENTIONS.md` overrides.
+More detail: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md),
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Common usage
 
@@ -423,6 +414,7 @@ python -m monitor --agent
 ```sh
 python -m monitor --version
 python -m monitor --models
+python -m monitor --check-config
 python -m monitor --model gpt5
 python -m monitor --debug
 ```
@@ -591,9 +583,9 @@ Some Monitor features work best when these tools are installed:
 
 High-level runtime path:
 
-1. `src/monitor/__main__.py` ensures config assets exist
+1. `src/monitor/__main__.py` ensures config assets exist (never overwrites)
 2. `src/monitor/app.py` loads config, environment globals, logging, and subsystems
-3. CLI overrides such as `--model` and `--agent` are applied
+3. CLI overrides such as `--model`, `--check-config`, and `--agent` are applied
 4. built-ins, macros, and prompt/wiki context are configured
 5. Monitor dispatches to script, server, TUI, or REPL execution
 
@@ -603,10 +595,18 @@ Key source areas:
 - `src/monitor/lib/` — tools, macros, server, logging, helpers
 - `src/monitor/tui/` — terminal UI
 
+`src/monitor_oop/` is an **experimental** alternate stack (`monitor-oop`
+console script). Prefer `monitor` / `python -m monitor` for production.
+
+Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ## Extending Monitor
 
 See the docs for contributor workflows:
 
+- [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
+- [`docs/STATUS_LINE.md`](docs/STATUS_LINE.md)
 - [`docs/BENCHMARK_USAGE.md`](docs/BENCHMARK_USAGE.md)
 - [`docs/ADD_BUILT_IN.md`](docs/ADD_BUILT_IN.md)
 - [`docs/ADD_LLM_TOOL.md`](docs/ADD_LLM_TOOL.md)

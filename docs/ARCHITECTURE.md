@@ -5,20 +5,23 @@ This document summarizes the current Monitor architecture based on the code unde
 ## Top-level layout
 
 Primary packages:
-- `src/monitor/`
+- `src/monitor/` — **production** runtime
 - `src/monitor/core/`
 - `src/monitor/lib/`
 - `src/monitor/tui/`
-- `src/monitor_oop/`
+- `src/monitor_oop/` — **experimental** alternate stack (not the recommended entry point)
 
 The main production CLI path described here is the `monitor` package, with entrypoints in:
 - `src/monitor/__main__.py`
 - `src/monitor/app.py`
 
+Console scripts: `monitor` (production), `monitor-oop` (experimental).
+
 ## Startup flow
 
 ### `src/monitor/__main__.py`
-This module ensures user config files exist, then calls `monitor.app.main()`.
+This module seeds user config files when missing (never overwrites existing
+files), then calls `monitor.app.main()`.
 
 It seeds files such as:
 - `config.yaml`
@@ -54,11 +57,16 @@ Supported CLI flags currently include:
 - `--reset-config`
 - `--force`
 - `--models`
+- `--check-config` (secret-safe readiness report; exits)
 - `--version`
 - `--debug`
 - `--script`
 - `--agent`
 - `--tui`
+
+`--check-config` validates config-file presence, model, tool profile, status-line
+mode, daily budget, and provider API-key *presence* without printing key values
+(`src/monitor/lib/check_config.py`).
 
 `--agent` is a runtime modifier that enables agent-oriented behavior. It is not
 a separate front-end mode.
@@ -119,16 +127,19 @@ Registers built-in commands through `configure_built_ins()`.
 Current built-ins include utility, persistence, diagnostics, response helper, data, indexing, workflow, wiki, and social commands.
 
 Notable built-ins include:
+- `help` / `?` (canonical discovery)
 - `commands`
 - `history`
 - `llm`
 - `reasoning`
+- `status` / `activity`
 - `ttl`
 - `max_tokens`
 - `macros`
+- `tools`
 - `tasks`
 - `clear_tasks`
-- `compact`
+- `compact` / `break_chain` / `reset_history`
 - `dump_metrics`
 - `wiki_init`
 - `wiki_lint`
@@ -136,29 +147,29 @@ Notable built-ins include:
 - `rg`
 - `agent`
 
-### `src/monitor/core/tooling.py`
-Executes LLM tool calls, parses tool arguments, applies rate limiting, appends tool results into conversation history, and enforces several runtime safety rails.
-
-Current safety-related behavior includes:
-- nested tool-call depth cap via `MAX_TOOL_CALL_DEPTH`
-- repeated-call loop detection via `MAX_REPEATED_TOOL_CALLS`
-- write-tool blocking/scoping for sub-agents
-- special handling for high-token file and directory operations
-
 ### `src/monitor/core/tools.py`
-Configures which tool descriptions are exposed for the active provider/model. It dynamically selects between provider-neutral edit tools and provider-specific edit tool variants.
+Configures which tool descriptions are exposed for the active provider/model,
+including **tool profiles** (`src/monitor/lib/tool_profiles.py`). The default
+`coding` profile advertises core_read, task, edit, verify, and memory groups;
+network/db/agent stay opt-in via `:tools full` or auto-widen leases.
 
 ### `src/monitor/core/tooling.py`
-Executes LLM tool calls, parses tool arguments, applies rate limiting, appends tool results into conversation history, and enforces runtime safety rails.
+Executes LLM tool calls, parses tool arguments, applies rate limiting, appends
+tool results into conversation history, and enforces runtime safety rails.
 
 Current safety-related behavior includes:
-- nested tool-call depth caps
-- repeated-call loop detection
+- nested tool-call depth caps (`MAX_TOOL_CALL_DEPTH`)
+- repeated-call loop detection (`MAX_REPEATED_TOOL_CALLS`)
+- per-path read budget for `cat_file` / range views (`MAX_PATH_READS_PER_TURN`)
+- actionable failure categories (`src/monitor/lib/tool_failures.py`)
 - write-tool blocking/scoping for sub-agents
 - special handling for high-token file and directory operations
 - failure-driven reasoning escalation for the current turn
+- live turn activity updates (`src/monitor/lib/activity.py`)
 
-The runtime status line shown in the REPL and TUI is built in `src/monitor/lib/display_output.py` and documented in `docs/STATUS_LINE.md`.
+The runtime status line shown in the REPL and TUI is built in
+`src/monitor/lib/display_output.py`, filtered by
+`src/monitor/lib/status_line.py`, and documented in `docs/STATUS_LINE.md`.
 
 ## Tool architecture
 
@@ -169,7 +180,8 @@ The runtime status line shown in the REPL and TUI is built in `src/monitor/lib/d
 - `GEMINI_TOOL_DESCRIPTIONS`
 - `TOOL_STATE`
 
-This is the core registry for model-callable tools.
+This is the core registry for model-callable tools. What the model *sees* is
+further filtered by the active tool profile.
 
 ### Tool loading helpers
 `src/monitor/lib/tool_loading.py` provides helper functions for:
@@ -184,7 +196,13 @@ Current provider-specific handling includes:
 
 ## Editing tool stack
 
-Monitor currently exposes multiple file-edit pathways:
+Monitor currently exposes multiple file-edit pathways. Preferred order:
+
+1. `text_file_create`
+2. `text_file_str_replace_in_file`
+3. `text_file_insert_text_at_line`
+4. `bulk_replace_in_files`
+5. `modify_source_code` (NL fallback, last)
 
 ### Provider-neutral deterministic tools
 Registered by `add_text_file_neutral_tools()`:
@@ -352,9 +370,13 @@ The app creates:
 
 Conversation logs include the PID in the filename.
 
-## OOP package note
+## OOP package note (experimental)
 
-The repository also contains `src/monitor_oop/`, which appears to be a separate or emerging architecture path. It includes its own `__main__.py`, core services, and presentation stack. The rest of this document focuses on the currently wired `monitor` runtime path used by `python -m monitor`.
+The repository also contains `src/monitor_oop/` and the `monitor-oop` console
+script. This is an **experimental** alternate architecture (own `__main__.py`,
+services, and presentation stack). It is **not** the recommended production
+entry point. Prefer `monitor` / `python -m monitor` for day-to-day coding.
+Primary onboarding docs intentionally omit `monitor_oop` except as a warning.
 
 ## Architecture summary
 

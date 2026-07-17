@@ -10,15 +10,39 @@ from .app import main as app_main
 
 
 def ensure_user_config_file(src_filename, dest_filename):
+    """Copy a packaged default into the user config dir if missing.
+
+    Returns:
+        True when a new file was seeded, False when the destination already existed.
+    """
     config_dir = appdirs.user_config_dir("monitor")
     os.makedirs(config_dir, exist_ok=True)
     dest = os.path.join(config_dir, dest_filename)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    if not os.path.exists(dest):
-        resource = importlib.resources.files("monitor").joinpath(src_filename)
-        with importlib.resources.as_file(resource) as src:
-            shutil.copy(str(src), dest)
-        print(f"Copied default {src_filename} to {dest}")
+    if os.path.exists(dest):
+        return False
+    resource = importlib.resources.files("monitor").joinpath(src_filename)
+    with importlib.resources.as_file(resource) as src:
+        shutil.copy(str(src), dest)
+    print(f"Copied default {src_filename} to {dest}")
+    return True
+
+
+def seed_user_config_files():
+    """Seed all first-run config files. Never overwrites existing user files.
+
+    Returns:
+        list[str]: Destination basenames that were newly copied.
+    """
+    from monitor.lib.check_config import SEEDED_CONFIG_FILES
+
+    seeded = []
+    for src, dest in SEEDED_CONFIG_FILES:
+        if ensure_user_config_file(src, dest):
+            seeded.append(dest)
+    sessions_root = Path(appdirs.user_config_dir("monitor")) / config.SESSIONS_FOLDER
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    return seeded
 
 
 def _initialize_session_artifacts() -> None:
@@ -29,17 +53,7 @@ def _initialize_session_artifacts() -> None:
 
 
 def main():
-    ensure_user_config_file("config.yaml.example", "config.yaml")
-    sessions_root = Path(appdirs.user_config_dir("monitor")) / config.SESSIONS_FOLDER
-    sessions_root.mkdir(parents=True, exist_ok=True)
-    ensure_user_config_file("macros.json", "macros.json")
-    ensure_user_config_file("preferences.prompt", "preferences.prompt")
-    ensure_user_config_file("model_config.json", "model_config.json")
-    ensure_user_config_file("non_interactive_commands.json", "non_interactive_commands.json")
-    ensure_user_config_file("interactive_commands.json", "interactive_commands.json")
-    ensure_user_config_file("directives/echo.prompt", "directives/echo.prompt")
-    ensure_user_config_file("directives/greet.prompt", "directives/greet.prompt")
-    sessions_root.mkdir(parents=True, exist_ok=True)
+    seed_user_config_files()
     _initialize_session_artifacts()
     app_main()
 

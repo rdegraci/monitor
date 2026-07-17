@@ -253,6 +253,11 @@ def main():
         help="List available models and exit.",
     )
     parser.add_argument(
+        "--check-config",
+        action="store_true",
+        help="Validate configuration readiness without printing secret values, then exit.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"monitor {VERSION}",
@@ -308,6 +313,11 @@ def main():
         else:
             print("MODEL_MAPPING is unavailable or invalid; cannot list available models.")
             sys.exit(1)
+
+    if getattr(args, "check_config", False):
+        from monitor.lib.check_config import print_check_report
+
+        sys.exit(print_check_report())
 
     # Register clean SIGINT handler after logging is configured to ensure
     # any logging performed by the handler works as expected.

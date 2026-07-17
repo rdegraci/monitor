@@ -31,22 +31,25 @@ Current command groups include:
 - social and streaming
 
 Notable registered built-ins include:
+- `help` / `built_ins` / `?` (canonical discovery; see `command_help.py`)
 - `commands`
 - `history`
 - `history_size`
-- `llm`
-- `model`
+- `llm` (alias `model`)
 - `reasoning`
+- `status` (status-line modes: minimal / coding / debug)
+- `activity` (live turn feedback)
 - `ttl`
 - `max_tokens`
 - `macros`
-- `tools`
+- `tools` (profiles: coding default; `full` widens)
 - `preferences`
 - `tasks`
 - `clear_tasks`
 - `next_steps`
 - `reset_history`
 - `compact`
+- `break_chain`
 - `dump_history`
 - `load_history`
 - `cost_debug`

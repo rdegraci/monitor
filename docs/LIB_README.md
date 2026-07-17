@@ -17,12 +17,21 @@ This document describes the current `src/monitor/lib` layer.
 ### Tool and registry modules
 - `tool_definitions.py`
 - `tool_loading.py`
+- `tool_profiles.py` — advertised tool groups (`coding` default, `full`, leases)
+- `tool_failures.py` — failure categories, read-budget / exact-arg loops
 - `tool_text.py`
 - `bulk_replace.py`
 - `find_files.py`
 - `text_file_editor.py`
 - `type_checker.py`
 - `test_runner.py`
+- `optional_deps.py` — soft imports for extras with install hints
+
+### Onboarding and REPL UX modules
+- `check_config.py` — secret-safe `--check-config`
+- `command_help.py` — `:help` task groups
+- `activity.py` — live turn / tool status line
+- `status_line.py` — `minimal` / `coding` / `debug` status modes
 
 ### Macro modules
 - `macros.py`
@@ -121,7 +130,19 @@ It currently exposes registration helpers for:
 - Anthropic-native editor tools
 - OpenAI editor tools
 
+### `tool_profiles.py`
+Defines advertised tool **groups** and profiles. Default profile `coding`
+includes core_read, task, edit, verify, and memory. Network, database, and
+agent groups stay opt-in (`:tools full` or auto-widen leases).
+
+### `tool_failures.py`
+Maps tool errors to short `[category]` messages with one recovery step, and
+enforces exact-arg loop detection plus per-path read budgets for view tools.
+
 ## Current editing stack
+
+Preferred order for the model: create → str_replace → insert → bulk →
+`modify_source_code` last.
 
 ### `text_file_editor.py`
 Provides deterministic text editing helpers used as preferred exact-edit tools.
