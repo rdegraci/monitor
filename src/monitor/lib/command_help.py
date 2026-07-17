@@ -61,6 +61,7 @@ COMMAND_CATEGORIES: Dict[str, str] = {
     "wiki_init": "repository",
     "wiki_lint": "repository",
     "wiki_fix": "repository",
+    "symbols": "repository",
     # session
     "reset_history": "session",
     "break_chain": "session",
@@ -133,6 +134,7 @@ COMMAND_EXAMPLES: Dict[str, Tuple[str, ...]] = {
     "agent": (":agent", ":agent list", ":agent help"),
     "copy_code": (":copy_code", ":copy_code 2", ":copy_code all"),
     "rg": (":rg pattern", ":rg -t py ClassName"),
+    "symbols": (":symbols", ":symbols cache", ":symbols langs"),
 }
 
 

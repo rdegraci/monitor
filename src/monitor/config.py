@@ -917,10 +917,24 @@ MAX_REPEATED_TOOL_CALLS = 3
 # equality. Set to 0 to disable.
 MAX_PATH_READS_PER_TURN = 6
 
+# Maximum file_outline/find_symbol calls in one user turn. Symbol lookup is
+# cheap relative to file reads but can still become a substitute for acting.
+# Set to 0 to disable.
+MAX_SYMBOL_QUERIES_PER_TURN = 12
+
 # Session edit-path telemetry (PLAN Phase 7).
 SESSION_DETERMINISTIC_EDIT_COUNT = 0
 SESSION_NL_EDIT_COUNT = 0
 SESSION_READ_BUDGET_TRIPS = 0
+
+# On-demand symbol telemetry (PLAN_SYMBOLD Phase 3). Payload-free counters only.
+SESSION_SYMBOL_TOOL_CALLS = 0
+SESSION_SYMBOL_CACHE_HITS = 0
+SESSION_SYMBOL_FILES_SCANNED = 0
+SESSION_SYMBOL_RESULTS = 0
+SESSION_SYMBOL_TRUNCATIONS = 0
+SESSION_SYMBOL_FAILURES = 0
+SESSION_SYMBOL_BUDGET_TRIPS = 0
 
 # Default 32K tokens for a single serialized tool result that gets fed back
 # into the model loop. This is intentionally much smaller than the model
@@ -1796,6 +1810,24 @@ def configure_globals():
             logger.warning(
                 "MAX_PATH_READS_PER_TURN=%r is not an integer; keeping default %d",
                 _path_reads_raw, MAX_PATH_READS_PER_TURN,
+            )
+
+    global MAX_SYMBOL_QUERIES_PER_TURN
+    _symbol_queries_raw = yaml_config.get("MAX_SYMBOL_QUERIES_PER_TURN")
+    if _symbol_queries_raw is not None:
+        try:
+            _symbol_queries_val = int(_symbol_queries_raw)
+            if _symbol_queries_val >= 0:
+                MAX_SYMBOL_QUERIES_PER_TURN = _symbol_queries_val
+            else:
+                logger.warning(
+                    "MAX_SYMBOL_QUERIES_PER_TURN=%r must be >= 0; keeping default %d",
+                    _symbol_queries_raw, MAX_SYMBOL_QUERIES_PER_TURN,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "MAX_SYMBOL_QUERIES_PER_TURN=%r is not an integer; keeping default %d",
+                _symbol_queries_raw, MAX_SYMBOL_QUERIES_PER_TURN,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")

@@ -18,7 +18,8 @@ This document describes the current `src/monitor/lib` layer.
 - `tool_definitions.py`
 - `tool_loading.py`
 - `tool_profiles.py` — advertised tool groups (`coding` default, `full`, leases)
-- `tool_failures.py` — failure categories, read-budget / exact-arg loops
+- `tool_failures.py` — failure categories, read/symbol budgets, exact-arg loops
+- `code_symbols.py` — on-demand `file_outline` / `find_symbol` with cache
 - `tool_text.py`
 - `bulk_replace.py`
 - `find_files.py`
@@ -77,6 +78,18 @@ Current callable tools include categories such as:
 - todo/task tools
 - sub-agent tools
 - weather and DB tooling
+
+### `code_symbols.py`
+
+Provides optional tree-sitter structural tools in the `core_read` group:
+
+- `file_outline(path, kind, max_results)` — one-file outline
+- `find_symbol(query, path, kind, max_results)` — ranked repo definition lookup
+
+Languages: Python, JavaScript, TypeScript/TSX, Go, Rust, Swift. Install via
+`pip install '.[symbols]'`. Results are requested on demand; no repo map is
+injected into each prompt. Parsed symbols are cached under the platform
+user-cache directory by path, mtime, size, and language.
 
 Examples of current tool names:
 - `perform_git_status`

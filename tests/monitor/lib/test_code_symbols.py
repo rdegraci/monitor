@@ -390,3 +390,28 @@ def test_find_symbol_empty_query_and_outside_repo(repo_tmp, symbol_cache_isolati
     blocked = cs.find_symbol("f", path=str(outside))
     assert blocked["ok"] is False
     assert "outside" in blocked["error"]
+
+
+def test_symbols_command_reports_languages_and_cache(capsys, monkeypatch):
+    from monitor.lib.built_in_commands import symbols_command
+
+    monkeypatch.setattr(
+        cs,
+        "symbol_dependency_status",
+        lambda: {"tree_sitter": True, "tree_sitter_swift": True},
+    )
+    symbols_command("")
+    out = capsys.readouterr().out
+    assert "Symbol tools: ready" in out
+    assert "swift: .swift" in out
+    assert "Symbol cache (process)" in out
+    assert "Session symbols:" in out
+
+
+def test_system_prompt_guides_symbols_without_injecting_a_map():
+    from monitor.lib.system_prompt import SYSTEM_PROMPT_TEMPLATE
+
+    assert "use find_symbol" in SYSTEM_PROMPT_TEMPLATE
+    assert "use file_outline" in SYSTEM_PROMPT_TEMPLATE
+    assert "textual references" in SYSTEM_PROMPT_TEMPLATE
+    assert "repository symbol map:" not in SYSTEM_PROMPT_TEMPLATE.lower()

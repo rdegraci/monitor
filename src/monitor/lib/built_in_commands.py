@@ -258,6 +258,55 @@ def print_tools_command(arg=None):
     print("Use ':tools list' for profiles, ':tools catalog' for names, ':tools tokens' for schema size.")
 
 
+def symbols_command(arg=None):
+    """Show on-demand symbol support and payload-free cache diagnostics."""
+    from monitor.lib.code_symbols import (
+        EXTENSION_TO_LANGUAGE,
+        symbol_cache_stats,
+        symbol_dependency_status,
+    )
+    from monitor.lib.optional_deps import install_command
+
+    arg_text = (arg or "").strip().lower()
+    if arg_text not in {"", "cache", "langs", "languages", "help"}:
+        print_colored_error("Usage: :symbols [cache|langs|help]")
+        return
+    if arg_text == "help":
+        print("Usage: :symbols [cache|langs]")
+        print("  cache  show in-process and session symbol counters")
+        print("  langs  show supported extensions and grammar availability")
+        return
+
+    dependency_status = symbol_dependency_status()
+    installed = all(dependency_status.values())
+    if arg_text in {"", "langs", "languages"}:
+        print(f"Symbol tools: {'ready' if installed else 'missing optional dependencies'}")
+        by_language: Dict[str, list[str]] = {}
+        for extension, language in sorted(EXTENSION_TO_LANGUAGE.items()):
+            by_language.setdefault(language, []).append(extension)
+        for language, extensions in sorted(by_language.items()):
+            print(f"  {language}: {', '.join(extensions)}")
+        if not installed:
+            missing = [name for name, present in dependency_status.items() if not present]
+            print(f"Missing modules: {', '.join(missing)}")
+            print(f"Install: {install_command('symbols')}")
+
+    if arg_text in {"", "cache"}:
+        stats = symbol_cache_stats()
+        print(
+            "Symbol cache (process): "
+            f"hits={stats.get('hits', 0)} misses={stats.get('misses', 0)}"
+        )
+        print(
+            "Session symbols: "
+            f"calls={int(getattr(config, 'SESSION_SYMBOL_TOOL_CALLS', 0) or 0)} "
+            f"cache_hits={int(getattr(config, 'SESSION_SYMBOL_CACHE_HITS', 0) or 0)} "
+            f"files={int(getattr(config, 'SESSION_SYMBOL_FILES_SCANNED', 0) or 0)} "
+            f"results={int(getattr(config, 'SESSION_SYMBOL_RESULTS', 0) or 0)} "
+            f"failures={int(getattr(config, 'SESSION_SYMBOL_FAILURES', 0) or 0)}"
+        )
+
+
 def activity_command(arg=None):
     """Show or toggle live turn/tool activity feedback (PLAN Phase 3).
 

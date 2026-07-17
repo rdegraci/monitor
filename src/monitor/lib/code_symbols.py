@@ -709,6 +709,15 @@ def symbol_cache_stats() -> Dict[str, int]:
     return dict(_CACHE_STATS)
 
 
+def symbol_dependency_status() -> Dict[str, bool]:
+    """Return module-presence flags without raising or loading repository data."""
+    from monitor.lib.optional_deps import load_optional
+
+    modules = {"tree_sitter"}
+    modules.update(module_name for module_name, _accessor in _LANGUAGE_MODULES.values())
+    return {module: load_optional(module) is not None for module in sorted(modules)}
+
+
 def _symbol_cache_dir() -> Path:
     from monitor._stubs import appdirs
 

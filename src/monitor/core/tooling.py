@@ -367,6 +367,43 @@ def _emit_tool_telemetry(tool_call, result, error, status=None):
             str(truncated).lower(),
             status or ("error" if error else "ok"),
         )
+        if name in {"file_outline", "find_symbol"}:
+            payload = result if isinstance(result, dict) else {}
+            ok = bool(payload.get("ok")) and error is None
+            cache_hits = int(payload.get("cache_hits", 0) or 0)
+            files_scanned = int(payload.get("files_scanned", 0) or 0)
+            result_count = int(payload.get("count", 0) or 0)
+            symbol_truncated = bool(payload.get("truncated", False))
+            config.SESSION_SYMBOL_TOOL_CALLS = int(
+                getattr(config, "SESSION_SYMBOL_TOOL_CALLS", 0) or 0
+            ) + 1
+            config.SESSION_SYMBOL_CACHE_HITS = int(
+                getattr(config, "SESSION_SYMBOL_CACHE_HITS", 0) or 0
+            ) + cache_hits
+            config.SESSION_SYMBOL_FILES_SCANNED = int(
+                getattr(config, "SESSION_SYMBOL_FILES_SCANNED", 0) or 0
+            ) + files_scanned
+            config.SESSION_SYMBOL_RESULTS = int(
+                getattr(config, "SESSION_SYMBOL_RESULTS", 0) or 0
+            ) + result_count
+            if symbol_truncated:
+                config.SESSION_SYMBOL_TRUNCATIONS = int(
+                    getattr(config, "SESSION_SYMBOL_TRUNCATIONS", 0) or 0
+                ) + 1
+            if not ok:
+                config.SESSION_SYMBOL_FAILURES = int(
+                    getattr(config, "SESSION_SYMBOL_FAILURES", 0) or 0
+                ) + 1
+            logger.info(
+                "[SYMBOL][TOOL] tool=%s ok=%s cache_hits=%d files_scanned=%d "
+                "results=%d truncated=%s",
+                name,
+                str(ok).lower(),
+                cache_hits,
+                files_scanned,
+                result_count,
+                str(symbol_truncated).lower(),
+            )
     except Exception:
         logger.debug("Failed to emit [SPEND][TOOL] telemetry", exc_info=True)
 

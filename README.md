@@ -216,6 +216,18 @@ Useful commands:
 `:tools tokens` compares advertised schema size across profiles. Session metrics
 from `:dump_metrics` also include the active tool-profile snapshot.
 
+### On-demand code symbols
+
+With `pip install '.[symbols]'`, the default coding profile exposes
+`find_symbol` (repo-wide definition lookup) and `file_outline` (one-file
+structure) for Python, JavaScript, TypeScript/TSX, Go, Rust, and Swift. The LLM
+calls them only when needed; no repository map is injected into every prompt.
+Use ripgrep for textual references and arbitrary content.
+
+`:symbols [langs|cache]` reports parser readiness and payload-free cache/session
+counters. Symbol calls are capped by `MAX_SYMBOL_QUERIES_PER_TURN` (default 12),
+and caches live in the platform user-cache directory rather than the repo.
+
 ### Live turn activity
 
 During a multi-round-trip turn, Monitor paints a single in-place status line so

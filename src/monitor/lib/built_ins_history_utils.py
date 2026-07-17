@@ -121,6 +121,13 @@ def reset_conversation_history_command(
         config.SESSION_READ_BUDGET_TRIPS = 0
         config.SESSION_DETERMINISTIC_EDIT_COUNT = 0
         config.SESSION_NL_EDIT_COUNT = 0
+        config.SESSION_SYMBOL_TOOL_CALLS = 0
+        config.SESSION_SYMBOL_CACHE_HITS = 0
+        config.SESSION_SYMBOL_FILES_SCANNED = 0
+        config.SESSION_SYMBOL_RESULTS = 0
+        config.SESSION_SYMBOL_TRUNCATIONS = 0
+        config.SESSION_SYMBOL_FAILURES = 0
+        config.SESSION_SYMBOL_BUDGET_TRIPS = 0
         # Responses-chain cost-tier telemetry: a fresh session has no prior
         # billed request. Seed LAST_BILLED_INPUT_TOKENS with the rebuilt history's
         # size (just the system prompt) — the approximate billed input of the
@@ -692,6 +699,27 @@ def dump_metrics_command(arg: str | None = None) -> None:
         "session_nl_edit_count": int(
             getattr(config, "SESSION_NL_EDIT_COUNT", 0) or 0
         ),
+        "session_symbol_tool_calls": int(
+            getattr(config, "SESSION_SYMBOL_TOOL_CALLS", 0) or 0
+        ),
+        "session_symbol_cache_hits": int(
+            getattr(config, "SESSION_SYMBOL_CACHE_HITS", 0) or 0
+        ),
+        "session_symbol_files_scanned": int(
+            getattr(config, "SESSION_SYMBOL_FILES_SCANNED", 0) or 0
+        ),
+        "session_symbol_results": int(
+            getattr(config, "SESSION_SYMBOL_RESULTS", 0) or 0
+        ),
+        "session_symbol_truncations": int(
+            getattr(config, "SESSION_SYMBOL_TRUNCATIONS", 0) or 0
+        ),
+        "session_symbol_failures": int(
+            getattr(config, "SESSION_SYMBOL_FAILURES", 0) or 0
+        ),
+        "session_symbol_budget_trips": int(
+            getattr(config, "SESSION_SYMBOL_BUDGET_TRIPS", 0) or 0
+        ),
         "session_compaction_count": int(
             getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
         ),
@@ -845,6 +873,13 @@ def load_history_command(arg: str | None = None) -> None:
     config.SESSION_READ_BUDGET_TRIPS = 0
     config.SESSION_DETERMINISTIC_EDIT_COUNT = 0
     config.SESSION_NL_EDIT_COUNT = 0
+    config.SESSION_SYMBOL_TOOL_CALLS = 0
+    config.SESSION_SYMBOL_CACHE_HITS = 0
+    config.SESSION_SYMBOL_FILES_SCANNED = 0
+    config.SESSION_SYMBOL_RESULTS = 0
+    config.SESSION_SYMBOL_TRUNCATIONS = 0
+    config.SESSION_SYMBOL_FAILURES = 0
+    config.SESSION_SYMBOL_BUDGET_TRIPS = 0
     config.TURN_COSTS_USD = []
     config.TURN_ROUND_TRIPS = []
     config.TURN_CACHED_INPUT_TOKENS = []

@@ -88,6 +88,68 @@ class TestTooling(unittest.TestCase):
         self.assertIn("truncated=true", rendered)
         self.assertNotIn("large output", rendered)
 
+    def test_symbol_telemetry_is_payload_free_and_updates_counters(self):
+        from monitor.lib import tool_failures
+
+        tool_failures.reset_tool_hygiene_state()
+        tool_call = {
+            "function": {
+                "arguments": '{"query": "SecretSymbol", "path": "src"}',
+                "name": "find_symbol",
+            }
+        }
+        symbol_result = {
+            "ok": True,
+            "count": 2,
+            "cache_hits": 5,
+            "files_scanned": 8,
+            "truncated": True,
+            "outline": "PRIVATE_SYMBOL_OUTPUT",
+        }
+        with (
+            patch.dict(
+                tooling.AVAILABLE_TOOLS,
+                {"find_symbol": lambda **_kwargs: symbol_result},
+                clear=True,
+            ),
+            patch.multiple(
+                tooling.config,
+                CURRENT_TURN_TOOL_CALLS=[],
+                MAX_REPEATED_TOOL_CALLS=0,
+                MAX_SYMBOL_QUERIES_PER_TURN=12,
+                SESSION_SYMBOL_TOOL_CALLS=0,
+                SESSION_SYMBOL_CACHE_HITS=0,
+                SESSION_SYMBOL_FILES_SCANNED=0,
+                SESSION_SYMBOL_RESULTS=0,
+                SESSION_SYMBOL_TRUNCATIONS=0,
+                SESSION_SYMBOL_FAILURES=0,
+            ),
+            patch.object(tooling.logger, "info") as mock_info,
+        ):
+            result, err = tooling.execute_tool_call(tool_call)
+            rendered_logs = [
+                call.args[0] % tuple(call.args[1:])
+                for call in mock_info.call_args_list
+                if call.args and isinstance(call.args[0], str)
+            ]
+            counters = (
+                tooling.config.SESSION_SYMBOL_TOOL_CALLS,
+                tooling.config.SESSION_SYMBOL_CACHE_HITS,
+                tooling.config.SESSION_SYMBOL_FILES_SCANNED,
+                tooling.config.SESSION_SYMBOL_RESULTS,
+                tooling.config.SESSION_SYMBOL_TRUNCATIONS,
+                tooling.config.SESSION_SYMBOL_FAILURES,
+            )
+
+        self.assertIsNone(err)
+        self.assertEqual(result, symbol_result)
+        self.assertEqual(counters, (1, 5, 8, 2, 1, 0))
+        symbol_log = next(line for line in rendered_logs if "[SYMBOL][TOOL]" in line)
+        self.assertIn("cache_hits=5", symbol_log)
+        self.assertIn("files_scanned=8", symbol_log)
+        self.assertNotIn("SecretSymbol", symbol_log)
+        self.assertNotIn("PRIVATE_SYMBOL_OUTPUT", symbol_log)
+
     @patch("monitor.core.tooling.AVAILABLE_TOOLS", new_callable=dict)
     def test_execute_tool_call_missing(self, mock_available):
         """execute_tool_call should report error when tool is missing."""

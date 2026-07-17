@@ -33,6 +33,13 @@ def _seed_counters(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SESSION_TOOL_CALL_COUNT", 17, raising=False)
     monkeypatch.setattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 2, raising=False)
     monkeypatch.setattr(config, "SESSION_COMPACTION_COUNT", 1, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_TOOL_CALLS", 4, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_CACHE_HITS", 11, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_FILES_SCANNED", 19, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_RESULTS", 7, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_TRUNCATIONS", 1, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_FAILURES", 2, raising=False)
+    monkeypatch.setattr(config, "SESSION_SYMBOL_BUDGET_TRIPS", 3, raising=False)
     monkeypatch.setattr(
         config,
         "CONVERSATION_HISTORY",
@@ -64,6 +71,13 @@ def test_dump_metrics_writes_expected_fields(tmp_path):
     assert payload["turn_costs_usd"] == [0.10, 0.20, 0.30]
     assert payload["session_tool_call_count"] == 17
     assert payload["session_loop_detector_trips"] == 2
+    assert payload["session_symbol_tool_calls"] == 4
+    assert payload["session_symbol_cache_hits"] == 11
+    assert payload["session_symbol_files_scanned"] == 19
+    assert payload["session_symbol_results"] == 7
+    assert payload["session_symbol_truncations"] == 1
+    assert payload["session_symbol_failures"] == 2
+    assert payload["session_symbol_budget_trips"] == 3
     assert payload["session_compaction_count"] == 1
     assert payload["conversation_length"] == 4
     assert payload["user_message_count"] == 2

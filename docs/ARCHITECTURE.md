@@ -161,6 +161,7 @@ Current safety-related behavior includes:
 - nested tool-call depth caps (`MAX_TOOL_CALL_DEPTH`)
 - repeated-call loop detection (`MAX_REPEATED_TOOL_CALLS`)
 - per-path read budget for `cat_file` / range views (`MAX_PATH_READS_PER_TURN`)
+- per-turn on-demand symbol budget (`MAX_SYMBOL_QUERIES_PER_TURN`)
 - actionable failure categories (`src/monitor/lib/tool_failures.py`)
 - write-tool blocking/scoping for sub-agents
 - special handling for high-token file and directory operations
@@ -182,6 +183,18 @@ The runtime status line shown in the REPL and TUI is built in
 
 This is the core registry for model-callable tools. What the model *sees* is
 further filtered by the active tool profile.
+
+### On-demand code symbols
+
+`src/monitor/lib/code_symbols.py` provides `file_outline` and `find_symbol` in
+the default `core_read` group. Optional tree-sitter grammars support Python,
+JavaScript, TypeScript/TSX, Go, Rust, and Swift. The model requests structural
+context as needed; Monitor does not attach an always-on repository map.
+
+Git-backed enumeration respects `.gitignore`; parsed symbols are cached outside
+the repository in the platform user-cache directory. Tool telemetry records
+counts, cache hits, files scanned, result counts, and truncation only—never
+queries or symbol output.
 
 ### Tool loading helpers
 `src/monitor/lib/tool_loading.py` provides helper functions for:

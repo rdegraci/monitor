@@ -25,7 +25,7 @@ python -m monitor --check-config
 ```
 
 Optional extras (`voice`, `tts`, `chroma`, `science`, `database`, `network`,
-`server`, `aws`, `all`) are documented in the README. Missing extras fail at
+`server`, `aws`, `symbols`, `all`) are documented in the README. Missing extras fail at
 feature use with an install hint, not at REPL startup.
 
 ## First coding session
@@ -97,7 +97,7 @@ Common built-ins:
 | Session | `:compact`, `:break_chain`, `:reset_history`, `:tasks` |
 | Cost / debug | `:cost_debug`, `:dump_metrics`, `:status`, `:activity` |
 | Model | `:llm`, `:reasoning` |
-| Search | `:rg` |
+| Search | `:rg`, `:symbols` |
 
 ## Tool profile (coding-first)
 
@@ -113,6 +113,36 @@ session memory. Network, database, and agent tools are withheld until you
 :tools tokens
 :tools full
 ```
+
+## On-demand code symbols
+
+Install the optional parsers:
+
+```sh
+pip install '.[symbols]'
+```
+
+The LLM can then call these automatically when structure is needed:
+
+- `find_symbol(query, path=".", kind="all")` locates definitions across a repo.
+- `file_outline(path, kind="all")` outlines one file.
+
+Supported languages: Python, JavaScript, TypeScript/TSX, Go, Rust, and Swift.
+The tools are in `core_read` and the default `coding` profile, but return no
+symbol data unless called. Use ripgrep for textual references, usages, strings,
+or arbitrary content.
+
+Diagnostics:
+
+```text
+:symbols
+:symbols langs
+:symbols cache
+```
+
+Symbol calls are capped per turn (`MAX_SYMBOL_QUERIES_PER_TURN`, default 12).
+The cache is stored in the platform user-cache directory, never in the repo.
+`:dump_metrics` includes payload-free symbol call/cache/result counters.
 
 ## Live feedback and status line
 

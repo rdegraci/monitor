@@ -84,6 +84,47 @@ def test_path_read_budget_is_per_path(monkeypatch):
     assert "a.py" in reject_a
 
 
+def test_symbol_query_budget_blocks_excess_calls(monkeypatch):
+    monkeypatch.setattr("monitor.config.MAX_SYMBOL_QUERIES_PER_TURN", 2, raising=False)
+    monkeypatch.setattr("monitor.config.SESSION_SYMBOL_BUDGET_TRIPS", 0, raising=False)
+    assert tool_failures.check_symbol_query_budget("find_symbol") is None
+    assert tool_failures.check_symbol_query_budget("file_outline") is None
+    reject = tool_failures.check_symbol_query_budget("find_symbol")
+    assert reject is not None
+    assert "[symbol_budget]" in reject
+    assert "results already returned" in reject
+    from monitor import config
+
+    assert config.SESSION_SYMBOL_BUDGET_TRIPS == 1
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
+        (
+            "Missing optional dependency. Install the 'symbols' extra",
+            tool_failures.CATEGORY_MISSING_DEPENDENCY,
+        ),
+        (
+            "unsupported language for file outline: .java",
+            tool_failures.CATEGORY_UNSUPPORTED_LANGUAGE,
+        ),
+        (
+            "path is outside the repository working tree",
+            tool_failures.CATEGORY_OUTSIDE_SCOPE,
+        ),
+    ],
+)
+def test_categorize_symbol_failures(message, category):
+    assert (
+        tool_failures.categorize_failure(
+            tool="find_symbol",
+            result={"ok": False, "error": message},
+        )
+        == category
+    )
+
+
 def test_execute_tool_call_enforces_read_budget(monkeypatch):
     monkeypatch.setattr("monitor.config.MAX_PATH_READS_PER_TURN", 2, raising=False)
     monkeypatch.setattr("monitor.config.MAX_REPEATED_TOOL_CALLS", 0, raising=False)

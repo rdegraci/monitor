@@ -30,6 +30,10 @@ CATEGORY_PROVIDER_ERROR = "provider_error"
 CATEGORY_PERMISSION_DENIED = "permission_denied"
 CATEGORY_LOOP_REJECTED = "loop_rejected"
 CATEGORY_READ_BUDGET = "read_budget"
+CATEGORY_SYMBOL_BUDGET = "symbol_budget"
+CATEGORY_MISSING_DEPENDENCY = "missing_dependency"
+CATEGORY_UNSUPPORTED_LANGUAGE = "unsupported_language"
+CATEGORY_OUTSIDE_SCOPE = "outside_scope"
 CATEGORY_UNKNOWN = "unknown"
 
 DETERMINISTIC_EDIT_TOOLS = frozenset(
@@ -52,6 +56,8 @@ READ_BUDGET_TOOLS = frozenset(
     }
 )
 
+SYMBOL_TOOLS = frozenset({"file_outline", "find_symbol"})
+
 # Preferred edit order for docs / notices (create → replace → insert → bulk → NL).
 PREFERRED_EDIT_ORDER = (
     "text_file_create",
@@ -71,20 +77,26 @@ _RECOVERY = {
     CATEGORY_PERMISSION_DENIED: "Check path ownership/permissions, or ask the user for access.",
     CATEGORY_LOOP_REJECTED: "Change arguments or strategy — repeating the same call will not help.",
     CATEGORY_READ_BUDGET: "Stop paging this file. Use ripgrep_search_tool (or find_files) to locate text, then open one targeted range.",
+    CATEGORY_SYMBOL_BUDGET: "Use the symbol results already returned, then inspect only the relevant files or use ripgrep for textual references.",
+    CATEGORY_MISSING_DEPENDENCY: "Install the named optional extra, restart Monitor, and retry once.",
+    CATEGORY_UNSUPPORTED_LANGUAGE: "Use ripgrep_search_tool or file reads for this language, or add its tree-sitter grammar.",
+    CATEGORY_OUTSIDE_SCOPE: "Choose a path inside the repository working tree and retry.",
     CATEGORY_UNKNOWN: "Change approach or ask the user for guidance.",
 }
 
 # Per-turn ledgers (cleared by reset_tool_hygiene_state).
 _RECENT_TOOL_CALLS: list[str] = []
 _PATH_READ_COUNTS: Dict[str, int] = {}
+_SYMBOL_QUERY_COUNT = 0
 _NL_FALLBACK_NOTICED_THIS_TURN = False
 
 
 def reset_tool_hygiene_state() -> None:
     """Clear per-turn loop and read-budget ledgers (call at turn start)."""
-    global _NL_FALLBACK_NOTICED_THIS_TURN
+    global _NL_FALLBACK_NOTICED_THIS_TURN, _SYMBOL_QUERY_COUNT
     _RECENT_TOOL_CALLS.clear()
     _PATH_READ_COUNTS.clear()
+    _SYMBOL_QUERY_COUNT = 0
     _NL_FALLBACK_NOTICED_THIS_TURN = False
 
 
@@ -166,13 +178,43 @@ def check_path_read_budget(name: str, args: Any) -> Optional[str]:
     )
 
 
+def check_symbol_query_budget(name: str) -> Optional[str]:
+    """Reject excessive symbol lookups within one user turn."""
+    global _SYMBOL_QUERY_COUNT
+    if name not in SYMBOL_TOOLS:
+        return None
+    limit = int(getattr(config, "MAX_SYMBOL_QUERIES_PER_TURN", 12) or 0)
+    if limit <= 0:
+        return None
+    _SYMBOL_QUERY_COUNT += 1
+    if _SYMBOL_QUERY_COUNT <= limit:
+        return None
+    try:
+        config.SESSION_SYMBOL_BUDGET_TRIPS = int(
+            getattr(config, "SESSION_SYMBOL_BUDGET_TRIPS", 0) or 0
+        ) + 1
+    except Exception:
+        logger.debug("Failed to increment SESSION_SYMBOL_BUDGET_TRIPS", exc_info=True)
+    return format_actionable_error(
+        CATEGORY_SYMBOL_BUDGET,
+        tool=name,
+        detail=(
+            f"Already used {_SYMBOL_QUERY_COUNT - 1} symbol lookups this turn "
+            f"(limit {limit})."
+        ),
+    )
+
+
 def check_tool_guards(name: Optional[str], args: Any) -> Optional[str]:
-    """Run path-read and exact-repeat guards. Return rejection message or None."""
+    """Run read, symbol-budget, and repeat guards."""
     if not isinstance(name, str) or not name:
         return None
     read_reject = check_path_read_budget(name, args)
     if read_reject:
         return read_reject
+    symbol_reject = check_symbol_query_budget(name)
+    if symbol_reject:
+        return symbol_reject
     return check_exact_repeat(name, args)
 
 
@@ -202,6 +244,14 @@ def categorize_failure(
         return CATEGORY_LOOP_REJECTED
     if "already read" in text and "this turn" in text:
         return CATEGORY_READ_BUDGET
+    if "symbol lookups this turn" in text:
+        return CATEGORY_SYMBOL_BUDGET
+    if "missing optional dependency" in text or "install the 'symbols' extra" in text:
+        return CATEGORY_MISSING_DEPENDENCY
+    if "unsupported language" in text:
+        return CATEGORY_UNSUPPORTED_LANGUAGE
+    if "outside the repository working tree" in text:
+        return CATEGORY_OUTSIDE_SCOPE
     if "permission denied" in text or "operation not permitted" in text:
         return CATEGORY_PERMISSION_DENIED
     if "string not found" in text or "matches 0 times" in text:

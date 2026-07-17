@@ -491,6 +491,7 @@ TOOL_PROFILE: coding
 # LIVE_TURN_FEEDBACK: true
 # STATUS_LINE_MODE: coding   # minimal | coding | debug — REPL/TUI status detail
 # MAX_PATH_READS_PER_TURN: 6  # Cap cat_file/view calls per path per turn (0=off)
+# MAX_SYMBOL_QUERIES_PER_TURN: 12  # Cap file_outline/find_symbol calls per turn (0=off)
 
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 

@@ -9,6 +9,7 @@ Short fixes for common first-run and session problems. For the happy path, see
 |---------|-------------|
 | Import / missing optional package | Install the matching extra, e.g. `pip install '.[server]'`. Core `pip install .` is intentional and light. |
 | Feature fails with an install hint | That extra was not installed; the message names the pip extra. |
+| `file_outline` / `find_symbol` reports missing dependencies | Install `pip install '.[symbols]'`, then restart Monitor. |
 | External binary missing | Install system tools as needed: `ripgrep`, `git`, `redis` (for memory), `duckdb` CLI, `ffmpeg` / PortAudio (voice). |
 
 ## Authentication and config
@@ -39,6 +40,9 @@ Common env vars (presence only in `--check-config`): `OPENAI_API_KEY`,
 | NL editor notice | Model used `modify_source_code`; prefer replace/insert tools. |
 | `[category]` tool failure | Follow the one-line recovery hint; details are in logs. |
 | Model re-reads the same file forever | Path read budget (`MAX_PATH_READS_PER_TURN`); ask it to `ripgrep_search_tool` instead. |
+| Symbol lookup reports unsupported language | Use ripgrep/file reads; supported symbol languages are shown by `:symbols langs`. |
+| `[symbol_budget]` | Use results already returned, then inspect targeted files. Default cap is `MAX_SYMBOL_QUERIES_PER_TURN: 12`. |
+| Symbol results seem stale | File mtime/size invalidates the cache. Use `:symbols cache` for counters; restart Monitor to clear the in-process layer. |
 
 ## Entry points
 
