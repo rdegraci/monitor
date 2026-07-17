@@ -27,6 +27,12 @@ HEAVY_OPTIONAL_PACKAGES = {
     "tavily-python",
     "flask",
     "boto3",
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
 }
 
 
@@ -49,7 +55,7 @@ class TestOptionalDepsPackaging(unittest.TestCase):
     def test_optional_extra_groups_declared(self):
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         extras = data["project"]["optional-dependencies"]
-        for name in ("voice", "tts", "chroma", "science", "database", "network", "server", "aws", "all"):
+        for name in ("voice", "tts", "chroma", "science", "database", "network", "server", "aws", "symbols", "all"):
             self.assertIn(name, extras)
             self.assertTrue(extras[name])
 

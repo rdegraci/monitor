@@ -24,6 +24,14 @@ EXTRA_PACKAGES: dict[str, tuple[str, ...]] = {
     "network": ("tavily-python",),
     "server": ("flask",),
     "aws": ("boto3",),
+    "symbols": (
+        "tree-sitter",
+        "tree-sitter-python",
+        "tree-sitter-javascript",
+        "tree-sitter-typescript",
+        "tree-sitter-go",
+        "tree-sitter-rust",
+    ),
 }
 
 # Importable module name → extra that provides it.
@@ -40,6 +48,12 @@ MODULE_TO_EXTRA: dict[str, str] = {
     "tavily": "network",
     "flask": "server",
     "boto3": "aws",
+    "tree_sitter": "symbols",
+    "tree_sitter_python": "symbols",
+    "tree_sitter_javascript": "symbols",
+    "tree_sitter_typescript": "symbols",
+    "tree_sitter_go": "symbols",
+    "tree_sitter_rust": "symbols",
 }
 
 

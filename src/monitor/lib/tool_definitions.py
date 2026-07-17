@@ -46,6 +46,7 @@ from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_te
 from monitor.lib.protocol_engine import modify_source_code
 from monitor.lib.bulk_replace import bulk_replace_in_files
 from monitor.lib.find_files import find_files
+from monitor.lib.code_symbols import file_outline
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.type_checker import type_check_python
 from monitor.lib.todo import (
@@ -98,6 +99,7 @@ AVAILABLE_TOOLS = {
     "sessions": sessions_command,
     "modify_source_code": modify_source_code,
     "find_files": find_files,
+    "file_outline": file_outline,
     "run_python_tests": run_python_tests,
     "type_check_python": type_check_python,
     "text_file_or_directory_view": text_file_or_directory_view,
@@ -368,6 +370,41 @@ TOOL_DESCRIPTIONS = [
                     },
                 },
                 "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_outline",
+            "description": (
+                "Return a compact structural outline of one source file: classes, "
+                "functions, methods, and types with line numbers and short signatures. "
+                "Prefer this over paging cat_file / cat_file_range when you need to "
+                "learn where definitions live before reading or editing. Requires the "
+                "optional 'symbols' install extra. Supported: Python, JavaScript, "
+                "TypeScript/TSX, Go, Rust."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to a single source file to outline.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": (
+                            "Symbol kind filter: all (default), class, function, "
+                            "method, or type."
+                        ),
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Cap on returned symbols. Default 100, max 500.",
+                    },
+                },
+                "required": ["path"],
             },
         },
     },
@@ -1185,6 +1222,33 @@ GEMINI_TOOL_DESCRIPTIONS = [
         }
       },
       "required": ["pattern"]
+    }
+  },
+  {
+    "description": (
+        "Return a compact structural outline of one source file (classes, functions, "
+        "methods, types with line numbers). Prefer over paging cat_file when locating "
+        "definitions. Requires the optional 'symbols' extra. Supported: Python, "
+        "JavaScript, TypeScript/TSX, Go, Rust."
+    ),
+    "name": "file_outline",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to a single source file to outline."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Filter: all, class, function, method, or type."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Cap on returned symbols. Default 100."
+        }
+      },
+      "required": ["path"]
     }
   },
   {

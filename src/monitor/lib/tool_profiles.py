@@ -61,6 +61,7 @@ TOOL_GROUPS = {
         "cat_file_range",
         "file_type",
         "find_files",
+        "file_outline",
         "ripgrep_search_tool",
     },
     TASK_GROUP: {
