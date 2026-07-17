@@ -118,6 +118,9 @@ def reset_conversation_history_command(
         config.SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED = 0
         config.SESSION_TOOL_CALL_COUNT = 0
         config.SESSION_LOOP_DETECTOR_TRIPS = 0
+        config.SESSION_READ_BUDGET_TRIPS = 0
+        config.SESSION_DETERMINISTIC_EDIT_COUNT = 0
+        config.SESSION_NL_EDIT_COUNT = 0
         # Responses-chain cost-tier telemetry: a fresh session has no prior
         # billed request. Seed LAST_BILLED_INPUT_TOKENS with the rebuilt history's
         # size (just the system prompt) — the approximate billed input of the
@@ -680,6 +683,15 @@ def dump_metrics_command(arg: str | None = None) -> None:
         "session_loop_detector_trips": int(
             getattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0) or 0
         ),
+        "session_read_budget_trips": int(
+            getattr(config, "SESSION_READ_BUDGET_TRIPS", 0) or 0
+        ),
+        "session_deterministic_edit_count": int(
+            getattr(config, "SESSION_DETERMINISTIC_EDIT_COUNT", 0) or 0
+        ),
+        "session_nl_edit_count": int(
+            getattr(config, "SESSION_NL_EDIT_COUNT", 0) or 0
+        ),
         "session_compaction_count": int(
             getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
         ),
@@ -830,6 +842,9 @@ def load_history_command(arg: str | None = None) -> None:
     config.SESSION_COMPACTION_COUNT = 0
     config.SESSION_TOOL_CALL_COUNT = 0
     config.SESSION_LOOP_DETECTOR_TRIPS = 0
+    config.SESSION_READ_BUDGET_TRIPS = 0
+    config.SESSION_DETERMINISTIC_EDIT_COUNT = 0
+    config.SESSION_NL_EDIT_COUNT = 0
     config.TURN_COSTS_USD = []
     config.TURN_ROUND_TRIPS = []
     config.TURN_CACHED_INPUT_TOKENS = []

@@ -271,7 +271,7 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "cat_file",
-            "description": "Display the full contents of a file at the given filepath. Use this function when you need to know or examine the full contents of a file. Note: Does not support partial reading of the file.",
+            "description": "Display the full contents of a file at the given filepath. Use when you need the whole file. Do not call it repeatedly on the same path with different approaches to hunt for text — use ripgrep_search_tool instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -288,7 +288,7 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "cat_file_range",
-            "description": "Display a range of lines from a file at the given filepath. Use this function when you need to read a specific portion of a file by line numbers.",
+            "description": "Display a range of lines from a file. Use for a known line window. Do not slide ranges repeatedly across the same file looking for a string — use ripgrep_search_tool, then open one targeted range.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1031,7 +1031,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Display the full contents of a file at the given path. Use this function when you need to know or examine the full contents of a file. Note: Does not support partial reading of the file.",
+    "description": "Display the full contents of a file at the given path. Use when you need the whole file. Do not call it repeatedly on the same path to hunt for text — use ripgrep_search_tool instead.",
     "name": "cat_file",
     "parameters": {
       "properties": {
@@ -1047,7 +1047,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Display a range of lines from a file at the given filepath. Use this function when you need to read a specific portion of a file by line numbers.",
+    "description": "Display a range of lines from a file. Use for a known line window. Do not slide ranges repeatedly across the same file looking for a string — use ripgrep_search_tool, then open one targeted range.",
     "name": "cat_file_range",
     "parameters": {
       "properties": {

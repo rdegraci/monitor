@@ -620,7 +620,7 @@ def add_text_file_neutral_tools(tool_descriptions: List[Dict[str, Any]], gemini_
             "type": "function",
             "function": {
                 "name": "text_file_or_directory_view",
-                "description": "Read a file or list a directory. Inspection only: it does not write files, call a model, or use the network. Use it before editing when you need exact file text or line numbers. Do not use it to change files. If a path looks missing, list the parent directory before assuming the path does not exist.",
+                "description": "Read a file or list a directory. Inspection only: it does not write files, call a model, or use the network. Use it before editing when you need exact file text or line numbers. Do not use it to change files. Do not page the same path repeatedly with sliding view_range to hunt for text — use ripgrep_search_tool instead. If a path looks missing, list the parent directory before assuming the path does not exist.",
                 "parameters": {
                     "type": "object",
                     "properties": {

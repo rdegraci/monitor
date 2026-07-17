@@ -911,13 +911,17 @@ MAX_TOOL_CALL_DEPTH = 128
 # starts the next turn (_depth=0 entry). Set to 0 to disable entirely.
 MAX_REPEATED_TOOL_CALLS = 3
 
-# Blast-radius cap on the byte length of content the model can write in a
-# single file-write tool call. UTF-8 encoded length of the payload
-# parameter (contents / content / new_str) is compared against this
-# value; over-cap calls are rejected with an error returned to the
-# model. Read-side protection lives in LARGE_FILE_TOKEN_THRESHOLD; this
-# is the symmetric write-side guard.
-#
+# Path-scoped read budget (PLAN Phase 7): max cat_file / cat_file_range /
+# text_file_or_directory_view calls against the SAME path within one user
+# turn. Stops sliding-window range hunting that never trips exact-arg
+# equality. Set to 0 to disable.
+MAX_PATH_READS_PER_TURN = 6
+
+# Session edit-path telemetry (PLAN Phase 7).
+SESSION_DETERMINISTIC_EDIT_COUNT = 0
+SESSION_NL_EDIT_COUNT = 0
+SESSION_READ_BUDGET_TRIPS = 0
+
 # Default 32K tokens for a single serialized tool result that gets fed back
 # into the model loop. This is intentionally much smaller than the model
 # context window; it bounds one tool's blast radius without constraining the
@@ -1774,6 +1778,24 @@ def configure_globals():
             logger.warning(
                 "TOOL_OUTPUT_TOKEN_LIMIT=%r is not an integer; keeping default %d",
                 _tool_output_limit_raw, TOOL_OUTPUT_TOKEN_LIMIT,
+            )
+
+    global MAX_PATH_READS_PER_TURN
+    _path_reads_raw = yaml_config.get("MAX_PATH_READS_PER_TURN")
+    if _path_reads_raw is not None:
+        try:
+            _path_reads_val = int(_path_reads_raw)
+            if _path_reads_val >= 0:
+                MAX_PATH_READS_PER_TURN = _path_reads_val
+            else:
+                logger.warning(
+                    "MAX_PATH_READS_PER_TURN=%r must be >= 0; keeping default %d",
+                    _path_reads_raw, MAX_PATH_READS_PER_TURN,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "MAX_PATH_READS_PER_TURN=%r is not an integer; keeping default %d",
+                _path_reads_raw, MAX_PATH_READS_PER_TURN,
             )
 
     SERVER_MODE = yaml_config.get("SERVER_MODE")

@@ -279,6 +279,23 @@ When auto-compaction fires or you stay above the 2x pricing cliff for several
 turns, Monitor prints a one-line recovery hint pointing at `:break_chain`,
 `:compact`, and `:reset_history`. Use `:help session` for when to use each.
 
+### Deterministic edits and actionable failures
+
+Monitor prefers surgical file tools in this order:
+
+`text_file_create` → `text_file_str_replace_in_file` → `text_file_insert_text_at_line` → `bulk_replace_in_files` → `modify_source_code` (last resort).
+
+When `modify_source_code` is used, a one-line notice marks it as a natural-language
+fallback. Failed replaces and similar errors return a short `[category]` message
+plus one recovery step (details stay in logs).
+
+To stop models sliding `cat_file` ranges forever looking for text, Monitor caps
+reads of the same path per turn (`MAX_PATH_READS_PER_TURN`, default 6) and tells
+the model to use `ripgrep_search_tool` instead. Exact-arg repeats are still
+blocked by `MAX_REPEATED_TOOL_CALLS`.
+
+`:dump_metrics` includes deterministic vs NL edit counts and read-budget trips.
+
 ### Show visible macros
 
 ```text

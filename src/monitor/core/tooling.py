@@ -18,6 +18,7 @@ from monitor.lib.token_management import (
     update_token_usage,
 )  # All token counting/estimation now centralized here
 from monitor.lib.llm_output_utils import strip_ansi
+from monitor.lib import tool_failures
 
 LARGE_FILE_TOKEN_THRESHOLD = 1000
 RECURSIVE_DIR_TOKEN_ESTIMATE = 500
@@ -29,10 +30,8 @@ SOURCE_MODIFICATION_TOKEN_ESTIMATE = 3000
 # value lives in config.MAX_TOOL_CALL_DEPTH so it's tunable at runtime
 # without an import-time freeze.
 
-# TC-3: per-turn loop detector. Records (tool_name, canonical_args) for each
-# tool call dispatched this turn. When the same signature has appeared the
-# last config.MAX_REPEATED_TOOL_CALLS times in a row, handle_tool_call
-# rejects the call without executing it — the model gets an error string
+# TC-3 / Phase 7: exact-arg loop detector + path-scoped read budget live in
+# monitor.lib.tool_failures (shared by Chat and Responses execute paths).
 
 WRITE_GUARDED_TOOLS = {
     "bulk_replace_in_files",
@@ -297,38 +296,6 @@ def _subagent_write_block_error(function_name, function_args):
         f"Sub-agent write access mode '{mode}' is not recognized. "
         f"Tool '{function_name}' is blocked in --agent mode."
     )
-# routed back as the tool result so it can change strategy. Cleared when a
-# new user turn enters handle_tool_call at _depth=0.
-_RECENT_TOOL_CALLS: list[str] = []
-
-
-def _tool_call_signature(name, args):
-    """Stable hash of a tool call: 'name:<sorted-json-of-args>'.
-
-    Sorted keys + default=str makes two calls with the same intent compare
-    equal even if the model reorders kwargs or passes a non-string-keyed
-    value. Falls back to repr() so a non-serializable arg never crashes
-    the detector — at worst the signature becomes opaque, which is fine.
-    """
-    try:
-        canonical = json.dumps(args, sort_keys=True, default=str) if args else "{}"
-    except Exception:
-        canonical = repr(args)
-    return f"{name}:{canonical}"
-
-
-def _check_repeated_call(name, args):
-    """Append a signature; return True if the last N entries all match.
-
-    N = config.MAX_REPEATED_TOOL_CALLS. Returns False (and still records)
-    when the knob is 0 or negative — used as a kill switch.
-    """
-    max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
-    sig = _tool_call_signature(name, args)
-    _RECENT_TOOL_CALLS.append(sig)
-    if max_reps <= 0 or len(_RECENT_TOOL_CALLS) < max_reps:
-        return False
-    return all(s == sig for s in _RECENT_TOOL_CALLS[-max_reps:])
 
 
 def parse_function_args(function_args):
@@ -452,11 +419,32 @@ def _execute_tool_call(tool_call):
     except json.JSONDecodeError as e:
         error_msg = f"Error parsing arguments for {function_name}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return None, error_msg
+        return None, tool_failures.format_actionable_error(
+            tool_failures.CATEGORY_INVALID_ARGUMENTS,
+            tool=function_name,
+            detail=error_msg,
+        )
     except Exception as e:
         error_msg = f"Unexpected error parsing arguments for {function_name}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return None, error_msg
+        return None, tool_failures.format_actionable_error(
+            tool_failures.CATEGORY_INVALID_ARGUMENTS,
+            tool=function_name,
+            detail=error_msg,
+        )
+
+    # Phase 7: path read budget + exact-arg loop (Chat Completions and Responses).
+    guard_error = tool_failures.check_tool_guards(function_name, function_args)
+    if guard_error:
+        logger.warning("Tool guard rejected %s: %s", function_name, guard_error[:200])
+        try:
+            if "[loop_rejected]" in guard_error:
+                config.SESSION_LOOP_DETECTOR_TRIPS = (
+                    getattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0) + 1
+                )
+        except Exception:
+            logger.debug("Failed to increment SESSION_LOOP_DETECTOR_TRIPS", exc_info=True)
+        return None, guard_error
 
     blocked_error = None
     if function_name in WRITE_GUARDED_TOOLS:
@@ -464,6 +452,8 @@ def _execute_tool_call(tool_call):
     if blocked_error is not None:
         logger.warning(blocked_error)
         return None, blocked_error
+
+    tool_failures.record_edit_tool_usage(function_name)
 
     try:
         # Apply rate limiting for high-token operations using centralized API
@@ -504,19 +494,42 @@ def _execute_tool_call(tool_call):
         except Exception:
             logger.debug("Failed to refresh temporary tool-group lease", exc_info=True)
 
+        # Phase 7: actionable failure enrichment for {ok: False} dicts / strings.
+        if isinstance(result, dict) and result.get("ok") is False:
+            result, _ = tool_failures.enrich_tool_failure(function_name, result=result)
+        elif isinstance(result, str) and result.startswith("Edit rejected:"):
+            result, _ = tool_failures.enrich_tool_failure(function_name, result=result)
+
         return result, None
     except TypeError as e:
         error_msg = f"Error executing {function_name}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return None, error_msg
+        return None, tool_failures.format_actionable_error(
+            tool_failures.CATEGORY_INVALID_ARGUMENTS,
+            tool=function_name,
+            detail=error_msg,
+        )
     except json.JSONDecodeError as e:
         error_msg = f"Error parsing arguments for {function_name}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return None, error_msg
+        return None, tool_failures.format_actionable_error(
+            tool_failures.CATEGORY_INVALID_ARGUMENTS,
+            tool=function_name,
+            detail=error_msg,
+        )
+    except PermissionError as e:
+        error_msg = f"Permission denied executing {function_name}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return None, tool_failures.format_actionable_error(
+            tool_failures.CATEGORY_PERMISSION_DENIED,
+            tool=function_name,
+            detail=error_msg,
+        )
     except Exception as e:
         error_msg = f"Unexpected error executing {function_name}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return None, error_msg
+        _, enriched = tool_failures.enrich_tool_failure(function_name, error=error_msg)
+        return None, enriched
 
 
 def handle_tool_call(response, _depth=0):
@@ -529,10 +542,10 @@ def handle_tool_call(response, _depth=0):
     instead of stack-overflowing.
     """
 
-    # Start of a new user turn — clear the per-turn loop-detector ledger so
-    # the previous turn's signatures don't bleed forward.
+    # Start of a new user turn — clear per-turn hygiene ledgers so the
+    # previous turn's signatures / path-read counts don't bleed forward.
     if _depth == 0:
-        _RECENT_TOOL_CALLS.clear()
+        tool_failures.reset_tool_hygiene_state()
 
     max_depth = config.MAX_TOOL_CALL_DEPTH
     if _depth >= max_depth:
@@ -589,20 +602,12 @@ def handle_tool_call(response, _depth=0):
         else:
             tool_call_id = getattr(tool_call, "id", None)
 
-        # TC-3: loop detector. Inspect the call BEFORE executing — if the same
-        # (name, args) has fired MAX_REPEATED_TOOL_CALLS times in a row this
-        # turn, the result obviously isn't going to change. Return an error
-        # string to the model so it can change strategy or ask the user.
+        # Extract tool name for activity feedback (guards run in execute_tool_call).
         loop_name = None
-        loop_args = None
         if isinstance(tool_call, dict):
             fn_block = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
             if fn_block:
                 loop_name = fn_block.get("name")
-                try:
-                    loop_args = parse_function_args(fn_block.get("arguments", ""))
-                except Exception:
-                    loop_args = fn_block.get("arguments")
 
         # Bump the session-wide tool-call counter for every call seen here,
         # whether it ultimately executes, errors, or is rejected by the loop
@@ -612,35 +617,21 @@ def handle_tool_call(response, _depth=0):
         except Exception:
             logger.debug("Failed to increment SESSION_TOOL_CALL_COUNT", exc_info=True)
 
-        if loop_name and _check_repeated_call(loop_name, loop_args):
-            max_reps = getattr(config, "MAX_REPEATED_TOOL_CALLS", 3)
+        # PLAN Phase 3: show which tool is running (name only, no args).
+        # Phase 7 guards (exact-arg loop + path read budget) run inside
+        # execute_tool_call so the Responses path shares the same behavior.
+        activity.show(activity.STATE_RUNNING, rt_count=_depth + 1, tool=loop_name)
+        activity.suspend_paint()
+        try:
+            result, error = execute_tool_call(tool_call)
+        except Exception as e:
+            logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
+            result, error = None, f"Tool execution raised: {e}"
+
+        if isinstance(error, str) and (
+            "[loop_rejected]" in error or "[read_budget]" in error
+        ):
             activity.show(activity.STATE_RETRYING, rt_count=_depth + 1, tool=loop_name)
-            logger.warning(
-                "handle_tool_call: refusing repeated call to %s (>=%d times in a row this turn)",
-                loop_name, max_reps,
-            )
-            try:
-                config.SESSION_LOOP_DETECTOR_TRIPS = getattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0) + 1
-            except Exception:
-                logger.debug("Failed to increment SESSION_LOOP_DETECTOR_TRIPS", exc_info=True)
-            result = None
-            error = (
-                f"Loop detected: you called {loop_name} with these exact arguments "
-                f"{max_reps} times in a row. The result isn't going to change. "
-                "Change your approach, try different arguments, or ask the user for guidance."
-            )
-            _emit_tool_telemetry(tool_call, result, error, status="loop_rejected")
-        else:
-            # PLAN Phase 3: show which tool is running (name only, no args).
-            # Suspend the in-place line before the tool executes so stdout
-            # (diffs, ripgrep hits, file views) prints cleanly underneath.
-            activity.show(activity.STATE_RUNNING, rt_count=_depth + 1, tool=loop_name)
-            activity.suspend_paint()
-            try:
-                result, error = execute_tool_call(tool_call)
-            except Exception as e:
-                logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
-                result, error = None, f"Tool execution raised: {e}"
 
         # Create and append result message. create_tool_result_message handles
         # None / non-string tool_call_id by coercing to empty string — that

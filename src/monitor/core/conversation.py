@@ -1201,6 +1201,12 @@ def prepare_query_context(user_prompt):
     """
     # Reset concise per-turn telemetry before any tool can run.
     config.CURRENT_TURN_TOOL_CALLS = []
+    try:
+        from monitor.lib import tool_failures
+
+        tool_failures.reset_tool_hygiene_state()
+    except Exception:
+        logger.debug("Failed to reset tool hygiene state", exc_info=True)
     # Reset the per-turn collation flag before folding; _fold sets it True iff
     # sub-agent results land on this turn (turn-scoped, like the reasoning override).
     config.CURRENT_TURN_IS_COLLATION = False

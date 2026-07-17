@@ -266,7 +266,8 @@ def test_build_system_prompt_includes_tool_routing_guidance():
     out = build_system_prompt()
     assert "inspect -> plan -> exact edit -> verify" in out
     assert "Inspect first when the target file, file layout, or exact text is not already known" in out
-    assert "bulk_replace_in_files for mechanical repeated edits" in out
+    assert "bulk_replace_in_files (mechanical repeated edits)" in out
+    assert "modify_source_code only as a last resort" in out
 
 
 def test_build_system_prompt_includes_post_write_verification_guidance():

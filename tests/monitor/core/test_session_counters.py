@@ -49,14 +49,17 @@ def _tc(call_id, name, args_str):
 @pytest.fixture(autouse=True)
 def _reset_state(monkeypatch):
     """Zero the counters and the loop-detector ledger before each test."""
+    from monitor.lib import tool_failures
+
     monkeypatch.setattr(config, "SESSION_TOOL_CALL_COUNT", 0, raising=False)
     monkeypatch.setattr(config, "SESSION_LOOP_DETECTOR_TRIPS", 0, raising=False)
     monkeypatch.setattr(config, "MAX_TOOL_CALL_DEPTH", 128, raising=False)
     monkeypatch.setattr(config, "MAX_REPEATED_TOOL_CALLS", 3, raising=False)
+    monkeypatch.setattr(config, "MAX_PATH_READS_PER_TURN", 0, raising=False)
     monkeypatch.setattr(config, "CONVERSATION_HISTORY", [], raising=False)
-    tooling._RECENT_TOOL_CALLS.clear()
+    tool_failures.reset_tool_hygiene_state()
     yield
-    tooling._RECENT_TOOL_CALLS.clear()
+    tool_failures.reset_tool_hygiene_state()
 
 
 def _patch_tool_loop(monkeypatch, recorded):
