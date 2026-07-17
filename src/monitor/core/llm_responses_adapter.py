@@ -1619,9 +1619,9 @@ def call_responses_api(
                                 type(followup_input).__name__,
                             )
                             if _get_followup_show_recovery_notices():
-                                print(
-                                    "[notice] I’m condensing context to keep this thread reliable."
-                                )
+                                from monitor.lib.status_line import compaction_recovery_notice
+
+                                print(compaction_recovery_notice())
                             trigger_summarization_followup = True
                             summarization_trigger_reason = "unknown chained follow-up budget"
                             break
@@ -1632,9 +1632,9 @@ def call_responses_api(
                                 final_followup_tokens,
                             )
                             if _get_followup_show_recovery_notices():
-                                print(
-                                    "[notice] I’m condensing context to keep this thread reliable."
-                                )
+                                from monitor.lib.status_line import compaction_recovery_notice
+
+                                print(compaction_recovery_notice())
                             trigger_summarization_followup = True
                             summarization_trigger_reason = "reserve-aware payload fallback"
                             break
@@ -2281,9 +2281,9 @@ def call_responses_api(
                             trigger_reason,
                         )
                         if _get_followup_show_recovery_notices():
-                            print(
-                                "[notice] I’m continuing from a condensed summary to avoid context overflow."
-                            )
+                            from monitor.lib.status_line import compaction_recovery_notice
+
+                            print(compaction_recovery_notice())
                         # Pre-send estimation/logging step for summarization payload
                         try:
                             try:

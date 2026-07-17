@@ -13,6 +13,13 @@ class TestDisplayOutput(unittest.TestCase):
         """Set up test fixtures before each test method."""
         self.sample_text = "Sample markdown text"
         self.sample_result = "# Test Result\nThis is a test result"
+        self._status_mode_patch = patch.object(
+            display_output.config, "STATUS_LINE_MODE", "debug", create=True
+        )
+        self._status_mode_patch.start()
+
+    def tearDown(self):
+        self._status_mode_patch.stop()
 
     @patch('monitor.lib.display_output.highlightMarkdown')
     def test_display_query_result_with_update_history(self, mock_highlight):
@@ -302,6 +309,14 @@ class TestDisplayOutput(unittest.TestCase):
 
 
 class TestFuelGauge(unittest.TestCase):
+    def setUp(self):
+        self._status_mode_patch = patch.object(
+            display_output.config, "STATUS_LINE_MODE", "debug", create=True
+        )
+        self._status_mode_patch.start()
+
+    def tearDown(self):
+        self._status_mode_patch.stop()
     """The F: fuel tank: SESSION_TOKEN_BUDGET - SESSION_TOTAL_TOKENS, drawn
     before C: as the exact remaining token count plus percent. No price."""
 

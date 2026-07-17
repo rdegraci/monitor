@@ -749,6 +749,7 @@ SHOW_TOOL_PROFILE_NOTICES = True
 # stalled. Adds no model calls and prints tool names/counters only — never tool
 # arguments, output, prompts, or credentials. Runtime-toggled via :activity.
 LIVE_TURN_FEEDBACK = True
+STATUS_LINE_MODE = "coding"
 # Temporary leased widen groups that remain active for upcoming turns. Mapping
 # of internal group name -> remaining FUTURE user turns.
 TOOL_PROFILE_GROUP_LEASES: dict[str, int] = {}
@@ -1019,7 +1020,7 @@ def configure_globals():
     global TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS
     global TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP, TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS
     global SHOW_TOOL_PROFILE_NOTICES
-    global LIVE_TURN_FEEDBACK
+    global LIVE_TURN_FEEDBACK, STATUS_LINE_MODE
     global ESCALATE_REASONING_ON_TOOL_FAILURE
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -1439,6 +1440,15 @@ def configure_globals():
     LIVE_TURN_FEEDBACK = bool(
         yaml_config.get("LIVE_TURN_FEEDBACK", True)
     )
+    STATUS_LINE_MODE = str(
+        yaml_config.get("STATUS_LINE_MODE", "coding") or "coding"
+    ).strip().lower()
+    if STATUS_LINE_MODE not in {"minimal", "coding", "debug"}:
+        logger.warning(
+            "STATUS_LINE_MODE=%r is invalid; using 'coding'.",
+            yaml_config.get("STATUS_LINE_MODE"),
+        )
+        STATUS_LINE_MODE = "coding"
     CURRENT_TURN_TOOL_GROUPS = set()
     TOOL_PROFILE_GROUP_LEASES = {}
 

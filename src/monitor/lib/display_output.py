@@ -230,6 +230,16 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     Returns:
         str: The formatted prompt display string.
     """
+    from monitor.lib.status_line import (
+        format_coding_cost_suffix,
+        format_minimal_context_segment,
+        filter_status_segments,
+        get_status_line_mode,
+        status_cache_line_enabled,
+    )
+
+    status_mode = get_status_line_mode()
+
     try:
         # H: renders in the default terminal color. Yellow elsewhere in the
         # indicator means "noteworthy" (cost over threshold, context low);
@@ -319,35 +329,51 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                 _turns_str = f" {_turns_color}({_turns_over}){reset}"
             c_count = f"{_num_color}{_billed}{reset}{_turns_str} (" + " ".join(_fields) + ")"
 
+        if status_mode == "minimal":
+            c_count = format_minimal_context_segment(
+                billed=_billed if _billed_cliff_ok else 0,
+                tier=_tier if _billed_cliff_ok else 0,
+                context_remaining=context_remaining,
+                context_budget=context_budget if isinstance(context_budget, int) else None,
+            )
+
         if context_remaining is None:
             context_remaining = tokens_remaining
 
         if not _billed_cliff_ok and context_remaining is not None:
-            if context_remaining < 0:
+            if status_mode == "minimal":
+                c_count = format_minimal_context_segment(
+                    billed=0,
+                    tier=0,
+                    context_remaining=context_remaining,
+                    context_budget=context_budget if isinstance(context_budget, int) else None,
+                )
+            else:
+                if context_remaining < 0:
+                    try:
+                        logger.warning(f"Negative context_remaining detected in prompt: {context_remaining}. Total tokens: {config.TOTAL_TOKEN_COUNT}, Max allowed: {config.MAX_TOKEN_COUNT}")
+                        # Print a snippet of recent conversation history if available
+                        if hasattr(config, 'CONVERSATION_HISTORY') and len(config.CONVERSATION_HISTORY) >= 2:
+                            logger.warning(f"Recent conversation history (last 2): {config.CONVERSATION_HISTORY[-2:]}")
+                    except Exception as log_err:
+                        print(f"Error logging negative context_remaining: {log_err}")
+
+                # Calculate percentage remaining. Prefer the caller-supplied
+                # `context_budget` (typically MODEL_INPUT_WINDOW so the percent
+                # matches the input-side gate the send path enforces); fall back
+                # to MAX_TOKEN_COUNT for callers that don't pass it.
                 try:
-                    logger.warning(f"Negative context_remaining detected in prompt: {context_remaining}. Total tokens: {config.TOTAL_TOKEN_COUNT}, Max allowed: {config.MAX_TOKEN_COUNT}")
-                    # Print a snippet of recent conversation history if available
-                    if hasattr(config, 'CONVERSATION_HISTORY') and len(config.CONVERSATION_HISTORY) >= 2:
-                        logger.warning(f"Recent conversation history (last 2): {config.CONVERSATION_HISTORY[-2:]}")
-                except Exception as log_err:
-                    print(f"Error logging negative context_remaining: {log_err}")
-            
-            # Calculate percentage remaining. Prefer the caller-supplied
-            # `context_budget` (typically MODEL_INPUT_WINDOW so the percent
-            # matches the input-side gate the send path enforces); fall back
-            # to MAX_TOKEN_COUNT for callers that don't pass it.
-            try:
-                budget = context_budget if isinstance(context_budget, int) and context_budget > 0 else getattr(config, 'MAX_TOKEN_COUNT', None)
-                if budget and budget > 0:
-                    remaining_percent = (context_remaining / budget) * 100
-                    context_color = _context_color(context_remaining, remaining_percent)
-                    c_count = f"{context_color}{context_remaining} ({remaining_percent:.0f}%){reset}"
-                else:
+                    budget = context_budget if isinstance(context_budget, int) and context_budget > 0 else getattr(config, 'MAX_TOKEN_COUNT', None)
+                    if budget and budget > 0:
+                        remaining_percent = (context_remaining / budget) * 100
+                        context_color = _context_color(context_remaining, remaining_percent)
+                        c_count = f"{context_color}{context_remaining} ({remaining_percent:.0f}%){reset}"
+                    else:
+                        context_color = red if context_remaining == 0 else blue
+                        c_count = f"{context_color}{context_remaining}{reset}"
+                except Exception:
                     context_color = red if context_remaining == 0 else blue
                     c_count = f"{context_color}{context_remaining}{reset}"
-            except Exception:
-                context_color = red if context_remaining == 0 else blue
-                c_count = f"{context_color}{context_remaining}{reset}"
     except Exception as e:
         c_count = "Error in calculating context count"
         logger.error(f"Error: {e}", exc_info=True)
@@ -416,66 +442,71 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
                         # total+previous depending on which collapsed.
                         cost_str = _format_dollars(session_cost, cumulative=True)
 
-                        # Per-turn slots are gated on > 0. A bucket can be
-                        # exactly zero because litellm couldn't price the
-                        # call (model not in its pricing table) or because
-                        # the cost rounded to floor. Either way, "$0.0000"
-                        # is misleading — it suggests the turn was free,
-                        # not unpriced. Better to omit than mislead.
-                        recent_str = ""
-                        last_str = ""
-                        try:
-                            turn_costs = getattr(config, "TURN_COSTS_USD", None) or []
-                            window = getattr(config, "RECENT_TURN_WINDOW", 10) or 10
-                            # Color thresholds (USD). P uses single-turn cost;
-                            # W uses per-turn average over the window so a
-                            # single expensive turn doesn't immediately drive
-                            # W red — it has to be sustained.
-                            cost_p_yellow = getattr(config, "COST_P_YELLOW", 0.30) or 0.30
-                            cost_p_red = getattr(config, "COST_P_RED", 0.80) or 0.80
-                            cost_w_yellow = getattr(config, "COST_W_YELLOW", 0.30) or 0.30
-                            cost_w_red = getattr(config, "COST_W_RED", 0.60) or 0.60
-                            if turn_costs:
-                                recent_window = turn_costs[-window:]
-                                recent_sum = sum(recent_window)
-                                # Show the window slot only when it carries new
-                                # information vs the cumulative. Until enough
-                                # turns have accumulated that older buckets
-                                # actually fall outside the window, recent_sum
-                                # equals session_cost — repeating the same
-                                # number is visual noise. Epsilon (half a cent)
-                                # absorbs floating-point jitter and catches the
-                                # case where rounded display values would tie.
-                                if recent_sum > 0 and abs(recent_sum - session_cost) > 0.005:
-                                    w_per_turn = recent_sum / max(1, len(recent_window))
-                                    if w_per_turn >= cost_w_red:
-                                        w_color, w_reset = red, reset
-                                    elif w_per_turn >= cost_w_yellow:
-                                        w_color, w_reset = yellow, reset
-                                    else:
-                                        w_color, w_reset = "", ""
-                                    recent_str = (
-                                        f" {w_color}W:${_format_dollars(recent_sum, cumulative=False)}{w_reset}"
-                                    )
-                                last_val = turn_costs[-1]
-                                if last_val > 0:
-                                    if last_val >= cost_p_red:
-                                        p_color, p_reset = red, reset
-                                    elif last_val >= cost_p_yellow:
-                                        p_color, p_reset = yellow, reset
-                                    else:
-                                        p_color, p_reset = "", ""
-                                    last_str = (
-                                        f" {p_color}P:${_format_dollars(last_val, cumulative=False)}{p_reset}"
-                                    )
-                        except Exception:
-                            # If anything goes sideways, fall back to the
-                            # cumulative-only annotation — never crash on
-                            # display formatting.
+                        if status_mode == "coding":
+                            suffix = format_coding_cost_suffix(session_cost)
+                            if suffix:
+                                u_count = f"{u_count}{suffix}"
+                        else:
+                            # Per-turn slots are gated on > 0. A bucket can be
+                            # exactly zero because litellm couldn't price the
+                            # call (model not in its pricing table) or because
+                            # the cost rounded to floor. Either way, "$0.0000"
+                            # is misleading — it suggests the turn was free,
+                            # not unpriced. Better to omit than mislead.
                             recent_str = ""
                             last_str = ""
+                            try:
+                                turn_costs = getattr(config, "TURN_COSTS_USD", None) or []
+                                window = getattr(config, "RECENT_TURN_WINDOW", 10) or 10
+                                # Color thresholds (USD). P uses single-turn cost;
+                                # W uses per-turn average over the window so a
+                                # single expensive turn doesn't immediately drive
+                                # W red — it has to be sustained.
+                                cost_p_yellow = getattr(config, "COST_P_YELLOW", 0.30) or 0.30
+                                cost_p_red = getattr(config, "COST_P_RED", 0.80) or 0.80
+                                cost_w_yellow = getattr(config, "COST_W_YELLOW", 0.30) or 0.30
+                                cost_w_red = getattr(config, "COST_W_RED", 0.60) or 0.60
+                                if turn_costs:
+                                    recent_window = turn_costs[-window:]
+                                    recent_sum = sum(recent_window)
+                                    # Show the window slot only when it carries new
+                                    # information vs the cumulative. Until enough
+                                    # turns have accumulated that older buckets
+                                    # actually fall outside the window, recent_sum
+                                    # equals session_cost — repeating the same
+                                    # number is visual noise. Epsilon (half a cent)
+                                    # absorbs floating-point jitter and catches the
+                                    # case where rounded display values would tie.
+                                    if recent_sum > 0 and abs(recent_sum - session_cost) > 0.005:
+                                        w_per_turn = recent_sum / max(1, len(recent_window))
+                                        if w_per_turn >= cost_w_red:
+                                            w_color, w_reset = red, reset
+                                        elif w_per_turn >= cost_w_yellow:
+                                            w_color, w_reset = yellow, reset
+                                        else:
+                                            w_color, w_reset = "", ""
+                                        recent_str = (
+                                            f" {w_color}W:${_format_dollars(recent_sum, cumulative=False)}{w_reset}"
+                                        )
+                                    last_val = turn_costs[-1]
+                                    if last_val > 0:
+                                        if last_val >= cost_p_red:
+                                            p_color, p_reset = red, reset
+                                        elif last_val >= cost_p_yellow:
+                                            p_color, p_reset = yellow, reset
+                                        else:
+                                            p_color, p_reset = "", ""
+                                        last_str = (
+                                            f" {p_color}P:${_format_dollars(last_val, cumulative=False)}{p_reset}"
+                                        )
+                            except Exception:
+                                # If anything goes sideways, fall back to the
+                                # cumulative-only annotation — never crash on
+                                # display formatting.
+                                recent_str = ""
+                                last_str = ""
 
-                        u_count = f"{u_count} (~T:${cost_str}{recent_str}{last_str})"
+                            u_count = f"{u_count} (~T:${cost_str}{recent_str}{last_str})"
             except Exception:
                 # Cost annotation must never break the prompt display.
                 logger.debug("Failed to format SESSION_COST_USD", exc_info=True)
@@ -519,44 +550,34 @@ def format_prompt_display(conversation_count, tokens_remaining, cwd=None, model=
     effort = getattr(config, 'REASONING_EFFORT', '')
     reasoning_str = effort if isinstance(model, str) and prefix and (prefix in model) else ""
 
-    parts = []
-    if f_count:
-        parts.append(f"F:{f_count}")
-    if c_count:
-        parts.append(f"C:{c_count}")
-    if r_count:
-        parts.append(f"R:{r_count}")
-    if u_count:
-        parts.append(f"U:{u_count}")
-    if l_count:
-        parts.append(f"L:{l_count}")
-    # H indicator: "H:<count>" — the retained-history message count (tight, no
-    # space after colon, to match C:/R:/U:/L:). When one or more auto-compactions
-    # have fired this session, a "(N)" PREFIX leads, right after the colon:
-    # "H:(N) <count>" — surfacing compaction activity at a glance. Finally, when
-    # history_tokens is supplied, the retained-history TOKEN size follows in
-    # parens "(<n>)" — that's the context actually re-sent each request (system
-    # prompt + kept messages), i.e. the cost-relevant baseline.
-    # Example: "H:(1) 29 (12084)"; with no compactions: "H:36 (16561)".
+    # H indicator: "H:<count>" — compaction count prefix and retained-history
+    # token suffix when supplied (debug-oriented detail; still shown in coding).
     _compaction_count = getattr(config, "SESSION_COMPACTION_COUNT", 0) or 0
     _compaction_prefix = f"({_compaction_count}) " if _compaction_count > 0 else ""
     _history_tokens_suffix = ""
     if isinstance(history_tokens, (int, float)) and history_tokens >= 0:
         _history_tokens_suffix = f" ({int(history_tokens)})"
-    parts.append(f"H:{_compaction_prefix}{tch_count}{_history_tokens_suffix}{extra_history_str}")
+    h_value = f"{_compaction_prefix}{tch_count}{_history_tokens_suffix}{extra_history_str}"
 
-    # RT: model round-trips in the previous turn (last TURN_ROUND_TRIPS bucket).
-    # Read alongside P:: high RT + high P → many generations; low RT + high P →
-    # fat (high-reasoning) calls. Omitted until a turn has registered one.
+    rt_value = ""
     try:
         _round_trips = getattr(config, "TURN_ROUND_TRIPS", None) or []
         if _round_trips and isinstance(_round_trips[-1], (int, float)) and _round_trips[-1] > 0:
-            parts.append(f"RT:{int(_round_trips[-1])}")
+            rt_value = str(int(_round_trips[-1]))
     except Exception as e:
         logger.error(f"Error rendering RT round-trip count: {e}", exc_info=True)
 
-    stats_str = " ".join(parts)
-    cache_line = _build_cache_composition_line(model)
+    segments = [
+        ("F", f_count),
+        ("C", c_count),
+        ("R", r_count),
+        ("U", u_count),
+        ("L", l_count),
+        ("H", h_value),
+        ("RT", rt_value),
+    ]
+    stats_str = " ".join(filter_status_segments(segments, status_mode))
+    cache_line = _build_cache_composition_line(model) if status_cache_line_enabled(status_mode) else ""
     cache_suffix = f"\n{cache_line}" if cache_line else ""
 
     return f"\n{cwd}\n{stats_str}{cache_suffix}\nmonitor {model_str} {reasoning_str} ]] "

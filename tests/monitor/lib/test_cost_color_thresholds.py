@@ -33,6 +33,11 @@ RESET = "[/]"
 
 
 @pytest.fixture(autouse=True)
+def _debug_status_line_mode(monkeypatch):
+    monkeypatch.setattr(config, "STATUS_LINE_MODE", "debug", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _patch_color_sentinels(monkeypatch):
     monkeypatch.setattr(display_output, "red", RED, raising=False)
     monkeypatch.setattr(display_output, "yellow", YELLOW, raising=False)

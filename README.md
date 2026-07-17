@@ -257,6 +257,28 @@ server, and sub-agent runs. Toggle it at runtime:
 Set `LIVE_TURN_FEEDBACK: false` in config to disable by default. Full per-turn
 detail remains in the `[SPEND][TURN]` / `[SPEND][TOOL]` log lines.
 
+### Status-line modes
+
+The REPL prompt and TUI info bar share one status line. Control detail with
+`:status` or `STATUS_LINE_MODE` in config:
+
+```text
+:status              # show current mode
+:status coding        # recommended default
+:status minimal       # H: + C: cliff % only
+:status debug         # all gauges (R:, L:, RT:, cache mix)
+```
+
+| Mode | Fields shown |
+|------|----------------|
+| `minimal` | Message count (`H:`), cliff proximity (`C:`) |
+| `coding` | `H: C: U: (~T:$…) F:` |
+| `debug` | Full telemetry including rate limit, last request, round-trips, cache mix |
+
+When auto-compaction fires or you stay above the 2x pricing cliff for several
+turns, Monitor prints a one-line recovery hint pointing at `:break_chain`,
+`:compact`, and `:reset_history`. Use `:help session` for when to use each.
+
 ### Show visible macros
 
 ```text

@@ -17,6 +17,7 @@ from monitor.lib.built_ins_utils import append_function_to_built_ins
 from monitor.lib.commit_analysis import next_steps
 from monitor.lib.git import get_default_branch
 from monitor.lib.built_in_commands import clean_missing_values_command, normalize_data_command
+from monitor.lib.status_line import status_line_command
 from monitor.lib.built_in_commands import (
     break_chain_command,
     edit_function_keys_command,
@@ -401,6 +402,11 @@ def configure_built_ins() -> None:
                     "command": "activity",
                     "function": _make_callable(activity_command),
                     "description": "Show or toggle live turn/tool activity feedback (:activity on|off|toggle).",
+                },
+                {
+                    "command": "status",
+                    "function": _make_callable(status_line_command),
+                    "description": "Show or set status-line detail (:status minimal|coding|debug).",
                 },
                 {
                     "command": "sessions",

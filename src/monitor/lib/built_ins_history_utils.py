@@ -128,6 +128,12 @@ def reset_conversation_history_command(
         config.SESSION_RESPONSES_REQUESTS = 0
         config.SESSION_TURNS_OVER_CLIFF = 0
         try:
+            from monitor.lib.status_line import reset_cliff_warning_state
+
+            reset_cliff_warning_state()
+        except Exception:
+            pass
+        try:
             from monitor.lib.token_management import count_message_tokens
             config.LAST_BILLED_INPUT_TOKENS = int(
                 count_message_tokens(getattr(config, "CONVERSATION_HISTORY", []) or [])
@@ -194,6 +200,12 @@ def break_chain_command(arg: Any | None = None, *, emit_notice: bool = True) -> 
             # consecutive-over-cliff turn counter so the C: gauge's (N) marker
             # resets immediately.
             config.SESSION_TURNS_OVER_CLIFF = 0
+            try:
+                from monitor.lib.status_line import reset_cliff_warning_state
+
+                reset_cliff_warning_state()
+            except Exception:
+                pass
             try:
                 from monitor.lib.token_management import count_message_tokens
                 new_billed = int(

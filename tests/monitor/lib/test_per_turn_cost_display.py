@@ -26,6 +26,11 @@ from monitor import config
 from monitor.lib.display_output import format_prompt_display
 
 
+@pytest.fixture(autouse=True)
+def _debug_status_line_mode(monkeypatch):
+    monkeypatch.setattr(config, "STATUS_LINE_MODE", "debug", raising=False)
+
+
 def _set_cost_state(monkeypatch, *, cost, turn_costs, show=True):
     monkeypatch.setattr(config, "SHOW_COST_ESTIMATE", show, raising=False)
     monkeypatch.setattr(config, "SESSION_COST_USD", cost, raising=False)

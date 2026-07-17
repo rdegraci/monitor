@@ -902,7 +902,7 @@ def compute_prompt_display():
     total_used = getattr(config, "SESSION_TOTAL_TOKENS", None)
     last_used = getattr(config, "LAST_REQUEST_TOKEN_COUNT", None)
     last_used_estimated = getattr(config, "LAST_REQUEST_USED_ESTIMATE", None)
-    return format_prompt_display(
+    prompt_display = format_prompt_display(
         # H reports the count of user/assistant/tool messages — system
         # messages are excluded so a fresh session shows H:0 (rather
         # than H:1 for the system prompt that's in history from startup).
@@ -925,6 +925,13 @@ def compute_prompt_display():
         # on H:. Already computed above for the C: math; reused here.
         history_tokens=tokens_in_history,
     )
+    try:
+        from monitor.lib.status_line import print_cliff_streak_warning_if_needed
+
+        print_cliff_streak_warning_if_needed()
+    except Exception:
+        logger.debug("cliff streak warning failed", exc_info=True)
+    return prompt_display
 
 
 def apply_model_switch_if_needed(last_model):

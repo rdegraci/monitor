@@ -489,6 +489,7 @@ TOOL_PROFILE: coding
 # in --script / piped / server / sub-agent contexts. Toggle at runtime with
 # ":activity on|off". Set false here to disable by default.
 # LIVE_TURN_FEEDBACK: true
+# STATUS_LINE_MODE: coding   # minimal | coding | debug — REPL/TUI status detail
 
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
 

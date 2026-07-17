@@ -148,7 +148,9 @@ def compact_command(arg: str | None = None) -> None:
         active_config.SESSION_COMPACTION_COUNT = (
             getattr(active_config, "SESSION_COMPACTION_COUNT", 0) + 1
         )
-        active_print("Conversation compacted.")
+        from monitor.lib.status_line import compaction_recovery_notice
+
+        active_print(compaction_recovery_notice(manual=True))
         active_logger.info(
             "Manual compaction complete: preserved %s recent message(s).",
             len(preserved),

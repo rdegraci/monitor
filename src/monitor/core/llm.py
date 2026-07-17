@@ -568,6 +568,12 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                                 False,
                                 _seconds_since_last,
                             )
+                            try:
+                                from monitor.lib.status_line import compaction_recovery_notice
+
+                                print(compaction_recovery_notice())
+                            except Exception:
+                                logger.debug("compaction recovery notice failed", exc_info=True)
                         except Exception:
                             logger.exception("Failed to record [SPEND][COMPACTION] success telemetry")
 
@@ -763,6 +769,12 @@ def get_llm_completion(log_prefix="", error_message="Error during litellm comple
                                 False,
                                 _seconds_since_last,
                             )
+                            try:
+                                from monitor.lib.status_line import compaction_recovery_notice
+
+                                print(compaction_recovery_notice())
+                            except Exception:
+                                logger.debug("compaction recovery notice failed", exc_info=True)
                         except Exception:
                             logger.exception("Failed to record [SPEND][COMPACTION] success telemetry")
 

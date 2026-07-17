@@ -81,7 +81,8 @@ class TestConfigureBuiltIns(unittest.TestCase):
         self.assertIs(reset_args[4], mock_logger)
         self.assertIs(reset_args[5], mock_config)
         self.assertEqual(mock_config.SESSION_COMPACTION_COUNT, 1)
-        mock_print.assert_called_with("Conversation compacted.")
+        mock_print.assert_called()
+        assert "Conversation compacted." in str(mock_print.call_args)
 
     @patch('monitor.lib.built_in_commands.logger')
     @patch('monitor.lib.built_in_commands.print')

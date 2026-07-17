@@ -14,7 +14,7 @@ class TestConfigureBuiltIns(unittest.TestCase):
         # The minimum number of registrations is the number of commands in the function,
         # here counted by manually scanning the configure_built_ins source.
         # If more commands are added, update expected_call_count.
-        expected_call_count = 29  # Update this if commands are added/removed in the future.
+        expected_call_count = 30  # Update this if commands are added/removed in the future.
         self.assertGreaterEqual(mock_append.call_count, expected_call_count)
 
     @patch('monitor.core.built_ins.print_colored_error')
@@ -24,7 +24,7 @@ class TestConfigureBuiltIns(unittest.TestCase):
         Test that print_colored_error is called if registration fails.
         """
         built_ins.configure_built_ins()
-        self.assertGreaterEqual(mock_error.call_count, 29)  # Update this if commands are added/removed in the future.
+        self.assertGreaterEqual(mock_error.call_count, 30)  # Update this if commands are added/removed in the future.
         for call in mock_error.call_args_list:
             args, kwargs = call
             self.assertTrue('Failed to register' in args[0])
