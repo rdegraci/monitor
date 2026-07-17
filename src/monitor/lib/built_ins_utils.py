@@ -9,54 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def print_built_ins(arg: str = "") -> None:
+    """Print unified command help (task-grouped discovery).
+
+    Delegates to :func:`monitor.lib.command_help.help_command` so ``:help``,
+    ``:built_ins``, and ``?`` share one surface. ``arg`` is forwarded as a
+    search query (command name or category).
     """
-    Print a list of available built-in commands grouped by their group description,
-    with aligned descriptions.
+    from monitor.lib.command_help import help_command
 
-    Prepends a brief invocation hint (two lines) so new users see how to actually
-    run commands without having to dig through other docs.
-
-    Args:
-        arg: Additional arguments passed to the command (currently unused).
-    """
-    if not built_in_functions:
-        print("No built-in commands have been registered.")
-        return
-
-    # Two-line preamble: how to invoke + how arguments work. Deliberately
-    # short — the value is in being skimmable, not exhaustive. The
-    # detailed Usage notes already live in each command's description.
-    print(
-        "Type a command followed by Enter. Built-ins start with ':' or '/' "
-        "(e.g. ':help', '/dump_metrics')."
-    )
-    print("Every listed ':name' command can also be invoked as '/name'.")
-    print(
-        "Arguments follow the command name with a space "
-        "(e.g. ':dump_metrics /tmp/m.json', '/copy_code 2')."
-    )
-
-    # Determine the maximum displayed command length across all built-ins for padding
-    longest_command_length: int = max(
-        len(f":{item['command']}") for item in built_in_functions if "command" in item
-    )
-
-    # Group commands by their 'group_description', defaulting to 'General'
-    grouped_commands: Dict[str, List[Dict[str, Any]]] = {}
-    for item in built_in_functions:
-        group_name: str = item.get("group_description", "General")
-        grouped_commands.setdefault(group_name, []).append(item)
-
-    # Print commands grouped by group description
-    for group_name in sorted(grouped_commands.keys()):
-        print(f"\n=== {group_name} ===")
-        for item in grouped_commands[group_name]:
-            command: str = item.get("command", "")
-            description: str = item.get("description", "")
-            display_command: str = f":{command}"
-            padded_command: str = display_command.ljust(longest_command_length)
-            print(f"{padded_command}  - {description}")
-    print("***")
+    help_command(arg)
 
 
 def start_python_repl(arg: str = "") -> None:
@@ -82,7 +43,7 @@ built_in_functions: List[Dict[str, Any]] = [
     },
     {
         "command": "built_ins",
-        "description": "Lists all registered built-in commands.",
+        "description": "Alias for :help — unified command discovery by task.",
         "function": print_built_ins,
         "group_description": "Utilities",
     },
@@ -94,7 +55,13 @@ built_in_functions: List[Dict[str, Any]] = [
     },
     {
         "command": "help",
-        "description": "Displays all registered built-in commands.",
+        "description": "Unified command discovery. Usage: :help, :help <command|category>.",
+        "function": print_built_ins,
+        "group_description": "Utilities",
+    },
+    {
+        "command": "?",
+        "description": "Alias for :help — unified command discovery by task.",
         "function": print_built_ins,
         "group_description": "Utilities",
     },

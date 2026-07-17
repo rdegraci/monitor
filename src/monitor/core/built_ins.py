@@ -327,7 +327,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "commands",
                     "function": _make_callable(print_terminal_commands),
-                    "description": "Print the list of interactive commands.",
+                    "description": "List terminal/internal catalog names (llm<, directive<, …). Prefer :help for built-in discovery.",
                 },
                 {
                     "command": "history",
@@ -355,7 +355,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "model",
                     "function": _make_callable(llm_command),
-                    "description": "Change the active LLM model at runtime. Usage: : (or /) model <model> or : (or /) model help for available models.",
+                    "description": "Alias for :llm. Usage: :model <model> or :model help.",
                 },
                 {
                     "command": "reasoning",
@@ -505,7 +505,7 @@ def configure_built_ins() -> None:
                 {
                     "command": "cc",
                     "function": _make_callable(copy_code_command),
-                    "description": "Alias for : (or /) copy_code. Usage: : (or /) cc [N | all].",
+                    "description": "Alias for :copy_code. Usage: :cc [N | all].",
                 },
             ],
         },

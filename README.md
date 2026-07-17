@@ -155,34 +155,47 @@ or `MONITOR_CONVENTIONS.md` overrides.
 
 ## Common usage
 
-### Show terminal/internal command names
+### Command discovery
 
 ```text
-commands
+:help
+:help coding
+:help tools
+?
 ```
 
-`commands` lists terminal command entries and internal commands such as `llm<`
-and `directive<`. It does not list built-in slash/colon commands.
+`:help` (also `/help` or `?`) is the canonical discovery surface. Commands are
+grouped by task — coding, repository, session, cost, agent, configuration, and
+advanced — with common actions first and short examples for `:tools`,
+`:compact`, `:break_chain`, `:reasoning`, cost diagnostics, and session reset.
+Search by command name or category (`:help cost`, `:help compact`). Aliases such
+as `:model` and `:cc` report their canonical names (`:llm`, `:copy_code`).
+
+Every `:name` built-in also works as `/name`.
+
+### Terminal / internal catalogs
+
+```text
+:commands
+```
+
+`:commands` lists terminal command entries and internal commands such as `llm<`
+and `directive<`. Prefer `:help` for day-to-day built-in discovery; macros and
+specialized integrations live under the Advanced section there.
 
 ### Built-in commands
 
-Built-ins are a separate command surface. Common examples include:
+Common examples (invoke with `:` or `/`):
 
-- `tasks`
-- `clear_tasks`
-- `macros`
-- `tools`
-- `history`
-- `llm`
-- `model`
-- `reasoning`
-- `compact`
-- `rg`
-- `agent`
-
-Use the exact names shown by the relevant built-in listings and prompts.
-Depending on front-end/input mode, built-ins are typically invoked with `:` or
-`/`, for example `:tasks` or `/tasks`.
+- `:tools`
+- `:tasks` / `:clear_tasks`
+- `:compact` / `:break_chain` / `:reset_history`
+- `:reasoning`
+- `:llm` (alias `:model`)
+- `:cost_debug` / `:dump_metrics`
+- `:rg`
+- `:agent`
+- `:macros`
 
 ### Tool profiles (coding-first default)
 

@@ -24,6 +24,7 @@ from monitor.lib.built_ins_utils import (
     is_built_in_function,
     execute_built_in_function,
 )
+from monitor.lib.command_help import normalize_help_invocation
 from monitor.lib.built_in_commands import handle_cd_command
 from monitor.lib.display_output import display_query_result
 from monitor.lib.colors import yellow, reset
@@ -85,6 +86,11 @@ def evaluate_command(command: str) -> CommandResult:
         # Detect exit commands early (no side-effects here)
         if command.lower() in ["/exit", "exit"]:
             return CommandResult(exit_requested=True, command_type=CommandType.EXIT)
+
+        # Bare "?" / ":?" / "/?" → unified help (Phase 4)
+        help_rewrite = normalize_help_invocation(command)
+        if help_rewrite is not None:
+            command = help_rewrite
 
         # Parse first lexical word
         first_word = command.split()[0] if command.split() else ""
@@ -148,6 +154,10 @@ def execute_command(command_result: CommandResult, original_command: str, histor
         # No-op for empty commands
         if command_result.command_type == CommandType.EMPTY:
             return command_result
+
+        help_rewrite = normalize_help_invocation(original_command)
+        if help_rewrite is not None:
+            original_command = help_rewrite
 
         # Handle explicit exit requests: perform legacy side-effects via handle_exit_command
         if command_result.command_type == CommandType.EXIT or command_result.exit_requested:
