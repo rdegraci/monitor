@@ -106,6 +106,8 @@ Examples of current tool names:
 - `create_file`
 - `modify_source_code`
 - `find_files`
+- `file_outline`
+- `find_symbol`
 - `run_python_tests`
 - `type_check_python`
 - `text_file_or_directory_view`

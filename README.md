@@ -186,6 +186,7 @@ Common examples (invoke with `:` or `/`):
 - `:llm` (alias `:model`)
 - `:cost_debug` / `:dump_metrics`
 - `:rg`
+- `:symbols` (optional `symbols` extra: readiness / langs / cache)
 - `:agent`
 - `:macros`
 

@@ -141,6 +141,7 @@ Notable built-ins include:
 - `clear_tasks`
 - `compact` / `break_chain` / `reset_history`
 - `dump_metrics`
+- `symbols` (optional parsers: readiness / langs / cache)
 - `wiki_init`
 - `wiki_lint`
 - `wiki_fix`

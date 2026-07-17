@@ -216,6 +216,7 @@ orchestration config). Wiki built-ins: `:wiki_init`, `:wiki_lint`, `:wiki_fix`.
 | Activity line | `:activity on` |
 | Task plan | `:tasks` / `:clear_tasks` |
 | Recover context | `:break_chain` / `:compact` / `:reset_history` |
+| Symbol parsers | `pip install '.[symbols]'` then `:symbols` / `:symbols langs` |
 
 ## Next docs
 

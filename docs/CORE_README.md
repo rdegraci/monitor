@@ -54,6 +54,7 @@ Notable registered built-ins include:
 - `load_history`
 - `cost_debug`
 - `dump_metrics`
+- `symbols` (optional `symbols` extra: readiness / langs / cache)
 - `less`
 - `save_response`
 - `copy_code`
