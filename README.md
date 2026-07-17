@@ -61,7 +61,7 @@ Optional extras:
 | `network` | `pip install '.[network]'` | Tavily web search |
 | `server` | `pip install '.[server]'` | Flask HTTP API (`--server`) |
 | `aws` | `pip install '.[aws]'` | boto3 |
-| `symbols` | `pip install '.[symbols]'` | tree-sitter file outlines (`file_outline`; Python, JS/TS, Go, Rust, Swift) |
+| `symbols` | `pip install '.[symbols]'` | tree-sitter outlines/search (`file_outline`, `find_symbol`; Python, JS/TS, Go, Rust, Swift) |
 | `all` | `pip install '.[all]'` | Everything above |
 
 Missing extras fail at feature use with an install hint, not at REPL startup.

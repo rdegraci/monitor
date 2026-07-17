@@ -62,6 +62,7 @@ TOOL_GROUPS = {
         "file_type",
         "find_files",
         "file_outline",
+        "find_symbol",
         "ripgrep_search_tool",
     },
     TASK_GROUP: {

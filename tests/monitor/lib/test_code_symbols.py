@@ -1,4 +1,4 @@
-"""Tests for PLAN_SYMBOLD Phase 1 file outlines."""
+"""Tests for PLAN_SYMBOLD Phase 1 file outlines and Phase 2 find_symbol."""
 
 from __future__ import annotations
 
@@ -86,8 +86,22 @@ extension Greeter {
 
 @pytest.fixture()
 def repo_tmp(tmp_path, monkeypatch):
-    """Temp dir that looks like a git repo; cwd set there."""
-    (tmp_path / ".git").mkdir()
+    """Temp dir that is a real git repo; cwd set there."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -103,12 +117,16 @@ def test_file_outline_registered_in_tools_and_core_read():
     assert "file_outline" in AVAILABLE_TOOLS
     assert AVAILABLE_TOOLS["file_outline"] is cs.file_outline
     assert "file_outline" in TOOL_GROUPS[CORE_READ_GROUP]
+    assert "find_symbol" in AVAILABLE_TOOLS
+    assert AVAILABLE_TOOLS["find_symbol"] is cs.find_symbol
+    assert "find_symbol" in TOOL_GROUPS[CORE_READ_GROUP]
     names = {
         entry["function"]["name"]
         for entry in TOOL_DESCRIPTIONS
         if entry.get("type") == "function" and "function" in entry
     }
     assert "file_outline" in names
+    assert "find_symbol" in names
 
 
 def test_detect_language_by_extension():
@@ -255,3 +273,120 @@ def test_symbol_record_schema_round_trip():
     )
     line = record.format_line()
     assert line == "sample.py:6  def top_level(a, b=1)"
+
+
+# --- Phase 2: find_symbol -------------------------------------------------
+
+
+@pytest.fixture()
+def symbol_cache_isolation(tmp_path, monkeypatch):
+    """Point disk cache at a temp dir and clear memory between tests."""
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+
+    class _FakeAppdirs:
+        @staticmethod
+        def user_cache_dir(_name):
+            return str(cache_root)
+
+    monkeypatch.setattr("monitor._stubs.appdirs", _FakeAppdirs)
+    cs.clear_symbol_cache()
+    yield cache_root
+    cs.clear_symbol_cache()
+
+
+def test_find_symbol_ranks_exact_before_prefix_and_substring(repo_tmp, symbol_cache_isolation):
+    _write(
+        repo_tmp,
+        "a.py",
+        "def execute_tool_call():\n    pass\n\ndef execute_tool():\n    pass\n\ndef tool_call_helper():\n    pass\n",
+    )
+    _write(repo_tmp, "b.py", "def execute_tool_call_extra():\n    pass\n")
+    result = cs.find_symbol("execute_tool_call", path=".")
+    assert result["ok"] is True
+    names = [m["name"] for m in result["matches"]]
+    assert names[0] == "execute_tool_call"
+    assert "execute_tool_call_extra" in names
+    # exact before prefix; substring (tool_call_helper) last among matches if present
+    exact_idx = names.index("execute_tool_call")
+    prefix_idx = names.index("execute_tool_call_extra")
+    assert exact_idx < prefix_idx
+
+
+def test_find_symbol_kind_and_path_scope(repo_tmp, symbol_cache_isolation):
+    _write(repo_tmp, "pkg/alpha.py", "class Alpha:\n    def meth(self):\n        pass\n\ndef alpha_fn():\n    pass\n")
+    _write(repo_tmp, "pkg/beta.py", "def alpha_fn():\n    pass\n")
+    _write(repo_tmp, "other/gamma.py", "def alpha_fn():\n    pass\n")
+
+    scoped = cs.find_symbol("alpha_fn", path="pkg")
+    assert scoped["ok"] is True
+    paths = {m["path"] for m in scoped["matches"]}
+    assert any(p.endswith("pkg/alpha.py") or p.endswith("pkg\\alpha.py") for p in paths)
+    assert not any("other" in p for p in paths)
+
+    classes = cs.find_symbol("Alpha", path=".", kind="class")
+    assert classes["ok"] is True
+    assert classes["count"] >= 1
+    assert all(m["kind"] == "class" for m in classes["matches"])
+
+
+def test_find_symbol_skips_gitignored_and_excluded_dirs(repo_tmp, symbol_cache_isolation):
+    _write(repo_tmp, ".gitignore", "ignored_dir/\nsecret.py\nnode_modules/\n")
+    _write(repo_tmp, "visible.py", "def keep_me():\n    pass\n")
+    _write(repo_tmp, "secret.py", "def keep_me():\n    pass\n")
+    _write(repo_tmp, "ignored_dir/hidden.py", "def keep_me():\n    pass\n")
+    _write(repo_tmp, "node_modules/lib.py", "def keep_me():\n    pass\n")
+
+    result = cs.find_symbol("keep_me", path=".")
+    assert result["ok"] is True
+    paths = {m["path"].replace("\\", "/") for m in result["matches"]}
+    assert any(p.endswith("visible.py") for p in paths)
+    assert not any(p.endswith("secret.py") for p in paths)
+    assert not any("ignored_dir/" in p for p in paths)
+    assert not any("node_modules/" in p for p in paths)
+
+
+def test_find_symbol_cache_hit_on_second_query(repo_tmp, symbol_cache_isolation):
+    _write(repo_tmp, "cached.py", "def cache_target():\n    pass\n")
+    cs.clear_symbol_cache()
+    first = cs.find_symbol("cache_target", path=".")
+    assert first["ok"] is True
+    assert first["cache_hits"] == 0
+    stats_after_miss = cs.symbol_cache_stats()
+    assert stats_after_miss["misses"] >= 1
+
+    second = cs.find_symbol("cache_target", path=".")
+    assert second["ok"] is True
+    assert second["cache_hits"] >= 1
+    assert second["count"] == first["count"]
+
+
+def test_find_symbol_cache_invalidates_on_mtime_change(repo_tmp, symbol_cache_isolation):
+    path = _write(repo_tmp, "mutable.py", "def old_name():\n    pass\n")
+    cs.clear_symbol_cache()
+    before = cs.find_symbol("old_name", path=".")
+    assert before["count"] >= 1
+
+    path.write_text("def new_name():\n    pass\n", encoding="utf-8")
+    # Ensure mtime changes on coarse filesystems.
+    import os
+    import time
+
+    os.utime(path, (time.time() + 2, time.time() + 2))
+
+    after_old = cs.find_symbol("old_name", path=".")
+    after_new = cs.find_symbol("new_name", path=".")
+    assert after_old["count"] == 0
+    assert after_new["count"] >= 1
+
+
+def test_find_symbol_empty_query_and_outside_repo(repo_tmp, symbol_cache_isolation, tmp_path_factory):
+    bad = cs.find_symbol("  ", path=".")
+    assert bad["ok"] is False
+    assert "query" in bad["error"]
+
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "x.py").write_text("def f():\n    pass\n", encoding="utf-8")
+    blocked = cs.find_symbol("f", path=str(outside))
+    assert blocked["ok"] is False
+    assert "outside" in blocked["error"]

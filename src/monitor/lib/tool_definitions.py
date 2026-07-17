@@ -46,7 +46,7 @@ from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_te
 from monitor.lib.protocol_engine import modify_source_code
 from monitor.lib.bulk_replace import bulk_replace_in_files
 from monitor.lib.find_files import find_files
-from monitor.lib.code_symbols import file_outline
+from monitor.lib.code_symbols import file_outline, find_symbol
 from monitor.lib.test_runner import run_python_tests
 from monitor.lib.type_checker import type_check_python
 from monitor.lib.todo import (
@@ -100,6 +100,7 @@ AVAILABLE_TOOLS = {
     "modify_source_code": modify_source_code,
     "find_files": find_files,
     "file_outline": file_outline,
+    "find_symbol": find_symbol,
     "run_python_tests": run_python_tests,
     "type_check_python": type_check_python,
     "text_file_or_directory_view": text_file_or_directory_view,
@@ -405,6 +406,48 @@ TOOL_DESCRIPTIONS = [
                     },
                 },
                 "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_symbol",
+            "description": (
+                "Search a file or directory for symbol definitions by name "
+                "(classes, functions, methods, types). Matches exact names first, "
+                "then prefixes, then substrings. Prefer this to locate a definition "
+                "across the repo; use file_outline for one file's full structure; "
+                "use ripgrep_search_tool for textual references/usages. Requires "
+                "the optional 'symbols' install extra. Supported: Python, "
+                "JavaScript, TypeScript/TSX, Go, Rust, Swift."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Symbol name or fragment to find.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "File or directory to search under. Defaults to '.' (cwd)."
+                        ),
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": (
+                            "Symbol kind filter: all (default), class, function, "
+                            "method, or type."
+                        ),
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Cap on returned matches. Default 50, max 500.",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -1249,6 +1292,37 @@ GEMINI_TOOL_DESCRIPTIONS = [
         }
       },
       "required": ["path"]
+    }
+  },
+  {
+    "description": (
+        "Search a file or directory for symbol definitions by name. Exact matches "
+        "rank first, then prefixes, then substrings. Prefer over paging cat_file; "
+        "use ripgrep for textual references. Requires the optional 'symbols' extra. "
+        "Supported: Python, JavaScript, TypeScript/TSX, Go, Rust, Swift."
+    ),
+    "name": "find_symbol",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Symbol name or fragment to find."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory scope. Defaults to '.'."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Filter: all, class, function, method, or type."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Cap on returned matches. Default 50."
+        }
+      },
+      "required": ["query"]
     }
   },
   {
