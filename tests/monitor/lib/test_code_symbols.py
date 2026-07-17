@@ -54,6 +54,35 @@ impl Foo {
 }
 '''
 
+SAMPLE_SWIFT = '''\
+import Foundation
+
+public class Greeter {
+    public func hello(name: String) -> String {
+        return "hi \\(name)"
+    }
+}
+
+struct Foo {
+    var x: Int
+    func bar() {}
+}
+
+enum Kind {
+    case a
+}
+
+protocol P {
+    func f()
+}
+
+func topLevel(_ x: Int) -> Int { x }
+
+extension Greeter {
+    func extra() {}
+}
+'''
+
 
 @pytest.fixture()
 def repo_tmp(tmp_path, monkeypatch):
@@ -88,6 +117,7 @@ def test_detect_language_by_extension():
     assert cs.detect_language("a.tsx") == "tsx"
     assert cs.detect_language("a.go") == "go"
     assert cs.detect_language("a.rs") == "rust"
+    assert cs.detect_language("a.swift") == "swift"
     assert cs.detect_language("a.txt") is None
 
 
@@ -150,6 +180,30 @@ def test_javascript_go_rust_outlines(repo_tmp):
     assert "hello" in rs_names
     assert "Foo" in rs_names
     assert "bar" in rs_names
+
+
+def test_swift_outline_extracts_ios_shapes(repo_tmp):
+    _write(repo_tmp, "Greeter.swift", SAMPLE_SWIFT)
+    result = cs.file_outline("Greeter.swift")
+    assert result["ok"] is True
+    assert result["language"] == "swift"
+    by_name = {s["name"]: s for s in result["symbols"]}
+    greeter_class = next(
+        s for s in result["symbols"] if s["name"] == "Greeter" and s["kind"] == "class"
+    )
+    assert "class Greeter" in greeter_class["signature"] or greeter_class["signature"].startswith(
+        "public class Greeter"
+    )
+    assert by_name["Foo"]["kind"] == "type"  # struct
+    assert by_name["Kind"]["kind"] == "type"  # enum
+    assert by_name["P"]["kind"] == "type"  # protocol
+    assert by_name["hello"]["kind"] == "method"
+    assert by_name["bar"]["kind"] == "method"
+    assert by_name["f"]["kind"] == "method"
+    assert by_name["topLevel"]["kind"] == "function"
+    assert by_name["extra"]["kind"] == "method"
+    assert any(s["name"] == "Greeter" and "extension" in s["signature"] for s in result["symbols"])
+    assert "hello" in result["outline"]
 
 
 def test_unsupported_language_message(repo_tmp):

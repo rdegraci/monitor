@@ -75,6 +75,7 @@ symbols = [
     "tree-sitter-typescript==0.23.2",
     "tree-sitter-go==0.25.0",
     "tree-sitter-rust==0.24.2",
+    "tree-sitter-swift==0.7.3",
 ]
 all = [
     "openai-whisper",
@@ -95,6 +96,7 @@ all = [
     "tree-sitter-typescript==0.23.2",
     "tree-sitter-go==0.25.0",
     "tree-sitter-rust==0.24.2",
+    "tree-sitter-swift==0.7.3",
 ]
 
 [project.urls]

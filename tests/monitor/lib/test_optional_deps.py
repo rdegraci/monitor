@@ -33,6 +33,7 @@ HEAVY_OPTIONAL_PACKAGES = {
     "tree-sitter-typescript",
     "tree-sitter-go",
     "tree-sitter-rust",
+    "tree-sitter-swift",
 }
 
 

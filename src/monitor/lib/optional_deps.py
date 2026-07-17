@@ -31,6 +31,7 @@ EXTRA_PACKAGES: dict[str, tuple[str, ...]] = {
         "tree-sitter-typescript",
         "tree-sitter-go",
         "tree-sitter-rust",
+        "tree-sitter-swift",
     ),
 }
 
@@ -54,6 +55,7 @@ MODULE_TO_EXTRA: dict[str, str] = {
     "tree_sitter_typescript": "symbols",
     "tree_sitter_go": "symbols",
     "tree_sitter_rust": "symbols",
+    "tree_sitter_swift": "symbols",
 }
 
 

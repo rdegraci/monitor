@@ -37,6 +37,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, str] = {
     ".tsx": "tsx",
     ".go": "go",
     ".rs": "rust",
+    ".swift": "swift",
 }
 
 SUPPORTED_LANGUAGES = frozenset(EXTENSION_TO_LANGUAGE.values())
@@ -49,6 +50,7 @@ _LANGUAGE_MODULES: Dict[str, Tuple[str, Optional[str]]] = {
     "tsx": ("tree_sitter_typescript", "language_tsx"),
     "go": ("tree_sitter_go", None),
     "rust": ("tree_sitter_rust", None),
+    "swift": ("tree_sitter_swift", None),
 }
 
 
@@ -435,6 +437,94 @@ def _rust_symbols(source: bytes, root, path: str) -> List[SymbolRecord]:
     return records
 
 
+def _swift_first_line(source: bytes, node) -> str:
+    line = _node_text(source, node).splitlines()[0].strip()
+    if len(line) > 120:
+        return line[:117] + "..."
+    return line
+
+
+def _swift_type_keyword(node) -> Optional[str]:
+    """Return class/struct/enum/extension keyword child for a class_declaration."""
+    for child in node.children:
+        if child.type in ("class", "struct", "enum", "extension"):
+            return child.type
+    return None
+
+
+def _swift_symbols(source: bytes, root, path: str) -> List[SymbolRecord]:
+    """Extract Swift classes, structs, enums, protocols, extensions, and funcs."""
+    records: List[SymbolRecord] = []
+
+    def walk(node, parent_type: Optional[str] = None) -> None:
+        ntype = node.type
+        if ntype == "class_declaration":
+            keyword = _swift_type_keyword(node) or "class"
+            if keyword == "extension":
+                name_node = _first_child_of_type(node, ("user_type", "type_identifier"))
+                if name_node and name_node.type == "user_type":
+                    name = _extract_name(source, name_node, ("type_identifier",)) or _node_text(
+                        source, name_node
+                    )
+                else:
+                    name = _node_text(source, name_node) if name_node else "extension"
+                kind = "type"
+            else:
+                name = _extract_name(source, node, ("type_identifier",))
+                kind = "class" if keyword == "class" else "type"
+            if name:
+                prefix = keyword
+                records.append(
+                    SymbolRecord(
+                        name=name,
+                        kind=kind,
+                        line=node.start_point[0] + 1,
+                        path=path,
+                        signature=_swift_first_line(source, node) or f"{prefix} {name}",
+                        language="swift",
+                    )
+                )
+            for child in node.children:
+                walk(child, parent_type=name or parent_type)
+            return
+        if ntype == "protocol_declaration":
+            name = _extract_name(source, node, ("type_identifier",))
+            if name:
+                records.append(
+                    SymbolRecord(
+                        name=name,
+                        kind="type",
+                        line=node.start_point[0] + 1,
+                        path=path,
+                        signature=_swift_first_line(source, node) or f"protocol {name}",
+                        language="swift",
+                    )
+                )
+            for child in node.children:
+                walk(child, parent_type=name or parent_type)
+            return
+        if ntype in ("function_declaration", "protocol_function_declaration"):
+            name = _extract_name(source, node, ("simple_identifier",))
+            if name:
+                kind = "method" if parent_type else "function"
+                records.append(
+                    SymbolRecord(
+                        name=name,
+                        kind=kind,
+                        line=node.start_point[0] + 1,
+                        path=path,
+                        signature=_swift_first_line(source, node) or f"func {name}",
+                        language="swift",
+                    )
+                )
+            return
+        for child in node.children:
+            walk(child, parent_type=parent_type)
+
+    walk(root)
+    return records
+
+
 def extract_symbols_from_source(
     source: bytes,
     *,
@@ -456,6 +546,8 @@ def extract_symbols_from_source(
         return _go_symbols(source, root, path)
     if language == "rust":
         return _rust_symbols(source, root, path)
+    if language == "swift":
+        return _swift_symbols(source, root, path)
     return []
 
 

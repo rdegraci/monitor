@@ -383,7 +383,7 @@ TOOL_DESCRIPTIONS = [
                 "Prefer this over paging cat_file / cat_file_range when you need to "
                 "learn where definitions live before reading or editing. Requires the "
                 "optional 'symbols' install extra. Supported: Python, JavaScript, "
-                "TypeScript/TSX, Go, Rust."
+                "TypeScript/TSX, Go, Rust, Swift."
             ),
             "parameters": {
                 "type": "object",
@@ -1229,7 +1229,7 @@ GEMINI_TOOL_DESCRIPTIONS = [
         "Return a compact structural outline of one source file (classes, functions, "
         "methods, types with line numbers). Prefer over paging cat_file when locating "
         "definitions. Requires the optional 'symbols' extra. Supported: Python, "
-        "JavaScript, TypeScript/TSX, Go, Rust."
+        "JavaScript, TypeScript/TSX, Go, Rust, Swift."
     ),
     "name": "file_outline",
     "parameters": {
