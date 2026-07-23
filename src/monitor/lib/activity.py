@@ -16,6 +16,14 @@ Design constraints:
   corrupted.
 - Silent in non-TTY (``--script``, pipes, CI) and server/subagent contexts,
   overridable with ``MONITOR_FORCE_PROGRESS=1`` for tests/debugging.
+
+While waiting on the model, the spinner label is ``pre-processing`` before any
+tool (``[RT 1 · pre-processing ⠋ 2s]``), or the last tool plus
+``processing results`` afterward
+(``[RT 3 · ripgrep_search_tool · processing results ⠋ 5s]``). Token and cost
+figures stay in spend logs / the status line — not on this spinner.
+Tool-running updates are tracked for the TUI but not painted to stderr; they
+were cleared immediately for tool stdout and only flashed briefly.
 """
 
 from __future__ import annotations
@@ -32,12 +40,16 @@ logger = logging.getLogger(__name__)
 _ERASE_LINE = "\r\033[2K"
 
 # Recognized activity states. Kept small and stable so tests and the TUI can
-# rely on them.
-STATE_WAITING = "request sent - processing"
+# rely on them. STATE_WAITING is a sentinel; display text is resolved in
+# format_activity (pre-processing vs processing results).
+STATE_WAITING = "waiting"
 STATE_RUNNING = "running"
 STATE_COMPACTING = "compacting"
 STATE_RETRYING = "retrying"
 STATE_FAILED = "failed"
+
+WAITING_PRE = "pre-processing"
+WAITING_RESULTS = "processing results"
 
 # Tracks whether we've painted anything this turn so ``clear`` only emits the
 # erase sequence when there is something to erase.
@@ -47,6 +59,10 @@ _painted = {"value": False}
 # info bar). Updated whenever feedback is enabled, independent of whether the
 # stderr line was painted. ``None`` means "no active status".
 _last_text = {"value": None}
+
+# Most recently named tool this turn. Used so the model-wait spinner can show
+# context (last tool) instead of a generic wait label. Cleared by ``clear()``.
+_last_tool = {"value": None}
 
 
 def feedback_enabled() -> bool:
@@ -85,69 +101,35 @@ def current_activity():
     return _last_text["value"]
 
 
-def _current_turn_index() -> int:
-    """Index of the in-flight turn within the per-turn ledgers."""
-    costs = getattr(config, "TURN_COSTS_USD", None)
-    if isinstance(costs, list) and costs:
-        return len(costs) - 1
-    return 0
-
-
-def _ledger_value(name: str, default=0):
-    """Read the current turn's value from a per-turn ledger list."""
-    values = getattr(config, name, None)
-    index = _current_turn_index()
-    if isinstance(values, list) and 0 <= index < len(values):
-        value = values[index]
-        if isinstance(value, (int, float)):
-            return value
-    return default
-
-
-def _format_tokens(count) -> str:
-    """Render a token count compactly (e.g. 8200 -> '8.2k')."""
-    try:
-        count = int(count)
-    except (TypeError, ValueError):
-        return "0"
-    if count < 1000:
-        return str(count)
-    return f"{count / 1000:.1f}k"
-
-
 def format_activity(
     state: str,
     *,
     rt_count=None,
     tool=None,
-    input_tokens=None,
-    cost_usd=None,
 ) -> str:
     """Build a compact, payload-free activity string.
 
-    Example: ``RT 3 · run_python_tests · 8.2k input · $0.14 turn``.
+    Examples:
+        ``RT 1 · pre-processing`` (waiting, no tool yet)
+        ``RT 3 · run_python_tests · processing results`` (waiting after a tool)
+        ``RT 3 · run_python_tests`` (tool running; TUI only)
+        ``RT 2 · modify_source_code · retrying``
 
     Args:
         state: One of the ``STATE_*`` constants.
         rt_count: Round-trip index for the turn (optional).
         tool: Tool name only — never arguments (optional).
-        input_tokens: Billed input tokens so far this turn (optional).
-        cost_usd: Turn cost so far in USD (optional).
     """
     parts: list[str] = []
     if rt_count is not None:
         parts.append(f"RT {rt_count}")
     if tool:
         parts.append(str(tool))
-    if state and state != STATE_RUNNING:
+    # RUNNING never labels itself. WAITING resolves to a phase-specific phrase.
+    if state == STATE_WAITING:
+        parts.append(WAITING_RESULTS if tool else WAITING_PRE)
+    elif state and state != STATE_RUNNING:
         parts.append(state)
-    if input_tokens is not None:
-        parts.append(f"{_format_tokens(input_tokens)} input")
-    if cost_usd is not None:
-        try:
-            parts.append(f"${float(cost_usd):.2f} turn")
-        except (TypeError, ValueError):
-            pass
     return " · ".join(parts) if parts else (state or "")
 
 
@@ -157,24 +139,31 @@ def show(
     rt_count=None,
     tool=None,
 ) -> None:
-    """Paint one in-place activity line for the current turn.
+    """Record (and often paint) one activity line for the current turn.
 
     No-op when feedback is disabled. Records the text for non-stderr surfaces
-    (TUI) and, when stderr is a TTY, paints an in-place line. Pulls token/cost
-    figures from the canonical per-turn ledgers; adds no model calls.
+    (TUI). ``STATE_RUNNING`` updates tracked text / last-tool but does not
+    paint to stderr — tool stdout would immediately overwrite it. Other states
+    paint an in-place line when stderr is a TTY.
     """
     if not feedback_enabled():
         return
     try:
+        if tool:
+            _last_tool["value"] = str(tool)
+        effective_tool = tool
+        if state == STATE_WAITING and not effective_tool:
+            effective_tool = _last_tool["value"]
         text = format_activity(
             state,
             rt_count=rt_count,
-            tool=tool,
-            input_tokens=int(getattr(config, "LAST_BILLED_INPUT_TOKENS", 0) or 0) or None,
-            cost_usd=_ledger_value("TURN_COSTS_USD", 0.0) or None,
+            tool=effective_tool,
         )
         _last_text["value"] = text
         if not activity_enabled():
+            return
+        # Tool-running updates are for the TUI / next wait label only.
+        if state == STATE_RUNNING:
             return
         sys.stderr.write(f"{_ERASE_LINE}[{text}]")
         sys.stderr.flush()
@@ -188,6 +177,7 @@ def show(
 def clear() -> None:
     """Erase the activity line and reset tracked state at turn end."""
     _last_text["value"] = None
+    _last_tool["value"] = None
     if not _painted["value"]:
         return
     try:

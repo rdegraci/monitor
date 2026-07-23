@@ -1452,7 +1452,7 @@ def call_responses_api(
                             )
                         logger.info(
                             "[SPEND][TOOL_OUTPUT] event=oversize tool=%s tokens=%s limit=%s action=trimmed trimmed_tokens=%s model=%s",
-                            function_name,
+                            name,
                             original_output_tokens,
                             token_limit,
                             max(0, int(original_output_tokens) - int(truncated_output_tokens or 0)),

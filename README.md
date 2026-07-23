@@ -233,24 +233,20 @@ and caches live in the platform user-cache directory rather than the repo.
 
 During a multi-round-trip turn, Monitor paints a single in-place status line so
 a long autonomous loop does not look stalled. While waiting on the model, that
-line is the familiar animated spinner with the live activity as its label:
+line is the familiar animated spinner labeled by phase — ``pre-processing``
+before any tool, or the last tool plus ``processing results`` afterward:
 
 ```text
-[RT 3 · request sent - processing ⠋ 12s]
+[RT 1 · pre-processing ⠋ 2s]
+[RT 3 · ripgrep_search_tool · processing results ⠋ 5s]
 ```
 
-Between model waits, tool names and running totals appear on the same line
-(then clear so tool stdout — diffs, ripgrep hits, file views — prints cleanly):
-
-```text
-[RT 3 · run_python_tests · 8.2k input · $0.14 turn]
-```
-
-It shows tool names and aggregate counters only — never tool arguments, output,
-prompts, or credentials — and adds no model calls. Ripgrep results, edit diffs,
-and other tool prints still go to the terminal as before. Activity feedback is
-on by default for the interactive REPL and silent for `--script`, piped output,
-server, and sub-agent runs. Toggle it at runtime:
+It shows tool names only — never tool arguments, output, prompts, credentials,
+or per-turn token/cost totals (those stay in spend logs / the status line) —
+and adds no model calls. Ripgrep results, edit diffs, and other tool prints
+still go to the terminal as before. Activity feedback is on by default for the
+interactive REPL and silent for `--script`, piped output, server, and
+sub-agent runs. Toggle it at runtime:
 
 ```text
 :activity          # show current state

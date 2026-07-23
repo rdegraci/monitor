@@ -1803,6 +1803,118 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         mock_truncate.assert_called_once_with("{}", 8_192, model="gpt-4o-mini")
 
+    @patch("monitor.core.llm_responses_adapter.logger")
+    @patch("monitor.core.llm_responses_adapter.progress_dots")
+    @patch(
+        "monitor.core.llm_responses_adapter.token_budgeter",
+        side_effect=lambda params, *_args, **_kwargs: params,
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.count_message_tokens",
+        side_effect=lambda text, *_args, **_kwargs: (
+            50 if text == "trimmed-output" else 20_000
+        ),
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.truncate_to_token_limit",
+        return_value="trimmed-output",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.serialize_tool_output",
+        side_effect=lambda obj: "huge-tool-output",
+    )
+    @patch(
+        "monitor.core.llm_responses_adapter.execute_tool_call",
+        return_value=({"ok": True}, None),
+    )
+    @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
+    @patch("monitor.core.llm_responses_adapter.update_token_usage")
+    @patch("monitor.core.llm_responses_adapter.rate_limiter")
+    def test_oversize_tool_output_logs_tool_name_without_fallback(
+        self,
+        mock_rate_limiter,
+        _mock_update_tokens,
+        _mock_get_tools,
+        _mock_execute_tool_call,
+        _mock_serialize,
+        _mock_truncate,
+        _mock_count_tokens,
+        _mock_budgeter,
+        mock_progress_dots,
+        mock_logger,
+    ):
+        """Regression: oversize tool-output spend log must use the tool name.
+
+        A prior NameError on an undefined ``function_name`` caused truncation to
+        fall back to the full serialized payload.
+        """
+        from monitor.core import llm_responses_adapter as adapter
+
+        class _DummyCtx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_progress_dots.return_value = _DummyCtx()
+
+        fake_client = self.FakeClient()
+        first = self._fake_response(
+            "resp_1",
+            total_tokens=5,
+            output=[
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "name": "tools.echo",
+                    "arguments": '{"x":1}',
+                }
+            ],
+        )
+        second = self._fake_response("resp_2", total_tokens=3, output=[])
+        fake_client.responses.create.side_effect = [first, second]
+
+        cfg = SimpleNamespace(
+            MODEL="openai/gpt-4o-mini",
+            RESPONSES_API=True,
+            RESPONSE_ID=None,
+            TEMPERATURE=None,
+            TOP_P=None,
+            FREQUENCY_PENALTY=None,
+            PRESENCE_PENALTY=None,
+            MAX_COMPLETION_TOKENS=None,
+            RATE_LIMITER=True,
+            MODEL_INPUT_WINDOW=128_000,
+            TOOL_OUTPUT_TOKEN_LIMIT=1_024,
+            SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS=0,
+            SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED=0,
+        )
+        mock_rate_limiter.RATE_LIMITER = MagicMock()
+
+        with patch.object(adapter, "client", fake_client), patch.object(adapter, "config", cfg):
+            adapter.call_responses_api(
+                [{"role": "user", "content": "say hi"}],
+                tool_descriptions={},
+                gemini_tool_descriptions={},
+            )
+
+        second_kwargs = fake_client.responses.create.call_args_list[1].kwargs
+        assert second_kwargs["input"][0]["output"] == "trimmed-output"
+        assert cfg.SESSION_SPEND_OVERSIZE_TOOL_OUTPUTS == 1
+        assert cfg.SESSION_SPEND_TOOL_OUTPUT_TOKENS_TRIMMED == 19_950
+
+        mock_logger.info.assert_any_call(
+            "[SPEND][TOOL_OUTPUT] event=oversize tool=%s tokens=%s limit=%s action=trimmed trimmed_tokens=%s model=%s",
+            "tools.echo",
+            20_000,
+            1_024,
+            19_950,
+            "gpt-4o-mini",
+        )
+        for call in mock_logger.exception.call_args_list:
+            assert "Failed to truncate tool output" not in str(call)
+
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))
     @patch("monitor.core.llm_responses_adapter.update_token_usage")

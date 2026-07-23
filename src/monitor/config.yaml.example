@@ -482,12 +482,13 @@ TOOL_PROFILE: coding
 # SHOW_TOOL_PROFILE_NOTICES: true
 
 # Live turn/tool activity feedback (PLAN Phase 3). When true, a single in-place
-# status line (e.g. "[RT 3 · run_python_tests · 8.2k input · $0.14 turn]") is
-# painted to stderr at request/tool/compaction boundaries so a long autonomous
-# turn does not look stalled. Tool NAMES and aggregate counters only — never
-# arguments, tool output, prompts, or credentials. Adds no model calls. Silent
-# in --script / piped / server / sub-agent contexts. Toggle at runtime with
-# ":activity on|off". Set false here to disable by default.
+# status line (e.g. "[RT 3 · run_python_tests · processing results ⠋ 5s]" or
+# "[RT 1 · pre-processing ⠋ 2s]") is painted to stderr while waiting on the
+# model so a long autonomous turn does not look stalled. Tool NAMES only —
+# never arguments, tool output, prompts, credentials, or per-turn token/cost
+# totals. Adds no model calls. Silent in --script / piped / server / sub-agent
+# contexts. Toggle at runtime with ":activity on|off". Set false here to
+# disable by default.
 # LIVE_TURN_FEEDBACK: true
 # STATUS_LINE_MODE: coding   # minimal | coding | debug — REPL/TUI status detail
 # MAX_PATH_READS_PER_TURN: 6  # Cap cat_file/view calls per path per turn (0=off)

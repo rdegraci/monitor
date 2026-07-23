@@ -57,7 +57,8 @@ def progress_dots(message: Optional[str] = None, interval: float = 0.1) -> Itera
 
     When ``message`` is omitted and live turn feedback has an active activity
     string (PLAN Phase 3), that string is used as the spinner label instead —
-    e.g. ``[RT 3 · request sent - processing ⠋ 12s]`` — so the familiar spinner and the RT/tool
+    e.g. ``[RT 3 · ripgrep_search_tool · processing results ⠋ 12s]`` or
+    ``[RT 1 · pre-processing ⠋ 2s]`` — so the familiar spinner and the RT/tool
     context share one line instead of overwriting each other.
 
     The spinner cycles at ``interval`` seconds per frame (default 0.1s =
