@@ -432,7 +432,282 @@ def test_native_ollama_completion_logs_request_payload(monkeypatch, caplog):
     assert any("search_repo" in record.message for record in caplog.records)
     assert any("temperature" in record.message for record in caplog.records)
     assert any("num_ctx" in record.message for record in caplog.records)
-    assert any("num_predict" in record.message for record in caplog.records)
+
+
+def test_native_ollama_completion_preserves_configured_sampling_options(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, host=None):
+            captured["host"] = host
+
+        def chat(self, model, messages, tools=None, options=None):
+            captured["model"] = model
+            captured["messages"] = messages
+            captured["tools"] = tools
+            captured["options"] = options
+            return {"message": {"content": "hello"}, "done": True}
+
+    monkeypatch.setattr(llm_utils, "ollama", SimpleNamespace(Client=FakeClient))
+
+    from monitor import config
+
+    config.OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+    config.OLLAMA_TEMPERATURE = 0.6
+    config.OLLAMA_TOP_P = 0.95
+    config.OLLAMA_TOP_K = 20
+    config.OLLAMA_MODEL_CONTEXT_WINDOW = 16_384
+    config.OLLAMA_MODEL_OUTPUT_WINDOW = 4_096
+
+    response = llm_utils._call_native_ollama_completion(
+        [{"role": "user", "content": "hi"}],
+        "ornith:9b",
+    )
+
+    assert captured["options"] == {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "num_ctx": 16_384,
+        "num_predict": 4_096,
+    }
+    assert response["choices"][0]["message"]["content"] == "hello"
+
+
+def test_call_litellm_completion_routes_llamacpp_to_native_http(monkeypatch):
+    captured = {}
+
+    def fake_native(
+        messages,
+        model,
+        tools=None,
+        max_completion_tokens=None,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+    ):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["tools"] = tools
+        captured["max_completion_tokens"] = max_completion_tokens
+        captured["temperature"] = temperature
+        captured["top_p"] = top_p
+        captured["top_k"] = top_k
+        return {"choices": [{"message": {"content": "native llama"}}]}
+
+    def fake_completion(**kwargs):
+        raise AssertionError("LiteLLM should not be called for llama.cpp requests")
+
+    monkeypatch.setattr(llm_utils, "_call_native_llamacpp_completion", fake_native)
+    monkeypatch.setattr(llm_utils.litellm, "completion", fake_completion)
+
+    response = llm_utils.call_litellm_completion(
+        "llamacpp/qwen2.5-coder-32b",
+        [{"role": "user", "content": "hi"}],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+    )
+
+    assert response == {"choices": [{"message": {"content": "native llama"}}]}
+    assert captured["model"] == "qwen2.5-coder-32b"
+    assert captured["messages"] == [{"role": "user", "content": "hi"}]
+    assert captured["tools"] == []
+
+
+def test_native_llamacpp_completion_uses_localhost_endpoint(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "hello"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"total_tokens": 11},
+            }
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(llm_utils.httpx, "post", fake_post)
+
+    from monitor import config
+
+    config.LLAMACPP_BASE_URL = "http://localhost:8080/v1"
+    config.LLAMACPP_API_KEY = None
+    config.LLAMACPP_TEMPERATURE = 0.25
+    config.LLAMACPP_TOP_P = 0.91
+    config.LLAMACPP_TOP_K = 33
+
+    response = llm_utils._call_native_llamacpp_completion(
+        [{"role": "user", "content": "hi"}],
+        "qwen2.5-coder-32b",
+        tools=[{"type": "function", "function": {"name": "echo", "parameters": {"type": "object", "properties": {}}}}],
+        max_completion_tokens=777,
+    )
+
+    assert captured["url"] == "http://localhost:8080/v1/chat/completions"
+    assert captured["json"]["model"] == "qwen2.5-coder-32b"
+    assert captured["json"]["messages"] == [{"role": "user", "content": "hi"}]
+    assert captured["json"]["tools"][0]["function"]["name"] == "echo"
+    assert captured["json"]["temperature"] == 0.25
+    assert captured["json"]["top_p"] == 0.91
+    assert captured["json"]["top_k"] == 33
+    assert captured["json"]["max_tokens"] == 777
+    assert captured["headers"] == {"Content-Type": "application/json"}
+    assert captured["timeout"] == 300.0
+    assert response["choices"][0]["message"]["content"] == "hello"
+
+
+def test_native_llamacpp_completion_does_not_log_request_payload(monkeypatch, caplog):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "hello"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"total_tokens": 11},
+            }
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(llm_utils.httpx, "post", fake_post)
+
+    from monitor import config
+
+    config.LLAMACPP_BASE_URL = "http://localhost:8080/v1"
+    config.LLAMACPP_API_KEY = None
+
+    with caplog.at_level("INFO"):
+        llm_utils._call_native_llamacpp_completion(
+            [{"role": "user", "content": "sensitive llama prompt"}],
+            "qwen2.5-coder-32b",
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "echo",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+
+    assert captured["url"] == "http://localhost:8080/v1/chat/completions"
+    assert any(
+        "Dispatching native llama.cpp call" in record.message
+        for record in caplog.records
+    )
+    assert not any(
+        "llama.cpp request payload:" in record.message for record in caplog.records
+    )
+    assert not any(
+        "sensitive llama prompt" in record.message for record in caplog.records
+    )
+    assert not any("echo" in record.message for record in caplog.records)
+    assert captured["json"]["messages"] == [
+        {"role": "user", "content": "sensitive llama prompt"}
+    ]
+    assert captured["json"]["tools"][0]["function"]["name"] == "echo"
+    assert captured["headers"] == {"Content-Type": "application/json"}
+    assert captured["timeout"] == 300.0
+
+
+def test_call_litellm_completion_prefers_configured_llamacpp_model_and_knobs(monkeypatch):
+    captured = {}
+
+    def fake_native(
+        messages,
+        model,
+        tools=None,
+        max_completion_tokens=None,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+    ):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["tools"] = tools
+        captured["max_completion_tokens"] = max_completion_tokens
+        captured["temperature"] = temperature
+        captured["top_p"] = top_p
+        captured["top_k"] = top_k
+        return {"choices": [{"message": {"content": "native llama"}}]}
+
+    monkeypatch.setattr(llm_utils, "_call_native_llamacpp_completion", fake_native)
+
+    from monitor import config
+
+    original_model = getattr(config, "LLAMACPP_MODEL", None)
+    original_temperature = getattr(config, "LLAMACPP_TEMPERATURE", None)
+    original_top_p = getattr(config, "LLAMACPP_TOP_P", None)
+    original_top_k = getattr(config, "LLAMACPP_TOP_K", None)
+    original_max_completion_tokens = getattr(config, "MAX_COMPLETION_TOKENS", None)
+
+    config.LLAMACPP_MODEL = "configured-model.gguf"
+    config.LLAMACPP_TEMPERATURE = 0.25
+    config.LLAMACPP_TOP_P = 0.91
+    config.LLAMACPP_TOP_K = 33
+    config.MAX_COMPLETION_TOKENS = 777
+
+    try:
+        response = llm_utils.call_litellm_completion(
+            "llamacpp/request-model",
+            [{"role": "user", "content": "hi"}],
+            tool_descriptions=[],
+            gemini_tool_descriptions=[],
+        )
+
+        assert response == {"choices": [{"message": {"content": "native llama"}}]}
+        assert captured["model"] == "configured-model.gguf"
+        assert captured["messages"] == [{"role": "user", "content": "hi"}]
+        assert captured["tools"] == []
+        assert captured["max_completion_tokens"] == 777
+        assert captured["temperature"] == 0.25
+        assert captured["top_p"] == 0.91
+        assert captured["top_k"] == 33
+    finally:
+        config.LLAMACPP_MODEL = original_model
+        config.LLAMACPP_TEMPERATURE = original_temperature
+        config.LLAMACPP_TOP_P = original_top_p
+        config.LLAMACPP_TOP_K = original_top_k
+        config.MAX_COMPLETION_TOKENS = original_max_completion_tokens
+
+
+def test_provider_request_normalization_removes_reasoning_for_llamacpp():
+    kwargs = {
+        "model": "llamacpp/qwen2.5-coder-32b",
+        "messages": [{"role": "user", "content": "hi"}],
+        "reasoning_effort": "high",
+    }
+
+    normalized = llm_utils._apply_provider_request_normalization(kwargs)
+
+    assert normalized["model"] == "llamacpp/qwen2.5-coder-32b"
+    assert "reasoning_effort" not in normalized
 
 
 def test_provider_request_normalization_skips_ollama_knobs_for_non_ollama_model():
@@ -477,6 +752,27 @@ def test_safe_extract_total_tokens_various():
     # invalid dict should raise ValueError
     with pytest.raises(ValueError):
         safe_extract_total_tokens({'usage': {'foo': 'bar'}})
+
+
+def test_provider_request_normalization_applies_llamacpp_sampling_knobs():
+    kwargs = {
+        "model": "llamacpp/qwen2.5-coder-32b",
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+
+    from monitor import config
+
+    config.LLAMACPP_TEMPERATURE = 0.2
+    config.LLAMACPP_TOP_P = 0.88
+    config.LLAMACPP_TOP_K = 21
+
+    normalized = llm_utils._apply_provider_request_normalization(kwargs)
+
+    assert normalized["model"] == "llamacpp/qwen2.5-coder-32b"
+    assert normalized["temperature"] == 0.2
+    assert normalized["top_p"] == 0.88
+    assert normalized["top_k"] == 21
+
 
 def test_compute_token_delta():
     # current None => delta 0

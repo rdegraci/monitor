@@ -283,6 +283,7 @@ def symbol_cache_isolation(tmp_path, monkeypatch):
     """Point disk cache at a temp dir and clear memory between tests."""
     cache_root = tmp_path / "cache"
     cache_root.mkdir()
+    original_override = getattr(cs, "_REPO_ROOT_OVERRIDE", None)
 
     class _FakeAppdirs:
         @staticmethod
@@ -293,6 +294,7 @@ def symbol_cache_isolation(tmp_path, monkeypatch):
     cs.clear_symbol_cache()
     yield cache_root
     cs.clear_symbol_cache()
+    cs._REPO_ROOT_OVERRIDE = original_override
 
 
 def test_find_symbol_ranks_exact_before_prefix_and_substring(repo_tmp, symbol_cache_isolation):
@@ -330,12 +332,14 @@ def test_find_symbol_kind_and_path_scope(repo_tmp, symbol_cache_isolation):
     assert all(m["kind"] == "class" for m in classes["matches"])
 
 
-def test_find_symbol_skips_gitignored_and_excluded_dirs(repo_tmp, symbol_cache_isolation):
+def test_find_symbol_skips_gitignored_and_excluded_dirs(repo_tmp, symbol_cache_isolation, monkeypatch):
     _write(repo_tmp, ".gitignore", "ignored_dir/\nsecret.py\nnode_modules/\n")
     _write(repo_tmp, "visible.py", "def keep_me():\n    pass\n")
     _write(repo_tmp, "secret.py", "def keep_me():\n    pass\n")
     _write(repo_tmp, "ignored_dir/hidden.py", "def keep_me():\n    pass\n")
     _write(repo_tmp, "node_modules/lib.py", "def keep_me():\n    pass\n")
+    monkeypatch.setattr(cs, "_REPO_ROOT_OVERRIDE", str(repo_tmp), raising=False)
+    cs.clear_symbol_cache()
 
     result = cs.find_symbol("keep_me", path=".")
     assert result["ok"] is True
@@ -378,6 +382,7 @@ def test_find_symbol_cache_invalidates_on_mtime_change(repo_tmp, symbol_cache_is
     after_new = cs.find_symbol("new_name", path=".")
     assert after_old["count"] == 0
     assert after_new["count"] >= 1
+
 
 
 def test_find_symbol_empty_query_and_outside_repo(repo_tmp, symbol_cache_isolation, tmp_path_factory):

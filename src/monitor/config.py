@@ -962,6 +962,16 @@ ANTHROPIC_CACHE_TTL = "1h"
 OLLAMA = None
 OLLAMA_MODEL = None
 OLLAMA_BASE_URL = None
+LLAMACPP = None
+LLAMACPP_MODEL = None
+LLAMACPP_BASE_URL = "http://localhost:8080/v1"
+LLAMACPP_API_KEY = None
+LLAMACPP_MODEL_CONTEXT_WINDOW = None
+LLAMACPP_MODEL_OUTPUT_WINDOW = None
+LLAMACPP_MODEL_INPUT_WINDOW = None
+LLAMACPP_TEMPERATURE = None
+LLAMACPP_TOP_P = None
+LLAMACPP_TOP_K = None
 OLLAMA_MODEL_CONTEXT_WINDOW = None
 OLLAMA_MODEL_OUTPUT_WINDOW = None
 OLLAMA_MODEL_INPUT_WINDOW = None
@@ -1013,6 +1023,47 @@ def _derive_ollama_model_settings(ollama_config, model_name):
         raise
 
 
+def _derive_llamacpp_model_settings(llamacpp_config, model_name):
+    try:
+        if not isinstance(llamacpp_config, dict):
+            logger.error("LLAMACPP config must be a dictionary")
+            raise RuntimeError("LLAMACPP config must be a dict")
+        if not isinstance(model_name, str) or not model_name.strip():
+            logger.error("LLAMACPP model name must be a non-empty string")
+            raise RuntimeError("LLAMACPP model name must be a non-empty string")
+
+        model_name = model_name.strip()
+        context_window = llamacpp_config.get("CONTEXT_WINDOW")
+        output_window = llamacpp_config.get("OUTPUT_WINDOW")
+
+        if not isinstance(context_window, int) or context_window <= 0:
+            logger.error(
+                f"LLAMACPP[{model_name!r}] CONTEXT_WINDOW must be a positive integer"
+            )
+            raise RuntimeError("Invalid LLAMACPP CONTEXT_WINDOW")
+        if not isinstance(output_window, int) or output_window <= 0:
+            logger.error(
+                f"LLAMACPP[{model_name!r}] OUTPUT_WINDOW must be a positive integer"
+            )
+            raise RuntimeError("Invalid LLAMACPP OUTPUT_WINDOW")
+
+        input_window = context_window - output_window
+        if input_window <= 0:
+            logger.error(
+                f"LLAMACPP[{model_name!r}] computed MODEL_INPUT_WINDOW <= 0 "
+                f"(context={context_window}, output={output_window})"
+            )
+            raise RuntimeError("Invalid LLAMACPP input window")
+
+        return context_window, output_window, input_window
+    except Exception as e:
+        logger.error(
+            f"Failed to derive LLAMACPP model settings for model {model_name!r}: {e}",
+            exc_info=True,
+        )
+        raise
+
+
 def configure_globals():
     global MODEL, MODEL_CONTEXT_WINDOW, MODEL_OUTPUT_WINDOW, MODEL_MAX_TPM, MODEL_INPUT_TIER, MODEL_INPUT_WINDOW
     global FOLLOWUP_BASE_SAFETY_RATIO, FOLLOWUP_TOPLEVEL_RESERVE_TOKENS
@@ -1054,6 +1105,9 @@ def configure_globals():
     global OLLAMA, OLLAMA_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL_CONTEXT_WINDOW, OLLAMA_MODEL_OUTPUT_WINDOW
     global OLLAMA_MODEL_INPUT_WINDOW, OLLAMA_MODEL_INPUT_TIER, OLLAMA_MODEL_MAX_TPM
     global OLLAMA_TEMPERATURE, OLLAMA_TOP_P, OLLAMA_TOP_K
+    global LLAMACPP, LLAMACPP_MODEL, LLAMACPP_BASE_URL, LLAMACPP_API_KEY
+    global LLAMACPP_MODEL_CONTEXT_WINDOW, LLAMACPP_MODEL_OUTPUT_WINDOW, LLAMACPP_MODEL_INPUT_WINDOW
+    global LLAMACPP_TEMPERATURE, LLAMACPP_TOP_P, LLAMACPP_TOP_K
 
     SESSION_ID = str(uuid.uuid4())
 
@@ -1063,6 +1117,11 @@ def configure_globals():
     if OLLAMA is not None and not isinstance(OLLAMA, dict):
         logger.error("OLLAMA configuration must be a mapping if present")
         raise RuntimeError("OLLAMA configuration must be a dict if present")
+
+    LLAMACPP = yaml_config.get("LLAMACPP")
+    if LLAMACPP is not None and not isinstance(LLAMACPP, dict):
+        logger.error("LLAMACPP configuration must be a mapping if present")
+        raise RuntimeError("LLAMACPP configuration must be a dict if present")
 
     MODEL = yaml_config.get("MODEL")
     MODEL_CONTEXT_WINDOW = yaml_config.get("MODEL_CONTEXT_WINDOW")
@@ -1119,8 +1178,87 @@ def configure_globals():
         OLLAMA_TOP_P = None
         OLLAMA_TOP_K = None
 
+    if MODEL == "LLAMACPP":
+        if not isinstance(LLAMACPP, dict):
+            logger.error("MODEL is LLAMACPP but top-level LLAMACPP configuration is missing or invalid")
+            raise RuntimeError("MODEL is LLAMACPP but LLAMACPP config is missing")
+        llamacpp_model = LLAMACPP.get("MODEL")
+        if not isinstance(llamacpp_model, str) or not llamacpp_model.strip():
+            logger.error("LLAMACPP configuration requires a non-empty 'MODEL' string")
+            raise RuntimeError("LLAMACPP config missing MODEL")
+        LLAMACPP_MODEL = llamacpp_model.strip()
+        llamacpp_base_url = LLAMACPP.get("BASE_URL", "http://localhost:8080/v1")
+        if not isinstance(llamacpp_base_url, str) or not llamacpp_base_url.strip():
+            logger.error("LLAMACPP configuration 'BASE_URL' must be a non-empty string")
+            raise RuntimeError("Invalid LLAMACPP BASE_URL")
+        LLAMACPP_BASE_URL = llamacpp_base_url.strip()
+        llamacpp_api_key = LLAMACPP.get("API_KEY")
+        if llamacpp_api_key is not None:
+            if not isinstance(llamacpp_api_key, str) or not llamacpp_api_key.strip():
+                logger.error("LLAMACPP configuration 'API_KEY' must be a non-empty string when provided")
+                raise RuntimeError("Invalid LLAMACPP API_KEY")
+            LLAMACPP_API_KEY = llamacpp_api_key.strip()
+        else:
+            LLAMACPP_API_KEY = None
+        LLAMACPP_TEMPERATURE = LLAMACPP.get("TEMPERATURE")
+        if not isinstance(LLAMACPP_TEMPERATURE, (int, float)) and LLAMACPP_TEMPERATURE is not None:
+            logger.error("LLAMACPP configuration 'TEMPERATURE' must be numeric when provided")
+            raise RuntimeError("Invalid LLAMACPP TEMPERATURE")
+        LLAMACPP_TOP_P = LLAMACPP.get("TOP_P")
+        if not isinstance(LLAMACPP_TOP_P, (int, float)) and LLAMACPP_TOP_P is not None:
+            logger.error("LLAMACPP configuration 'TOP_P' must be numeric when provided")
+            raise RuntimeError("Invalid LLAMACPP TOP_P")
+        LLAMACPP_TOP_K = LLAMACPP.get("TOP_K")
+        if not isinstance(LLAMACPP_TOP_K, int) and LLAMACPP_TOP_K is not None:
+            logger.error("LLAMACPP configuration 'TOP_K' must be an integer when provided")
+            raise RuntimeError("Invalid LLAMACPP TOP_K")
+        (
+            LLAMACPP_MODEL_CONTEXT_WINDOW,
+            LLAMACPP_MODEL_OUTPUT_WINDOW,
+            LLAMACPP_MODEL_INPUT_WINDOW,
+        ) = _derive_llamacpp_model_settings(LLAMACPP, LLAMACPP_MODEL)
+        MODEL = f"llamacpp/{LLAMACPP_MODEL}"
+        MODEL_CONTEXT_WINDOW = LLAMACPP_MODEL_CONTEXT_WINDOW
+        MODEL_OUTPUT_WINDOW = LLAMACPP_MODEL_OUTPUT_WINDOW
+        MODEL_INPUT_WINDOW = LLAMACPP_MODEL_INPUT_WINDOW
+        MODEL_INPUT_TIER = None
+        MODEL_MAX_TPM = None
+    else:
+        LLAMACPP_MODEL = None
+        LLAMACPP_MODEL_CONTEXT_WINDOW = None
+        LLAMACPP_MODEL_OUTPUT_WINDOW = None
+        LLAMACPP_MODEL_INPUT_WINDOW = None
+        LLAMACPP_TEMPERATURE = None
+        LLAMACPP_TOP_P = None
+        LLAMACPP_TOP_K = None
+
+        if isinstance(LLAMACPP, dict):
+            llamacpp_base_url = LLAMACPP.get("BASE_URL", yaml_config.get("LLAMACPP_BASE_URL", LLAMACPP_BASE_URL))
+            if isinstance(llamacpp_base_url, str) and llamacpp_base_url.strip():
+                LLAMACPP_BASE_URL = llamacpp_base_url.strip()
+            else:
+                LLAMACPP_BASE_URL = "http://localhost:8080/v1"
+
+            llamacpp_api_key = LLAMACPP.get("API_KEY", yaml_config.get("LLAMACPP_API_KEY"))
+            if isinstance(llamacpp_api_key, str) and llamacpp_api_key.strip():
+                LLAMACPP_API_KEY = llamacpp_api_key.strip()
+            else:
+                LLAMACPP_API_KEY = None
+        else:
+            llamacpp_base_url = yaml_config.get("LLAMACPP_BASE_URL", LLAMACPP_BASE_URL)
+            if isinstance(llamacpp_base_url, str) and llamacpp_base_url.strip():
+                LLAMACPP_BASE_URL = llamacpp_base_url.strip()
+            else:
+                LLAMACPP_BASE_URL = "http://localhost:8080/v1"
+
+            llamacpp_api_key = yaml_config.get("LLAMACPP_API_KEY")
+            if isinstance(llamacpp_api_key, str) and llamacpp_api_key.strip():
+                LLAMACPP_API_KEY = llamacpp_api_key.strip()
+            else:
+                LLAMACPP_API_KEY = None
+
     # Safely compute input window
-    if OLLAMA_MODEL is None:
+    if OLLAMA_MODEL is None and LLAMACPP_MODEL is None:
         MODEL_INPUT_WINDOW = None
         if isinstance(MODEL_CONTEXT_WINDOW, int) and isinstance(MODEL_OUTPUT_WINDOW, int):
             iw = MODEL_CONTEXT_WINDOW - MODEL_OUTPUT_WINDOW
@@ -1137,7 +1275,7 @@ def configure_globals():
 
     # MODEL_MAX_TPM, if it exists, will override the MODEL_INPUT_TIER
     # otherwise, MODEL_MAX_TPM will be set via MODEL_INPUT_TIER
-    if OLLAMA_MODEL is None:
+    if OLLAMA_MODEL is None and LLAMACPP_MODEL is None:
         MODEL_INPUT_TIER = yaml_config.get("MODEL_INPUT_TIER")
         MODEL_MAX_TPM = yaml_config.get("MODEL_MAX_TPM")
         if MODEL_MAX_TPM is None:
@@ -2256,8 +2394,9 @@ def configure_subsystems():
     configure_protocol_engine()
     configure_consultant()
     configure_voice_to_text()
-    from monitor.core.llm_responses_adapter import configure_responses_adapter  # lazy: see NOTE atop imports
-    configure_responses_adapter()
+    if RESPONSES_API is True:
+        from monitor.core.llm_responses_adapter import configure_responses_adapter  # lazy: see NOTE atop imports
+        configure_responses_adapter()
 
 
 _VALID_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}

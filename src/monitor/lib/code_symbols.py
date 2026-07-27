@@ -86,16 +86,38 @@ def detect_language(path: str | os.PathLike[str]) -> Optional[str]:
     return EXTENSION_TO_LANGUAGE.get(suffix)
 
 
-def _repo_root() -> Optional[str]:
-    """Nearest directory containing ``.git``, walking up from cwd; else None."""
-    d = os.path.realpath(os.getcwd())
+def _find_repo_root(candidate: str | None) -> Optional[str]:
+    """Return the nearest enclosing git root for ``candidate`` when available."""
+    if not isinstance(candidate, str) or not candidate:
+        return None
+    directory = os.path.realpath(candidate)
+    if os.path.isfile(directory):
+        directory = os.path.dirname(directory)
     while True:
-        if os.path.isdir(os.path.join(d, ".git")):
-            return d
-        parent = os.path.dirname(d)
-        if parent == d:
+        if os.path.isdir(os.path.join(directory, ".git")):
+            return directory
+        parent = os.path.dirname(directory)
+        if parent == directory:
             return None
-        d = parent
+        directory = parent
+
+
+def _repo_root(start_path: str | None = None) -> Optional[str]:
+    """Nearest directory containing ``.git`` from ``start_path`` or cwd."""
+    candidates = [
+        _REPO_ROOT_OVERRIDE,
+        start_path,
+        os.getcwd(),
+        _ORIGINAL_CWD,
+    ]
+    seen: set[str] = set()
+    for candidate in candidates:
+        root = _find_repo_root(candidate)
+        if root is None or root in seen:
+            continue
+        seen.add(root)
+        return root
+    return None
 
 
 def resolve_outline_path(path: str) -> Tuple[Optional[str], Optional[str]]:
@@ -695,11 +717,15 @@ def file_outline(
 # In-process cache: abspath -> entry dict. Disk cache mirrors this per repo.
 _MEMORY_SYMBOL_CACHE: Dict[str, Dict[str, Any]] = {}
 _CACHE_STATS = {"hits": 0, "misses": 0}
+_GIT_TRACKED_FILES_CACHE: Dict[str, Optional[List[str]]] = {}
+_REPO_ROOT_OVERRIDE: Optional[str] = None
+_ORIGINAL_CWD = os.path.realpath(os.getcwd())
 
 
 def clear_symbol_cache() -> None:
     """Clear the in-memory symbol cache (tests / diagnostics)."""
     _MEMORY_SYMBOL_CACHE.clear()
+    _GIT_TRACKED_FILES_CACHE.clear()
     _CACHE_STATS["hits"] = 0
     _CACHE_STATS["misses"] = 0
 
@@ -871,17 +897,26 @@ def _git_tracked_files(repo_root: str) -> Optional[List[str]]:
     Uses ``git ls-files --cached --others --exclude-standard`` so tracked and
     untracked-but-not-ignored files are included. Returns None when git fails.
     """
+    repo_key = os.path.realpath(repo_root)
+    cached = _GIT_TRACKED_FILES_CACHE.get(repo_key)
+    if cached is not None or repo_key in _GIT_TRACKED_FILES_CACHE:
+        return cached
+
     try:
         from git import Repo
 
-        repo = Repo(repo_root, search_parent_directories=False)
+        repo = Repo(repo_key, search_parent_directories=False)
         out = repo.git.ls_files("--cached", "--others", "--exclude-standard")
     except Exception:
-        logger.debug("git ls-files unavailable under %s", repo_root, exc_info=True)
+        logger.debug("git ls-files unavailable under %s", repo_key, exc_info=True)
+        _GIT_TRACKED_FILES_CACHE[repo_key] = None
         return None
     if not out.strip():
+        _GIT_TRACKED_FILES_CACHE[repo_key] = []
         return []
-    return [line for line in out.splitlines() if line.strip()]
+    tracked = [line for line in out.splitlines() if line.strip()]
+    _GIT_TRACKED_FILES_CACHE[repo_key] = tracked
+    return tracked
 
 
 def _walk_source_files(scope_root: str) -> List[str]:
@@ -905,6 +940,44 @@ def _walk_source_files(scope_root: str) -> List[str]:
     return results
 
 
+def _gitignore_filtered_files(repo_root: str) -> Optional[List[str]]:
+    """Return absolute source paths accepted by git's exclude rules.
+
+    Falls back when ``git ls-files`` is unavailable or returns nothing useful in
+    some shared-state test scenarios.
+    """
+    repo_key = os.path.realpath(repo_root)
+    try:
+        import subprocess
+
+        candidates = [os.path.relpath(path, repo_key) for path in _walk_source_files(repo_key)]
+        accepted: List[str] = []
+        for relpath in candidates:
+            result = subprocess.run(
+                ["git", "check-ignore", "-q", "--", relpath],
+                cwd=repo_key,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                continue
+            if result.returncode == 1:
+                accepted.append(os.path.join(repo_key, relpath))
+                continue
+            logger.debug(
+                "git check-ignore failed under %s for %s: %s",
+                repo_key,
+                relpath,
+                result.stderr.strip(),
+            )
+            return None
+        return accepted
+    except Exception:
+        logger.debug("git check-ignore unavailable under %s", repo_key, exc_info=True)
+        return None
+
+
 def resolve_search_scope(path: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Resolve a search scope to ``(scope_abs, error, mode)``.
 
@@ -915,7 +988,9 @@ def resolve_search_scope(path: str) -> Tuple[Optional[str], Optional[str], Optio
     expanded = os.path.realpath(os.path.expanduser(path.strip()))
     if not os.path.exists(expanded):
         return None, f"path does not exist: {path}", None
-    repo = _repo_root()
+    repo = _repo_root(expanded)
+    if repo is None:
+        repo = _repo_root()
     if repo and expanded != repo and not expanded.startswith(repo + os.sep):
         return None, f"path is outside the repository working tree: {path}", None
     if os.path.isfile(expanded):
@@ -923,6 +998,33 @@ def resolve_search_scope(path: str) -> Tuple[Optional[str], Optional[str], Optio
     if os.path.isdir(expanded):
         return expanded, None, "directory"
     return None, f"path is neither a file nor a directory: {path}", None
+
+
+def _with_repo_root_override(scope_abs: str):
+    """Context manager that pins repo-root discovery to the current scope.
+
+    Args:
+        scope_abs: Absolute file or directory path being searched.
+
+    Returns:
+        A context manager that temporarily overrides repo-root detection.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _manager():
+        global _REPO_ROOT_OVERRIDE
+        previous = _REPO_ROOT_OVERRIDE
+        override = previous
+        if override is None:
+            override = _repo_root(scope_abs)
+        _REPO_ROOT_OVERRIDE = override
+        try:
+            yield
+        finally:
+            _REPO_ROOT_OVERRIDE = previous
+
+    return _manager()
 
 
 def enumerate_source_files(scope_abs: str, mode: str) -> Tuple[List[str], bool]:
@@ -944,18 +1046,28 @@ def enumerate_source_files(scope_abs: str, mode: str) -> Tuple[List[str], bool]:
 
     files: List[str] = []
     truncated = False
-    repo = _repo_root()
+    repo = _repo_root(scope_abs)
+    if repo is None:
+        repo = _repo_root()
 
     if repo is not None:
         tracked = _git_tracked_files(repo)
         if tracked is not None:
-            for rel in tracked:
-                abspath = os.path.realpath(os.path.join(repo, rel))
-                if not _in_scope(abspath):
+            tracked_set = {os.path.realpath(os.path.join(repo, rel)) for rel in tracked}
+            for abspath in _walk_source_files(scope_abs):
+                if abspath not in tracked_set:
                     continue
-                if detect_language(abspath) is None:
-                    continue
-                if not os.path.isfile(abspath):
+                files.append(abspath)
+                if len(files) >= MAX_FILES_TO_PARSE:
+                    truncated = True
+                    break
+            return files, truncated
+
+        gitignore_paths = _gitignore_filtered_files(repo)
+        if gitignore_paths is not None:
+            gitignore_set = {os.path.realpath(path) for path in gitignore_paths}
+            for abspath in _walk_source_files(scope_abs):
+                if abspath not in gitignore_set:
                     continue
                 files.append(abspath)
                 if len(files) >= MAX_FILES_TO_PARSE:
@@ -1054,29 +1166,38 @@ def find_symbol(
             }
 
         limit = _clamp_find_max_results(max_results)
-        repo = _repo_root()
-        disk_cache = _load_disk_cache(repo)
-        files, files_truncated = enumerate_source_files(scope_abs, mode)
+        with _with_repo_root_override(scope_abs):
+            scope_abs = os.path.realpath(scope_abs)
+            mode = "file" if os.path.isfile(scope_abs) else "directory"
+            repo = _find_repo_root(scope_abs)
+            if repo is None and isinstance(_REPO_ROOT_OVERRIDE, str):
+                repo = _find_repo_root(_REPO_ROOT_OVERRIDE)
+            if repo is None:
+                repo = _repo_root(scope_abs)
+            if repo is None:
+                repo = _repo_root()
+            disk_cache = _load_disk_cache(repo)
+            files, files_truncated = enumerate_source_files(scope_abs, mode)
 
-        ranked: List[Tuple[int, SymbolRecord]] = []
-        files_scanned = 0
-        cache_hits = 0
-        for abspath in files:
-            display = _display_path(abspath)
-            try:
-                records, hit = _symbols_for_absolute_file(
-                    abspath, display_path=display, disk_cache=disk_cache
-                )
-            except OptionalDependencyError:
-                raise
-            files_scanned += 1
-            if hit:
-                cache_hits += 1
-            filtered = _filter_kind(records, kind_norm)
-            ranked.extend(rank_symbol_matches(filtered, query_clean))
+            ranked: List[Tuple[int, SymbolRecord]] = []
+            files_scanned = 0
+            cache_hits = 0
+            for abspath in files:
+                display = _display_path(abspath)
+                try:
+                    records, hit = _symbols_for_absolute_file(
+                        abspath, display_path=display, disk_cache=disk_cache
+                    )
+                except OptionalDependencyError:
+                    raise
+                files_scanned += 1
+                if hit:
+                    cache_hits += 1
+                filtered = _filter_kind(records, kind_norm)
+                ranked.extend(rank_symbol_matches(filtered, query_clean))
 
-        # Persist any newly filled cache entries outside the repo.
-        _save_disk_cache(repo, disk_cache)
+            # Persist any newly filled cache entries outside the repo.
+            _save_disk_cache(repo, disk_cache)
 
         ranked.sort(key=lambda item: (item[0], item[1].path.lower(), item[1].line, item[1].name.lower()))
         total_matched = len(ranked)

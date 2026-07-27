@@ -887,6 +887,8 @@ def function_descriptions(tool_descriptions: List[Dict[str, Any]], gemini_tool_d
         return tool_descriptions
     if get_first_segment(model) == 'ollama':
         return tool_descriptions
+    if get_first_segment(model) == 'llamacpp':
+        return tool_descriptions
 
     logger.warning(f"Unknown model {model}. Falling back to default tool_descriptions.")
     return tool_descriptions

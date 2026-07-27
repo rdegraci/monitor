@@ -102,6 +102,58 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         mock_openai.assert_called_once_with(base_url="http://127.0.0.1:11434")
 
+    @patch("monitor.core.llm_responses_adapter.OpenAI")
+    def test_configure_responses_adapter_rejects_llamacpp_models(self, mock_openai):
+        """Verify llama.cpp models fail early on the Responses API path."""
+        from monitor.core import llm_responses_adapter as adapter
+
+        cfg = SimpleNamespace(
+            MODEL="llamacpp/qwen2.5-coder-32b",
+            LLAMACPP_BASE_URL="http://localhost:8080/v1",
+            LLAMACPP_API_KEY=None,
+        )
+
+        with patch.object(adapter, "config", cfg):
+            with self.assertRaises(RuntimeError):
+                adapter.configure_responses_adapter()
+
+        mock_openai.assert_not_called()
+
+    def test_configure_globals_supports_llamacpp_provider_mapping(self):
+        """Verify MODEL=LLAMACPP resolves a structured LLAMACPP provider config."""
+        from monitor import config as config_module
+
+        yaml_config = {
+            "MODEL": "LLAMACPP",
+            "LLAMACPP": {
+                "MODEL": "qwen2.5-coder-32b",
+                "BASE_URL": "http://localhost:8080/v1",
+                "API_KEY": "secret-key",
+                "CONTEXT_WINDOW": 32_768,
+                "OUTPUT_WINDOW": 4_096,
+                "TEMPERATURE": 0.2,
+                "TOP_P": 0.9,
+                "TOP_K": 40,
+            },
+        }
+
+        with patch.object(config_module, "load_yaml_config", return_value=yaml_config):
+            config_module.configure_globals()
+
+        assert config_module.MODEL == "llamacpp/qwen2.5-coder-32b"
+        assert config_module.LLAMACPP_MODEL == "qwen2.5-coder-32b"
+        assert config_module.LLAMACPP_BASE_URL == "http://localhost:8080/v1"
+        assert config_module.LLAMACPP_API_KEY == "secret-key"
+        assert config_module.LLAMACPP_MODEL_CONTEXT_WINDOW == 32_768
+        assert config_module.LLAMACPP_MODEL_OUTPUT_WINDOW == 4_096
+        assert config_module.LLAMACPP_MODEL_INPUT_WINDOW == 28_672
+        assert config_module.MODEL_CONTEXT_WINDOW == 32_768
+        assert config_module.MODEL_OUTPUT_WINDOW == 4_096
+        assert config_module.MODEL_INPUT_WINDOW == 28_672
+        assert config_module.LLAMACPP_TEMPERATURE == 0.2
+        assert config_module.LLAMACPP_TOP_P == 0.9
+        assert config_module.LLAMACPP_TOP_K == 40
+
     def test_build_prompt_cache_key_uses_session_model_and_shape(self):
         """Prompt cache keys should be stable across same-session request shapes."""
         from monitor.core import llm_responses_adapter as adapter
@@ -112,7 +164,6 @@ class TestLLMResponsesAdapter(unittest.TestCase):
             assert adapter._build_prompt_cache_key("gpt-5.4", "turn") == (
                 "m:r:v1:s:sion-123:m:gpt-5.4:q:turn"
             )
-
 
     def test_build_prompt_cache_key_truncates_tokens_within_length_limit(self):
         """Prompt cache keys should keep readable truncated tokens within the length limit."""
@@ -127,6 +178,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         assert cache_key == "m:r:v1:s:expected:m:very-long-model-:q:tool-followu"
         assert len(cache_key) <= 64
+
     def test_calculate_followup_payload_budget_tool_result_request(self):
         """The pure reserve calculator should derive a payload budget from the
         usable window and named reserve buckets."""
@@ -134,7 +186,6 @@ class TestLLMResponsesAdapter(unittest.TestCase):
 
         budget = adapter.calculate_followup_payload_budget(
             request_class=adapter.FOLLOWUP_REQUEST_CLASS_TOOL,
-
             input_window=10_000,
             base_safety_ratio=0.85,
             hidden_chain_reserve_by_class={
@@ -198,7 +249,6 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert reserves["tool_schema_reserve_tokens"] > 0
         assert reserves["structured_payload_reserve_tokens"] > 0
 
-
     def test_budget_followup_request_marks_chained_user_followup_unknown(self):
         from monitor.core import llm_responses_adapter as adapter
 
@@ -244,6 +294,7 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert budget["request_class"] == adapter.FOLLOWUP_REQUEST_CLASS_TOOL
         assert budget["decision"] == adapter.FOLLOWUP_BUDGET_DECISION_SEND
         assert isinstance(budget["payload_budget"], int)
+
     def test_compute_followup_hidden_chain_reserve_ramps_for_chained_followups(self):
         from monitor.core import llm_responses_adapter as adapter
 
@@ -1099,7 +1150,6 @@ class TestLLMResponsesAdapter(unittest.TestCase):
         assert debug_payload["top_level_reserve"] == 256
         assert debug_payload["payload_budget"] == 3_511
         assert debug_payload["decision"] == "send"
-
 
     @patch("monitor.core.llm_responses_adapter.progress_dots")
     @patch("monitor.core.llm_responses_adapter.get_tools_for_model", return_value=([], None))

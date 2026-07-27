@@ -849,6 +849,12 @@ def configure_responses_adapter():
     model_name = getattr(config, "MODEL", "") or ""
     client_kwargs = {}
 
+    if isinstance(model_name, str) and model_name.lower().startswith("llamacpp/"):
+        raise RuntimeError(
+            "llama.cpp models are not supported by the Responses API path. "
+            "Disable RESPONSES_API or use a non-llama.cpp model."
+        )
+
     if model_name.startswith(XAI_MODEL_PREFIX):
         client_kwargs["base_url"] = XAI_BASE_URL
         xai_api_key = getattr(config, "XAI_API_KEY", None) or getattr(config, "OPENAI_API_KEY", None)

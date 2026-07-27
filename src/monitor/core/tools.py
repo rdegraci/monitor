@@ -97,6 +97,14 @@ def configure_tools():
         add_text_file_neutral_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
         remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+    elif provider == 'llamacpp':
+        # llama.cpp chat-completions sessions use the generic/default tool
+        # catalog. Keep provider-neutral surgical tools available and strip
+        # hosted-provider-specific editor schemas unless compatibility is
+        # explicitly verified later.
+        add_text_file_neutral_tools(TOOL_DESCRIPTIONS, GEMINI_TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_anthropic_native_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
+        remove_openai_editor_tools(TOOL_DESCRIPTIONS, TOOL_STATE)
     else:
         logger.warning(
             "configure_tools: unrecognized provider prefix %r for MODEL=%r; "

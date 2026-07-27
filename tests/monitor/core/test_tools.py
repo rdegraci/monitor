@@ -176,5 +176,51 @@ class TestCoreTools(unittest.TestCase):
         mock_remove_anthropic_native.assert_called_once()
 
 
+    @patch.object(tools, "logger")
+    @patch.object(tools, "add_openai_editor_tools")
+    @patch.object(tools, "remove_anthropic_native_editor_tools")
+    @patch.object(tools, "remove_text_file_neutral_tools")
+    @patch.object(tools, "add_anthropic_native_editor_tools")
+    @patch.object(tools, "remove_openai_editor_tools")
+    @patch.object(tools, "add_text_file_neutral_tools")
+    @patch.object(tools, "add_memory_tools")
+    @patch.object(tools, "add_weather_tools")
+    @patch.object(tools, "get_first_segment")
+    @patch.object(tools, "GEMINI_TOOL_DESCRIPTIONS", new_callable=list)
+    @patch.object(tools, "TOOL_DESCRIPTIONS", new_callable=list)
+    @patch.object(tools, "TOOL_STATE", new_callable=dict)
+    def test_configure_tools_llamacpp_branch(
+        self,
+        mock_state,
+        mock_tool_desc,
+        mock_gemini_desc,
+        mock_get_first_segment,
+        mock_add_weather,
+        mock_add_memory,
+        mock_add_text_neutral,
+        mock_remove_openai_editors,
+        mock_add_anthropic_native,
+        mock_remove_text_neutral,
+        mock_remove_anthropic_native,
+        mock_add_openai_editors,
+        mock_logger,
+    ):
+        """llama.cpp branch: keep provider-neutral tools and strip hosted-specific editors."""
+        mock_tool_desc.extend(self.tool_desc)
+        mock_gemini_desc.extend(self.gemini_desc)
+        mock_get_first_segment.return_value = "llamacpp"
+
+        tools.configure_tools()
+
+        mock_add_weather.assert_called_once()
+        mock_add_memory.assert_called_once()
+        mock_add_text_neutral.assert_called_once()
+        mock_remove_anthropic_native.assert_called_once()
+        mock_remove_openai_editors.assert_called_once()
+        mock_add_anthropic_native.assert_not_called()
+        mock_add_openai_editors.assert_not_called()
+        mock_remove_text_neutral.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

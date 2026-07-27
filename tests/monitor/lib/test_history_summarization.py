@@ -106,6 +106,75 @@ def test_generate_conversation_summary_routes_ollama_through_native_wrapper(monk
     assert response.choices[0].message.content == "Short summary."
 
 
+def test_generate_conversation_summary_forwards_summary_request_kwargs(monkeypatch, logger):
+    """Verify summarization wrappers preserve summary-specific request kwargs."""
+    captured = {}
+
+    def fake_completion(
+        model,
+        messages,
+        tool_descriptions,
+        gemini_tool_descriptions,
+        reasoning_effort=None,
+        max_completion_tokens=None,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+    ):
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["tool_descriptions"] = tool_descriptions
+        captured["gemini_tool_descriptions"] = gemini_tool_descriptions
+        captured["reasoning_effort"] = reasoning_effort
+        captured["max_completion_tokens"] = max_completion_tokens
+        captured["temperature"] = temperature
+        captured["top_p"] = top_p
+        captured["top_k"] = top_k
+        return fake_litellm_completion_func()
+
+    monkeypatch.setattr(llm_utils, "call_litellm_completion", fake_completion)
+
+    local_config = DummyConfig()
+    local_config.MODEL = "llamacpp/qwen2.5-coder-32b"
+    local_config.MAX_TOKEN_COUNT = 2_000
+    local_config.SUMMARIZATION_CONFIG["triggers"]["token_reduction_factor"] = 0.5
+    local_config.SUMMARIZATION_CONFIG["triggers"]["summary_token_ratio"] = 0.4
+    local_config.SUMMARIZATION_CONFIG["triggers"]["maximum_summary_tokens"] = 2_000
+
+    wrapper = lambda **kwargs: llm_utils.call_litellm_completion(
+        kwargs["model"],
+        kwargs["messages"],
+        tool_descriptions=[],
+        gemini_tool_descriptions=[],
+        reasoning_effort=kwargs.get("reasoning_effort"),
+        max_completion_tokens=kwargs.get("max_completion_tokens"),
+        temperature=kwargs.get("temperature"),
+        top_p=kwargs.get("top_p"),
+        top_k=kwargs.get("top_k"),
+    )
+
+    history.generate_conversation_summary(
+        "System prompt.",
+        [{"role": "user", "content": "Hello"}],
+        local_config.SUMMARIZATION_CONFIG,
+        local_config.MODEL,
+        wrapper,
+        count_message_tokens_always_10,
+        mock.Mock(wait_if_needed=mock.Mock(), add_request=mock.Mock()),
+        logger,
+        local_config,
+    )
+
+    assert captured["model"] == "llamacpp/qwen2.5-coder-32b"
+    assert captured["tool_descriptions"] == []
+    assert captured["gemini_tool_descriptions"] == []
+    assert captured["max_completion_tokens"] == 400
+    assert captured["reasoning_effort"] is None
+    assert captured["temperature"] is None
+    assert captured["top_p"] is None
+    assert captured["top_k"] is None
+
+
 def test_append_conversation_history_uses_native_ollama_summary_path(monkeypatch, logger):
     """Verify history-triggered summarization uses the native Ollama path."""
     from monitor import config as global_config

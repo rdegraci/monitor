@@ -32,7 +32,6 @@ else:
         ollama = None
 
 from monitor import config
-from monitor.lib.history import append_to_history_with_count
 from monitor.lib.llm_model_utils import (
     DEFAULT_TOOL_TYPE,
     DESCRIPTION_KEY,
@@ -55,12 +54,30 @@ from monitor.lib.llm_output_utils import (
     build_summarization_followup_params,
     serialize_tool_output,
 )
+from monitor.lib.llamacpp_adapter import adapt_llamacpp_chat_response
 from monitor.lib.ollama_adapter import adapt_ollama_chat_response
 from monitor.lib.llm_usage_utils import (
     compute_token_delta,
     safe_extract_total_tokens,
     truncate_to_token_limit,
 )
+
+
+def append_to_history_with_count(*args, **kwargs):
+    """Proxy history append calls through a lazy import.
+
+    Args:
+        *args: Positional arguments forwarded to
+            ``monitor.lib.history.append_to_history_with_count``.
+        **kwargs: Keyword arguments forwarded to
+            ``monitor.lib.history.append_to_history_with_count``.
+
+    Returns:
+        The proxied append result.
+    """
+    from monitor.lib.history import append_to_history_with_count as history_append
+
+    return history_append(*args, **kwargs)
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.text_to_speech import TextToSpeech
 from monitor.lib.tool_loading import function_descriptions
@@ -506,6 +523,92 @@ def _call_native_ollama_completion(
     )
     return adapt_ollama_chat_response(response)
 
+
+def _call_native_llamacpp_completion(
+    messages: list,
+    model: str,
+    tools: list[dict[str, Any]] | None = None,
+    max_completion_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+):
+    """Call a llama.cpp chat-completions server directly.
+
+    Args:
+        messages: Chat messages in OpenAI-compatible format.
+        model: The llama.cpp model tail to send in the request.
+        tools: Optional tool schemas to send with the request.
+        max_completion_tokens: Optional output-token cap for compatible servers.
+        temperature: Optional sampling temperature override.
+        top_p: Optional nucleus sampling override.
+        top_k: Optional top-k sampling override.
+
+    Returns:
+        The normalized llama.cpp response object.
+    """
+    base_url = getattr(config, "LLAMACPP_BASE_URL", None) or "http://localhost:8080/v1"
+    if not isinstance(base_url, str) or not base_url.strip():
+        raise RuntimeError("LLAMACPP_BASE_URL must be a non-empty string")
+    base_url = base_url.strip().rstrip("/")
+    endpoint_url = f"{base_url}/chat/completions"
+
+    request_payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+    if isinstance(tools, list):
+        request_payload["tools"] = tools
+
+    effective_temperature = temperature
+    if effective_temperature is None:
+        config_temperature = getattr(config, "LLAMACPP_TEMPERATURE", None)
+        if isinstance(config_temperature, (int, float)):
+            effective_temperature = float(config_temperature)
+    if isinstance(effective_temperature, (int, float)):
+        request_payload["temperature"] = float(effective_temperature)
+
+    effective_top_p = top_p
+    if effective_top_p is None:
+        config_top_p = getattr(config, "LLAMACPP_TOP_P", None)
+        if isinstance(config_top_p, (int, float)):
+            effective_top_p = float(config_top_p)
+    if isinstance(effective_top_p, (int, float)):
+        request_payload["top_p"] = float(effective_top_p)
+
+    effective_top_k = top_k
+    if effective_top_k is None:
+        config_top_k = getattr(config, "LLAMACPP_TOP_K", None)
+        if isinstance(config_top_k, int):
+            effective_top_k = config_top_k
+    if isinstance(effective_top_k, int):
+        request_payload["top_k"] = effective_top_k
+
+    if isinstance(max_completion_tokens, int) and max_completion_tokens > 0:
+        request_payload["max_tokens"] = max_completion_tokens
+
+    logger.info(
+        "Dispatching native llama.cpp call with model=%s endpoint=%s message_count=%s tool_count=%s",
+        model,
+        endpoint_url,
+        len(messages) if isinstance(messages, list) else -1,
+        len(tools) if isinstance(tools, list) else 0,
+    )
+
+    headers = {"Content-Type": "application/json"}
+    api_key = getattr(config, "LLAMACPP_API_KEY", None)
+    if isinstance(api_key, str) and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    response = httpx.post(
+        endpoint_url,
+        json=request_payload,
+        headers=headers,
+        timeout=300.0,
+    )
+    response.raise_for_status()
+    return adapt_llamacpp_chat_response(response.json())
+
 def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize provider-specific request kwargs before dispatch.
 
@@ -530,6 +633,17 @@ def _apply_provider_request_normalization(kwargs: Dict[str, Any]) -> Dict[str, A
         if isinstance(ollama_top_k, int):
             kwargs["top_k"] = ollama_top_k
         kwargs.pop("reasoning_effort", None)
+    if isinstance(model_name, str) and model_name.lower().startswith("llamacpp/"):
+        kwargs.pop("reasoning_effort", None)
+        llamacpp_temperature = getattr(config, "LLAMACPP_TEMPERATURE", None)
+        if isinstance(llamacpp_temperature, (int, float)):
+            kwargs["temperature"] = float(llamacpp_temperature)
+        llamacpp_top_p = getattr(config, "LLAMACPP_TOP_P", None)
+        if isinstance(llamacpp_top_p, (int, float)):
+            kwargs["top_p"] = float(llamacpp_top_p)
+        llamacpp_top_k = getattr(config, "LLAMACPP_TOP_K", None)
+        if isinstance(llamacpp_top_k, int):
+            kwargs["top_k"] = llamacpp_top_k
     return kwargs
 
 
@@ -634,7 +748,13 @@ def call_litellm_completion(
                     prefix,
                     orchestrator_model=getattr(config, "ORCHESTRATOR_MODEL", None),
                     collation_active=collation,
-                    steady_provider="ollama" if isinstance(model, str) and (model.lower().startswith("ollama/") or model.upper() == "OLLAMA") else None,
+                    steady_provider=(
+                        "ollama"
+                        if isinstance(model, str) and (model.lower().startswith("ollama/") or model.upper() == "OLLAMA")
+                        else "llamacpp"
+                        if isinstance(model, str) and model.lower().startswith("llamacpp/")
+                        else None
+                    ),
                 )
                 if swapped != model:
                     kwargs["model"] = swapped
@@ -696,6 +816,39 @@ def call_litellm_completion(
             native_messages,
             native_model,
             tools=native_tools,
+        )
+    if isinstance(model_name, str) and model_name.lower().startswith("llamacpp/"):
+        native_model = getattr(config, "LLAMACPP_MODEL", None)
+        if not isinstance(native_model, str) or not native_model.strip():
+            native_model = model_name.split("/", 1)[1] if "/" in model_name else model_name
+        native_messages = kwargs.get("messages", [])
+        if not isinstance(native_messages, list):
+            native_messages = []
+        native_tools = kwargs.get("tools")
+        if not isinstance(native_tools, list):
+            native_tools = None
+        native_max_completion_tokens = kwargs.get("max_completion_tokens")
+        if not isinstance(native_max_completion_tokens, int):
+            native_max_completion_tokens = None
+        native_temperature = kwargs.get("temperature")
+        if not isinstance(native_temperature, (int, float)):
+            native_temperature = None
+        native_top_p = kwargs.get("top_p")
+        if not isinstance(native_top_p, (int, float)):
+            native_top_p = None
+        native_top_k = kwargs.get("top_k")
+        if not isinstance(native_top_k, int):
+            native_top_k = None
+        if not isinstance(native_model, str):
+            native_model = str(native_model)
+        return _call_native_llamacpp_completion(
+            native_messages,
+            native_model,
+            tools=native_tools,
+            max_completion_tokens=native_max_completion_tokens,
+            temperature=float(native_temperature) if isinstance(native_temperature, (int, float)) else None,
+            top_p=float(native_top_p) if isinstance(native_top_p, (int, float)) else None,
+            top_k=native_top_k,
         )
     return _call_litellm_completion_with_guard(**kwargs)
 

@@ -47,6 +47,22 @@ from monitor.lib.token_management import (
     update_token_usage as update_token_usage,
 )
 
+
+def _extract_choice_message_content(choice_message):
+    """Extract content from a completion choice message.
+
+    Args:
+        choice_message: Message payload returned by an LLM provider. May be an
+            object with a ``content`` attribute or a dictionary with a
+            ``content`` key.
+
+    Returns:
+        The extracted message content, or ``None`` when unavailable.
+    """
+    if isinstance(choice_message, dict):
+        return choice_message.get("content")
+    return getattr(choice_message, "content", None)
+
 logger = logging.getLogger(__name__)  # Standardized to __name__
 
 def log_negative_token_count(logger: HistoryLogger, config: HistoryConfig) -> None:
@@ -461,6 +477,11 @@ def append_conversation_history(
                         kwargs["messages"],
                         tool_descriptions=[],
                         gemini_tool_descriptions=[],
+                        reasoning_effort=kwargs.get("reasoning_effort"),
+                        max_completion_tokens=kwargs.get("max_completion_tokens"),
+                        temperature=kwargs.get("temperature"),
+                        top_p=kwargs.get("top_p"),
+                        top_k=kwargs.get("top_k"),
                     ),
                     count_message_tokens,
                     rate_limiter.RATE_LIMITER,
@@ -482,12 +503,24 @@ def append_conversation_history(
                     conversation_history, config, logger
                 )
                 try:
+                    from monitor.lib import llm_utils
+
                     response = generate_summary_func(
                         system_prompt,
                         truncated_copy,
                         config.SUMMARIZATION_CONFIG,
                         config.MODEL,
-                        litellm.completion,
+                        lambda **kwargs: llm_utils.call_litellm_completion(
+                            kwargs["model"],
+                            kwargs["messages"],
+                            tool_descriptions=[],
+                            gemini_tool_descriptions=[],
+                            reasoning_effort=kwargs.get("reasoning_effort"),
+                            max_completion_tokens=kwargs.get("max_completion_tokens"),
+                            temperature=kwargs.get("temperature"),
+                            top_p=kwargs.get("top_p"),
+                            top_k=kwargs.get("top_k"),
+                        ),
                         count_message_tokens,
                         rate_limiter.RATE_LIMITER,
                         logger,
@@ -517,7 +550,7 @@ def append_conversation_history(
             summary_content = None
             summary_token_count = None
             if response is not None and hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
-                summary_content = response.choices[0].message.content
+                summary_content = _extract_choice_message_content(response.choices[0].message)
                 if summary_content:
                     summary_token_count = count_message_tokens(
                         {"role": "system", "content": summary_content}
@@ -1228,7 +1261,7 @@ def generate_conversation_summary(
         summary_content = None
         summary_token_count = None
         if hasattr(response, "choices") and len(response.choices) > 0 and hasattr(response.choices[0], "message"):
-            summary_content = response.choices[0].message.content  # Fixed: extract .content
+            summary_content = _extract_choice_message_content(response.choices[0].message)
             summary_token_count = count_message_tokens_func({"role": "system", "content": summary_content})
             logger.info(
                 f"[SUMMARIZATION] Summary length: {len(summary_content)} chars, estimated {summary_token_count} tokens. Snippet: '{summary_content[:200]}...'"

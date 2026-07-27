@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 OPENAI_PREFIX = "openai/"
 OLLAMA_PREFIX = "ollama/"
+LLAMACPP_PREFIX = "llamacpp/"
 TYPE_KEY = "type"
 NAME_KEY = "name"
 DESCRIPTION_KEY = "description"
@@ -57,6 +58,11 @@ def get_model_provider(model_name: Optional[str]) -> Optional[str]:
 def is_ollama_model(model_name: Optional[str]) -> bool:
     """Check whether a model identifier targets the Ollama provider."""
     return get_model_provider(model_name) == "ollama"
+
+
+def is_llamacpp_model(model_name: Optional[str]) -> bool:
+    """Check whether a model identifier targets the llama.cpp provider."""
+    return get_model_provider(model_name) == "llamacpp"
 
 
 def normalize_steady_provider_model(model_name: Optional[str], provider: Optional[str]) -> Optional[str]:
@@ -179,7 +185,11 @@ def resolve_turn_model(base_model, adv_model, override_active, prefix,
     normalized_base_model = normalize_steady_provider_model(base_model, steady_provider)
 
     def _base_allows_reasoning_swap():
-        return is_reasoning_model(normalized_base_model, prefix) or is_ollama_model(normalized_base_model)
+        return (
+            is_reasoning_model(normalized_base_model, prefix)
+            or is_ollama_model(normalized_base_model)
+            or is_llamacpp_model(normalized_base_model)
+        )
 
     def _swappable(target):
         return (
