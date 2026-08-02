@@ -86,6 +86,7 @@ from monitor.lib.summarizers import (
 )
 from monitor.lib.colors import blue, red, yellow, reset
 from monitor.lib import activity
+from monitor.lib import freemicro
 from monitor.lib.redis_utils import prepend_memory_to_history
 from monitor.lib.tool_profiles import (
     activate_turn_tool_group_leases,
@@ -396,6 +397,7 @@ def query(user_prompt):
 
         # PLAN Phase 3: show that the first model request is in flight.
         activity.show(activity.STATE_WAITING, rt_count=1)
+        freemicro.prompt_submit()
 
         # Get initial response from LLM (token usage is recorded internally by get_llm_initial_completion/get_llm_completion)
         response, error = get_llm_initial_completion()
@@ -451,6 +453,7 @@ def query(user_prompt):
     finally:
         # PLAN Phase 3: clear the in-place activity line before the reply prints.
         activity.clear()
+        freemicro.stop(error=(turn_status == "error"))
         _emit_turn_telemetry(telemetry_baseline, turn_status)
 
 
@@ -838,6 +841,11 @@ def prepare_chat_session():
     )
 
     config.last_summary_time = time.time()
+
+    # Claim a FreeMicro Agent Key for this interactive session (no-op unless
+    # FREEMICRO_HOOKS is on). SessionEnd is registered via atexit inside the
+    # helper so REPL and --tui both clear the pad on exit.
+    freemicro.session_start()
 
     def session_query(user_prompt):
         response = query(user_prompt)

@@ -749,6 +749,10 @@ SHOW_TOOL_PROFILE_NOTICES = True
 # stalled. Adds no model calls and prints tool names/counters only — never tool
 # arguments, output, prompts, or credentials. Runtime-toggled via :activity.
 LIVE_TURN_FEEDBACK = True
+# Emit Claude-shaped lifecycle events to ``freemicro hook`` so a FreeMicro
+# daemon can drive Codex Micro Agent Keys from this Monitor session. Off by
+# default; requires ``freemicro`` on PATH. Override with MONITOR_FREEMICRO_HOOKS.
+FREEMICRO_HOOKS = False
 STATUS_LINE_MODE = "coding"
 # Temporary leased widen groups that remain active for upcoming turns. Mapping
 # of internal group name -> remaining FUTURE user turns.
@@ -1089,7 +1093,7 @@ def configure_globals():
     global TOOL_PROFILE_AUTO_WIDEN_MAX_ACTIVE_GROUPS
     global TOOL_PROFILE_AUTO_WIDEN_TURNS_BY_GROUP, TOOL_PROFILE_AUTO_WIDEN_DISABLED_GROUPS
     global SHOW_TOOL_PROFILE_NOTICES
-    global LIVE_TURN_FEEDBACK, STATUS_LINE_MODE
+    global LIVE_TURN_FEEDBACK, FREEMICRO_HOOKS, STATUS_LINE_MODE
     global ESCALATE_REASONING_ON_TOOL_FAILURE
     global ARTIFACT_SERVER, EMBEDCODESERV_HOST, EMBEDCODESERV_PORT, EMBEDCODESERV_TIMEOUT, JOKES_FILE, DIRECTIVES_DIR
     global ENABLE_AUTO_SUMMARIZE_ON_LIMIT, SESSION_ID
@@ -1596,6 +1600,18 @@ def configure_globals():
     LIVE_TURN_FEEDBACK = bool(
         yaml_config.get("LIVE_TURN_FEEDBACK", True)
     )
+    FREEMICRO_HOOKS = bool(yaml_config.get("FREEMICRO_HOOKS", False))
+    try:
+        _freemicro_env = os.getenv("MONITOR_FREEMICRO_HOOKS")
+    except Exception:
+        _freemicro_env = None
+    if _freemicro_env is not None:
+        FREEMICRO_HOOKS = str(_freemicro_env).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
     STATUS_LINE_MODE = str(
         yaml_config.get("STATUS_LINE_MODE", "coding") or "coding"
     ).strip().lower()

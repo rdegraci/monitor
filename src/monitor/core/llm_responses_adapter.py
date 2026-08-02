@@ -14,6 +14,7 @@ XAI_MODEL_PREFIX = "xai/"
 from monitor import config
 from monitor.core.tooling import execute_tool_call
 from monitor.lib import activity
+from monitor.lib import freemicro
 from monitor.lib.message_utils import normalize_message, sanitize_messages
 from monitor.lib.token_management import count_message_tokens, update_token_usage, token_budgeter
 from monitor.lib import rate_limiter
@@ -1390,6 +1391,7 @@ def call_responses_api(
 
                 if isinstance(name, str) and name:
                     activity.show(activity.STATE_RUNNING, rt_count=iteration, tool=name)
+                    freemicro.pre_tool_use(name)
                     activity.suspend_paint()
 
                 try:
@@ -1412,6 +1414,9 @@ def call_responses_api(
                     _maybe_escalate_reasoning_on_tool_failure(None, str(e))
                 else:
                     _maybe_escalate_reasoning_on_tool_failure(result, error)
+                finally:
+                    if isinstance(name, str) and name:
+                        freemicro.post_tool_use(name)
 
                 try:
                     output_payload = serialize_tool_output(result_or_error)

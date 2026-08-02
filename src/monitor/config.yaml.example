@@ -490,6 +490,10 @@ TOOL_PROFILE: coding
 # contexts. Toggle at runtime with ":activity on|off". Set false here to
 # disable by default.
 # LIVE_TURN_FEEDBACK: true
+# Drive FreeMicro / Codex Micro Agent Keys from this session. Off by default.
+# Requires ``freemicro`` on PATH and a running FreeMicro daemon with lights on.
+# Env override: MONITOR_FREEMICRO_HOOKS=1
+# FREEMICRO_HOOKS: false
 # STATUS_LINE_MODE: coding   # minimal | coding | debug — REPL/TUI status detail
 # MAX_PATH_READS_PER_TURN: 6  # Cap cat_file/view calls per path per turn (0=off)
 # MAX_SYMBOL_QUERIES_PER_TURN: 12  # Cap file_outline/find_symbol calls per turn (0=off)

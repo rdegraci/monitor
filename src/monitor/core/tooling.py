@@ -13,6 +13,7 @@ from monitor.lib import rate_limiter
 from monitor.lib.protocol_engine import configure_protocol_engine_message_history
 from monitor.lib.tool_profiles import refresh_tool_group_lease_for_tool
 from monitor.lib import activity
+from monitor.lib import freemicro
 from monitor.lib.token_management import (
     count_message_tokens,
     update_token_usage,
@@ -658,12 +659,15 @@ def handle_tool_call(response, _depth=0):
         # Phase 7 guards (exact-arg loop + path read budget) run inside
         # execute_tool_call so the Responses path shares the same behavior.
         activity.show(activity.STATE_RUNNING, rt_count=_depth + 1, tool=loop_name)
+        freemicro.pre_tool_use(loop_name)
         activity.suspend_paint()
         try:
             result, error = execute_tool_call(tool_call)
         except Exception as e:
             logger.error("execute_tool_call raised unexpectedly: %s", e, exc_info=True)
             result, error = None, f"Tool execution raised: {e}"
+        finally:
+            freemicro.post_tool_use(loop_name)
 
         if isinstance(error, str) and (
             "[loop_rejected]" in error or "[read_budget]" in error
