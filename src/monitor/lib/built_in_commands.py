@@ -6,7 +6,7 @@ import sys
 from typing import Any, Dict
 
 from monitor._stubs import appdirs
-from monitor.lib import llm_utils
+from monitor.lib import freemicro, llm_utils
 from colored import attr, fg
 from monitor.lib.pygments_stubs import BashLexer, MarkdownLexer, TerminalFormatter, highlight
 
@@ -355,6 +355,60 @@ def activity_command(arg=None):
         f"Live activity feedback set to: {'on' if config.LIVE_TURN_FEEDBACK else 'off'}."
     )
 
+
+
+def freemicro_command(arg=None):
+    """Show or toggle FreeMicro hook integration for the current session.
+
+    Usage:
+        :freemicro            Show current state.
+        :freemicro on|off     Enable or disable FreeMicro hooks.
+        :freemicro toggle     Flip the current state.
+    """
+    arg_text = "" if arg is None else str(arg).strip().lower()
+
+    if arg_text in {"help", "?", "-h", "--help"}:
+        print("FreeMicro hook integration for Codex Micro Agent Keys.")
+        print("Usage: : (or /) freemicro [on|off|toggle|show]")
+        print("Enabling emits Claude-shaped lifecycle events to 'freemicro hook'.")
+        print("Requires 'freemicro' on PATH and a running FreeMicro daemon.")
+        print("Runtime changes affect only this Monitor process.")
+        return
+
+    current = bool(getattr(config, "FREEMICRO_HOOKS", False))
+    binary = freemicro._binary()
+    binary_available = bool(binary)
+
+    if arg_text in {"", "show", "status"}:
+        print_yellow(
+            f"FreeMicro hooks: {'on' if current else 'off'} "
+            f"(binary available: {'yes' if binary_available else 'no'})."
+        )
+        if current and not binary_available:
+            print("Hooks are enabled, but 'freemicro' is not on PATH.")
+        return
+
+    if arg_text in {"on", "true", "enable", "enabled"}:
+        config.FREEMICRO_HOOKS = True
+        freemicro.session_start()
+    elif arg_text in {"off", "false", "disable", "disabled", "quiet"}:
+        if current:
+            freemicro.session_end(reason="disabled")
+        config.FREEMICRO_HOOKS = False
+    elif arg_text == "toggle":
+        if current:
+            freemicro.session_end(reason="disabled")
+            config.FREEMICRO_HOOKS = False
+        else:
+            config.FREEMICRO_HOOKS = True
+            freemicro.session_start()
+    else:
+        print_yellow(f"Unknown option {arg_text!r}. Use: on | off | toggle | show.")
+        return
+
+    print_yellow(
+        f"FreeMicro hooks set to: {'on' if config.FREEMICRO_HOOKS else 'off'}."
+    )
 
 def _strip_markdown_fences(text):
     """Strip a single wrapping markdown code fence from LLM output.

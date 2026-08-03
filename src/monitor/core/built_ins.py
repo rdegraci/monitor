@@ -21,6 +21,7 @@ from monitor.lib.status_line import status_line_command
 from monitor.lib.built_in_commands import (
     break_chain_command,
     edit_function_keys_command,
+    freemicro_command,
     linkedin_summary_command,
     open_preferences_command,
     print_tools_command,
@@ -403,6 +404,11 @@ def configure_built_ins() -> None:
                     "command": "activity",
                     "function": _make_callable(activity_command),
                     "description": "Show or toggle live turn/tool activity feedback (:activity on|off|toggle).",
+                },
+                {
+                    "command": "freemicro",
+                    "function": _make_callable(freemicro_command),
+                    "description": "Show or toggle FreeMicro hook integration (:freemicro on|off|toggle|show).",
                 },
                 {
                     "command": "status",
