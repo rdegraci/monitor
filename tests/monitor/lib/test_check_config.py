@@ -40,8 +40,10 @@ def test_check_configuration_errors_without_provider_keys(monkeypatch, tmp_path)
 
 
 def test_seed_user_config_files_does_not_overwrite(monkeypatch, tmp_path):
-    monkeypatch.setattr(main_module.appdirs, "user_config_dir", lambda *_a, **_k: str(tmp_path))
-    monkeypatch.setattr(main_module.config, "SESSIONS_FOLDER", "sessions", raising=False)
+    monkeypatch.setattr(
+        "monitor._stubs.appdirs.user_config_dir", lambda *_a, **_k: str(tmp_path)
+    )
+    monkeypatch.setattr("monitor.config.SESSIONS_FOLDER", "sessions", raising=False)
 
     existing = tmp_path / "config.yaml"
     existing.write_text("user-custom: true\n", encoding="utf-8")
@@ -54,8 +56,10 @@ def test_seed_user_config_files_does_not_overwrite(monkeypatch, tmp_path):
 
 
 def test_seed_user_config_files_empty_dir(monkeypatch, tmp_path):
-    monkeypatch.setattr(main_module.appdirs, "user_config_dir", lambda *_a, **_k: str(tmp_path))
-    monkeypatch.setattr(main_module.config, "SESSIONS_FOLDER", "sessions", raising=False)
+    monkeypatch.setattr(
+        "monitor._stubs.appdirs.user_config_dir", lambda *_a, **_k: str(tmp_path)
+    )
+    monkeypatch.setattr("monitor.config.SESSIONS_FOLDER", "sessions", raising=False)
 
     seeded = main_module.seed_user_config_files()
     expected = [dest for _src, dest in check_config.SEEDED_CONFIG_FILES]

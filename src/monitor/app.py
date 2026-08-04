@@ -258,6 +258,17 @@ def main():
         help="Validate configuration readiness without printing secret values, then exit.",
     )
     parser.add_argument(
+        "--status-all",
+        action="store_true",
+        help="List running Monitor instances (PID, TTY, cwd) and exit.",
+    )
+    parser.add_argument(
+        "--activate",
+        metavar="TTY",
+        type=str,
+        help="Bring the Terminal/iTerm tab for TTY to the foreground (macOS). Examples: ttys002, 002.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"monitor {VERSION}",
@@ -288,6 +299,17 @@ def main():
 
     if getattr(args, "reset_config", False):
         _reset_config(getattr(args, "force", False))
+
+    # Lightweight process/TTY utilities — no model or subsystem setup needed.
+    if getattr(args, "status_all", False):
+        from monitor.lib.instances import print_status_all
+
+        sys.exit(print_status_all())
+
+    if getattr(args, "activate", None):
+        from monitor.lib.instances import print_activate
+
+        sys.exit(print_activate(args.activate))
 
     load_model_config()
     load_environment_globals()

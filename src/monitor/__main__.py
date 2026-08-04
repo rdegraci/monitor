@@ -1,12 +1,8 @@
 import importlib.resources
 import os
 import shutil
+import sys
 from pathlib import Path
-
-from monitor import config
-from monitor._stubs import appdirs
-
-from .app import main as app_main
 
 
 def ensure_user_config_file(src_filename, dest_filename):
@@ -15,6 +11,8 @@ def ensure_user_config_file(src_filename, dest_filename):
     Returns:
         True when a new file was seeded, False when the destination already existed.
     """
+    from monitor._stubs import appdirs
+
     config_dir = appdirs.user_config_dir("monitor")
     os.makedirs(config_dir, exist_ok=True)
     dest = os.path.join(config_dir, dest_filename)
@@ -34,6 +32,8 @@ def seed_user_config_files():
     Returns:
         list[str]: Destination basenames that were newly copied.
     """
+    from monitor import config
+    from monitor._stubs import appdirs
     from monitor.lib.check_config import SEEDED_CONFIG_FILES
 
     seeded = []
@@ -52,9 +52,41 @@ def _initialize_session_artifacts() -> None:
     reset_conversation_history_command(emit_notice=False)
 
 
+def _run_lightweight_cli(argv: list[str]) -> None:
+    """Handle ``--status-all`` / ``--activate`` without importing the full app.
+
+    Exits the process when a lightweight command is present.
+    """
+    if "--status-all" in argv:
+        from monitor.lib.instances import print_status_all
+
+        raise SystemExit(print_status_all())
+
+    if "--activate" in argv:
+        try:
+            index = argv.index("--activate")
+        except ValueError:
+            return
+        if index + 1 >= len(argv) or str(argv[index + 1]).startswith("-"):
+            print(
+                "Usage: monitor --activate TTY\n"
+                "Examples: monitor --activate ttys002 | 002 | /dev/ttys002",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        from monitor.lib.instances import print_activate
+
+        raise SystemExit(print_activate(argv[index + 1]))
+
+
 def main():
+    # Fast path: process/TTY utilities must not pay for stubs/app/session startup.
+    _run_lightweight_cli(sys.argv[1:])
+
     seed_user_config_files()
     _initialize_session_artifacts()
+    from .app import main as app_main
+
     app_main()
 
 
