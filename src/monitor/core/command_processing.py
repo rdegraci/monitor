@@ -84,7 +84,8 @@ def evaluate_command(command: str) -> CommandResult:
             return CommandResult(command_type=CommandType.EMPTY)
 
         # Detect exit commands early (no side-effects here)
-        if command.lower() in ["/exit", "exit"]:
+        normalized_command = command.strip().lower()
+        if normalized_command in ["/exit", "exit", "exit."]:
             return CommandResult(exit_requested=True, command_type=CommandType.EXIT)
 
         # Bare "?" / ":?" / "/?" → unified help (Phase 4)
@@ -348,8 +349,9 @@ def process_command(command, history_file):
 
 def handle_exit_command(command, history_file=None):
     """Handle exit commands and return exit flag"""
-    if command.lower() in ["/exit", "exit"]:
-        if command.lower() == "/exit":
+    normalized_command = command.strip().lower()
+    if normalized_command in ["/exit", "exit", "exit."]:
+        if normalized_command == "/exit":
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             print(f"{yellow}\nEOT{reset}\n")
         logger.info("Exiting chat...")

@@ -540,7 +540,7 @@ def process_input(user_input, history_file, session):
         command = command.strip()
         if not command:
             continue
-        if command in ("exit", "/exit"):
+        if command.strip().lower() in ("exit", "exit.", "/exit"):
             handle_exit_command(command, history_file)
             return True
         if process_command(command, history_file):

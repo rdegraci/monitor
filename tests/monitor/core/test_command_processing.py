@@ -37,6 +37,12 @@ def test_evaluate_command_exit(mock_config, mock_expand, patch_config_macros):
         assert result.command_type.name == "EXIT"
 
 
+def test_evaluate_command_exit_alias_capitalized_with_period(patch_config_macros):
+    result = cp.evaluate_command("Exit.")
+    assert result.exit_requested
+    assert result.command_type.name == "EXIT"
+
+
 def test_evaluate_command_macro_expansion(patch_config_macros):
     # Macro expansion should be called during process_command
     with patch.object(cp, "recursive_macro_expand", return_value="expanded") as mexpand:
@@ -256,6 +262,12 @@ def test_handle_exit_command_cmd(mock_signal):
             mprint.assert_called()
     with patch("monitor.core.command_processing.logger") as mlogger:
         assert cp.handle_exit_command("exit")
+        mlogger.info.assert_called()
+
+
+def test_handle_exit_command_capitalized_alias_with_period():
+    with patch("monitor.core.command_processing.logger") as mlogger:
+        assert cp.handle_exit_command("Exit.")
         mlogger.info.assert_called()
 
 
