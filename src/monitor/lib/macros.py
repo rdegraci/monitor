@@ -152,6 +152,11 @@ PUBLIC_MACRO_VALUES = {
     "diff": "{{do_diff}} {{create_git_entry}}",
     "diff_previous": "Examine the files that have been modified since the last commit, using the perform_git_diff_previous tool, so that I can see the difference between the current commit and its parent previous commit. Tell me the results of the overall change.",
     "xdiff": "Use the git show tool to examine the source code changes for the following hash or branch name: ",
+    "suggest_git_entry": (
+        "Examine the commit details for the provided hash using the "
+        "perform_git_show tool. Based on those changes, {{create_git_entry}} "
+        "The commit hash is as follows: "
+    ),
     "plan": "Give me a step by step plan",
     "wdyt": "Don't change any code. Tell me what do you think",
 }
@@ -185,6 +190,12 @@ PUBLIC_MACRO_METADATA = {
     "xdiff": {
         "title": "Show diff for revision",
         "description": "Inspect source changes for a supplied commit hash or branch name.",
+        "group": "built_in_general",
+    },
+    "suggest_git_entry": {
+        "title": "Suggest commit message for hash",
+        "description": "Inspect a commit via perform_git_show and suggest a subject and body.",
+        "usage": "suggest_git_entry <hash>",
         "group": "built_in_general",
     },
     "plan": {

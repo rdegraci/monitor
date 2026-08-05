@@ -89,6 +89,7 @@ The current codebase ships public macros such as:
 - `diff`
 - `diff_previous`
 - `xdiff`
+- `suggest_git_entry`
 - `plan`
 - `wdyt`
 

@@ -57,6 +57,7 @@ class TestMacros(unittest.TestCase):
             "diff",
             "diff_previous",
             "xdiff",
+            "suggest_git_entry",
             "rank_examine",
             "plan",
             "wdyt",
@@ -69,7 +70,7 @@ class TestMacros(unittest.TestCase):
     def test_macro_values_contain_nested_references(self):
         """Test that some macro values contain references to other macros."""
         # Test that some macros reference other macros using configured delimiters or legacy parentheses syntax
-        nested_macros = ["diff"]
+        nested_macros = ["diff", "suggest_git_entry"]
         # Prepare candidate delimiter pairs: configured, default '{{','}}', and legacy '(' , ')'
         candidate_pairs = []
         configured_open = getattr(config, "MACRO_DELIMITER_OPEN", None)
