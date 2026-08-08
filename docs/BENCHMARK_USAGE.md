@@ -17,6 +17,12 @@ feeds it a generated script, and collects:
 Results are written as JSON run artifacts under:
 - `benchmark/monitor_bench/results/`
 
+Current tasks with a `task.py` (and their tags) include:
+- `smoke_dump_metrics` — `smoke`
+- `seeded_bugfix_simple` — `edit`, `bugfix`, `seeded`
+- `seeded_bugfix_multistep` — `edit`, `bugfix`, `multistep`, `seeded`
+- `plan_then_execute_refactor` — `planning`, `edit`, `long_horizon`, `seeded`
+
 ## Run the benchmark
 
 Run all benchmark tasks with the default sample count:
@@ -29,7 +35,9 @@ Run only selected tasks or tag substrings:
 
 ```bash
 python -m benchmark.monitor_bench.runner --tasks smoke
-python -m benchmark.monitor_bench.runner --tasks memory todo
+python -m benchmark.monitor_bench.runner --tasks seeded_bugfix_multistep
+python -m benchmark.monitor_bench.runner --tasks edit
+python -m benchmark.monitor_bench.runner --tag planning
 ```
 
 Override the sample count, timeout, or model:
@@ -115,7 +123,7 @@ Filter the compare input to tasks matching a tag substring:
 
 ```bash
 python -m benchmark.monitor_bench.compare before.json after.json \
-  --tag memory
+  --tag edit
 ```
 
 Emit markdown or JSON output:
@@ -141,8 +149,8 @@ A practical benchmark loop is:
 Example:
 
 ```bash
-python -m benchmark.monitor_bench.runner --tasks memory todo
-python -m benchmark.monitor_bench.runner --tasks memory todo
+python -m benchmark.monitor_bench.runner --tasks seeded_bugfix_multistep
+python -m benchmark.monitor_bench.runner --tasks seeded_bugfix_multistep
 python -m benchmark.monitor_bench.compare \
   benchmark/monitor_bench/results/run-1000.json \
   benchmark/monitor_bench/results/run-2000.json

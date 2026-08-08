@@ -14,9 +14,10 @@ safely. It focuses on runtime behavior that already exists today:
 - async fire-and-continue operation.
 
 For broader architectural context, see:
-- `docs/cache/SPEC_LONG_HORIZON.md`
-- `docs/cache/PLAN_LONG_HORIZON.md`
-- `docs/cache/PLAN_AGENT_ORCHESTRATION.md`
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) (agent orchestration and config knobs)
+- `src/monitor/core/agent_tools.py`
+- `src/monitor/lib/tool_profiles.py` (agent tool group)
+- `src/monitor/config.py` (orchestration and write-policy settings)
 
 ## What this guide is for
 
@@ -388,16 +389,15 @@ This should remain exceptional rather than default.
 This guide does not imply:
 - unconstrained autonomous engineering,
 - filesystem rollback after delegated failure,
-- strong durable resumable checkpoints,
+- durable multi-session resume across process restarts,
 - broad parallel code-writing safety.
 
-What does exist today is lighter-weight:
-- session-scoped resume checkpoints,
-- acceptance criteria,
-- explicit discovered-work capture,
-- explicit scope-growth notes.
+Implemented today, but lightweight and session-scoped:
+- `save_task_checkpoint` / `get_task_context` resume markers,
+- `set_task_acceptance` acceptance criteria,
+- `add_discovered_work` for newly uncovered required work.
 
-Those remain later-stage improvements rather than baseline guarantees.
+Treat those as in-session working memory, not durable multi-session guarantees.
 
 ## Bottom line
 

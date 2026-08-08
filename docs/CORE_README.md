@@ -42,7 +42,7 @@ Notable registered built-ins include:
 - `ttl`
 - `max_tokens`
 - `macros`
-- `tools` (profiles: coding default; `full` widens)
+- `tools` (profiles: `minimal` / `coding` default / `review` / `full`)
 - `preferences`
 - `tasks`
 - `clear_tasks`
@@ -84,13 +84,16 @@ Provides commit-related command support such as `make_commit_command`.
 Implements the main conversation and query loop. This is one of the central runtime modules used by the REPL and related flows.
 
 ### `internalize_commands.py`
-Supports routing or adaptation of commands that need special processing before being handled by the rest of the runtime.
+Defines `rip_grep_command()`, the `:rg` helper that runs ripgrep and then
+internalizes an explanation prompt. The shared `internalize_command()` used for
+routing lives in `command_processing.py`.
 
 ### `llm.py`
 Contains model invocation logic and related response handling paths.
 
 ### `llm_responses_adapter.py`
-Adapts model responses into Monitor's internal response flow.
+OpenAI Responses API client/adapter: `call_responses_api`, reserve-aware
+follow-up budgeting, context-length handling, and reasoning-escalation hooks.
 
 ### `modes.py`
 Contains mode-specific helpers such as design and development mode command behavior.

@@ -42,13 +42,17 @@ Retrieval is intentionally simple:
 - `INDEX.md` is the anchor page
 - Monitor looks for up to two additional pages referenced from that index
 - only existing markdown pages are included
-- the page list is derived from explicit `*.md` references in `INDEX.md`, not from broad topic search
+- linked pages must match the uppercase name pattern `\b([A-Z][A-Z0-9_-]*\.md)\b` in `INDEX.md` (for example `ARCHITECTURE.md`, not `notes.md`)
+- the page list is derived from those explicit references, not from broad topic search
 
 This means the wiki is best treated as a curated navigation surface, not a free-form knowledge graph.
 
 ## Relevant built-ins
 
-Wiki workflows are exposed through built-ins in `src/monitor/lib/built_ins_wiki_utils.py` and related command wiring.
+Wiki command handlers live in `src/monitor/lib/built_in_commands.py` and are
+registered from `src/monitor/core/built_ins.py`. Helpers for drafts, orientation
+context, and diff sizing live in `src/monitor/lib/built_ins_wiki_utils.py`.
+
 Common entry points include:
 - `wiki_init`
 - `wiki_lint`
@@ -113,6 +117,8 @@ If a claim changes frequently, it probably does not belong in the wiki.
 ## Related code
 
 - `src/monitor/lib/monitor_wiki.py`
-- `src/monitor/lib/built_ins_wiki_utils.py`
+- `src/monitor/lib/built_in_commands.py` (`wiki_init_command`, `wiki_lint_command`, `wiki_fix_command`)
+- `src/monitor/core/built_ins.py` (registration)
+- `src/monitor/lib/built_ins_wiki_utils.py` (helpers)
 - `src/monitor/lib/system_prompt.py`
 - `src/monitor/app.py`

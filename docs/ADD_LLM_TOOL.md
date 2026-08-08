@@ -7,6 +7,7 @@ This guide reflects the current tool registration structure in the repository.
 Current tool registration spans these files:
 - `src/monitor/lib/tool_definitions.py`
 - `src/monitor/lib/tool_loading.py`
+- `src/monitor/lib/tool_profiles.py`
 - `src/monitor/core/tools.py`
 - `src/monitor/core/tooling.py`
 
@@ -97,7 +98,24 @@ Examples of conditional tool families in the current codebase:
 
 If your tool belongs to a conditional family, add helper registration logic in `tool_loading.py` and make sure `configure_tools()` in `core/tools.py` enables it under the correct conditions.
 
-## Step 5: understand current provider behavior
+## Step 5: assign the tool to a profile group
+
+Registration in `AVAILABLE_TOOLS` / `TOOL_DESCRIPTIONS` alone does not advertise the tool to the model. Advertised tools are filtered by `src/monitor/lib/tool_profiles.py`.
+
+Add the tool name to the appropriate entry in `TOOL_GROUPS`, then confirm which profiles include that group via `PROFILE_GROUPS`. Static profiles today are:
+- `minimal`
+- `coding` (default)
+- `review`
+- `full`
+
+Ungrouped tools do not appear in the coding or full catalogs. Verify with:
+
+```text
+:tools list
+:tools catalog
+```
+
+## Step 6: understand current provider behavior
 
 `configure_tools()` currently branches by provider prefix:
 - `anthropic`
@@ -111,7 +129,7 @@ If your new tool is provider-neutral, it can usually be exposed to all providers
 
 If it depends on a provider-specific protocol or schema, integrate it carefully into the relevant branch.
 
-## Step 6: argument parsing behavior
+## Step 7: argument parsing behavior
 
 `src/monitor/core/tooling.py` currently uses `parse_function_args(...)`.
 
@@ -121,7 +139,7 @@ That means tool arguments may arrive as:
 
 Tools should expect validated keyword arguments by the time the actual callable is invoked, but defensive input validation in the tool itself is still recommended.
 
-## Step 7: consider safety behavior
+## Step 8: consider safety behavior
 
 If your tool:
 - writes files
@@ -171,5 +189,6 @@ Relevant existing test areas include tool execution, deterministic editors, bulk
 ## Related files
 - `src/monitor/lib/tool_definitions.py`
 - `src/monitor/lib/tool_loading.py`
+- `src/monitor/lib/tool_profiles.py`
 - `src/monitor/core/tools.py`
 - `src/monitor/core/tooling.py`

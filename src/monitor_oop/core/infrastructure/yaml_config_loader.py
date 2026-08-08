@@ -3,14 +3,24 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from monitor._stubs import appdirs, yaml
 
-from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig
+from monitor_oop.core.models import DEFAULT_MODEL, RuntimeConfig, SummarizationSettings
 
 logger = logging.getLogger(__name__)
+
+_LOGGING_LEVEL_NAMES = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "WARN": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "NOTSET": logging.NOTSET,
+}
 
 
 @dataclass(slots=True)
@@ -22,6 +32,7 @@ class LoadedConfig:
     prompt_history_filename: str
     history_dir: str
     logging_level: int
+    summarization_settings: SummarizationSettings
 
 
 class YamlConfigLoader:
@@ -63,6 +74,8 @@ class YamlConfigLoader:
         )
         resolved_history_dir = RuntimeConfig(full_model_name=DEFAULT_MODEL).history_dir
         logger.info("Using default history_dir: %s", resolved_history_dir)
+        resolved_summarization = SummarizationSettings()
+        logger.info("Using default summarization_settings: %s", resolved_summarization)
 
         for yaml_path in candidate_paths:
             yaml_values = self._load_yaml_values(yaml_path)
@@ -85,7 +98,7 @@ class YamlConfigLoader:
                     resolved_context_window,
                 )
             if "logging_level" in yaml_values and yaml_values["logging_level"] is not None:
-                resolved_logging_level = self._coerce_int(
+                resolved_logging_level = self._coerce_logging_level(
                     yaml_values["logging_level"], resolved_logging_level
                 )
             else:
@@ -116,6 +129,16 @@ class YamlConfigLoader:
                     "Using default history_dir from current resolution: %s",
                     resolved_history_dir,
                 )
+            if "summarization" in yaml_values and yaml_values["summarization"] is not None:
+                resolved_summarization = self._coerce_summarization_settings(
+                    yaml_values["summarization"],
+                    resolved_summarization,
+                )
+            else:
+                logger.info(
+                    "Using default summarization_settings from current resolution: %s",
+                    resolved_summarization,
+                )
 
         resolved_config = LoadedConfig(
             full_model_name=resolved_full_model_name,
@@ -123,6 +146,7 @@ class YamlConfigLoader:
             prompt_history_filename=resolved_prompt_history_filename,
             history_dir=resolved_history_dir,
             logging_level=resolved_logging_level,
+            summarization_settings=resolved_summarization,
         )
         logger.info("Final resolved LoadedConfig values: %s", resolved_config)
         return resolved_config
@@ -162,6 +186,63 @@ class YamlConfigLoader:
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    def _coerce_logging_level(self, value: object, default: int) -> int:
+        """Coerce a logging level from int or level name."""
+
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            named = _LOGGING_LEVEL_NAMES.get(value.strip().upper())
+            if named is not None:
+                return named
+            try:
+                return int(value.strip())
+            except ValueError:
+                return default
+        return default
+
+    def _coerce_summarization_settings(
+        self,
+        value: object,
+        default: SummarizationSettings,
+    ) -> SummarizationSettings:
+        """Build summarization settings from a YAML mapping."""
+
+        if not isinstance(value, dict):
+            return default
+
+        token_limit = default.token_limit
+        if "token_limit" in value and value["token_limit"] is not None:
+            token_limit = self._coerce_int(value["token_limit"], default.token_limit)
+
+        prompt_template = default.prompt_template
+        if "prompt_template" in value and value["prompt_template"] is not None:
+            prompt_template = str(value["prompt_template"])
+
+        preserve_units = default.preserve_units
+        if "preserve_units" in value and value["preserve_units"] is not None:
+            preserve_units = self._coerce_int(value["preserve_units"], default.preserve_units)
+
+        compaction_soft_ratio = default.compaction_soft_ratio
+        if (
+            "compaction_soft_ratio" in value
+            and value["compaction_soft_ratio"] is not None
+        ):
+            try:
+                compaction_soft_ratio = float(value["compaction_soft_ratio"])
+            except (TypeError, ValueError):
+                compaction_soft_ratio = default.compaction_soft_ratio
+
+        return replace(
+            default,
+            token_limit=token_limit,
+            prompt_template=prompt_template,
+            preserve_units=preserve_units,
+            compaction_soft_ratio=compaction_soft_ratio,
+        )
 
     def _is_valid_history_dir(self, history_dir: object) -> bool:
         """Return whether a history directory value is valid."""

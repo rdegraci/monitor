@@ -70,7 +70,7 @@ Example:
 }
 ```
 
-Use the exact naming convention already used by the command group you are extending. In the current codebase, many built-ins are registered with plain names such as `commands` or `macros`, and contributor-facing docs should treat the output of `commands` as the source of truth.
+Use the exact naming convention already used by the command group you are extending. Many built-ins are registered with plain names such as `macros` or `tasks`. For discovery, treat `:help` (aliases `:built_ins`, `?`) as the source of truth — not `:commands`, which lists terminal/internal catalog entries such as `llm<`.
 
 If the function needs custom argument parsing or dependency injection, use a lambda:
 
@@ -89,13 +89,15 @@ If the function needs custom argument parsing or dependency injection, use a lam
 After changing registrations, restart Monitor and confirm the new command appears in:
 
 ```text
-commands
+:help
+:help <your_command>
 ```
 
 ## Current examples in the codebase
 
 `configure_built_ins()` currently registers built-ins such as:
-- `commands`
+- `help` / `built_ins` / `?`
+- `commands` (terminal/internal catalog; prefer `:help` for built-ins)
 - `history`
 - `llm`
 - `reasoning`
@@ -143,3 +145,4 @@ For new built-ins:
 - `src/monitor/core/built_ins.py`
 - `src/monitor/lib/built_ins_utils.py`
 - `src/monitor/lib/built_in_commands.py`
+- `src/monitor/lib/command_help.py`

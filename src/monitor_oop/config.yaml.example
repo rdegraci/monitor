@@ -4,7 +4,8 @@ model: openai/gpt-5.4-mini
 # Default token budget / context window.
 context_window: 400000
 
-# Default logging verbosity.
+# Default logging verbosity. Accepts a numeric level (10=DEBUG, 20=INFO,
+# 30=WARNING, 40=ERROR) or a level name such as INFO.
 logging_level: INFO
 
 # Prompt history settings.

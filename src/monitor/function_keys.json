@@ -1,0 +1,48 @@
+{
+  "io": {
+      "F1" : { "text": "Sounds good. Proceed.", "description": "Affirmative" },
+      "F2" : { "text": "{{wdyt}}.", "description": "WDYT" },
+      "F3" : { "text": "What do we do next?", "description": "What do we do next?" },
+      "F4" : { "text": "{{review_changes}}", "description": "Review code changes" }
+  },
+  "python": {
+    "F1": {"text": "pytest -xvs ",                 "description": "Run pytest verbose, fail fast"},
+    "F2": {"text": "uv run python -m ",            "description": "Run a Python module via uv"},
+    "F3": {"text": "uv pip install ",              "description": "Install a package into the active venv"},
+    "F4": {"text": "ruff check . && ruff format .","description": "Lint + format the repo"},
+    "F5": {"text": "mypy ",                        "description": "Type-check a path"},
+    "F6": {"text": "python -m pdb ",               "description": "Drop into pdb on a script"},
+    "F7": {"text": "ipython",                      "description": "Launch IPython REPL"},
+    "F8": {"text": "pytest -k ",                   "description": "Run pytest filtered by name"}
+  },
+  "swift": {
+    "F1": {"text": "swift build",                          "description": "Build the SwiftPM package"},
+    "F2": {"text": "swift test",                           "description": "Run SwiftPM tests"},
+    "F3": {"text": "swift run ",                           "description": "Run an executable target"},
+    "F4": {"text": "swift package clean && swift build",   "description": "Clean and rebuild"},
+    "F5": {"text": "swift package update",                 "description": "Update SwiftPM dependencies"},
+    "F6": {"text": "swift-format format -i -r Sources/",   "description": "Format Sources/ in place, recursively"},
+    "F7": {"text": "xcodebuild -scheme ",                  "description": "Build an Xcode scheme"},
+    "F8": {"text": "xcrun simctl list devices booted",     "description": "List booted iOS simulators"}
+  },
+  "git": {
+    "F1": {"text": "git status",                  "description": "Working-tree status"},
+    "F2": {"text": "git diff ",                   "description": "Diff (staged + unstaged)"},
+    "F3": {"text": "git log --oneline -20",       "description": "Last 20 commits"},
+    "F4": {"text": "git add ",                    "description": "Stage paths"},
+    "F5": {"text": "git commit -m \"",            "description": "Start an inline commit message"},
+    "F6": {"text": "git switch -c topic/",        "description": "Create a topic branch"},
+    "F7": {"text": "git pull --rebase",           "description": "Pull with rebase"},
+    "F8": {"text": "gh pr create --fill",         "description": "Open a PR from current branch"}
+  },
+  "prompts": {
+    "F1": {"text": "Explain the design of ",                  "description": "Architectural-explanation prompt"},
+    "F2": {"text": "Refactor for readability without changing behavior: ", "description": "Safe-refactor prompt"},
+    "F3": {"text": "Write pytest tests for ",                 "description": "Test-generation prompt (Python)"},
+    "F4": {"text": "Write XCTest tests for ",                 "description": "Test-generation prompt (Swift)"},
+    "F5": {"text": "Translate this Python to idiomatic Swift:\n", "description": "Cross-language port (Py to Swift)"},
+    "F6": {"text": "Translate this Swift to idiomatic Python:\n", "description": "Cross-language port (Swift to Py)"},
+    "F7": {"text": "Audit for thread safety and concurrency bugs in ", "description": "Concurrency review prompt"},
+    "F8": {"text": "Review the following diff for correctness; flag only real bugs:\n", "description": "Diff-review prompt"}
+  }
+}

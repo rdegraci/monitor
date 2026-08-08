@@ -1,7 +1,7 @@
 MODEL: openai/gpt-5.4-mini-2026-03-17  # Fully qualified primary LLM model (provider/model:version) used for standard responses. Set to OLLAMA to use the provider-scoped OLLAMA block below.
-MODEL_CONTEXT_WINDOW: 1050000  # Maximum tokens the model can accept as input context (tokens). Ignored when MODEL: OLLAMA.
+MODEL_CONTEXT_WINDOW: 400000  # Maximum tokens the model can accept as input context (tokens). Ignored when MODEL: OLLAMA. Must match MODEL (gpt54-mini = 400000; gpt54 base = 1050000).
 MODEL_OUTPUT_WINDOW: 128000  # Maximum tokens allowed in a single completion/response (tokens). Ignored when MODEL: OLLAMA.
-MODEL_INPUT_TIER: chatgpt5-5  # Input tier/plan selector for model usage limits. Ignored when MODEL: OLLAMA.
+MODEL_INPUT_TIER: chatgpt5-mini-5  # Input tier/plan selector for model usage limits. Ignored when MODEL: OLLAMA. Must match MODEL (gpt54-mini → chatgpt5-mini-*; gpt54 base → chatgpt5-*).
 CONVERSATION_MAX_SIZE: 512  # Soft message-count hint; token-based compaction is the real limit (AUTO_COMPACT_THRESHOLD_RATIO)
 ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations when limits are reached (see summarization.triggers)
 
@@ -20,6 +20,27 @@ ENABLE_AUTO_SUMMARIZE_ON_LIMIT: True  # When True, auto-summarize conversations 
 #   TEMPERATURE: 0.6
 #   TOP_P: 0.95
 #   TOP_K: 20
+
+# llama.cpp OpenAI-compatible server mode:
+# - Set MODEL: LLAMACPP to activate this provider.
+# - LLAMACPP.MODEL is the served model name.
+# - Runtime canonical model becomes llamacpp/<LLAMACPP.MODEL>.
+# - LLAMACPP.BASE_URL defaults to http://localhost:8080/v1 when omitted.
+# - LLAMACPP.CONTEXT_WINDOW and LLAMACPP.OUTPUT_WINDOW are required in this mode.
+# - Optional: API_KEY, TEMPERATURE, TOP_P, TOP_K.
+# Legacy flat keys are also accepted when the nested block is absent:
+# LLAMACPP_BASE_URL: http://localhost:8080/v1
+# LLAMACPP_API_KEY: sk-local
+# LLAMACPP:
+#   MODEL: local-model
+#   BASE_URL: http://localhost:8080/v1
+#   API_KEY: sk-local
+#   CONTEXT_WINDOW: 128000
+#   OUTPUT_WINDOW: 8192
+#   TEMPERATURE: 0.6
+#   TOP_P: 0.95
+#   TOP_K: 40
+
 # SESSIONS_FOLDER controls the root directory name under the Monitor user
 # config directory where session artifacts are stored. The default is
 # "sessions" if this key is omitted.
@@ -222,7 +243,7 @@ OLD_TOOL_BODY_TURNS_THRESHOLD: 8
 # (grep "[CHAIN-TIER]" in the app log; SESSION_TIER_CROSSINGS / SESSION_RESPONSES_REQUESTS).
 # This is an ABSOLUTE cost cliff, independent of MODEL_CONTEXT_WINDOW — the
 # window-ratio compaction triggers watch VISIBLE history and never see the hidden
-# Responses chain that actually gets billed. See docs/cache/RESPONSES_CHAIN_BREAK.md.
+# Responses chain that actually gets billed.
 RESPONSES_CHAIN_TIER_TOKENS: 128000
 
 # Cap on output tokens for non-reasoning model calls. Sent as
@@ -499,7 +520,12 @@ TOOL_PROFILE: coding
 # MAX_SYMBOL_QUERIES_PER_TURN: 12  # Cap file_outline/find_symbol calls per turn (0=off)
 
 SERVER_MODE: False  # Run in server/daemon mode instead of interactive CLI
+# AGENT: false  # Usually set by --agent / MONITOR_AGENT at runtime; YAML default is false
 
+# Path defaults below use the macOS appdirs location
+# (~/Library/Application Support/monitor). On Linux use ~/.config/monitor/...;
+# on Windows use %APPDATA%/monitor/... . Prefer paths under
+# appdirs.user_config_dir("monitor") so they match Monitor's seed/config dirs.
 history:
   file: ~/Library/Application Support/monitor/chat_history  # Path to persistent conversation history file
 
@@ -521,15 +547,22 @@ logging:
 # If the URL is unreachable, the failure is logged at WARNING and the
 # session continues — non-fatal. Leave the default if you don't run such
 # a service; the post just fails quietly each turn.
-ARTIFACT_SERVER: http://192.168.0.250:2323/
+ARTIFACT_SERVER: http://localhost:2323/
 
 JOKES_FILE: ~/Library/Application Support/monitor/jokes.txt  # Path to jokes corpus file
+
+# When false, hide the U: cost annotation / estimate in the status line.
+# SHOW_COST_ESTIMATE: true
 
 # Master flag to activate/deactivate summaries to third parties
 EXTERNAL_SERVICES: False  # Global switch for allowing summaries to be sent to external platforms
 SUMMARY_TWITCH: False  # Enable Twitch summaries (requires EXTERNAL_SERVICES=True)
 SUMMARY_LINKEDIN: False  # Enable LinkedIn summaries (requires EXTERNAL_SERVICES=True)
 SUMMARY_TWITTER: False  # Enable Twitter/X summaries (requires EXTERNAL_SERVICES=True)
+# Endpoints used when the matching SUMMARY_* flag is true (env overrides YAML):
+# TWITTER_CLIENT_API: http://localhost:7070/twitter/tweet
+# TWITCH_CLIENT_API: http://localhost:5050/send_message
+# LINKEDIN_CLIENT_API: http://localhost:6060/linkedin/article
 
 # Persistent cross-session memory via Redis. When MEMORY_SERVICES is True,
 # the harness fetches a short summary of past conversations from Redis on
@@ -592,7 +625,7 @@ INTERACTIVE_COMMANDS_PATH: ~/Library/Application Support/monitor/interactive_com
 # None. If you don't run embedcodeserv, leave defaults; warnings will show
 # but nothing crashes. Env vars EMBEDCODESERV_HOST / EMBEDCODESERV_PORT /
 # EMBEDCODESERV_TIMEOUT override these YAML values at startup.
-EMBEDCODESERV_HOST: "192.168.0.250"
+EMBEDCODESERV_HOST: "localhost"
 EMBEDCODESERV_PORT: 5010
 EMBEDCODESERV_TIMEOUT: 90  # seconds; bumped for /analyze calls which run Ollama server-side
 
@@ -731,9 +764,12 @@ DEFAULT_EXCLUDE_GLOBS: [
 #  takes precedence over this file.)
 
 MONITOR_ENABLE_AGENT_ORCHESTRATION: false  # Master switch. Sub-agent create/send/gather refuse unless true.
+# MONITOR_AGENT_DEPTH is normally set by the orchestrator when spawning children
+# (current nesting level). Leave unset for interactive sessions; default is 0.
+# MONITOR_AGENT_DEPTH: 0
 MONITOR_AGENT_MAX_DEPTH: 1                 # Max recursion depth. 1 = sub-agents CANNOT spawn sub-agents.
-MONITOR_AGENT_MAX_BREADTH: 3               # Max sub-agents running concurrently (0 disables the cap).
-MONITOR_AGENT_MAX_TOTAL: 12                # Max sub-agents spawned per session (0 disables the cap).
+MONITOR_AGENT_MAX_BREADTH: 1               # Max sub-agents running concurrently (0 disables the cap). Code default: 1.
+MONITOR_AGENT_MAX_TOTAL: 1                 # Max sub-agents spawned per session (0 disables the cap). Code default: 1.
 MONITOR_AGENT_HEARTBEAT_TIMEOUT: 45        # Seconds before a silent sub-agent is treated as crashed/hung.
 MONITOR_AGENT_IDLE_TIMEOUT: 300            # Seconds a PERSISTENT sub-agent may sit idle (post-result) before it's reaped.
 

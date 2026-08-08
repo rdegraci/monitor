@@ -27,7 +27,7 @@ When auto-compaction fires or you stay above the 2× pricing cliff for several
 turns, Monitor prints a one-line recovery hint:
 
 ```text
-Recovery: :break_chain · :compact · :reset_history
+Recovery: :break_chain (keep history, drop 2x cliff) · :compact (summarize older turns) · :reset_history (fresh task)
 ```
 
 ## Example (debug)

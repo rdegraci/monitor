@@ -52,6 +52,8 @@ python -m monitor --script path/to/script.txt
 python -m monitor --tui
 python -m monitor --server 127.0.0.1 --port 5000
 python -m monitor --agent
+python -m monitor --status-all
+python -m monitor --activate ttys002
 ```
 
 ### First-run seeding
@@ -93,7 +95,7 @@ Common built-ins:
 
 | Area | Examples |
 |------|----------|
-| Tools / profile | `:tools`, `:tools full`, `:tools tokens` |
+| Tools / profile | `:tools`, `:tools list`, `:tools minimal|coding|review|full`, `:tools catalog`, `:tools tokens`, `:tools phrases` |
 | Session | `:compact`, `:break_chain`, `:reset_history`, `:tasks` |
 | Cost / debug | `:cost_debug`, `:dump_metrics`, `:status`, `:activity` |
 | Model | `:llm`, `:reasoning` |
@@ -101,7 +103,8 @@ Common built-ins:
 
 ## Tool profile (coding-first)
 
-The default **tool profile** is `coding`: read/search/git, tasks, deterministic
+Static tool profiles are `minimal`, `coding` (default), `review`, and `full`.
+The default **coding** profile covers read/search/git, tasks, deterministic
 edits (with `modify_source_code` as last-resort fallback), verification, and
 session memory. Network, database, and agent tools are withheld until you
 `:tools full` or ask for them (auto-widen leases them for a few turns).
@@ -109,9 +112,13 @@ session memory. Network, database, and agent tools are withheld until you
 ```text
 :tools
 :tools list
+:tools minimal
+:tools coding
+:tools review
+:tools full
 :tools catalog
 :tools tokens
-:tools full
+:tools phrases
 ```
 
 ## On-demand code symbols
@@ -211,7 +218,7 @@ orchestration config). Wiki built-ins: `:wiki_init`, `:wiki_lint`, `:wiki_fix`.
 | Check config | `python -m monitor --check-config` |
 | Start REPL | `python -m monitor` |
 | Discover commands | `:help` |
-| Tool profile | `:tools` / `:tools full` |
+| Tool profile | `:tools` / `:tools list` / `:tools full` |
 | Status detail | `:status coding` |
 | Activity line | `:activity on` |
 | Task plan | `:tasks` / `:clear_tasks` |

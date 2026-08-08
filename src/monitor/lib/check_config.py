@@ -28,6 +28,7 @@ SEEDED_CONFIG_FILES: Tuple[Tuple[str, str], ...] = (
     ("model_config.json", "model_config.json"),
     ("non_interactive_commands.json", "non_interactive_commands.json"),
     ("interactive_commands.json", "interactive_commands.json"),
+    ("function_keys.json", "function_keys.json"),
     ("directives/echo.prompt", "directives/echo.prompt"),
     ("directives/greet.prompt", "directives/greet.prompt"),
 )

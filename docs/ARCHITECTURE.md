@@ -63,6 +63,8 @@ Supported CLI flags currently include:
 - `--script`
 - `--agent`
 - `--tui`
+- `--status-all` (list running Monitor instances; fast-path in `__main__.py`)
+- `--activate <tty>` (focus the Terminal/iTerm tab for a Monitor TTY)
 
 `--check-config` validates config-file presence, model, tool profile, status-line
 mode, daily budget, and provider API-key *presence* without printing key values
@@ -150,7 +152,8 @@ Notable built-ins include:
 
 ### `src/monitor/core/tools.py`
 Configures which tool descriptions are exposed for the active provider/model,
-including **tool profiles** (`src/monitor/lib/tool_profiles.py`). The default
+including **tool profiles** (`src/monitor/lib/tool_profiles.py`). Static
+profiles are `minimal`, `coding` (default), `review`, and `full`. The default
 `coding` profile advertises core_read, task, edit, verify, and memory groups;
 network/db/agent stay opt-in via `:tools full` or auto-widen leases.
 
@@ -313,12 +316,19 @@ Relevant config/runtime controls include:
 - `MONITOR_AGENT_DEPTH`
 - `MONITOR_AGENT_MAX_DEPTH`
 - `MONITOR_AGENT_MAX_BREADTH`
+- `MONITOR_AGENT_MAX_TOTAL`
+- `MONITOR_AGENT_HEARTBEAT_TIMEOUT`
+- `MONITOR_AGENT_IDLE_TIMEOUT`
 - `ORCHESTRATOR_MODEL`
 - `ORCHESTRATOR_REASONING_EFFORT`
 - `SUBAGENT_MODEL`
 - `SUBAGENT_REASONING_EFFORT`
+- `SUBAGENT_WRITE_ACCESS`
+- `SUBAGENT_MEMORY_SERVICES`
 - `REASONING_BUMP_EFFORT`
 - `ESCALATE_REASONING_ON_TOOL_FAILURE`
+
+Sub-agent write behavior is explicitly constrained in tooling, especially for write-capable tools.
 
 ### Reasoning behavior
 
@@ -357,13 +367,6 @@ Relevant config keys include:
 When `--agent` is active, Monitor applies the sub-agent model and effort defaults at startup if they are configured.
 The orchestrator keeps the base model for the session, but can use the orchestrator role model transiently during collation turns.
 An explicit `--model` override still wins over role-based defaults.
-- `MONITOR_AGENT_MAX_TOTAL`
-- `MONITOR_AGENT_HEARTBEAT_TIMEOUT`
-- `MONITOR_AGENT_IDLE_TIMEOUT`
-- `SUBAGENT_WRITE_ACCESS`
-- `SUBAGENT_MEMORY_SERVICES`
-
-Sub-agent write behavior is explicitly constrained in tooling, especially for write-capable tools.
 
 ## Wiki support
 

@@ -27,6 +27,7 @@ def test_load_config_yaml_defaults_when_no_files_exist(monkeypatch, tmp_path) ->
     assert result.prompt_history_filename == "prompt_history"
     assert result.history_dir == "history"
     assert result.logging_level == 20
+    assert result.summarization_settings.token_limit == 4000
 
 
 def test_user_config_seeder_creates_yaml_example_copy(monkeypatch, tmp_path) -> None:
@@ -68,7 +69,9 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     config_dir.mkdir()
     config_yaml = config_dir / "config.yaml"
     config_yaml.write_text(
-        "model: yaml-model\ncontext_window: 12345\nlogging_level: 30\nprompt_history_filename: custom_history\nhistory_dir: history_dir\n",
+        "model: yaml-model\ncontext_window: 12345\nlogging_level: 30\n"
+        "prompt_history_filename: custom_history\nhistory_dir: history_dir\n"
+        "summarization:\n  token_limit: 2222\n  prompt_template: Keep it short\n",
         encoding="utf-8",
     )
 
@@ -83,6 +86,25 @@ def test_load_config_yaml_reads_runtime_values(monkeypatch, tmp_path) -> None:
     assert result.logging_level == 30
     assert result.prompt_history_filename == "custom_history"
     assert result.history_dir == "history_dir"
+    assert result.summarization_settings.token_limit == 2222
+    assert result.summarization_settings.prompt_template == "Keep it short"
+
+
+def test_load_config_yaml_accepts_named_logging_level(monkeypatch, tmp_path) -> None:
+    """Verify logging_level accepts standard level names from the example."""
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_yaml = config_dir / "config.yaml"
+    config_yaml.write_text("logging_level: INFO\n", encoding="utf-8")
+
+    monkeypatch.setattr(appdirs, "user_config_dir", lambda *args, **kwargs: str(config_dir))
+    monkeypatch.setattr(YamlConfigLoader, "_get_user_config_paths", lambda self: [str(config_yaml)])
+
+    loader = YamlConfigLoader()
+    result = loader.load_config_yaml()
+
+    assert result.logging_level == 20
 
 
 def test_load_config_yaml_prefers_last_valid_user_path(monkeypatch, tmp_path) -> None:

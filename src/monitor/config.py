@@ -1311,7 +1311,7 @@ def configure_globals():
     RATE_LIMITING_CONFIG = yaml_config.get(
         "rate_limiting",
         {
-            "safety_factor": 0.6,
+            "safety_factor": 0.8,
             "window_seconds": 60,
         },
     )

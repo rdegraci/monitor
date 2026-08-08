@@ -17,7 +17,7 @@ This document describes the current `src/monitor/lib` layer.
 ### Tool and registry modules
 - `tool_definitions.py`
 - `tool_loading.py`
-- `tool_profiles.py` — advertised tool groups (`coding` default, `full`, leases)
+- `tool_profiles.py` — profiles `minimal` / `coding` (default) / `review` / `full`, groups, leases
 - `tool_failures.py` — failure categories, read/symbol budgets, exact-arg loops
 - `code_symbols.py` — on-demand `file_outline` / `find_symbol` with cache
 - `tool_text.py`
@@ -46,6 +46,10 @@ This document describes the current `src/monitor/lib` layer.
 - `monitor_wiki_linter.py`
 - `built_ins_wiki_utils.py`
 
+### ChromaDB modules (optional `.[chroma]` extra)
+- `chroma_client.py` — embedded PersistentClient operations
+- `chroma_cli.py` — `chroma-db` console script / `bin/chroma-db` entrypoint
+
 ### Support and integration modules
 - `git.py`
 - `git_history.py`
@@ -57,6 +61,7 @@ This document describes the current `src/monitor/lib` layer.
 - `system_prompt.py`
 - `external_services.py`
 - `agent_orchestrator.py`
+- `instances.py` — `--status-all` / `--activate`
 
 ## Tool registry architecture
 
@@ -146,9 +151,10 @@ It currently exposes registration helpers for:
 - OpenAI editor tools
 
 ### `tool_profiles.py`
-Defines advertised tool **groups** and profiles. Default profile `coding`
-includes core_read, task, edit, verify, and memory. Network, database, and
-agent groups stay opt-in (`:tools full` or auto-widen leases).
+Defines advertised tool **groups** and profiles (`minimal`, `coding`, `review`,
+`full`). Default profile `coding` includes core_read, task, edit, verify, and
+memory. Network, database, and agent groups stay opt-in (`:tools full` or
+auto-widen leases).
 
 ### `tool_failures.py`
 Maps tool errors to short `[category]` messages with one recovery step, and

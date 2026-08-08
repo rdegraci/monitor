@@ -120,6 +120,7 @@ monitor = [
     "interactive_commands.json",
     "macros.json",
     "model_config.json",
+    "function_keys.json",
     "directives/echo.prompt",
     "directives/greet.prompt"
 ]
