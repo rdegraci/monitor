@@ -22,7 +22,8 @@ for day-to-day use, plus an experimental alternate stack for architecture work.
 - Keep shell workflows and LLM-assisted development in one place
 - Use structured tools for git, search, editing, tests, and planning
 - Prefer deterministic edits before falling back to natural-language editing
-- Scale from interactive REPL usage to scripts, TUI, agents, and a local server
+- Scale from interactive REPL usage to scripts, agents, and a local server
+  (experimental full-screen TUI via `--tui`)
 
 For architecture and runtime details, see
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -37,7 +38,7 @@ For architecture and runtime details, see
 - Persistent and ephemeral macros
 - Deterministic file editing tools with a natural-language fallback
 - Optional local OpenAI-style HTTP server
-- Optional full-screen TUI mode
+- Experimental full-screen TUI mode (`--tui`)
 
 ## Requirements
 
@@ -138,10 +139,10 @@ only when the target files do not already exist.
 
 ```sh
 python -m monitor
-python -m monitor --tui
 python -m monitor --script path/to/script.txt
 python -m monitor --server
 python -m monitor --agent
+python -m monitor --tui   # experimental
 ```
 
 ### Common commands
