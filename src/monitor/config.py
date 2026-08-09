@@ -396,19 +396,10 @@ def load_model_config():
         else:
             # The rest of the mappings remain hardcoded (backward-compatible fallback)
             model_tpm_mapping = {
-                "sonnet4": anthropic_model_tpm_tier,
-                "sonnet35": anthropic_model_tpm_tier,
-                "sonnet37": anthropic_model_tpm_tier,
-                "4o-mini": openai_model_tpm_tier,
-                "gpt4o": openai_model_tpm_tier,
-                "o3-mini": openai_model_tpm_tier,
-                "gpt41": openai_model_tpm_tier,
-                "gpt5": openai_model_tpm_tier,
-                "o3": openai_model_tpm_tier,
-                "grok3": xai_model_tpm_tier,
-                "grok4": xai_model_tpm_tier,
-                "gemini20": google_model_tpm_tier,
-                "gpt5-mini": openai_model_tpm_tier,
+                "gemini30": google_model_tpm_tier,
+                "gpt54": openai_model_tpm_tier,
+                "gpt54-mini": openai_model_tpm_tier,
+                "grok41-fast": xai_model_tpm_tier,
             }
             logger.warning(
                 "Using fallback hard-coded model_tpm_mapping (no data-driven mapping provided)"
