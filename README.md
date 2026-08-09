@@ -4,6 +4,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#requirements)
 [![Tests](https://img.shields.io/badge/tests-pytest-informational.svg)](#development-and-testing)
 
+Personal AI coding agent CLI I wrote for my own daily work — REPL + tools +
+task planning. It is customized for my workflow, not a general-purpose product.
+
 Monitor is an AI-assisted developer CLI with an interactive REPL, built-in
 commands, LLM-callable tools, macros, task planning, and an optional local HTTP
 server.
@@ -11,11 +14,24 @@ server.
 ## Overview
 
 Monitor is built for repository-centric development with a mix of shell work,
-structured tools, and model assistance. It provides a production CLI entry point
-for day-to-day use, plus an experimental alternate stack for architecture work.
+structured tools, and model assistance.
 
-- **Production:** `monitor` / `python -m monitor`
-- **Experimental:** `monitor-oop` / `python -m monitor_oop`
+## Architecture decisions
+
+The repo has one production entry point and a smaller experimental stack.
+
+- **Production:** `monitor` / `python -m monitor`  
+  This is the day-to-day CLI. Use it for real work. The full-screen UI
+  (`--tui`) is experimental inside this same entry point.
+- **Experimental:** `monitor-oop` / `python -m monitor_oop`  
+  This is an alternate OOP architecture for design exploration. It is not the
+  recommended path for daily use.
+
+Keep production fixes in `src/monitor/`. Use `src/monitor_oop/` only when you
+intentionally want to try the alternate stack.
+
+For runtime layout and deeper design notes, see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Why Monitor
 
@@ -24,9 +40,6 @@ for day-to-day use, plus an experimental alternate stack for architecture work.
 - Prefer deterministic edits before falling back to natural-language editing
 - Scale from interactive REPL usage to scripts, agents, and a local server
   (experimental full-screen TUI via `--tui`)
-
-For architecture and runtime details, see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Features
 
@@ -52,8 +65,8 @@ For architecture and runtime details, see
 ### Clone the repository
 
 ```sh
-git clone <your-repo-url>
-cd <repo-dir>
+git clone https://github.com/rdegraci/monitor
+cd monitor
 ```
 
 ### Install the core package
