@@ -154,7 +154,7 @@ PUBLIC_MACRO_VALUES = {
     "xdiff": "Use the git show tool to examine the source code changes for the following hash or branch name: ",
     "suggest_git_entry": (
         "Examine the commit details for the provided hash using the "
-        "perform_git_show tool. Based on those changes, {{create_git_entry}} "
+        "perform_git_show tool. Based on those changes do not use the existing git title or existing git body: {{create_git_entry}} "
         "The commit hash is as follows: "
     ),
     "plan": "Give me a step by step plan",
