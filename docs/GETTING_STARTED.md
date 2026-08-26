@@ -49,6 +49,8 @@ python -m monitor --check-config
 python -m monitor --model gpt5
 python -m monitor --debug
 python -m monitor --script path/to/script.txt
+python -m monitor --prompt "Summarize the repo layout"
+python -m monitor --prompt-file prompts/review.txt
 python -m monitor --tui
 python -m monitor --server 127.0.0.1 --port 5000
 python -m monitor --agent
@@ -202,8 +204,20 @@ directive< greet.prompt Alice
 |------|------|
 | TUI | `--tui` |
 | Script | `--script path.txt` |
+| One-shot prompt | `--prompt "..."` or `--prompt-file path` (use `-` for stdin) |
 | Server | `--server [host] --port N` |
 | Agent behavior | `--agent` (modifier, not a separate front end) |
+
+One-shot prompt mode prints the assistant reply to **stdout** only (plain text,
+no REPL decorations). Startup messages and errors go to **stderr**. Exit code
+`0` on success, `1` on query failure, `2` on bad arguments.
+
+```sh
+monitor --prompt "What does this repo do?" 2>/dev/null
+monitor --prompt-file - <<'EOF'
+Review these changes for test gaps.
+EOF
+```
 
 Server endpoints: `POST /cli`, `GET /v1/models`, `POST /v1/chat/completions`.
 Protect non-localhost binds; use `MONITOR_SERVER_API_KEY` for `/v1/*` Bearer auth.
@@ -217,6 +231,7 @@ orchestration config). Wiki built-ins: `:wiki_init`, `:wiki_lint`, `:wiki_fix`.
 |--------|---------|
 | Check config | `python -m monitor --check-config` |
 | Start REPL | `python -m monitor` |
+| One-shot query | `python -m monitor --prompt "..."` |
 | Discover commands | `:help` |
 | Tool profile | `:tools` / `:tools list` / `:tools full` |
 | Status detail | `:status coding` |

@@ -61,6 +61,8 @@ Supported CLI flags currently include:
 - `--version`
 - `--debug`
 - `--script`
+- `--prompt`
+- `--prompt-file`
 - `--agent`
 - `--tui`
 - `--status-all` (list running Monitor instances; fast-path in `__main__.py`)
@@ -87,7 +89,13 @@ Key pieces:
 ### 2. Script mode
 `--script` runs commands from a file, one non-empty non-comment line at a time, through the same conversation input pipeline used by the REPL.
 
-### 3. Server mode
+### 3. One-shot prompt mode
+`--prompt TEXT` or `--prompt-file PATH` (use `-` for stdin) runs a single LLM
+query through `monitor.core.conversation.query()`, prints the final assistant
+text to stdout, and exits. Startup diagnostics go to stderr. This mode is
+mutually exclusive with `--script`, `--server`, and `--tui`.
+
+### 4. Server mode
 `--server` launches a Flask development server built in `src/monitor/lib/server.py`.
 
 Current API surface includes:
@@ -101,13 +109,13 @@ For simple CLI-style integration, send JSON `{"command": "<text>"}` to `POST /cl
 
 The server is wrapped with `SingleRequestMiddleware`, which serializes requests with a process-local lock.
 
-### 4. TUI mode
+### 5. TUI mode
 `--tui` launches the full-screen terminal UI in `src/monitor/tui/app.py` after the normal startup configuration path has run.
 
-### 5. Agent mode
+### 6. Agent mode
 `--agent` enables sub-agent behavior by setting `config.AGENT = True`, which affects tool availability and write restrictions.
 
-### 6. `--server` host behavior
+### 7. `--server` host behavior
 `--server` accepts an optional host. If no host is provided, the runtime binds to `127.0.0.1`.
 
 ## Core package responsibilities

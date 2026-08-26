@@ -25,6 +25,7 @@ from monitor.core.built_ins import configure_built_ins
 from monitor.core.conversation import chat
 from monitor.core.conversation import process_input  # Import process_input to feed lines through the conversation input pipeline.
 from monitor.core.conversation import query as conversation_query  # Alias to avoid naming clash with local variable.
+from monitor.core.conversation import ConversationResult
 from monitor.core.query_service import register_query_function  # Ensure query is registered for server mode.
 from monitor.core.version import VERSION
 from monitor.lib.lexer import create_prompt_session  # Import PromptSession factory for emulated typing in scripts.
@@ -209,6 +210,114 @@ def run_script(script_path: str) -> int:
     return 0
 
 
+def _prompt_mode_requested(args) -> bool:
+    """Return True when one-shot prompt mode was requested on the CLI."""
+    return getattr(args, "prompt", None) is not None or getattr(args, "prompt_file", None) is not None
+
+
+def _validate_prompt_mode_args(parser, args) -> None:
+    """Reject incompatible flag combinations for one-shot prompt mode."""
+    if not _prompt_mode_requested(args):
+        return
+    if args.prompt is not None and args.prompt_file is not None:
+        parser.error("--prompt and --prompt-file are mutually exclusive")
+    conflicts = []
+    if getattr(args, "script", None):
+        conflicts.append("--script")
+    if getattr(args, "tui", False):
+        conflicts.append("--tui")
+    if args.server is not None:
+        conflicts.append("--server")
+    if conflicts:
+        parser.error(
+            "--prompt mode cannot be used with " + ", ".join(conflicts)
+        )
+
+
+def _load_prompt_text(args) -> tuple[str | None, str | None]:
+    """Load prompt text from ``--prompt`` or ``--prompt-file``.
+
+    Returns:
+        A tuple of ``(prompt_text, error_message)``. Exactly one element is set.
+    """
+    if args.prompt is not None:
+        text = str(args.prompt).strip()
+        if not text:
+            return None, "ERROR: --prompt requires non-empty text"
+        return text, None
+
+    path = str(args.prompt_file)
+    if path == "-":
+        try:
+            text = sys.stdin.read()
+        except Exception as exc:
+            return None, f"ERROR: Failed to read prompt from stdin: {exc}"
+    else:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except FileNotFoundError:
+            return None, f"ERROR: Prompt file not found: {path}"
+        except OSError as exc:
+            return None, f"ERROR: Failed to read prompt file {path}: {exc}"
+
+    text = text.strip()
+    if not text:
+        return None, "ERROR: Prompt text is empty"
+    return text, None
+
+
+def _initialize_prompt_history() -> None:
+    """Seed conversation history with the system prompt for one-shot query mode."""
+    from monitor.lib.history import append_to_history_with_count, initialize_chat_history
+    from monitor.lib.token_management import count_message_tokens, update_token_usage
+    from monitor.lib.system_prompt import build_system_prompt
+
+    initialize_chat_history(
+        config.CONVERSATION_HISTORY,
+        append_to_history_with_count,
+        build_system_prompt(
+            config.SESSION_ID,
+            getattr(config, "SESSION_ARTIFACTS_PATH", None),
+        ),
+        config.HISTORY_FILE,
+        logger,
+        config,
+        count_message_tokens,
+        update_token_usage,
+    )
+
+
+def run_prompt(prompt_text: str) -> int:
+    """Run one LLM query and print the assistant reply to stdout.
+
+    Args:
+        prompt_text: The user prompt to send through ``query()``.
+
+    Returns:
+        ``0`` on success, ``1`` when the query fails or returns no text.
+    """
+    register_query_function(conversation_query)
+    _initialize_prompt_history()
+
+    prior_notices = getattr(config, "SHOW_TOOL_PROFILE_NOTICES", True)
+    try:
+        config.SHOW_TOOL_PROFILE_NOTICES = False
+        result = conversation_query(prompt_text)
+    finally:
+        config.SHOW_TOOL_PROFILE_NOTICES = prior_notices
+
+    if isinstance(result, str) and result.strip():
+        print(result)
+        return 0
+
+    if result is ConversationResult.ERROR:
+        print("ERROR: Prompt query failed.", file=sys.stderr)
+    else:
+        print("ERROR: Prompt query returned no text.", file=sys.stderr)
+    return 1
+
+
 def main():
     """Main entry point.
 
@@ -285,6 +394,18 @@ def main():
         help="Path to a script file containing commands to execute, one per line. If present, the script is run and the program exits.",
     )
     parser.add_argument(
+        "--prompt",
+        type=str,
+        metavar="TEXT",
+        help="Run one LLM query with TEXT, print the assistant reply to stdout, and exit.",
+    )
+    parser.add_argument(
+        "--prompt-file",
+        type=str,
+        metavar="PATH",
+        help="Read the prompt from PATH (use '-' for stdin), print the assistant reply to stdout, and exit.",
+    )
+    parser.add_argument(
         "--agent",
         action="store_true",
         help="Enable agent mode (sets config.AGENT to True).",
@@ -296,6 +417,8 @@ def main():
     )
 
     args, unknown = parser.parse_known_args()
+    prompt_mode = _prompt_mode_requested(args)
+    _validate_prompt_mode_args(parser, args)
 
     if getattr(args, "reset_config", False):
         _reset_config(getattr(args, "force", False))
@@ -353,7 +476,10 @@ def main():
             resolved_model = config.MODEL
             logger.info(f"Model override applied via CLI: {args.model} -> {resolved_model}")
             logger.info(f"Effective model is now: {resolved_model}")
-            print(f"Effective model: {resolved_model}")
+            print(
+                f"Effective model: {resolved_model}",
+                file=sys.stderr if prompt_mode else sys.stdout,
+            )
         else:
             model_mapping = getattr(config, "MODEL_MAPPING", None)
             # Ensure available_keys and available_values are always defined to avoid a NameError
@@ -435,6 +561,16 @@ def main():
 
     # Prompt Macros - For great justice, all your base are belong to us
     configure_macros()
+
+    if prompt_mode:
+        logger.info("Running one-shot prompt mode.")
+        print("Monitor started (prompt mode)...", file=sys.stderr)
+        prompt_text, prompt_error = _load_prompt_text(args)
+        if prompt_error:
+            print(prompt_error, file=sys.stderr)
+            sys.exit(2)
+        rc = run_prompt(prompt_text)
+        sys.exit(rc)
 
     # If a script was provided, execute it and exit (do not start server or interactive loop).
     if getattr(args, "script", None):

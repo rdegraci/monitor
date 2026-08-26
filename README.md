@@ -152,6 +152,8 @@ only when the target files do not already exist.
 
 ```sh
 python -m monitor
+python -m monitor --prompt "Summarize this repository"
+python -m monitor --prompt-file prompts/review.txt
 python -m monitor --script path/to/script.txt
 python -m monitor --server
 python -m monitor --agent
