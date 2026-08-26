@@ -2,6 +2,10 @@
 
 # EXPERIMENTAL - WIP
 
+## Current repository status
+
+This file describes a proposed client-server workflow. Monitor's production server (`src/monitor/lib/server.py`) currently exposes `POST /cli` and OpenAI-compatible routes; there is **no shipped reference client script**. Implement integrations against the live server endpoints or use this document as a design reference.
+
 ## Overview
 
 This protocol enables a secure client-server workflow for operations involving file data, where:

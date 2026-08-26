@@ -44,6 +44,7 @@ Put the implementation in an appropriate module.
 
 Typical choices in the current codebase include:
 - `src/monitor/lib/built_in_commands.py`
+- `src/monitor/lib/commit_analyzer.py` for repository-analysis built-ins such as `:next_steps`
 - `src/monitor/core/...` when tightly coupled to core runtime logic
 
 Example:

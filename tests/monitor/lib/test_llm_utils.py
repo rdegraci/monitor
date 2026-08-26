@@ -825,7 +825,7 @@ def test_apply_usage_delta_updates_and_rate_limiter_and_config(monkeypatch):
     dummy_rl = DummyRateLimiter()
 
     monkeypatch.setattr('monitor.lib.token_management.update_token_usage', mock_update_token_usage)
-    monkeypatch.setattr(llm_utils, 'rate_limiter', dummy_rl)
+    monkeypatch.setattr('monitor.lib.llm_usage_utils.rate_limiter', dummy_rl)
 
     from monitor import config
     # Ensure canonical usage starts at something else
@@ -859,7 +859,7 @@ def test_apply_usage_delta_no_delta_does_not_update(monkeypatch):
             raise AssertionError("rate_limiter.add_tokens should not be called when delta is 0")
 
     monkeypatch.setattr('monitor.lib.token_management.update_token_usage', fail_update)
-    monkeypatch.setattr(llm_utils, 'rate_limiter', DummyRateLimiter())
+    monkeypatch.setattr('monitor.lib.llm_usage_utils.rate_limiter', DummyRateLimiter())
 
     from monitor import config
     config.CANONICAL_TOKEN_USAGE = 100

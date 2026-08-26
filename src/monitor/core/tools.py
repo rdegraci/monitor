@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 from monitor.lib.tool_loading import (
     add_weather_tools,
     add_memory_tools,
-    add_text_file_editor_tools,
     add_text_file_neutral_tools,
     add_anthropic_native_editor_tools,
     remove_text_file_editor_tools,

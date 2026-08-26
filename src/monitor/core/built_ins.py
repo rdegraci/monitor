@@ -14,11 +14,11 @@ from monitor.core.internalize_commands import rip_grep_command
 from monitor.core.modes import design_mode_command, dev_mode_command
 
 from monitor.lib.built_ins_utils import append_function_to_built_ins
-from monitor.lib.commit_analysis import next_steps
+from monitor.lib.commit_analyzer import next_steps
 from monitor.lib.git import get_default_branch
-from monitor.lib.built_in_commands import clean_missing_values_command, normalize_data_command
-from monitor.lib.status_line import status_line_command
 from monitor.lib.built_in_commands import (
+    clean_missing_values_command,
+    normalize_data_command,
     break_chain_command,
     edit_function_keys_command,
     freemicro_command,
@@ -50,6 +50,7 @@ from monitor.lib.built_in_commands import (
     wiki_init_command,
     wiki_lint_command,
 )
+from monitor.lib.status_line import status_line_command
 from monitor.lib.tool_loading import (
     add_db_tools,
     add_modelling_tools,

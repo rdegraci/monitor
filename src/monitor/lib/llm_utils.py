@@ -18,14 +18,9 @@ if TYPE_CHECKING:
     import httpcore
     import httpx
     import ollama
-    from monitor.lib import rate_limiter
 else:
     httpcore = import_module("httpcore")
     httpx = import_module("httpx")
-    try:
-        from monitor.lib import rate_limiter
-    except Exception:
-        rate_limiter = None
     try:
         import ollama
     except Exception:
@@ -57,6 +52,7 @@ from monitor.lib.llm_output_utils import (
 from monitor.lib.llamacpp_adapter import adapt_llamacpp_chat_response
 from monitor.lib.ollama_adapter import adapt_ollama_chat_response
 from monitor.lib.llm_usage_utils import (
+    apply_usage_delta,
     compute_token_delta,
     safe_extract_total_tokens,
     truncate_to_token_limit,
@@ -1105,61 +1101,3 @@ def handle_response_errors(error, user_input=None):
         logger.error(f"General responses API error: {error}", exc_info=True)
 
     return None, error_msg
-
-
-def apply_usage_delta(usage: Any, previous_total: Optional[Union[int, float]] = None) -> Tuple[Optional[int], int]:
-    """Apply a usage update by computing the delta and updating token counters.
-
-    Args:
-        usage: The usage payload as a dict, object, number, or string.
-        previous_total: Optional previous total count to compute a delta against.
-
-    Returns:
-        A tuple of ``(current_total_or_none, delta_int)``.
-
-    Raises:
-        ValueError: If ``usage`` cannot be coerced to a token count.
-    """
-    current = safe_extract_total_tokens(usage)
-    delta = compute_token_delta(current, previous_total)
-
-    if delta > 0:
-        try:
-            from monitor.lib import token_management
-
-            token_management.update_token_usage(delta)
-        except Exception:
-            logger.exception("apply_usage_delta: update_token_usage failed")
-
-        if rate_limiter is not None:
-            candidate_names = (
-                "add_usage",
-                "add_tokens",
-                "consume",
-                "consume_tokens",
-                "record_usage",
-                "record",
-            )
-            for name in candidate_names:
-                fn = getattr(rate_limiter, name, None)
-                if callable(fn):
-                    try:
-                        fn(delta)
-                        break
-                    except Exception:
-                        logger.debug(
-                            "apply_usage_delta: rate_limiter.%s failed",
-                            name,
-                            exc_info=True,
-                        )
-
-    try:
-        if delta > 0:
-            setattr(config, "CANONICAL_TOKEN_USAGE", current)
-    except Exception:
-        logger.debug(
-            "apply_usage_delta: unable to set config.CANONICAL_TOKEN_USAGE",
-            exc_info=True,
-        )
-
-    return current, delta

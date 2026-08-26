@@ -10,7 +10,6 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
-from monitor.lib.pygments_stubs import DiffLexer, TerminalFormatter, highlight
 from monitor.lib.third_party_shims import ClassNotFound, get_lexer_for_filename, TextLexer
 
 from monitor.lib.colors import blue, red, yellow, green, reset, print_colored, print_blue, print_red, print_yellow, print_green

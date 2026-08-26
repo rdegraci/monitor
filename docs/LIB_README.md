@@ -53,10 +53,13 @@ This document describes the current `src/monitor/lib` layer.
 ### Support and integration modules
 - `git.py`
 - `git_history.py`
+- `commit_analyzer.py` — branch commit analysis for `:next_steps` and commit-message prompt building for `:make_commit`
 - `ripgrep_search.py`
 - `redis_utils.py`
 - `rate_limiter.py`
 - `token_management.py`
+- `llm_usage_utils.py` — canonical token extraction, usage deltas, and truncation helpers
+- `llm_utils.py` — LLM call orchestration; re-exports selected helpers from `llm_usage_utils.py`
 - `logging.py`
 - `system_prompt.py`
 - `external_services.py`
@@ -142,13 +145,15 @@ Provides helpers for:
 - model/provider-specific edit tool setup
 
 It currently exposes registration helpers for:
-- weather tools
-- memory tools
-- DB tools
-- modeling tools
+- weather tools (`add_weather_tools`)
+- memory tools (`add_memory_tools`)
+- DB tools (`add_db_tools` / `remove_db_tools`)
+- modeling tools (`add_modelling_tools` / `remove_modelling_tools`)
 - provider-neutral text editor tools
 - Anthropic-native editor tools
 - OpenAI editor tools
+
+Paired `remove_*` helpers exist for tool families that `configure_tools()` toggles at runtime (DB, modeling, editor catalogs). Weather and memory tools are enabled during startup and are not removed dynamically.
 
 ### `tool_profiles.py`
 Defines advertised tool **groups** and profiles (`minimal`, `coding`, `review`,
@@ -178,6 +183,14 @@ Current user-facing tool functions include:
 ### `bulk_replace.py`
 Provides deterministic mechanical multi-file editing through:
 - `bulk_replace_in_files`
+
+### `commit_analyzer.py`
+Provides LLM-backed branch analysis used by the `:next_steps` built-in:
+- `CommitAnalyzer` — fetches `git log -p` for a branch range, summarizes purpose, suggests next steps
+- `next_steps(branch, main_branch)` — prints colored diff, summary, and numbered suggestions
+- `build_commit_message_query_input(...)` — builds the macro-expanded prompt for `:make_commit`
+
+The `:next_steps` adapter in `core/built_ins.py` parses `<branch> [<main_branch>]` and delegates here. When `<main_branch>` is omitted, the repo default branch is auto-detected via `git.get_default_branch()`.
 
 ### `protocol_engine.py`
 Contains the underlying natural-language editing engine used by the fallback `modify_source_code` tool.
@@ -212,7 +225,7 @@ Creates the current Flask development server used by `python -m monitor --server
 
 Current features include:
 - serialized request processing via `SingleRequestMiddleware`
-- `POST /cli`
+- `POST /cli` — simple JSON command bridge (`{"command": "<text>"}`)
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - Bearer-token protection for `/v1/*` when `MONITOR_SERVER_API_KEY` is configured
@@ -257,6 +270,7 @@ The `lib` layer also contains many modules used during global runtime setup or s
 - `logging.py`
 - `rate_limiter.py`
 - `token_management.py`
+- `llm_usage_utils.py`
 - `preferences.py`
 - `keyboard.py`
 - `voice_to_text.py`

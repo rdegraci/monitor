@@ -97,6 +97,8 @@ Current API surface includes:
 
 If `MONITOR_SERVER_API_KEY` is set, `/v1/*` endpoints require Bearer auth.
 
+For simple CLI-style integration, send JSON `{"command": "<text>"}` to `POST /cli` and read the JSON response. There is no shipped reference client script; implement clients against this endpoint or the OpenAI-compatible routes below.
+
 The server is wrapped with `SingleRequestMiddleware`, which serializes requests with a process-local lock.
 
 ### 4. TUI mode
@@ -147,6 +149,8 @@ Notable built-ins include:
 - `wiki_init`
 - `wiki_lint`
 - `wiki_fix`
+- `next_steps`
+- `make_commit`
 - `rg`
 - `agent`
 
@@ -273,6 +277,8 @@ Key behavior:
 - formats output as JSON or SSE
 - supports serialized request handling through middleware
 - warns when binding to non-localhost addresses
+
+For ad hoc CLI-style clients, `POST /cli` accepts `{"command": "<text>"}` and returns a JSON payload (typically including `result`). There is no shipped reference client in the repository.
 
 ## Config system
 

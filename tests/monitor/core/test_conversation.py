@@ -195,10 +195,9 @@ class TestConversation(unittest.TestCase):
     def test_prepare_query_context(self, mock_append, mock_prepend):
         """prepare_query_context delegates to history helpers."""
         with patch("monitor.core.conversation.config", new=MagicMock()):
-            with patch("monitor.core.conversation.SYSTEM_PROMPT", "PROMPT"):
-                conversation.prepare_query_context("foo")
-                mock_prepend.assert_called_once()
-                mock_append.assert_called_once()
+            conversation.prepare_query_context("foo")
+            mock_prepend.assert_called_once()
+            mock_append.assert_called_once()
 
     def test_rollback_uncommitted_user_turn_removes_user_and_ledgers(self):
         """Rollback removes the trailing user turn and synchronized ledgers."""

@@ -301,9 +301,6 @@ def add_weather_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descr
         }
     )
 
-def remove_weather_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
-    remove_tool(tool_descriptions, tool_state, "get_current_weather")
-    
 def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
     if not config.MEMORY_SERVICES:
         logger.info("Memory Tools not available. No MEMORY_SERVICES.")
@@ -389,12 +386,6 @@ def add_memory_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descri
             }
         }
     )
-
-def remove_memory_tools(tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
-    remove_tool(tool_descriptions, tool_state, "fetch_memory_keys_as_json")
-    remove_tool(tool_descriptions, tool_state, "update_memory")
-    remove_tool(tool_descriptions, tool_state, "read_from_memory")
-    remove_tool(tool_descriptions, tool_state, "delete_from_memory")
 
 def add_db_tools(tool_descriptions: List[Dict[str, Any]], gemini_tool_descriptions: List[Dict[str, Any]], tool_state: Dict[str, bool]):
     add_tool(

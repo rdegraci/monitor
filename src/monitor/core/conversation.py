@@ -15,7 +15,7 @@ from prompt_toolkit.completion import PathCompleter
 
 from monitor import config
 
-from monitor.lib.system_prompt import SYSTEM_PROMPT, build_system_prompt, build_user_prompt_prefix
+from monitor.lib.system_prompt import build_system_prompt, build_user_prompt_prefix
 
 from monitor.lib.input_modes import (
     handle_single_line,

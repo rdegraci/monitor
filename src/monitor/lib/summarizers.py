@@ -79,10 +79,6 @@ def summarize_conversation_questionnaire_for_twitch(conversation_history, model)
     """Summarize conversation history and questionnaire for Twitch formatting."""
     return summarize_conversation_for_platform("twitch_summary_question", model, conversation_history)
 
-def summarize_conversation_questionaire_for_twitch(conversation_history, model):
-    """Deprecated alias: use summarize_conversation_questionnaire_for_twitch instead."""
-    return summarize_conversation_questionnaire_for_twitch(conversation_history, model)
-
 def summarize_conversation_for_twitch(conversation_history, model):
     """Summarize conversation history for Twitch formatting."""
     return summarize_conversation_for_platform("twitch", model, conversation_history)

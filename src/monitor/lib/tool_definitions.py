@@ -42,7 +42,6 @@ from monitor.lib.text_file_editor import (
 )
 from monitor.lib.tool_text import MODIFY_SOURCE_CODE_DESCRIPTION
 
-from monitor.lib.tool_loading import add_weather_tools, add_memory_tools, add_text_file_editor_tools, get_first_segment, remove_openai_editor_tools
 from monitor.lib.protocol_engine import modify_source_code
 from monitor.lib.bulk_replace import bulk_replace_in_files
 from monitor.lib.find_files import find_files

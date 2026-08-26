@@ -78,7 +78,7 @@ Important internals currently defined here include:
 It also classifies whether commands are interactive, non-interactive, or TTY-bound.
 
 ### `commit.py`
-Provides commit-related command support such as `make_commit_command`.
+Provides commit-related command support such as `make_commit_command`. Commit-message prompt construction lives in `monitor.lib.commit_analyzer.build_commit_message_query_input()`.
 
 ### `conversation.py`
 Implements the main conversation and query loop. This is one of the central runtime modules used by the REPL and related flows.

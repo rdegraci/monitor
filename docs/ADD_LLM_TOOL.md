@@ -88,10 +88,10 @@ Some tools are defined statically in `tool_definitions.py`.
 Others are conditionally added or removed through helpers in `src/monitor/lib/tool_loading.py` and `src/monitor/core/tools.py`.
 
 Examples of conditional tool families in the current codebase:
-- weather tools
-- memory tools
-- DB tools
-- modeling tools
+- weather tools (`add_weather_tools`; enabled at startup, not dynamically removed)
+- memory tools (`add_memory_tools`; gated by `MEMORY_SERVICES` and sub-agent policy)
+- DB tools (`add_db_tools` / `remove_db_tools`)
+- modeling tools (`add_modelling_tools` / `remove_modelling_tools`)
 - provider-neutral deterministic edit tools
 - Anthropic-native editor tools
 - OpenAI editor tools
