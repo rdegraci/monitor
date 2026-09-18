@@ -1,7 +1,10 @@
 import logging
+import os
 import subprocess
 
 from monitor import config
+from monitor.lib.bm25 import get_bm25_index
+from monitor.lib.search_rank import is_topical_query, rerank_rg_output
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +14,10 @@ SEARCH_EVALUATION_DIVISOR = 15
 # Cap search runtime so a ripgrep/grep over a huge tree can't hang the
 # request-serialized harness indefinitely.
 SEARCH_TIMEOUT_SECONDS = 30
+
+# Topical (multi-word) queries: BM25 shortlists this many files, then rg runs
+# only on that shortlist. Weak/empty shortlist falls back to full-tree rg.
+BM25_SHORTLIST_K = 40
 
 DEFAULT_EXCLUDE_EXTENSIONS: list[str] = []
 DEFAULT_EXCLUDE_GLOBS: list[str] = []
@@ -166,6 +173,46 @@ def _safe_truncate_output(tool_name: str, stdout: str) -> str:
     return stdout[:safe_limit_chars] + f"\n\n[TRUNCATED {num_bytes_truncated} bytes of output]"
 
 
+def _collect_exclude_patterns(
+    exclude_extensions: list[str] | None,
+    exclude_globs: list[str] | None,
+    use_default_excludes: bool,
+) -> list[str]:
+    effective_exclude_extensions: list[str] = []
+    effective_exclude_globs: list[str] = []
+    if use_default_excludes:
+        effective_exclude_extensions.extend(DEFAULT_EXCLUDE_EXTENSIONS or [])
+        effective_exclude_globs.extend(DEFAULT_EXCLUDE_GLOBS or [])
+    if exclude_extensions:
+        effective_exclude_extensions.extend(exclude_extensions)
+    if exclude_globs:
+        effective_exclude_globs.extend(exclude_globs)
+    return _normalize_exclude_extensions(
+        effective_exclude_extensions or None
+    ) + _normalize_exclude_globs(effective_exclude_globs or None)
+
+
+def _finalize_search_output(tool_name: str, stdout: str, term: str) -> str:
+    """Rerank match blocks by relevance, then truncate to the model budget."""
+    if not stdout:
+        return f"No matches found. Searched for: {term}"
+    if stdout.startswith("Error"):
+        return stdout
+    ranked = rerank_rg_output(stdout, term)
+    return _safe_truncate_output(tool_name, ranked)
+
+
+def _is_weak_search_result(stdout: str) -> bool:
+    """True when a shortlist search produced nothing usable."""
+    if not stdout:
+        return True
+    if stdout.startswith("Error"):
+        return True
+    if stdout.startswith("No matches found"):
+        return True
+    return False
+
+
 def ripgrep_search_tool(
     term: str,
     filetype: str | None = None,
@@ -176,6 +223,12 @@ def ripgrep_search_tool(
     regex: bool = False,
 ) -> str:
     """Run a ripgrep search as a tool-friendly wrapper.
+
+    Exact (single-token / regex) queries search the whole tree. Multi-word
+    topical queries BM25-shortlist files first, then ripgrep those paths,
+    falling back to a full-tree search when the shortlist is weak. Match
+    blocks are reranked before truncation so the most relevant hits survive
+    the context budget.
 
     Args:
         term: The search term. Treated as literal text by default; pass
@@ -211,6 +264,115 @@ def ripgrep_search_tool(
     return result
 
 
+def _bm25_shortlist_search(
+    term: str,
+    *,
+    filetype: str | None,
+    directory: str,
+    word: bool,
+    exclude_extensions: list[str] | None,
+    exclude_globs: list[str] | None,
+    use_default_excludes: bool,
+    regex: bool,
+) -> str | None:
+    """BM25 top-N files, then ripgrep only those paths.
+
+    Returns raw rg stdout on success, or None to signal fallback to full-tree
+    search (empty index, no shortlist, or weak matches).
+    """
+    exclude_patterns = _collect_exclude_patterns(
+        exclude_extensions, exclude_globs, use_default_excludes
+    )
+    index = get_bm25_index(directory, exclude_patterns=exclude_patterns)
+    if index is None:
+        return None
+
+    shortlist = index.top_docs(term, k=BM25_SHORTLIST_K)
+    if not shortlist:
+        return None
+
+    # Resolve shortlist paths relative to the search directory when needed.
+    search_paths: list[str] = []
+    for doc_id in shortlist:
+        if directory in (".", "") or os.path.isabs(doc_id) or os.path.isfile(doc_id):
+            search_paths.append(doc_id)
+        else:
+            search_paths.append(os.path.join(directory, doc_id))
+
+    raw = _invoke_ripgrep(
+        term,
+        filetype=filetype,
+        search_targets=search_paths,
+        word=word,
+        exclude_patterns=exclude_patterns,
+        regex=regex,
+    )
+    if raw is None or _is_weak_search_result(raw):
+        return None
+    return raw
+
+
+def _invoke_ripgrep(
+    term: str,
+    *,
+    filetype: str | None,
+    search_targets: list[str],
+    word: bool,
+    exclude_patterns: list[str],
+    regex: bool,
+) -> str | None:
+    """Run ripgrep over ``search_targets`` (directory and/or file paths).
+
+    Returns stdout, a friendly error string, or None when rg is missing
+    (caller may fall back to grep).
+    """
+    if not search_targets:
+        return ""
+
+    cmd = ["rg", "--pretty", "--context=6"]
+    if not regex:
+        cmd.insert(1, "-F")
+    if filetype:
+        cmd.extend(["-t", filetype])
+    if word:
+        cmd.append("-w")
+    for pat in exclude_patterns:
+        cmd.extend(["-g", pat])
+    cmd.append("--")
+    cmd.append(term)
+    cmd.extend(search_targets)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SEARCH_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return f"Error running ripgrep: search timed out after {SEARCH_TIMEOUT_SECONDS}s."
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        return f"Error running ripgrep: {e}"
+
+    if result.stderr and (
+        ("unknown file type:" in result.stderr) or ("Unknown file type:" in result.stderr)
+    ):
+        return (
+            "Error: Unknown file type '{}'. Please use a valid ripgrep file type (like 'py', 'js', etc) "
+            "or quote your search pattern if it contains spaces."
+        ).format(filetype)
+
+    if result.returncode == 2:
+        stderr = result.stderr.strip() if result.stderr else ""
+        details = stderr if stderr else "ripgrep reported a usage or option error (exit code 2)."
+        return f"Error running ripgrep: {details}"
+
+    return result.stdout if result.stdout else ""
+
+
 def ripgrep_search(
     term: str,
     filetype: str | None = None,
@@ -228,13 +390,19 @@ def ripgrep_search(
     the ``-F`` flag is dropped and ripgrep interprets the pattern as a
     regular expression (anchors, character classes, alternation all work).
 
+    Routing:
+        - Exact (single token or regex): full-tree ripgrep, then rerank + truncate.
+        - Topical (multi-word): BM25 file shortlist → ripgrep those files; if the
+          shortlist is weak/empty, fall back to full-tree ripgrep. Always rerank
+          before truncate.
+
     Behavior:
         - Fixed-string matching (-F) by default; regex when regex=True.
         - Uses "--context=6".
         - Adds exclude patterns via "-g" using negated globs.
         - Returns a friendlier error for unknown ripgrep filetype.
         - Returns stderr details for ripgrep usage/option errors (exit code 2).
-        - Safely truncates very large output.
+        - Reranks per-file match blocks, then safely truncates large output.
 
     Args:
         term: The search pattern. Literal text by default; ripgrep regex
@@ -257,70 +425,33 @@ def ripgrep_search(
         subprocess.CalledProcessError: Not raised (subprocess.run check=False). Included
             for API compatibility expectations.
     """
-    # The -F flag forces fixed-string matching; dropping it lets ripgrep
-    # interpret `term` as a regex. Anchors, character classes, alternation
-    # all become meaningful.
-    cmd = ["rg", "--pretty", "--context=6"]
-    if not regex:
-        cmd.insert(1, "-F")
-    if filetype:
-        cmd.extend(["-t", filetype])
-    if word:
-        cmd.append("-w")
+    exclude_patterns = _collect_exclude_patterns(
+        exclude_extensions, exclude_globs, use_default_excludes
+    )
 
-    effective_exclude_extensions: list[str] = []
-    effective_exclude_globs: list[str] = []
-    if use_default_excludes:
-        effective_exclude_extensions.extend(DEFAULT_EXCLUDE_EXTENSIONS or [])
-        effective_exclude_globs.extend(DEFAULT_EXCLUDE_GLOBS or [])
-    if exclude_extensions:
-        effective_exclude_extensions.extend(exclude_extensions)
-    if exclude_globs:
-        effective_exclude_globs.extend(exclude_globs)
-
-    exclude_patterns = _normalize_exclude_extensions(
-        effective_exclude_extensions or None
-    ) + _normalize_exclude_globs(effective_exclude_globs or None)
-    for pat in exclude_patterns:
-        cmd.extend(["-g", pat])
-
-    # Use '--' to ensure patterns starting with '-' are not treated as options, and
-    # place flags before pattern/path.
-    cmd.extend(["--", term, directory])
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,  # don't raise error if no matches
-            timeout=SEARCH_TIMEOUT_SECONDS,
+    if is_topical_query(term, regex=regex):
+        shortlisted = _bm25_shortlist_search(
+            term,
+            filetype=filetype,
+            directory=directory,
+            word=word,
+            exclude_extensions=exclude_extensions,
+            exclude_globs=exclude_globs,
+            use_default_excludes=use_default_excludes,
+            regex=regex,
         )
+        if shortlisted is not None and not _is_weak_search_result(shortlisted):
+            return _finalize_search_output("ripgrep", shortlisted, term)
 
-        # Provide a clearer message than raw ripgrep output when filetype is unknown.
-        if result.stderr and (
-            ("unknown file type:" in result.stderr) or ("Unknown file type:" in result.stderr)
-        ):
-            return (
-                "Error: Unknown file type '{}'. Please use a valid ripgrep file type (like 'py', 'js', etc) "
-                "or quote your search pattern if it contains spaces."
-            ).format(filetype)
-
-        # ripgrep exit code 2 indicates usage/option errors; surface stderr details.
-        if result.returncode == 2:
-            stderr = result.stderr.strip() if result.stderr else ""
-            details = stderr if stderr else "ripgrep reported a usage or option error (exit code 2)."
-            return f"Error running ripgrep: {details}"
-
-        stdout = result.stdout if result.stdout else ""
-        stdout = _safe_truncate_output("ripgrep", stdout)
-
-        if stdout:
-            return stdout
-        return f"No matches found. Searched for: {term}"
-    except subprocess.TimeoutExpired:
-        return f"Error running ripgrep: search timed out after {SEARCH_TIMEOUT_SECONDS}s."
-    except FileNotFoundError:
+    raw = _invoke_ripgrep(
+        term,
+        filetype=filetype,
+        search_targets=[directory],
+        word=word,
+        exclude_patterns=exclude_patterns,
+        regex=regex,
+    )
+    if raw is None:
         # Fallback to grep if ripgrep is unavailable.
         try:
             return grep_search(
@@ -337,8 +468,7 @@ def ripgrep_search(
                 "Error: neither ripgrep ('rg') nor grep is available. "
                 "Please install ripgrep (preferred) or grep and ensure it is on your PATH."
             )
-    except Exception as e:
-        return f"Error running ripgrep: {e}"
+    return _finalize_search_output("ripgrep", raw, term)
 
 
 def grep_search(
@@ -434,11 +564,7 @@ def grep_search(
             return f"Error running grep: {details}"
 
         stdout = result.stdout if result.stdout else ""
-        stdout = _safe_truncate_output("grep", stdout)
-
-        if stdout:
-            return stdout
-        return f"No matches found. Searched for: {term}"
+        return _finalize_search_output("grep", stdout, term)
     except subprocess.TimeoutExpired:
         return f"Error running grep: search timed out after {SEARCH_TIMEOUT_SECONDS}s."
     except FileNotFoundError:
@@ -463,6 +589,8 @@ def build_usage_text() -> str:
         "Notes:\n"
         '  - Flags like -w/--word-regexp and --no-default-excludes can appear anywhere BEFORE an unquoted "--".\n'
         "  - By default, common binary/large extensions and common build/venv directories are excluded.\n"
+        "  - Multi-word patterns use a BM25 file shortlist before ripgrep; single-token and\n"
+        "    regex patterns search the full tree. Match blocks are relevance-ranked before truncation.\n"
         "  - Exclude flags (--exclude-ext/--exclude-glob) can be repeated and apply whether or not filetype "
         "inference is used.\n"
         '  - Using "--" disables filetype inference: all non-flag tokens before and after "--" are treated as part '

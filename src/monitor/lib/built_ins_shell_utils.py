@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any
 
+from monitor.lib.bm25 import clear_bm25_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,6 +20,7 @@ def handle_cd_command(args: str) -> str:
     """
     try:
         os.chdir(os.path.expanduser(args))
+        clear_bm25_cache()
         cwd = os.getcwd()
         return cwd
     except FileNotFoundError:

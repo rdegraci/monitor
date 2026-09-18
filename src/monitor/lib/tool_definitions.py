@@ -634,13 +634,13 @@ TOOL_DESCRIPTIONS = [
         "type": "function",
         "function": {
             "name": "ripgrep_search_tool",
-            "description": "Searches for a pattern across files in the repository using ripgrep. By default, the pattern is treated as literal text (fixed-string search). Set regex=True when you need anchors (^/$), character classes, or alternation.",
+            "description": "Search the repository for exact literals, identifiers, usages, or multi-word topical queries. Single-token and regex queries run full-tree ripgrep; multi-word queries BM25-shortlist likely files first, then ripgrep those paths (falling back to full-tree search if needed). Match blocks are relevance-reranked before truncation. Prefer this over paging files with cat_file / cat_file_range. Literal text by default; set regex=True for anchors (^/$), character classes, or alternation.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "term": {
                         "type": "string",
-                        "description": "The search pattern. Literal text by default; ripgrep regex when regex=True (e.g. '^def test_', 'TODO|FIXME')."
+                        "description": "Exact identifier/literal (e.g. 'ClassName', 'ERR_TIMEOUT') or multi-word topical query (e.g. 'timeout redis reconnect'). Literal text by default; ripgrep regex when regex=True (e.g. '^def test_', 'TODO|FIXME')."
                     },
                     "filetype": {
                         "type": "string",
@@ -1379,14 +1379,14 @@ GEMINI_TOOL_DESCRIPTIONS = [
     }
   },
   {
-    "description": "Searches for a pattern across files in the repository using ripgrep. Literal text by default; set regex=True for anchors, character classes, or alternation.",
+    "description": "Search the repository for exact literals, identifiers, usages, or multi-word topical queries. Single-token/regex: full-tree ripgrep. Multi-word: BM25 file shortlist then ripgrep (full-tree fallback). Results are relevance-reranked before truncation. Prefer over paging files. Literal by default; regex=True for anchors/classes/alternation.",
     "name": "ripgrep_search_tool",
     "parameters": {
       "type": "object",
       "properties": {
         "term": {
           "type": "string",
-          "description": "The search pattern. Literal text by default; ripgrep regex when regex=True."
+          "description": "Exact identifier/literal or multi-word topical query. Literal by default; ripgrep regex when regex=True."
         },
         "filetype": {
           "type": "string",
