@@ -136,9 +136,16 @@ def make_commit_command(arg=None, print_func=print):
             )
             return
 
-        logger.info("Requesting suggested commit message for staged changes.")
+        generation_config = _get_commit_generation_config()
+        commit_model = generation_config["model"]
+        logger.info(
+            "Requesting suggested commit message for staged changes using model=%r.",
+            commit_model,
+        )
         try:
-            commit_message = get_suggested_commit_message(diff_output)
+            commit_message = get_suggested_commit_message(
+                diff_output, model=commit_model
+            )
         except KeyboardInterrupt:
             print_func("\nCommit message generation cancelled. Nothing committed.")
             return
@@ -151,7 +158,8 @@ def make_commit_command(arg=None, print_func=print):
             return
         logger.info("Received suggested commit message.")
         print_func(
-            f"\n\n\nSuggested commit message:\n\n{yellow}{commit_message}{reset}\n\n"
+            f"\n\n\nSuggested commit message (model: {commit_model}):\n\n"
+            f"{yellow}{commit_message}{reset}\n\n"
         )
 
         resp = (
@@ -229,9 +237,14 @@ def make_commit_command(arg=None, print_func=print):
         print_func(f"Error in :make_commit: {e}")
 
 
-def get_suggested_commit_message(diff_output):
+def get_suggested_commit_message(diff_output, model=None):
     """
     Return a suggested commit message based on staged git changes.
+
+    Args:
+        diff_output: The staged git diff to summarize.
+        model: Optional resolved model name. When omitted, the commit-specific
+            model configuration is resolved by this function.
 
     Uses a stateless ``litellm.completion`` call rather than ``query()`` so the
     diff and the generated message are NOT appended to the live conversation
@@ -251,8 +264,9 @@ def get_suggested_commit_message(diff_output):
         )
         logger.debug("Built commit message query input for staged changes.")
         generation_config = _get_commit_generation_config()
+        resolved_model = model or generation_config["model"]
         kwargs = _build_commit_completion_kwargs(
-            generation_config["model"],
+            resolved_model,
             generation_config["reasoning_effort"],
             generation_config["reasoning_max_completion_tokens"],
         )
