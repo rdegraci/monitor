@@ -2,6 +2,12 @@ OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 XAI_API_KEY=
 TAVILY_API_KEY=
+
+# Optional TypeSafe / Jev (System One) — edit-path routing before modify_source_code.
+# Enabled when TYPESAFE_API_KEY is set and MONITOR_JEV is not off.
+# TYPESAFE_API_KEY=
+# MONITOR_JEV=0
+# MONITOR_JEV_CONFIDENCE=0.6
 TYPESAFE_API_KEY=
 
 # These URLs are configured in the config.yaml file, but for CI environments these

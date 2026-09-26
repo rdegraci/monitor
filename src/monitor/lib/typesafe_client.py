@@ -143,7 +143,7 @@ def system_one(
                 continue
             return None
 
-        if response.status_code in (401, 422):
+        if response.status_code in (401, 402, 422):
             logger.warning(
                 "TypeSafe soft-fail status %s: %s",
                 response.status_code,

@@ -52,6 +52,13 @@ python -m benchmark.monitor_bench.runner --model gpt-5.4-mini
 If you do not pass `--model`, the runner uses Monitor's normal active model
 selection. The benchmark runner itself does not hardcode a default model.
 
+### Optional Jev edit-path routing
+
+With `TYPESAFE_API_KEY` set, Monitor can gate `modify_source_code` via TypeSafe
+Jev (surgical / read-more / regen). Disable with `MONITOR_JEV=0`. For an
+off/on MVP comparison on the coding tasks, see
+`benchmark/monitor_bench/README.md` (section "Optional: Jev edit-path routing").
+
 ## View one run's summary
 
 Render a summary report for one run JSON:

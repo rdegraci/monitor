@@ -81,6 +81,31 @@ python -m benchmark.monitor_bench.runner --samples 5 --timeout 300
 python -m benchmark.monitor_bench.runner --model gpt-5.4-mini
 ```
 
+## Optional: Jev edit-path routing (MVP)
+
+When `TYPESAFE_API_KEY` is set, Monitor may ask TypeSafe Jev before running
+`modify_source_code` whether to prefer surgical editors, read more first, or
+allow the NL rewrite. Soft-fails (no key, `MONITOR_JEV=0`, billing/API errors,
+low confidence) keep today's behavior.
+
+Paired off/on comparison for the MVP coding tasks:
+
+```bash
+# Baseline — Jev forced off (even if TYPESAFE_API_KEY is set)
+MONITOR_JEV=0 python -m benchmark.monitor_bench.runner \
+  --tasks seeded_bugfix_simple seeded_bugfix_multistep plan_then_execute_refactor
+
+# Treatment — Jev on (key required; ensure TypeSafe credits are available)
+unset MONITOR_JEV   # or export MONITOR_JEV=1
+python -m benchmark.monitor_bench.runner \
+  --tasks seeded_bugfix_simple seeded_bugfix_multistep plan_then_execute_refactor
+
+python -m benchmark.monitor_bench.compare before.json after.json
+```
+
+Signals to watch: pass rate, tool loops, how often `modify_source_code` appears
+in history, and cost. Optional: `MONITOR_JEV_CONFIDENCE` (default `0.6`).
+
 Results land in `results/run-<unix_timestamp>.json` and contain the full
 per-sample transcript as well as metrics — see [Result file shape](#result-file-shape) below.
 Pass the file to the report renderer for a markdown summary table:
