@@ -611,6 +611,29 @@ def append_conversation_history(
                         f"Downstream truncation in reset_conversation_with_summary will "
                         f"recover if needed."
                     )
+                # Soft path only: Score fidelity; low → keep history this turn.
+                # Hard overflow still replaces (never override hard token pressure).
+                if soft_triggered:
+                    try:
+                        from monitor.lib.jev_fidelity import (
+                            history_excerpt_for_fidelity,
+                            summary_is_faithful_enough,
+                        )
+
+                        excerpt = history_excerpt_for_fidelity(conversation_history)
+                        if not summary_is_faithful_enough(
+                            summary_content, history_excerpt=excerpt
+                        ):
+                            logger.info(
+                                "[SUMMARIZATION] Jev fidelity rejected soft summary; "
+                                "keeping conversation history this turn."
+                            )
+                            return
+                    except Exception:
+                        logger.debug(
+                            "[SUMMARIZATION] Jev fidelity gate failed; accepting summary",
+                            exc_info=True,
+                        )
                 try:
                     logger.debug(
                         f"[SUMMARIZATION] Resetting conversation history. Pre-reset: "
