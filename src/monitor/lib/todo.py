@@ -264,6 +264,7 @@ def add_discovered_work(
         _print_todo_action("~", f"{existing.get('id')} discovered work already tracked")
 
     scope_change = None
+    jev_notice = None
     if material or scope_summary:
         scope_text = str(scope_summary or item_text).strip()
         if scope_text:
@@ -279,18 +280,29 @@ def add_discovered_work(
                 "!",
                 f"scope {'material' if material else 'minor'} {scope_change['summary']}",
             )
+    try:
+        from monitor.lib.jev_scope import should_pause_for_scope
 
-    return json.dumps(
-        {
-            "ok": True,
-            "action": "add_discovered_work",
-            "session_id": session_id,
-            "created": created,
-            "todo": existing,
-            "scope_change": scope_change,
-            "count": len(todos),
-        }
-    )
+        jev_notice = should_pause_for_scope(
+            item_text, material=material, scope_summary=scope_summary
+        )
+        if jev_notice:
+            _print_todo_action("!", "jev scope pause — confirm with user")
+    except Exception:
+        logger.debug("Jev scope gate failed", exc_info=True)
+
+    payload = {
+        "ok": True,
+        "action": "add_discovered_work",
+        "session_id": session_id,
+        "created": created,
+        "todo": existing,
+        "scope_change": scope_change,
+        "count": len(todos),
+    }
+    if jev_notice:
+        payload["jev_notice"] = jev_notice
+    return json.dumps(payload)
 
 
 def get_task_context(*, emit_summary: bool = True) -> str:
