@@ -1256,6 +1256,26 @@ def prepare_query_context(user_prompt):
                 pass
     logger.debug("Preparing query context...")
     try:
+        from monitor.lib.jev_affirmative import maybe_gate_affirmative
+
+        pending_offer = None
+        history = getattr(config, "CONVERSATION_HISTORY", None) or []
+        for msg in reversed(history):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") == "assistant":
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    pending_offer = content
+                    break
+        affirm_notice = maybe_gate_affirmative(user_prompt, pending_offer)
+        if affirm_notice:
+            user_prompt = f"!<{affirm_notice}\n\n{user_prompt}"
+            logger.info("Jev affirmative gate injected notice for this turn")
+    except Exception:
+        logger.exception("Jev affirmative gate failed; continuing without it.")
+
+    try:
         widened_groups = maybe_apply_explicit_auto_widen(
             user_prompt,
             notify=(
