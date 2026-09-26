@@ -160,6 +160,12 @@ def _queue_injection(agent_id: str, rec: Dict[str, Any], text: str) -> None:
     if rec.get("_injected"):
         return
     rec["_injected"] = True
+    try:
+        from monitor.lib.jev_agent_harvest import annotate_injection
+
+        text = annotate_injection(text)
+    except Exception:
+        logger.debug("Jev harvest annotate failed", exc_info=True)
     _pending_injections.append(text)
 
 
