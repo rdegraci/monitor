@@ -198,7 +198,12 @@ def _finalize_search_output(tool_name: str, stdout: str, term: str) -> str:
         return f"No matches found. Searched for: {term}"
     if stdout.startswith("Error"):
         return stdout
-    ranked = rerank_rg_output(stdout, term)
+    try:
+        from monitor.lib.jev_search import rerank_rg_output_with_jev
+
+        ranked = rerank_rg_output_with_jev(stdout, term)
+    except Exception:
+        ranked = rerank_rg_output(stdout, term)
     return _safe_truncate_output(tool_name, ranked)
 
 
