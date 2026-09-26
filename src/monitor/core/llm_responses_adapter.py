@@ -175,6 +175,20 @@ def _maybe_escalate_reasoning_on_tool_failure(result, error):
         if not should_escalate(current_effort):
             return
 
+        from monitor.lib.jev_reasoning import should_jev_allow_escalate
+
+        failure_parts = []
+        if isinstance(error, str) and error.strip():
+            failure_parts.append(error.strip())
+        if isinstance(result, str) and result.strip():
+            failure_parts.append(result.strip())
+        if not should_jev_allow_escalate("\n".join(failure_parts)[:3000]):
+            logger.info(
+                "Jev declined reasoning escalation after Responses tool failure; "
+                "keeping current effort."
+            )
+            return
+
         from monitor.lib.llm_model_utils import higher_reasoning_effort
 
         escalated = higher_reasoning_effort(

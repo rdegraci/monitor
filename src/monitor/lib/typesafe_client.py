@@ -192,3 +192,46 @@ def choice_answer(
     if answer.get("type") != "choice":
         return None
     return dict(answer)
+
+
+def noul_answer(
+    response: Optional[Mapping[str, Any]],
+    question_id: str,
+) -> Optional[float]:
+    """Extract a Noul probability (0–1) for ``question_id``, or None."""
+    if not response:
+        return None
+    answers = response.get("answers")
+    if not isinstance(answers, Mapping):
+        return None
+    answer = answers.get(question_id)
+    if not isinstance(answer, Mapping):
+        return None
+    if answer.get("type") != "noul":
+        return None
+    raw = answer.get("noul")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value < 0.0 or value > 1.0:
+        return None
+    return value
+
+
+def score_answer(
+    response: Optional[Mapping[str, Any]],
+    question_id: str,
+) -> Optional[MutableMapping[str, Any]]:
+    """Extract a Score answer dict for ``question_id``, or None."""
+    if not response:
+        return None
+    answers = response.get("answers")
+    if not isinstance(answers, Mapping):
+        return None
+    answer = answers.get(question_id)
+    if not isinstance(answer, Mapping):
+        return None
+    if answer.get("type") != "score":
+        return None
+    return dict(answer)

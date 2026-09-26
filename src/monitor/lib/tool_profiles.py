@@ -437,6 +437,16 @@ def maybe_apply_explicit_auto_widen(
 
     detected = detect_explicit_auto_widen_groups(user_text)
     if not detected:
+        # Regex is primary for explicit phrases. When it finds nothing, ask Jev
+        # as a backstop for ambiguous intent (soft-fails to no widen).
+        try:
+            from monitor.lib.jev_tool_route import maybe_jev_auto_widen_groups
+
+            detected = maybe_jev_auto_widen_groups(user_text)
+        except Exception:
+            logger.debug("Jev tool-group backstop failed", exc_info=True)
+            detected = set()
+    if not detected:
         return set()
 
     disabled = _disabled_auto_widen_groups()

@@ -142,3 +142,21 @@ def test_choice_answer_none_on_bad_shape():
     assert tc.choice_answer(
         {"answers": {"x": {"type": "noul", "noul": 1.0}}}, "x"
     ) is None
+
+
+def test_noul_and_score_answer_helpers():
+    response = {
+        "answers": {
+            "q": {"type": "noul", "noul": 0.7},
+            "s": {
+                "type": "score",
+                "score": 1.0,
+                "confidence": 0.8,
+                "legend": {"0": "a", "1": "b"},
+                "probabilities": {"0": 0.0, "1": 1.0},
+            },
+        }
+    }
+    assert tc.noul_answer(response, "q") == 0.7
+    assert tc.score_answer(response, "s")["score"] == 1.0
+    assert tc.noul_answer(response, "missing") is None

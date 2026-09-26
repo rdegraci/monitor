@@ -632,6 +632,7 @@ def handle_tool_call(response, _depth=0):
     # exit). If so, after the loop we bump reasoning to "high" for the next
     # completion(s) this turn so the model reasons harder about the fix.
     turn_failure_detected = False
+    turn_failure_text = ""
 
     # Process each tool call
     for tool_call in tool_calls:
@@ -704,6 +705,12 @@ def handle_tool_call(response, _depth=0):
             looks_like_failure(error) or looks_like_failure(result)
         ):
             turn_failure_detected = True
+            parts = []
+            if isinstance(error, str) and error.strip():
+                parts.append(error.strip())
+            if isinstance(result, str) and result.strip():
+                parts.append(result.strip())
+            turn_failure_text = "\n".join(parts)[:3000]
 
         if error:
             continue
@@ -725,21 +732,29 @@ def handle_tool_call(response, _depth=0):
                 or getattr(config, "REASONING_EFFORT", None)
             )
             if should_escalate(current_effort):
-                # Escalate to "high", then apply the configured floor so a higher
-                # REASONING_BUMP_EFFORT (e.g. "xhigh") still wins — but never
-                # below "high".
-                from monitor.lib.llm_model_utils import higher_reasoning_effort
+                from monitor.lib.jev_reasoning import should_jev_allow_escalate
 
-                escalated = higher_reasoning_effort(
-                    "high", getattr(config, "REASONING_BUMP_EFFORT", None)
-                )
-                config.CURRENT_TURN_REASONING_OVERRIDE = escalated
-                logger.info(
-                    "Tool failure detected; escalated reasoning effort to %s "
-                    "for the remainder of this turn.",
-                    escalated,
-                )
-                print(f"{yellow}[reasoning → {escalated}] tool failure detected{reset}")
+                if not should_jev_allow_escalate(turn_failure_text):
+                    logger.info(
+                        "Jev declined reasoning escalation after tool failure; "
+                        "keeping current effort."
+                    )
+                else:
+                    # Escalate to "high", then apply the configured floor so a higher
+                    # REASONING_BUMP_EFFORT (e.g. "xhigh") still wins — but never
+                    # below "high".
+                    from monitor.lib.llm_model_utils import higher_reasoning_effort
+
+                    escalated = higher_reasoning_effort(
+                        "high", getattr(config, "REASONING_BUMP_EFFORT", None)
+                    )
+                    config.CURRENT_TURN_REASONING_OVERRIDE = escalated
+                    logger.info(
+                        "Tool failure detected; escalated reasoning effort to %s "
+                        "for the remainder of this turn.",
+                        escalated,
+                    )
+                    print(f"{yellow}[reasoning → {escalated}] tool failure detected{reset}")
     except Exception:
         logger.exception(
             "Reasoning escalation check failed; continuing at current effort."
