@@ -20,6 +20,7 @@ from monitor.lib.token_management import (
 )  # All token counting/estimation now centralized here
 from monitor.lib.llm_output_utils import strip_ansi
 from monitor.lib import tool_failures
+from monitor.lib.jev_edit_route import maybe_steer_modify_source_code
 
 LARGE_FILE_TOKEN_THRESHOLD = 1000
 RECURSIVE_DIR_TOKEN_ESTIMATE = 500
@@ -514,6 +515,12 @@ def _execute_tool_call(tool_call):
                     if rate_limiter.RATE_LIMITER is not None:
                         rate_limiter.RATE_LIMITER.wait_if_needed(RECURSIVE_DIR_TOKEN_ESTIMATE)
 
+        if function_name == "modify_source_code":
+            steer = maybe_steer_modify_source_code(function_args)
+            if steer is not None:
+                logger.info("Jev steered modify_source_code away from protocol_engine")
+                return None, steer
+
         result = AVAILABLE_TOOLS[function_name](**function_args)
         logger.debug(f"Result: {result}")
 
@@ -992,6 +999,12 @@ def execute_function(function_name, function_args_raw):
                             rate_limiter.RATE_LIMITER.wait_if_needed(estimated_tokens)
                 except (FileNotFoundError, PermissionError):
                     pass
+
+        if function_name == "modify_source_code":
+            steer = maybe_steer_modify_source_code(function_args)
+            if steer is not None:
+                logger.info("Jev steered modify_source_code away from protocol_engine")
+                return None, steer
 
         configure_protocol_engine_message_history(config.CONVERSATION_HISTORY)
         result = AVAILABLE_TOOLS[function_name](**function_args)

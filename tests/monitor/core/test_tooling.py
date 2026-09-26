@@ -263,6 +263,95 @@ class TestTooling(unittest.TestCase):
             self.assertIsNone(result)
             self.assertIn("not found in available_functions", err)
 
+    def test_execute_function_jev_steers_modify_source_code(self):
+        """High-conf Jev steer must skip protocol_engine modify_source_code."""
+        mock_modify = MagicMock(return_value="should_not_run")
+        with (
+            patch.dict(
+                tooling.AVAILABLE_TOOLS,
+                {"modify_source_code": mock_modify},
+                clear=True,
+            ),
+            patch.object(
+                tooling,
+                "maybe_steer_modify_source_code",
+                return_value="[jev_edit_route] use surgical",
+            ),
+            patch.object(
+                tooling,
+                "configure_protocol_engine_message_history",
+                MagicMock(),
+            ),
+            patch.object(tooling, "_subagent_write_block_error", return_value=None),
+        ):
+            result, err = tooling.execute_function(
+                "modify_source_code",
+                '{"source_file": "a.py", "modification_request": "fix typo"}',
+            )
+        self.assertIsNone(result)
+        self.assertIn("jev_edit_route", err)
+        mock_modify.assert_not_called()
+
+    def test_execute_tool_call_jev_steers_modify_source_code(self):
+        """Chat tool_call path must also honor Jev edit-path steering."""
+        mock_modify = MagicMock(return_value="should_not_run")
+        tool_call = {
+            "function": {
+                "name": "modify_source_code",
+                "arguments": (
+                    '{"source_file": "a.py", "modification_request": "fix"}'
+                ),
+            }
+        }
+        with (
+            patch.dict(
+                tooling.AVAILABLE_TOOLS,
+                {"modify_source_code": mock_modify},
+                clear=True,
+            ),
+            patch.object(
+                tooling,
+                "maybe_steer_modify_source_code",
+                return_value="[jev_edit_route] read more",
+            ),
+            patch.object(tooling, "_subagent_write_block_error", return_value=None),
+            patch.object(tooling.tool_failures, "check_tool_guards", return_value=None),
+            patch.object(tooling.tool_failures, "record_edit_tool_usage"),
+        ):
+            result, err = tooling.execute_tool_call(tool_call)
+        self.assertIsNone(result)
+        self.assertIn("jev_edit_route", err)
+        mock_modify.assert_not_called()
+
+    def test_execute_function_jev_allows_modify_when_not_steered(self):
+        """When Jev does not steer, modify_source_code runs as today."""
+        mock_modify = MagicMock(return_value="edited")
+        with (
+            patch.dict(
+                tooling.AVAILABLE_TOOLS,
+                {"modify_source_code": mock_modify},
+                clear=True,
+            ),
+            patch.object(
+                tooling,
+                "maybe_steer_modify_source_code",
+                return_value=None,
+            ),
+            patch.object(
+                tooling,
+                "configure_protocol_engine_message_history",
+                MagicMock(),
+            ),
+            patch.object(tooling, "_subagent_write_block_error", return_value=None),
+        ):
+            result, err = tooling.execute_function(
+                "modify_source_code",
+                '{"source_file": "a.py", "modification_request": "rewrite"}',
+            )
+        self.assertEqual(result, "edited")
+        self.assertIsNone(err)
+        mock_modify.assert_called_once()
+
     @patch.object(tooling, "process_function_result")
     @patch.object(tooling, "create_function_result_message")
     @patch.object(tooling, "execute_function")
