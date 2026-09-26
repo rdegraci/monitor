@@ -25,6 +25,28 @@ def test_check_configuration_masks_secrets(monkeypatch, tmp_path):
     assert report.ok is True
 
 
+def test_check_configuration_reports_typesafe_optional(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("MONITOR_JEV", raising=False)
+    monkeypatch.setattr("monitor.config.MODEL", "openai/gpt-4o-mini", raising=False)
+    monkeypatch.setattr("monitor.config.TOOL_PROFILE", "coding", raising=False)
+    monkeypatch.setattr("monitor.config.DAILY_COST_TARGET_USD", 5.0, raising=False)
+
+    report = check_config.check_configuration(config_dir=str(tmp_path))
+    text = check_config.format_check_report(report)
+    assert "TYPESAFE_API_KEY" in text
+    assert "optional" in text.lower() or "missing" in text
+    # Missing TypeSafe must not fail readiness when a provider key exists.
+    assert report.ok is True
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-secret-never-show")
+    report2 = check_config.check_configuration(config_dir=str(tmp_path))
+    text2 = check_config.format_check_report(report2)
+    assert "ts-secret" not in text2
+    assert "TYPESAFE_API_KEY" in text2
+
+
 def test_check_configuration_errors_without_provider_keys(monkeypatch, tmp_path):
     for _label, env_name in check_config._PROVIDER_KEY_ENV:
         monkeypatch.delenv(env_name, raising=False)

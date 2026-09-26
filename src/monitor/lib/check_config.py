@@ -161,6 +161,31 @@ def check_configuration(*, config_dir: Optional[str] = None) -> CheckReport:
             )
         )
 
+    # Optional TypeSafe / Jev key — presence only; missing is info, not an error.
+    typesafe_present = bool(os.environ.get("TYPESAFE_API_KEY", "").strip())
+    jev_off = (os.environ.get("MONITOR_JEV") or "").strip().lower() in {
+        "0",
+        "false",
+        "off",
+        "no",
+        "disable",
+        "disabled",
+    }
+    if typesafe_present and jev_off:
+        typesafe_detail = "set (MONITOR_JEV off — Jev disabled)"
+    elif typesafe_present:
+        typesafe_detail = "set"
+    else:
+        typesafe_detail = "missing (optional — edit-path Jev routing inactive)"
+    report.items.append(
+        CheckItem(
+            "TypeSafe / Jev (TYPESAFE_API_KEY)",
+            typesafe_present,
+            typesafe_detail,
+            "info",
+        )
+    )
+
     entry = "monitor / python -m monitor"
     report.items.append(
         CheckItem(

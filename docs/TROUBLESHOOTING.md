@@ -23,6 +23,7 @@ Short fixes for common first-run and session problems. For the happy path, see
 
 Common env vars (presence only in `--check-config`): `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`.
+Optional Jev edit-routing: `TYPESAFE_API_KEY` (disable with `MONITOR_JEV=0`).
 
 ## Context pressure and spend
 
