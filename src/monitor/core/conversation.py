@@ -1296,7 +1296,6 @@ def prepare_query_context(user_prompt):
     # call_litellm_completion as override-or-default and lasts for every LLM
     # call within this user turn (including tool-chain follow-ups).
     try:
-        from monitor.lib.reasoning_heuristic import detect_reasoning_bump
         config.CURRENT_TURN_REASONING_OVERRIDE = None
         stripped_user_prompt = user_prompt.rstrip()
         explicit_adv_flag = " --adv"
@@ -1316,8 +1315,11 @@ def prepare_query_context(user_prompt):
             # heuristic so the bump target — and the gate that decides whether
             # to fire at all — both reflect it. This is what lets a steady
             # "medium" config still bump (to the floored target) on hard turns.
+            # Jev Noul confirms heuristic bumps and can promote mid-band asks.
             bump_floor = getattr(config, "REASONING_BUMP_EFFORT", None)
-            bump = detect_reasoning_bump(
+            from monitor.lib.jev_reasoning_bump import resolve_reasoning_bump
+
+            bump = resolve_reasoning_bump(
                 user_prompt,
                 getattr(config, "REASONING_EFFORT", None),
                 bump_floor=bump_floor,
@@ -1327,7 +1329,7 @@ def prepare_query_context(user_prompt):
                 logger.info(
                     "Auto-bumped reasoning effort to %s for this turn (%s).",
                     bump,
-                    "matched complexity signals",
+                    "heuristic/Jev",
                 )
                 print(f"{yellow}[reasoning → {bump}] matched complexity signals{reset}")
     except Exception:
