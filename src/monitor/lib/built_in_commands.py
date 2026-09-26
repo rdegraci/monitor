@@ -126,6 +126,53 @@ _SUPPORTED_WIKI_FIX_KINDS = {
 }
 
 
+def ship_check_command(arg=None):
+    """Run a Jev ship/revise/block gate on review material.
+
+    Args:
+        arg: Optional review text. When empty, uses ``git diff HEAD`` (or
+            staged+unstaged) as the review material.
+
+    Returns:
+        None.
+    """
+    if arg is not None and str(arg).strip() in {"help", "?", "-h", "--help"}:
+        print("Run Jev review ship-gate (ship / revise / block).")
+        print("Usage: :ship_check [review text]")
+        print("Without text, uses `git diff HEAD` in the current repo.")
+        return
+
+    from monitor.lib.jev_review_gate import decide_review_gate
+
+    material = (arg or "").strip()
+    if not material:
+        try:
+            import subprocess
+
+            proc = subprocess.run(
+                ["git", "diff", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            material = (proc.stdout or "").strip()
+            if not material:
+                print("No review material (empty git diff and no argument).")
+                return
+        except Exception as exc:
+            print(f"Could not read git diff: {exc}")
+            return
+
+    decision = decide_review_gate(material)
+    if decision.message:
+        print(decision.message)
+    else:
+        print(
+            f"[jev_review_gate] acted={decision.acted} route={decision.route} "
+            f"reason={decision.reason}"
+        )
+
+
 def sessions_command(arg=None):
     """Print the five most recent session folder paths.
 

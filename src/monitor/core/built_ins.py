@@ -28,6 +28,7 @@ from monitor.lib.built_in_commands import (
     symbols_command,
     activity_command,
     sessions_command,
+    ship_check_command,
     reset_conversation_history_command,
     twitch_summary_command,
     edit_macros_command,
@@ -420,6 +421,11 @@ def configure_built_ins() -> None:
                     "command": "sessions",
                     "function": _make_callable(sessions_command),
                     "description": "Print the five most recent session folder paths.",
+                },
+                {
+                    "command": "ship_check",
+                    "function": _make_callable(ship_check_command),
+                    "description": "Jev review ship-gate: ship / revise / block on git diff or provided text.",
                 },
                 {
                     "command": "settings",
