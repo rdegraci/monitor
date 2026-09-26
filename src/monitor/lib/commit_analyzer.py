@@ -150,7 +150,16 @@ class CommitAnalyzer:
         )
         suggestions_text = (response.choices[0].message.content or "").strip()
         self.logger.info("Successfully generated next steps using LLM")
-        return _parse_steps(suggestions_text)
+        steps = _parse_steps(suggestions_text)
+        try:
+            from monitor.lib.jev_next_steps import annotate_steps_quality
+
+            return annotate_steps_quality(summary, steps)
+        except Exception:
+            self.logger.debug(
+                "Jev next-steps quality annotate failed", exc_info=True
+            )
+            return steps
 
 
 def _parse_steps(text):

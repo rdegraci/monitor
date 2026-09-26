@@ -310,6 +310,24 @@ def append_conversation_history(
         )
         if soft_triggered:
             try:
+                from monitor.lib.jev_compact import should_soft_summarize_now
+
+                if not should_soft_summarize_now(
+                    tokens_in_history=tokens_in_history,
+                    max_tokens=int(getattr(config, "MAX_TOKEN_COUNT", 0) or 0),
+                    trigger_reasons=str(limits.get("trigger_reasons")),
+                ):
+                    logger.info(
+                        "[SUMMARIZATION] Jev deferred soft compaction; continuing without summarize."
+                    )
+                    return
+            except Exception:
+                logger.debug(
+                    "[SUMMARIZATION] Jev compact gate failed; proceeding",
+                    exc_info=True,
+                )
+        if soft_triggered:
+            try:
                 config.SESSION_COMPACTION_COUNT = getattr(config, "SESSION_COMPACTION_COUNT", 0) + 1
             except Exception:
                 logger.debug("[SUMMARIZATION] Failed to increment SESSION_COMPACTION_COUNT for soft-trigger compaction.")

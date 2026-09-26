@@ -52,6 +52,19 @@ class SemanticStore:
         """
         logger.debug("[SemanticStore] Incoming user_prompt: %s", user_prompt)
         try:
+            from monitor.lib.jev_memory import should_attempt_remember
+
+            if not should_attempt_remember(user_prompt):
+                logger.info(
+                    "[SemanticStore] Jev skipped remember; no durable fact detected."
+                )
+                return None
+        except Exception:
+            logger.debug(
+                "[SemanticStore] Jev memory gate failed; continuing with LLM path",
+                exc_info=True,
+            )
+        try:
             prompt_chars = len(user_prompt) if user_prompt is not None else 0
         except Exception:
             prompt_chars = 0

@@ -70,6 +70,7 @@ def inspect_run(
     task: Optional[str] = None,
     show_history: bool = False,
     text_limit: int = 1200,
+    jev_triage: bool = False,
 ) -> str:
     """Return a human-readable post-run inspection report.
 
@@ -80,6 +81,8 @@ def inspect_run(
         show_history: When True, include the full serialized conversation
             history for each included sample.
         text_limit: Maximum characters to show for long free-text sections.
+        jev_triage: When True, ask TypeSafe Jev to label failed samples as
+            flake vs real_regression (requires TYPESAFE_API_KEY).
 
     Returns:
         A formatted multi-line string.
@@ -112,6 +115,17 @@ def inspect_run(
         lines.append(f"sample: {result.get('sample')}")
         lines.append(f"passed: {result.get('passed')}")
         lines.append(f"detail: {result.get('detail')}")
+        if jev_triage and not result.get("passed"):
+            try:
+                from monitor.lib.jev_bench_triage import triage_failed_sample
+
+                label = triage_failed_sample(
+                    result.get("detail") if isinstance(result.get("detail"), str) else None,
+                )
+                if label:
+                    lines.append(f"jev_triage: {label}")
+            except Exception as exc:
+                lines.append(f"jev_triage: error ({exc})")
         lines.append(f"exit_code: {result.get('exit_code')}")
         lines.append(f"timed_out: {result.get('timed_out')}")
         lines.append(f"duration_seconds: {result.get('duration_seconds')}")
@@ -173,6 +187,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=1200,
         help="Character limit for long text sections (default: 1200).",
     )
+    parser.add_argument(
+        "--jev-triage",
+        action="store_true",
+        help="Label failed samples with Jev (flake vs real_regression).",
+    )
     args = parser.parse_args(argv)
 
     run = json.loads(args.run_json.read_text())
@@ -182,6 +201,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         task=args.task,
         show_history=args.show_history,
         text_limit=args.text_limit,
+        jev_triage=args.jev_triage,
     )
     sys.stdout.write(output)
     return 0
