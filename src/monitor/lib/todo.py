@@ -544,6 +544,36 @@ def update_todo(
             }
         )
 
+    marking_done = (
+        status is not None
+        and str(status).strip().lower() == "done"
+        and before.get("status") != status
+    )
+    if marking_done:
+        try:
+            from monitor.lib.jev_acceptance import maybe_steer_todo_done
+
+            context = _read_task_context(session_id)
+            steer = maybe_steer_todo_done(
+                before,
+                acceptance_criteria=context.get("acceptance_criteria") or [],
+            )
+            if steer:
+                _print_todo_action("!", f"{id} jev acceptance steer")
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "action": "update_todo",
+                        "error": "jev_acceptance_steer",
+                        "reason": steer,
+                        "session_id": session_id,
+                        "id": id,
+                        "jev_notice": steer,
+                    }
+                )
+        except Exception:
+            logger.debug("Jev acceptance gate failed", exc_info=True)
+
     if status is not None:
         todos[index]["status"] = status
     if item:
