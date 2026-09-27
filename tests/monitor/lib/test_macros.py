@@ -1,13 +1,15 @@
-import unittest
-import json
-import tempfile
-import os
-from monitor import config
-from unittest.mock import patch, mock_open, MagicMock
-from io import StringIO
-from monitor.lib import macros
-import sys
 import errno
+import json
+import os
+import sys
+import tempfile
+import unittest
+import uuid
+from io import StringIO
+from unittest.mock import MagicMock, mock_open, patch
+
+from monitor import config
+from monitor.lib import macro_utils, macros
 
 
 class TestMacros(unittest.TestCase):
@@ -53,6 +55,7 @@ class TestMacros(unittest.TestCase):
         """Test that public macro values are properly defined."""
         expected_keys = [
             "do_diff",
+            "random_guid",
             "create_git_entry",
             "diff",
             "diff_previous",
@@ -66,6 +69,20 @@ class TestMacros(unittest.TestCase):
         for key in expected_keys:
             self.assertIn(key, macros.PUBLIC_MACRO_VALUES)
             self.assertIsInstance(macros.PUBLIC_MACRO_VALUES[key], str)
+
+    def test_random_guid_macro_generates_version_four_uuid(self):
+        """Test that the Tcl-backed random GUID macro generates a UUID4."""
+        result = macro_utils.recursive_macro_expand(
+            "{{random_guid}}",
+            macros.PUBLIC_MACRO_VALUES,
+            "{{",
+            "}}",
+            "\\",
+        )
+
+        generated_uuid = uuid.UUID(result)
+        self.assertEqual(generated_uuid.version, 4)
+        self.assertEqual(generated_uuid.variant, uuid.RFC_4122)
 
     def test_macro_values_contain_nested_references(self):
         """Test that some macro values contain references to other macros."""

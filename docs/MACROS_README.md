@@ -83,6 +83,7 @@ This grouped catalog is what the `macros` built-in displays.
 ## Built-in public macros
 
 The current codebase ships public macros such as:
+- `random_guid` (a Tcl-backed version 4 UUID generator)
 - `do_diff`
 - `create_git_entry`
 - `rank_examine`

@@ -82,6 +82,20 @@ PRIVATE_MACRO_METADATA = {
 # Useful macros, these are visible when dumping macros via the 'macros' built in command.
 PUBLIC_MACRO_VALUES = {
     "do_diff": "Examine the files that have been modified, using the perform_git_diff tool",
+    "random_guid": (
+        "tcl set hex 0123456789abcdef; "
+        "set guid {}; "
+        "for {set index 0} {$index < 32} {incr index} { "
+        "append guid [string index $hex [expr {int(rand() * 16)}]] "
+        "}; "
+        "set guid [string replace $guid 12 12 4]; "
+        "set variant [lindex {8 9 a b} [expr {int(rand() * 4)}]]; "
+        "set guid [string replace $guid 16 16 $variant]; "
+        "puts [format \"%s-%s-%s-%s-%s\" "
+        "[string range $guid 0 7] [string range $guid 8 11] "
+        "[string range $guid 12 15] [string range $guid 16 19] "
+        "[string range $guid 20 31]]"
+    ),
     "create_git_entry": dedent("""
         Write a commit message that strictly follows this specification.
 
@@ -162,6 +176,11 @@ PUBLIC_MACRO_VALUES = {
 }
 
 PUBLIC_MACRO_METADATA = {
+    "random_guid": {
+        "title": "Generate random GUID",
+        "description": "Generate a random version 4 UUID using the Tcl interpreter.",
+        "group": "built_in_general",
+    },
     "do_diff": {
         "title": "Diff current changes",
         "description": "Ask the assistant to inspect the files modified in the current working tree.",
