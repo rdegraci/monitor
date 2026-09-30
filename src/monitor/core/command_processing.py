@@ -65,7 +65,40 @@ class CommandResult:
     command_type: CommandType = CommandType.LLM  # Use CommandType Enum
 
 
-def evaluate_command(command: str) -> CommandResult:
+def peel_force_shell_prefix(command: str) -> tuple[bool, str]:
+    """Detect and strip a leading force-shell prefix (``--`` or ``!``).
+
+    Lines that start with ``--`` or ``!`` (after leading whitespace) are treated
+    as shell commands: the prefix is removed and the remainder is executed via
+    the shell path instead of the LLM.
+
+    ``!<`` is *not* a force-shell prefix; it remains the macro-suppression
+    marker handled separately in ``process_command``.
+    """
+    if not command:
+        return False, command
+
+    leading_ws_len = len(command) - len(command.lstrip())
+    leading_ws = command[:leading_ws_len]
+    stripped = command[leading_ws_len:]
+
+    if stripped.startswith("!<"):
+        return False, command
+
+    if stripped.startswith("--"):
+        rest = stripped[2:].lstrip()
+        logger.debug("Force-shell prefix '--' detected; remainder=%r", rest)
+        return True, leading_ws + rest
+
+    if stripped.startswith("!"):
+        rest = stripped[1:].lstrip()
+        logger.debug("Force-shell prefix '!' detected; remainder=%r", rest)
+        return True, leading_ws + rest
+
+    return False, command
+
+
+def evaluate_command(command: str, *, force_shell: bool = False) -> CommandResult:
     """
     Evaluate a single command string and return a side-effect-free CommandResult.
     This function performs the same semantic analysis that the REPL previously
@@ -78,10 +111,33 @@ def evaluate_command(command: str) -> CommandResult:
     - This routine assumes the command has already been macro-expanded (if
       desired) by the caller. It will NOT perform macro expansion or execute
       side effects such as calling query() or changing directories.
+    - When ``force_shell`` is True, ``command`` must already have had its
+      ``--`` / ``!`` prefix stripped by the caller. Unknown commands are then
+      classified as non-interactive shell instead of LLM.
     """
     try:
+        if not force_shell:
+            force_shell, command = peel_force_shell_prefix(command)
+
         if not command or not command.strip():
             return CommandResult(command_type=CommandType.EMPTY)
+
+        # Force-shell: run via the shell path; skip LLM / built-in / internal routing.
+        if force_shell:
+            if config.SERVER_MODE and is_interactive_command(command):
+                logger.debug(
+                    "Unsupported force-shell interactive command in server mode: %s",
+                    command,
+                )
+                return CommandResult(
+                    error="Interactive / built-in / internal commands are not supported via non-interactive evaluation.",
+                    command_type=CommandType.UNSUPPORTED,
+                )
+            if is_interactive_command(command):
+                logger.debug("Force-shell classified as interactive: %s", command)
+                return CommandResult(command_type=CommandType.INTERACTIVE)
+            logger.debug("Force-shell classified as non-interactive: %s", command)
+            return CommandResult(command_type=CommandType.NON_INTERACTIVE)
 
         # Detect exit commands early (no side-effects here)
         normalized_command = command.strip().lower()
@@ -319,6 +375,7 @@ def process_command(command, history_file):
 
     # Log and expand macros unless explicitly suppressed with '!<'.
     # Remove only the leading '!<' instance following any leading whitespace.
+    # Note: '!<' must be checked before the force-shell '!' prefix.
     if command.lstrip().startswith("!<"):
         logger.info("Macro expansion suppressed for input (found !<)")
         # Remove only the first occurrence of the suppression marker after leading whitespace
@@ -339,7 +396,10 @@ def process_command(command, history_file):
             config.MACRO_DELIMITER_ESCAPE,
         )
 
-    result = evaluate_command(command)
+    # Lines starting with '--' or '!' (but not '!<') force shell execution.
+    force_shell, command = peel_force_shell_prefix(command)
+
+    result = evaluate_command(command, force_shell=force_shell)
     result = execute_command(result, command, history_file)
 
     if result.error:
@@ -361,7 +421,8 @@ def handle_exit_command(command, history_file=None):
 
 def internalize_command(command):
     """Helper for command evaluation and execution (LLM, built-ins, etc)."""
-    result = evaluate_command(command)
+    force_shell, command = peel_force_shell_prefix(command)
+    result = evaluate_command(command, force_shell=force_shell)
     result = execute_command(result, command, config.HISTORY_FILE)
     return {
         "output": result.output,

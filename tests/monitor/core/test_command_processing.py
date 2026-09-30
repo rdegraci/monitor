@@ -20,11 +20,73 @@ def patch_config_macros():
         yield mock_config
 
 
+@pytest.mark.parametrize(
+    "raw, expected_force, expected_command",
+    [
+        ("!ls -la", True, "ls -la"),
+        ("! ls -la", True, "ls -la"),
+        ("  !pwd", True, "  pwd"),
+        ("--git status", True, "git status"),
+        ("-- git status", True, "git status"),
+        ("  --echo hi", True, "  echo hi"),
+        ("!<echo raw", False, "!<echo raw"),
+        ("  !<echo raw", False, "  !<echo raw"),
+        ("ls -la", False, "ls -la"),
+        ("!", True, ""),
+        ("--", True, ""),
+    ],
+)
+def test_peel_force_shell_prefix(raw, expected_force, expected_command):
+    force, peeled = cp.peel_force_shell_prefix(raw)
+    assert force is expected_force
+    assert peeled == expected_command
+
+
 def test_evaluate_command_empty(patch_config_macros):
     result = cp.evaluate_command("")
     assert result.command_type.name == "EMPTY"
     assert result.output is None
     assert not result.exit_requested
+
+
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_non_interactive_command", return_value=False)
+def test_evaluate_command_force_shell_bang_unknown(
+    mock_non_inter, mock_inter, patch_config_macros
+):
+    result = cp.evaluate_command("!my_custom_script --flag")
+    assert result.command_type.name == "NON_INTERACTIVE"
+    mock_inter.assert_called_once_with("my_custom_script --flag")
+
+
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_non_interactive_command", return_value=False)
+def test_evaluate_command_force_shell_dashdash_unknown(
+    mock_non_inter, mock_inter, patch_config_macros
+):
+    result = cp.evaluate_command("--my_custom_script --flag")
+    assert result.command_type.name == "NON_INTERACTIVE"
+    mock_inter.assert_called_once_with("my_custom_script --flag")
+
+
+@patch.object(cp, "is_interactive_command", return_value=True)
+def test_evaluate_command_force_shell_interactive_catalog(mock_inter, patch_config_macros):
+    result = cp.evaluate_command("!vim file.txt")
+    assert result.command_type.name == "INTERACTIVE"
+    mock_inter.assert_called_once_with("vim file.txt")
+
+
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_internal_command", return_value=False)
+@patch.object(cp, "is_built_in_function", return_value=False)
+def test_evaluate_command_bang_lt_not_force_shell(
+    mock_builtin, mock_internal, mock_inter, patch_config_macros
+):
+    # '!<' is macro suppression, not force-shell; after process_command strips it
+    # the remainder is classified normally. evaluate_command itself must not
+    # treat '!<' as force-shell.
+    result = cp.evaluate_command("!<echo hi")
+    assert result.command_type.name == "LLM"
 
 
 @patch.object(cp, "recursive_macro_expand", side_effect=lambda c, *args, **kwargs: c)
@@ -175,6 +237,32 @@ def test_process_command_interactive(mock_exec, mock_inter, mock_cd, mock_exit, 
         mock_exec.assert_called_once()
 
 
+@patch.object(cp, "handle_exit_command", return_value=False)
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_non_interactive_command", return_value=False)
+@patch.object(cp, "execute_non_interactive_command")
+def test_process_command_force_shell_bang(
+    mock_exec, mock_non_inter, mock_inter, mock_exit, patch_config_macros
+):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
+        with patch.object(cp, "recursive_macro_expand", side_effect=lambda c, *a, **k: c):
+            assert not cp.process_command("!echo hello", "dummy_history")
+    mock_exec.assert_called_once_with("echo hello")
+
+
+@patch.object(cp, "handle_exit_command", return_value=False)
+@patch.object(cp, "is_interactive_command", return_value=False)
+@patch.object(cp, "is_non_interactive_command", return_value=False)
+@patch.object(cp, "execute_non_interactive_command")
+def test_process_command_force_shell_dashdash(
+    mock_exec, mock_non_inter, mock_inter, mock_exit, patch_config_macros
+):
+    with patch("monitor.core.command_processing.readline.write_history_file"):
+        with patch.object(cp, "recursive_macro_expand", side_effect=lambda c, *a, **k: c):
+            assert not cp.process_command("--echo hello", "dummy_history")
+    mock_exec.assert_called_once_with("echo hello")
+
+
 # Internal command path
 @patch.object(cp, "handle_exit_command", return_value=False)
 @patch.object(cp, "process_cd_command", return_value=False)
@@ -281,5 +369,5 @@ def test_handle_exit_command_nonexit():
 def test_internalize_command(mock_exec, mock_eval, patch_config_macros):
     out = cp.internalize_command("echo something")
     assert out == {"output": "ok", "error": None, "command_type": "llm", "exit_requested": False}
-    mock_eval.assert_called_once_with("echo something")
+    mock_eval.assert_called_once_with("echo something", force_shell=False)
     mock_exec.assert_called_once()
