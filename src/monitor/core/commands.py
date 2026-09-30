@@ -3,6 +3,7 @@ import signal
 import json
 import shlex
 import os
+import shutil
 
 from monitor import config
 from monitor.lib.macros import MACRO_VALUES
@@ -14,6 +15,7 @@ from termcolor import colored
 from monitor.lib.command_utils import handle_error, run_subprocess
 
 from monitor.lib.macro_utils import recursive_macro_expand
+from monitor.lib.built_ins_shell_utils import build_monitor_shell_command
 
 from monitor.core.query_service import query
 
@@ -447,8 +449,15 @@ def execute_interactive_command(command: str):
         else:
             chosen_remainder = ""
 
+        zdotdir_to_cleanup = None
         try:
-            if matching_command is not None:
+            if first_word == "shell":
+                # Session-local zsh with a [Monitor] PROMPT prefix so nested
+                # shells are visually distinct from a normal terminal.
+                command_to_run, zdotdir_to_cleanup = build_monitor_shell_command(
+                    chosen_remainder
+                )
+            elif matching_command is not None:
                 command_to_run = str(matching_command.get("expansion", ""))
                 if command_to_run:
                     command_to_run += f" {chosen_remainder}" if chosen_remainder else ""
@@ -479,6 +488,9 @@ def execute_interactive_command(command: str):
             )
         except Exception as ex_inner:
             raise ex_inner
+        finally:
+            if zdotdir_to_cleanup is not None:
+                shutil.rmtree(zdotdir_to_cleanup, ignore_errors=True)
     except Exception as ex_outer:
         handle_error(
             f"Failed to handle interactive command: '{command}'",

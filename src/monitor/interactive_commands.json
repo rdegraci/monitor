@@ -79,7 +79,7 @@
     "command": "shell",
     "needs_tty": true,
     "expansion": "zsh",
-    "description": "start an interactive zsh shell"
+    "description": "start an interactive zsh shell with a [Monitor] prompt prefix"
   },
   {
     "command": "ollama",

@@ -221,6 +221,30 @@ def test_execute_interactive_command_interactive_flag_follows_needs_tty(monkeypa
         assert captured.get("interactive") is expected, cmd
 
 
+def test_execute_interactive_command_shell_uses_monitor_prompt_prefix(monkeypatch):
+    """``shell`` launches zsh via a temp ZDOTDIR that prefixes PROMPT with [Monitor]."""
+    monkeypatch.setattr(commands, "PRIVATE_COMMANDS", [])
+    monkeypatch.setattr(
+        commands,
+        "INTERACTIVE_COMMANDS",
+        [{"command": "shell", "needs_tty": True, "expansion": "zsh"}],
+    )
+    captured = {}
+
+    def fake_run(cmd_to_run, **kwargs):
+        captured["cmd"] = cmd_to_run
+        captured.update(kwargs)
+        # ZDOTDIR must still exist while the shell would be running.
+        assert "ZDOTDIR=" in cmd_to_run
+        return (0, None, None, None)
+
+    monkeypatch.setattr(commands, "run_subprocess", fake_run)
+    commands.execute_interactive_command("shell")
+    assert captured.get("interactive") is True
+    assert "zsh" in captured["cmd"]
+    assert "ZDOTDIR=" in captured["cmd"]
+
+
 def test_real_interactive_json_carries_sane_needs_tty_flags():
     """Guard the actual shipped data: TTY programs flagged True, output tools False."""
     import importlib.resources, json
