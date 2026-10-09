@@ -5,6 +5,8 @@ prints each PID, controlling TTY, and cwd.
 
 ``monitor --activate <tty>`` brings the matching Terminal.app / iTerm2 tab
 to the foreground via AppleScript (macOS only).
+
+``monitor --deactivate <tty>`` terminates the matching Monitor process.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -89,7 +92,7 @@ def is_monitor_command(command: str) -> bool:
         return False
 
     # Skip the discovery/activate CLI itself so it does not list itself.
-    if any(tok in {"--status-all", "--activate"} for tok in tokens):
+    if any(tok in {"--status-all", "--activate", "--deactivate"} for tok in tokens):
         return False
 
     if basename0 == "monitor":
@@ -446,8 +449,55 @@ def activate_tty(spec: str, *, gui_apps: Optional[Iterable[str]] = None) -> Tupl
     return 1, f"Could not focus {tty_path}.\n" + "\n".join(errors) + f"\n{hint}"
 
 
+def deactivate_tty(spec: str) -> Tuple[int, str]:
+    """Terminate the Monitor instance associated with *spec*.
+
+    Args:
+        spec: TTY token such as ``002`` or ``/dev/tty004``.
+
+    Returns:
+        A process exit code and human-readable status message.
+    """
+    try:
+        normalized_tty = normalize_tty(spec)
+    except ValueError as exc:
+        return 2, str(exc)
+
+    instances = list_monitor_instances()
+    matching = []
+    for instance in instances:
+        if instance.tty_path == "-":
+            continue
+        try:
+            matches_tty = normalize_tty(instance.tty_path) == normalized_tty
+        except ValueError:
+            matches_tty = False
+        if matches_tty:
+            matching.append(instance)
+    if not matching:
+        return 1, f"No running Monitor instance found for {normalized_tty}."
+
+    instance = matching[0]
+    try:
+        os.kill(instance.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return 1, f"Monitor instance PID {instance.pid} is no longer running."
+    except PermissionError:
+        return 1, f"Permission denied while stopping Monitor instance PID {instance.pid}."
+    except OSError as exc:
+        return 1, f"Could not stop Monitor instance PID {instance.pid}: {exc}"
+    return 0, f"Stopped Monitor instance PID {instance.pid} on {normalized_tty}."
+
+
 def print_activate(spec: str) -> int:
     """CLI entry for ``--activate``. Prints a status line and returns exit code."""
     code, message = activate_tty(spec)
+    print(message)
+    return code
+
+
+def print_deactivate(spec: str) -> int:
+    """CLI entry for ``--deactivate``. Prints a status line and returns exit code."""
+    code, message = deactivate_tty(spec)
     print(message)
     return code

@@ -378,6 +378,12 @@ def main():
         help="Bring the Terminal/iTerm tab for TTY to the foreground (macOS). Examples: ttys002, 002.",
     )
     parser.add_argument(
+        "--deactivate",
+        metavar="TTY",
+        type=str,
+        help="Stop the Monitor instance associated with TTY. Example: /dev/tty004.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"monitor {VERSION}",
@@ -433,6 +439,11 @@ def main():
         from monitor.lib.instances import print_activate
 
         sys.exit(print_activate(args.activate))
+
+    if getattr(args, "deactivate", None):
+        from monitor.lib.instances import print_deactivate
+
+        sys.exit(print_deactivate(args.deactivate))
 
     load_model_config()
     load_environment_globals()

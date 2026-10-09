@@ -62,6 +62,22 @@ def _run_lightweight_cli(argv: list[str]) -> None:
 
         raise SystemExit(print_status_all())
 
+    if "--deactivate" in argv:
+        try:
+            index = argv.index("--deactivate")
+        except ValueError:
+            return
+        if index + 1 >= len(argv) or str(argv[index + 1]).startswith("-"):
+            print(
+                "Usage: monitor --deactivate TTY\n"
+                "Examples: monitor --deactivate tty004 | 004 | /dev/tty004",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        from monitor.lib.instances import print_deactivate
+
+        raise SystemExit(print_deactivate(argv[index + 1]))
+
     if "--activate" in argv:
         try:
             index = argv.index("--activate")
