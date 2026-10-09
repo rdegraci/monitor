@@ -4,7 +4,7 @@ import re
 import shlex
 import subprocess
 import tempfile
-from textwrap import dedent
+from textwrap import TextWrapper, dedent
 
 from monitor import config
 from monitor.lib.colors import reset, yellow
@@ -20,26 +20,8 @@ from monitor.lib.progress import progress_dots
 
 logger = logging.getLogger("monitor.core.commit")
 
-COMMIT_SUBJECT_MAX_LENGTH = 50
 COMMIT_BODY_MAX_LINE_LENGTH = 72
-COMMIT_MESSAGE_VALIDATION_ATTEMPTS = 3
-# Backward-compatible alias used by existing tests/importers.
-COMMIT_BODY_LINE_LIMIT_ATTEMPTS = COMMIT_MESSAGE_VALIDATION_ATTEMPTS
-COMMIT_SUBJECT_LENGTH_FAILURE_MESSAGE = (
-    "Unable to create git title less than 50 characters, after three failed attempts."
-)
-COMMIT_BODY_LINE_LIMIT_FAILURE_MESSAGE = (
-    "Unable to create 72 line limit git body after three attempts."
-)
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-
-
-class CommitSubjectLengthError(Exception):
-    """Raised when a generated commit subject still exceeds the length limit."""
-
-
-class CommitBodyLineLimitError(Exception):
-    """Raised when a generated commit body still exceeds the line-length limit."""
 
 
 def get_staged_diff(silent: bool = False):
@@ -129,7 +111,6 @@ def _build_commit_completion_kwargs(
     return kwargs
 
 
-
 def _should_use_reasoning_kwargs(model):
     """Return whether the commit model should receive reasoning parameters.
 
@@ -142,28 +123,14 @@ def _should_use_reasoning_kwargs(model):
     return is_reasoning_model(model, getattr(config, "REASONING_MODEL_PREFIX", None))
 
 
-def _extract_commit_subject(message):
-    """Return the commit subject (first non-empty line), or empty string.
-
-    Args:
-        message: Full commit message text.
-
-    Returns:
-        str: Subject line text, or ``""`` when the message is empty.
-    """
-    if not isinstance(message, str) or not message.strip():
-        return ""
-    return message.strip().splitlines()[0]
-
-
 def _extract_commit_body(message):
-    """Return the commit body (text after the first blank line), or empty string.
+    """Return the text after the first blank line in a commit message.
 
     Args:
         message: Full commit message text.
 
     Returns:
-        str: Body text, or ``""`` when the message has no body section.
+        str: Body text, or an empty string when the message has no body section.
     """
     if not isinstance(message, str) or not message.strip():
         return ""
@@ -185,42 +152,71 @@ def _line_contains_url(line):
     return bool(_URL_IN_LINE_RE.search(line))
 
 
-def commit_subject_within_limit(message, max_length=COMMIT_SUBJECT_MAX_LENGTH):
-    """Return whether the commit subject is at most ``max_length`` characters.
+def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
+    """Wrap non-URL commit body lines to a maximum length.
 
     Args:
-        message: Full commit message text.
-        max_length: Maximum allowed characters for the subject line.
+        body: Commit body text to format.
+        max_length: Maximum width for wrapped lines.
 
     Returns:
-        bool: True when the subject length is acceptable.
+        str: The formatted body with blank lines preserved.
     """
-    subject = _extract_commit_subject(message)
-    return len(subject) <= max_length
+    if not isinstance(body, str) or not body:
+        return body
 
+    wrapper = TextWrapper(
+        width=max_length,
+        break_long_words=True,
+        break_on_hyphens=False,
+    )
+    formatted_lines = []
+    paragraph_lines = []
 
-def commit_body_within_line_limit(message, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
-    """Return whether every non-URL body line is within ``max_length`` characters.
+    def flush_paragraph():
+        """Wrap the accumulated paragraph as a single prose block."""
+        if paragraph_lines:
+            paragraph = " ".join(line.strip() for line in paragraph_lines)
+            formatted_lines.extend(wrapper.wrap(paragraph))
+            paragraph_lines.clear()
 
-    Subject lines are not checked. Body lines that contain an ``http://`` or
-    ``https://`` URL are exempt from the length limit.
-
-    Args:
-        message: Full commit message text.
-        max_length: Maximum allowed characters per non-exempt body line.
-
-    Returns:
-        bool: True when the body satisfies the line-length rule.
-    """
-    body = _extract_commit_body(message)
-    if not body:
-        return True
     for line in body.splitlines():
-        if _line_contains_url(line):
+        if not line.strip():
+            flush_paragraph()
+            formatted_lines.append(line)
             continue
-        if len(line) > max_length:
-            return False
-    return True
+        if _line_contains_url(line):
+            flush_paragraph()
+            formatted_lines.append(line)
+            continue
+        paragraph_lines.append(line)
+
+    flush_paragraph()
+    return "\n".join(formatted_lines)
+
+
+def format_commit_message(message, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
+    """Format a commit message while preserving its subject and body structure.
+
+    Args:
+        message: Full commit message text to format.
+        max_length: Maximum width for wrapped body lines.
+
+    Returns:
+        str: The stripped message with its body formatted, or the stripped
+            original message when no body exists.
+    """
+    if not isinstance(message, str) or not message.strip():
+        return message.strip() if isinstance(message, str) else message
+
+    stripped_message = message.strip()
+    body = _extract_commit_body(stripped_message)
+    if not body:
+        return stripped_message
+
+    subject = stripped_message.splitlines()[0]
+    formatted_body = format_commit_body(body, max_length=max_length)
+    return f"{subject}\n\n{formatted_body}"
 
 
 def make_commit_command(arg=None, print_func=print):
@@ -251,12 +247,6 @@ def make_commit_command(arg=None, print_func=print):
             )
         except KeyboardInterrupt:
             print_func("\nCommit message generation cancelled. Nothing committed.")
-            return
-        except CommitSubjectLengthError:
-            print_func(COMMIT_SUBJECT_LENGTH_FAILURE_MESSAGE)
-            return
-        except CommitBodyLineLimitError:
-            print_func(COMMIT_BODY_LINE_LIMIT_FAILURE_MESSAGE)
             return
         except Exception as e:
             logger.error("Commit message generation failed: %s", e, exc_info=True)
@@ -403,11 +393,7 @@ def _generate_commit_message_once(diff_output, model=None):
 
 def get_suggested_commit_message(diff_output, model=None):
     """
-    Return a suggested commit message based on staged git changes.
-
-    Regenerates up to ``COMMIT_MESSAGE_VALIDATION_ATTEMPTS`` times when the
-    subject exceeds ``COMMIT_SUBJECT_MAX_LENGTH`` characters or any non-URL
-    body line exceeds ``COMMIT_BODY_MAX_LINE_LENGTH`` characters.
+    Return a formatted suggested commit message based on staged git changes.
 
     Args:
         diff_output: The staged git diff to summarize.
@@ -415,59 +401,17 @@ def get_suggested_commit_message(diff_output, model=None):
             model configuration is resolved by this function.
 
     Returns:
-        str: A commit message whose subject and body satisfy the length rules.
-
-    Raises:
-        CommitSubjectLengthError: If every attempt produces an over-long subject.
-        CommitBodyLineLimitError: If every attempt produces an over-long body
-            (after the subject check passes on that attempt).
+        str: A generated commit message with non-URL body lines formatted to the
+            configured maximum line length.
     """
     logger.debug(
         "Entering get_suggested_commit_message to generate message from staged changes."
     )
     try:
-        last_failure = None
-        for attempt in range(1, COMMIT_MESSAGE_VALIDATION_ATTEMPTS + 1):
-            commit_message = _generate_commit_message_once(diff_output, model=model)
-            if not commit_subject_within_limit(commit_message):
-                last_failure = "subject"
-                logger.info(
-                    "Rejecting commit message on attempt %d/%d: subject exceeds %d chars.",
-                    attempt,
-                    COMMIT_MESSAGE_VALIDATION_ATTEMPTS,
-                    COMMIT_SUBJECT_MAX_LENGTH,
-                )
-                continue
-            if not commit_body_within_line_limit(commit_message):
-                last_failure = "body"
-                logger.info(
-                    "Rejecting commit message on attempt %d/%d: body line exceeds %d chars.",
-                    attempt,
-                    COMMIT_MESSAGE_VALIDATION_ATTEMPTS,
-                    COMMIT_BODY_MAX_LINE_LENGTH,
-                )
-                continue
-            logger.debug(
-                "Generated suggested commit message on attempt %d.", attempt
-            )
-            return commit_message
-
-        if last_failure == "subject":
-            logger.error(
-                "Commit subject still exceeded %d chars after %d attempts.",
-                COMMIT_SUBJECT_MAX_LENGTH,
-                COMMIT_MESSAGE_VALIDATION_ATTEMPTS,
-            )
-            raise CommitSubjectLengthError(COMMIT_SUBJECT_LENGTH_FAILURE_MESSAGE)
-
-        logger.error(
-            "Commit body still exceeded %d-char line limit after %d attempts.",
-            COMMIT_BODY_MAX_LINE_LENGTH,
-            COMMIT_MESSAGE_VALIDATION_ATTEMPTS,
-        )
-        raise CommitBodyLineLimitError(COMMIT_BODY_LINE_LIMIT_FAILURE_MESSAGE)
-    except (CommitSubjectLengthError, CommitBodyLineLimitError):
-        raise
+        commit_message = _generate_commit_message_once(diff_output, model=model)
+        formatted_message = format_commit_message(commit_message)
+        logger.debug("Generated and formatted suggested commit message.")
+        return formatted_message
     except Exception as e:
         logger.error(f"Error generating suggested commit message: {e}", exc_info=True)
         raise

@@ -5,53 +5,102 @@ from unittest.mock import MagicMock, patch
 import monitor.core.commit as commit
 
 
-class TestCommitSubjectLength(unittest.TestCase):
-    def test_subject_within_limit_passes(self):
-        subject = "A" * commit.COMMIT_SUBJECT_MAX_LENGTH
-        self.assertTrue(commit.commit_subject_within_limit(subject))
-
-    def test_overlong_subject_fails(self):
-        subject = "A" * (commit.COMMIT_SUBJECT_MAX_LENGTH + 1)
-        self.assertFalse(commit.commit_subject_within_limit(subject))
-
-    def test_subject_check_uses_first_line_only(self):
-        subject = "A" * (commit.COMMIT_SUBJECT_MAX_LENGTH + 1)
-        message = f"{subject}\n\nShort body."
-        self.assertFalse(commit.commit_subject_within_limit(message))
-
-
-class TestCommitBodyLineLimit(unittest.TestCase):
-    def test_subject_only_passes(self):
-        self.assertTrue(commit.commit_body_within_line_limit("Add feature"))
-
-    def test_body_within_limit_passes(self):
-        message = (
-            "Add feature\n"
-            "\n"
-            "Short body line that fits.\n"
-            "Another short line."
+class TestCommitMessageFormatting(unittest.TestCase):
+    def test_format_commit_body_wraps_long_prose_line(self):
+        """Wraps a long prose line to the configured body limit."""
+        body = (
+            "This is a long prose line containing enough separate words to require "
+            "wrapping at the configured commit body line length."
         )
-        self.assertTrue(commit.commit_body_within_line_limit(message))
 
-    def test_overlong_body_line_fails(self):
-        long_line = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
-        message = f"Add feature\n\n{long_line}"
-        self.assertFalse(commit.commit_body_within_line_limit(message))
+        formatted = commit.format_commit_body(body)
 
-    def test_url_line_is_exempt(self):
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted.splitlines()
+            )
+        )
+        self.assertEqual(
+            " ".join(formatted.split()),
+            " ".join(body.split()),
+        )
+
+    def test_format_commit_body_preserves_blank_lines(self):
+        """Preserves blank lines while formatting the body."""
+        body = (
+            "First paragraph contains several words.\n"
+            "\n"
+            "Second paragraph contains several more words."
+        )
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertEqual(formatted.count("\n\n"), 1)
+        self.assertEqual(formatted.splitlines()[1], "")
+
+    def test_format_commit_body_reflows_wrapped_source_lines(self):
+        """Keeps a paragraph's words together when the source already wraps it."""
+        body = (
+            "Add coverage for wrapping, blank-line preservation, URL handling,\n"
+            "and long unbroken tokens."
+        )
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
+        self.assertIn(
+            "URL handling, and long unbroken tokens.",
+            " ".join(formatted.split()),
+        )
+
+    def test_format_commit_body_preserves_long_url_line(self):
+        """Preserves a long line containing a URL."""
         long_url = "https://example.com/" + ("a" * 100)
-        message = f"Add feature\n\nSee docs:\n{long_url}"
-        self.assertTrue(commit.commit_body_within_line_limit(message))
+        body = f"See the full documentation here:\n{long_url}"
 
-    def test_overlong_non_url_line_still_fails_with_url_present(self):
-        long_line = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
-        message = (
-            "Add feature\n"
-            "\n"
-            f"{long_line}\n"
-            "https://example.com/docs"
+        formatted = commit.format_commit_body(body)
+
+        self.assertEqual(formatted, body)
+
+    def test_format_commit_message_preserves_subject_and_formats_body(self):
+        """Preserves the subject and formats a long body."""
+        subject = "Add feature"
+        body = (
+            "This is a long prose line containing enough separate words to require "
+            "wrapping at the configured commit body line length."
         )
-        self.assertFalse(commit.commit_body_within_line_limit(message))
+        message = f"{subject}\n\n{body}"
+
+        formatted = commit.format_commit_message(message)
+
+        self.assertTrue(formatted.startswith(f"{subject}\n\n"))
+        formatted_body = formatted.split("\n\n", 1)[1]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted_body.splitlines()
+            )
+        )
+        self.assertEqual(
+            " ".join(formatted_body.split()),
+            " ".join(body.split()),
+        )
+
+    def test_format_commit_body_splits_long_unbroken_non_url_token(self):
+        """Splits an unavoidable long non-URL token to honor the line limit."""
+        long_token = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
+        body = f"Keep this token intact: {long_token}"
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted.splitlines()
+            )
+        )
+        self.assertEqual("".join(formatted.split()), "".join(body.split()))
 
 
 class TestCommitCommand(unittest.TestCase):
@@ -154,6 +203,32 @@ class TestCommitCommand(unittest.TestCase):
 
     @patch("monitor.core.commit.call_litellm_completion")
     @patch("monitor.core.commit.build_commit_message_query_input")
+    def test_get_suggested_commit_message_wraps_long_body(
+        self, mock_build, mock_completion
+    ):
+        """Wraps a generated commit message body to the configured line limit."""
+        mock_build.return_value = "query_input"
+        body = (
+            "This generated commit message body contains enough separate words "
+            "to require wrapping at the configured commit body line length."
+        )
+        message = MagicMock()
+        message.content = f"Suggested commit\n\n{body}"
+        mock_completion.return_value.choices = [MagicMock(message=message)]
+
+        result = commit.get_suggested_commit_message("diff --git ...")
+
+        returned_body = result.split("\n\n", 1)[1]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in returned_body.splitlines()
+            )
+        )
+        self.assertEqual(mock_completion.call_count, 1)
+
+    @patch("monitor.core.commit.call_litellm_completion")
+    @patch("monitor.core.commit.build_commit_message_query_input")
     def test_get_suggested_commit_message_uses_commit_reasoning_overrides(
         self, mock_build, mock_completion
     ):
@@ -205,127 +280,6 @@ class TestCommitCommand(unittest.TestCase):
         self.assertEqual(kwargs.get("tool_descriptions"), [])
         self.assertEqual(kwargs.get("gemini_tool_descriptions"), [])
 
-    @patch("monitor.core.commit.call_litellm_completion")
-    @patch("monitor.core.commit.build_commit_message_query_input")
-    def test_get_suggested_commit_message_retries_overlong_subject(
-        self, mock_build, mock_completion
-    ):
-        """Over-long subjects are rejected and generation is retried."""
-        mock_build.return_value = "query_input"
-        bad = MagicMock()
-        bad.content = "A" * (commit.COMMIT_SUBJECT_MAX_LENGTH + 1)
-        good = MagicMock()
-        good.content = "Add feature\n\nShort wrapped body line."
-        mock_completion.side_effect = [
-            MagicMock(choices=[MagicMock(message=bad)]),
-            MagicMock(choices=[MagicMock(message=good)]),
-        ]
-
-        result = commit.get_suggested_commit_message("diff --git ...")
-
-        self.assertEqual(result, good.content)
-        self.assertEqual(mock_completion.call_count, 2)
-
-    @patch("monitor.core.commit.call_litellm_completion")
-    @patch("monitor.core.commit.build_commit_message_query_input")
-    def test_get_suggested_commit_message_raises_after_three_overlong_subjects(
-        self, mock_build, mock_completion
-    ):
-        """Three over-long subjects raise CommitSubjectLengthError."""
-        mock_build.return_value = "query_input"
-        bad = MagicMock()
-        bad.content = "A" * (commit.COMMIT_SUBJECT_MAX_LENGTH + 1)
-        mock_completion.return_value = MagicMock(choices=[MagicMock(message=bad)])
-
-        with self.assertRaises(commit.CommitSubjectLengthError):
-            commit.get_suggested_commit_message("diff --git ...")
-        self.assertEqual(mock_completion.call_count, 3)
-
-    @patch("monitor.core.commit.call_litellm_completion")
-    @patch("monitor.core.commit.build_commit_message_query_input")
-    def test_get_suggested_commit_message_retries_overlong_body(
-        self, mock_build, mock_completion
-    ):
-        """Over-long body lines are rejected and generation is retried."""
-        mock_build.return_value = "query_input"
-        long_line = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
-        bad = MagicMock()
-        bad.content = f"Add feature\n\n{long_line}"
-        good = MagicMock()
-        good.content = "Add feature\n\nShort wrapped body line."
-        mock_completion.side_effect = [
-            MagicMock(choices=[MagicMock(message=bad)]),
-            MagicMock(choices=[MagicMock(message=good)]),
-        ]
-
-        result = commit.get_suggested_commit_message("diff --git ...")
-
-        self.assertEqual(result, good.content)
-        self.assertEqual(mock_completion.call_count, 2)
-
-    @patch("monitor.core.commit.call_litellm_completion")
-    @patch("monitor.core.commit.build_commit_message_query_input")
-    def test_get_suggested_commit_message_raises_after_three_overlong_bodies(
-        self, mock_build, mock_completion
-    ):
-        """Three over-long bodies raise CommitBodyLineLimitError."""
-        mock_build.return_value = "query_input"
-        long_line = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
-        bad = MagicMock()
-        bad.content = f"Add feature\n\n{long_line}"
-        mock_completion.return_value = MagicMock(choices=[MagicMock(message=bad)])
-
-        with self.assertRaises(commit.CommitBodyLineLimitError):
-            commit.get_suggested_commit_message("diff --git ...")
-        self.assertEqual(mock_completion.call_count, 3)
-
-    @patch("monitor.core.commit.perform_git_commit")
-    @patch(
-        "monitor.core.commit.get_suggested_commit_message",
-        side_effect=commit.CommitSubjectLengthError(
-            commit.COMMIT_SUBJECT_LENGTH_FAILURE_MESSAGE
-        ),
-    )
-    @patch("monitor.core.commit.get_staged_diff", return_value="diff --git ...")
-    def test_make_commit_command_exits_after_subject_length_failures(
-        self, mock_get_staged_diff, mock_get_suggested, mock_perform_git_commit
-    ):
-        """Hard failure after three subject-length rejections exits with the fixed message."""
-        outputs = []
-
-        def capprint(msg, *a, **k):
-            outputs.append(str(msg))
-
-        commit.make_commit_command(print_func=capprint)
-
-        mock_perform_git_commit.assert_not_called()
-        self.assertEqual(
-            outputs, [commit.COMMIT_SUBJECT_LENGTH_FAILURE_MESSAGE]
-        )
-
-    @patch("monitor.core.commit.perform_git_commit")
-    @patch(
-        "monitor.core.commit.get_suggested_commit_message",
-        side_effect=commit.CommitBodyLineLimitError(
-            commit.COMMIT_BODY_LINE_LIMIT_FAILURE_MESSAGE
-        ),
-    )
-    @patch("monitor.core.commit.get_staged_diff", return_value="diff --git ...")
-    def test_make_commit_command_exits_after_body_line_limit_failures(
-        self, mock_get_staged_diff, mock_get_suggested, mock_perform_git_commit
-    ):
-        """Hard failure after three body-limit rejections exits with the fixed message."""
-        outputs = []
-
-        def capprint(msg, *a, **k):
-            outputs.append(str(msg))
-
-        commit.make_commit_command(print_func=capprint)
-
-        mock_perform_git_commit.assert_not_called()
-        self.assertEqual(
-            outputs, [commit.COMMIT_BODY_LINE_LIMIT_FAILURE_MESSAGE]
-        )
     @patch("os.unlink")
     @patch("monitor.core.commit.subprocess.run")
     @patch("monitor.core.commit.perform_git_commit")
