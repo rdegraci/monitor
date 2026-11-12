@@ -205,6 +205,65 @@ class TestCommitMessageFormatting(unittest.TestCase):
             )
         )
 
+    def test_format_commit_body_preserves_tilde_fenced_code(self):
+        """Preserves tilde fences as code-like structure, not reflowed prose."""
+        body = (
+            "Before the tilde sample, explain the change with enough words to wrap.\n"
+            "~~~\n"
+            "def example():\n"
+            "    return 2\n"
+            "~~~\n"
+            "After the tilde sample, trailing prose must still wrap past the "
+            "seventy-two character commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("~~~")
+        self.assertEqual(
+            lines[fence_start : fence_start + 4],
+            ["~~~", "def example():", "    return 2", "~~~"],
+        )
+        trailing = "\n".join(lines[fence_start + 4 :])
+        self.assertTrue(len(trailing.splitlines()) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+        self.assertNotIn("~~~ def example():", formatted)
+
+    def test_format_commit_body_does_not_close_fence_with_other_marker(self):
+        """Keeps a backtick fence open when a tilde line appears inside it."""
+        body = (
+            "Before documenting mixed fences with enough words to wrap.\n"
+            "```\n"
+            "~~~\n"
+            "still_inside = True\n"
+            "```\n"
+            "After the mixed sample, trailing prose must still wrap past the "
+            "seventy-two character commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("```")
+        self.assertEqual(
+            lines[fence_start : fence_start + 4],
+            ["```", "~~~", "still_inside = True", "```"],
+        )
+        trailing = "\n".join(lines[fence_start + 4 :])
+        self.assertTrue(len(trailing.splitlines()) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+
     def test_format_commit_body_handles_long_unbreakable_tokens_in_context(self):
         """Splits long non-URL tokens in prose while leaving URL lines intact."""
         long_token = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)

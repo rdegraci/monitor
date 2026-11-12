@@ -24,8 +24,9 @@ COMMIT_BODY_MAX_LINE_LENGTH = 72
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 # Cap ordered markers at 3 digits so years like "2024. …" stay wrap-eligible prose.
 _LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d{1,3}\.)\s+")
-# CommonMark-ish fences: at most 3 leading spaces; closing fences have no info string.
-_CODE_FENCE_RE = re.compile(r"^( {0,3})(`{3,})(.*)$")
+# CommonMark-ish fences: backticks or tildes, at most 3 leading spaces;
+# closing fences have no info string and must reuse the opening character.
+_CODE_FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 
 
 def get_staged_diff(silent: bool = False):
@@ -181,34 +182,41 @@ def _is_list_item_line(line):
 
 
 def _match_code_fence(line):
-    """Return fence tick count and info string when a line is a fence marker.
+    """Return fence metadata when a line is a fence marker.
 
     Args:
         line: A single commit-message line.
 
     Returns:
-        tuple[int, str] | None: ``(tick_count, info)`` for a fence line with
-        at most three leading spaces, otherwise ``None``.
+        tuple[int, str, str] | None: ``(tick_count, info, fence_char)`` for a
+        fence line with at most three leading spaces, otherwise ``None``.
+        ``fence_char`` is a backtick or tilde.
     """
     match = _CODE_FENCE_RE.match(line)
     if not match:
         return None
-    return len(match.group(2)), match.group(3)
+    fence = match.group(2)
+    return len(fence), match.group(3), fence[0]
 
 
-def _is_code_fence_line(line, in_code_fence=False, open_fence_ticks=0):
+def _is_code_fence_line(
+    line, in_code_fence=False, open_fence_ticks=0, open_fence_char=""
+):
     """Return whether a line opens or closes a fenced code block.
 
-    Opening fences may carry a language/info string. Closing fences must be
-    backticks only (optional trailing whitespace) and at least as long as the
-    opening fence. Lines indented with 4+ spaces are not treated as fences, so
+    Opening fences may carry a language/info string. Closing fences must use
+    the same fence character as the opener, have an empty info string
+    (optional trailing whitespace), and be at least as long as the opening
+    fence. Lines indented with 4+ spaces are not treated as fences, so
     indented code samples cannot flip fence state.
 
     Args:
         line: A single commit-message line.
         in_code_fence: Whether the formatter is currently inside a fence region.
-        open_fence_ticks: Backtick count from the opening fence when inside a
-            fence region; closing fences must have at least this many ticks.
+        open_fence_ticks: Marker count from the opening fence when inside a
+            fence region; closing fences must have at least this many markers.
+        open_fence_char: Backtick or tilde from the opening fence when inside a
+            fence region; closing fences must use the same character.
 
     Returns:
         bool: True when the line should toggle fence state.
@@ -216,9 +224,13 @@ def _is_code_fence_line(line, in_code_fence=False, open_fence_ticks=0):
     matched = _match_code_fence(line)
     if not matched:
         return False
-    tick_count, info = matched
+    tick_count, info, fence_char = matched
     if in_code_fence:
-        return info.strip() == "" and tick_count >= open_fence_ticks
+        return (
+            fence_char == open_fence_char
+            and info.strip() == ""
+            and tick_count >= open_fence_ticks
+        )
     return True
 
 
@@ -272,6 +284,7 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
     paragraph_lines = []
     in_code_fence = False
     open_fence_ticks = 0
+    open_fence_char = ""
 
     def flush_paragraph():
         """Wrap the accumulated paragraph as a single prose block."""
@@ -288,14 +301,22 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
         if _is_non_reflow_line(line, in_code_fence):
             flush_paragraph()
             formatted_lines.append(line)
-            if _is_code_fence_line(line, in_code_fence, open_fence_ticks):
+            if _is_code_fence_line(
+                line, in_code_fence, open_fence_ticks, open_fence_char
+            ):
                 if in_code_fence:
                     in_code_fence = False
                     open_fence_ticks = 0
+                    open_fence_char = ""
                 else:
                     matched = _match_code_fence(line)
                     in_code_fence = True
-                    open_fence_ticks = matched[0] if matched else 0
+                    if matched:
+                        open_fence_ticks = matched[0]
+                        open_fence_char = matched[2]
+                    else:
+                        open_fence_ticks = 0
+                        open_fence_char = ""
             continue
         paragraph_lines.append(line)
 
