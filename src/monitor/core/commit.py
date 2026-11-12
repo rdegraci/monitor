@@ -22,8 +22,10 @@ logger = logging.getLogger("monitor.core.commit")
 
 COMMIT_BODY_MAX_LINE_LENGTH = 72
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+\.)\s+")
-_CODE_FENCE_PREFIX = "```"
+# Cap ordered markers at 3 digits so years like "2024. …" stay wrap-eligible prose.
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d{1,3}\.)\s+")
+# CommonMark-ish fences: at most 3 leading spaces; closing fences have no info string.
+_CODE_FENCE_RE = re.compile(r"^( {0,3})(`{3,})(.*)$")
 
 
 def get_staged_diff(silent: bool = False):
@@ -178,16 +180,28 @@ def _is_list_item_line(line):
     return bool(_LIST_ITEM_RE.match(line.lstrip()))
 
 
-def _is_code_fence_line(line):
+def _is_code_fence_line(line, in_code_fence=False):
     """Return whether a line opens or closes a fenced code block.
+
+    Opening fences may carry a language/info string. Closing fences must be
+    backticks only (optional trailing whitespace). Lines indented with 4+
+    spaces are not treated as fences, so indented code samples cannot flip
+    fence state.
 
     Args:
         line: A single commit-message line.
+        in_code_fence: Whether the formatter is currently inside a fence region.
 
     Returns:
-        bool: True when the stripped line starts with a fence marker.
+        bool: True when the line should toggle fence state.
     """
-    return line.strip().startswith(_CODE_FENCE_PREFIX)
+    match = _CODE_FENCE_RE.match(line)
+    if not match:
+        return False
+    info = match.group(3)
+    if in_code_fence:
+        return info.strip() == ""
+    return True
 
 
 def _is_non_reflow_line(line, in_code_fence):
@@ -205,7 +219,7 @@ def _is_non_reflow_line(line, in_code_fence):
     """
     if _line_contains_url(line):
         return True
-    if in_code_fence or _is_code_fence_line(line):
+    if in_code_fence or _is_code_fence_line(line, in_code_fence=False):
         return True
     if _is_indented_line(line):
         return True
@@ -255,7 +269,7 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
         if _is_non_reflow_line(line, in_code_fence):
             flush_paragraph()
             formatted_lines.append(line)
-            if _is_code_fence_line(line):
+            if _is_code_fence_line(line, in_code_fence):
                 in_code_fence = not in_code_fence
             continue
         paragraph_lines.append(line)

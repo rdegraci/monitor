@@ -301,6 +301,81 @@ class TestCommitMessageFormatting(unittest.TestCase):
             )
         )
 
+    def test_format_commit_body_does_not_treat_year_as_list_item(self):
+        """Wraps prose that starts with a four-digit year, not a list marker."""
+        body = (
+            "2024. was a year of many features that need wrapping across the "
+            "seventy-two character limit for commit message bodies today."
+        )
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertFalse(commit._is_list_item_line(body))
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted.splitlines()
+            )
+        )
+        self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
+
+    def test_format_commit_body_ignores_info_string_inside_fence(self):
+        """Keeps fence open when an inner line starts with backticks plus info."""
+        body = (
+            "Before the sample.\n"
+            "```\n"
+            "```inner\n"
+            "still_code = True\n"
+            "```\n"
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this regression."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("```")
+        self.assertEqual(
+            lines[fence_start : fence_start + 4],
+            ["```", "```inner", "still_code = True", "```"],
+        )
+        trailing = "\n".join(lines[fence_start + 4 :])
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+        self.assertEqual(
+            " ".join(trailing.split()),
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this regression.",
+        )
+
+    def test_format_commit_body_indented_fence_markers_do_not_trap_prose(self):
+        """Does not toggle fence state from 4-space-indented backtick lines."""
+        body = (
+            "Intro prose.\n"
+            "    ```\n"
+            "Outro prose that is long enough that wrapping should occur for "
+            "this sentence past seventy two characters in the body."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn("    ```", lines)
+        outro = "\n".join(line for line in lines if not line.startswith(" "))
+        # Drop the short intro line; remaining outro prose must wrap.
+        outro_lines = [line for line in outro.splitlines() if line != "Intro prose."]
+        self.assertTrue(len(outro_lines) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in outro_lines
+            )
+        )
+
 
 class TestCommitCommand(unittest.TestCase):
     @patch("os.unlink")  # <-- Add this at the top of the decorator list
