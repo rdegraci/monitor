@@ -22,6 +22,13 @@ logger = logging.getLogger("monitor.core.commit")
 
 COMMIT_BODY_MAX_LINE_LENGTH = 72
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+# Cap ordered markers at 3 ASCII digits so years like "2024. …" stay wrap-eligible
+# prose. Require an ASCII space/tab after the marker (not Unicode \s/\d) so
+# fullwidth digits or NBSP cannot freeze wrap-eligible prose as a list line.
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|[0-9]{1,3}\.)[ \t]+")
+# CommonMark-ish fences: backticks or tildes, at most 3 leading spaces;
+# closing fences have no info string and must reuse the opening character.
+_CODE_FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 
 
 def get_staged_diff(silent: bool = False):
@@ -126,6 +133,10 @@ def _should_use_reasoning_kwargs(model):
 def _extract_commit_body(message):
     """Return the text after the first blank line in a commit message.
 
+    A blank separator is any line that is empty or whitespace-only, matching
+    how ``format_commit_body`` treats paragraph breaks. That way a space- or
+    tab-only line between subject and body still exposes the body for wrapping.
+
     Args:
         message: Full commit message text.
 
@@ -134,10 +145,11 @@ def _extract_commit_body(message):
     """
     if not isinstance(message, str) or not message.strip():
         return ""
-    parts = message.strip().split("\n\n", 1)
-    if len(parts) < 2:
-        return ""
-    return parts[1]
+    lines = message.strip().splitlines()
+    for index, line in enumerate(lines):
+        if not line.strip():
+            return "\n".join(lines[index + 1 :])
+    return ""
 
 
 def _line_contains_url(line):
@@ -152,15 +164,145 @@ def _line_contains_url(line):
     return bool(_URL_IN_LINE_RE.search(line))
 
 
+def _is_indented_line(line):
+    """Return whether a non-blank line begins with whitespace.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        bool: True when the line has leading whitespace.
+    """
+    return bool(line) and line[0].isspace()
+
+
+def _is_list_item_line(line):
+    """Return whether a line looks like a markdown list item.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        bool: True when the stripped line starts with a list marker.
+    """
+    return bool(_LIST_ITEM_RE.match(line.lstrip()))
+
+
+def _match_code_fence(line):
+    """Return fence metadata when a line is a fence marker.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        tuple[int, str, str] | None: ``(tick_count, info, fence_char)`` for a
+        fence line with at most three leading spaces, otherwise ``None``.
+        ``fence_char`` is a backtick or tilde.
+    """
+    match = _CODE_FENCE_RE.match(line)
+    if not match:
+        return None
+    fence = match.group(2)
+    return len(fence), match.group(3), fence[0]
+
+
+def _is_valid_fence_opener(tick_count, info, fence_char):
+    """Return whether fence metadata is a valid CommonMark-ish opener.
+
+    Backtick fence info may not contain backticks; tilde fence info may not
+    contain tildes. That keeps inline samples like `` ```example``` `` from
+    opening a fence region and trapping later wrap-eligible prose.
+
+    Args:
+        tick_count: Marker count from the matched fence line.
+        info: Raw info string after the fence markers.
+        fence_char: Backtick or tilde from the matched fence line.
+
+    Returns:
+        bool: True when the match may open a fenced region.
+    """
+    if tick_count < 3 or fence_char not in ("`", "~"):
+        return False
+    if fence_char in info:
+        return False
+    return True
+
+
+def _is_code_fence_line(
+    line, in_code_fence=False, open_fence_ticks=0, open_fence_char=""
+):
+    """Return whether a line opens or closes a fenced code block.
+
+    Opening fences may carry a language/info string, but backtick openers
+    reject info containing backticks and tilde openers reject info containing
+    tildes. Closing fences must use the same fence character as the opener,
+    have an empty info string (optional trailing whitespace), and be at least
+    as long as the opening fence. Lines indented with 4+ spaces are not
+    treated as fences, so indented code samples cannot flip fence state.
+
+    Args:
+        line: A single commit-message line.
+        in_code_fence: Whether the formatter is currently inside a fence region.
+        open_fence_ticks: Marker count from the opening fence when inside a
+            fence region; closing fences must have at least this many markers.
+        open_fence_char: Backtick or tilde from the opening fence when inside a
+            fence region; closing fences must use the same character.
+
+    Returns:
+        bool: True when the line should toggle fence state.
+    """
+    matched = _match_code_fence(line)
+    if not matched:
+        return False
+    tick_count, info, fence_char = matched
+    if in_code_fence:
+        return (
+            fence_char == open_fence_char
+            and info.strip() == ""
+            and tick_count >= open_fence_ticks
+        )
+    return _is_valid_fence_opener(tick_count, info, fence_char)
+
+
+def _is_non_reflow_line(line, in_code_fence):
+    """Return whether a line must be left unchanged by paragraph reflow.
+
+    Structural lines (URLs, indentation, list markers, and fenced code regions)
+    are exempt so wrapping does not damage paragraph structure. Fence-shaped
+    lines stay exempt even when they are not valid openers, so inline samples
+    are not merged into surrounding prose.
+
+    Args:
+        line: A single commit-message line.
+        in_code_fence: Whether the formatter is currently inside a fence region.
+
+    Returns:
+        bool: True when the line should be appended unchanged after a flush.
+    """
+    if _line_contains_url(line):
+        return True
+    if in_code_fence or _match_code_fence(line) is not None:
+        return True
+    if _is_indented_line(line):
+        return True
+    if _is_list_item_line(line):
+        return True
+    return False
+
+
 def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
-    """Wrap non-URL commit body lines to a maximum length.
+    """Wrap wrap-eligible commit body lines to a maximum length.
+
+    Blank lines, URL-bearing lines, indented lines, list items, and fenced
+    code regions are preserved unchanged. Ordinary prose is reflowed and
+    wrapped; overlong non-URL tokens inside that prose may be hard-split.
 
     Args:
         body: Commit body text to format.
         max_length: Maximum width for wrapped lines.
 
     Returns:
-        str: The formatted body with blank lines preserved.
+        str: The formatted body with blank lines and structure preserved.
     """
     if not isinstance(body, str) or not body:
         return body
@@ -172,6 +314,9 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
     )
     formatted_lines = []
     paragraph_lines = []
+    in_code_fence = False
+    open_fence_ticks = 0
+    open_fence_char = ""
 
     def flush_paragraph():
         """Wrap the accumulated paragraph as a single prose block."""
@@ -185,9 +330,25 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
             flush_paragraph()
             formatted_lines.append(line)
             continue
-        if _line_contains_url(line):
+        if _is_non_reflow_line(line, in_code_fence):
             flush_paragraph()
             formatted_lines.append(line)
+            if _is_code_fence_line(
+                line, in_code_fence, open_fence_ticks, open_fence_char
+            ):
+                if in_code_fence:
+                    in_code_fence = False
+                    open_fence_ticks = 0
+                    open_fence_char = ""
+                else:
+                    matched = _match_code_fence(line)
+                    in_code_fence = True
+                    if matched:
+                        open_fence_ticks = matched[0]
+                        open_fence_char = matched[2]
+                    else:
+                        open_fence_ticks = 0
+                        open_fence_char = ""
             continue
         paragraph_lines.append(line)
 
