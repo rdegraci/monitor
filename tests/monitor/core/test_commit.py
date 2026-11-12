@@ -102,6 +102,205 @@ class TestCommitMessageFormatting(unittest.TestCase):
         )
         self.assertEqual("".join(formatted.split()), "".join(body.split()))
 
+    def test_format_commit_body_preserves_indented_lines(self):
+        """Preserves indented structure lines without merging them into prose."""
+        indented = "    continuation that should keep its leading spaces"
+        body = (
+            "Intro prose stays wrap-eligible and should still reflow normally.\n"
+            "\n"
+            f"{indented}\n"
+            "    second indented line stays separate\n"
+            "\n"
+            "Outro prose after the indented block wraps independently."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(indented, lines)
+        self.assertIn("    second indented line stays separate", lines)
+        self.assertEqual(formatted.count("\n\n"), 2)
+        prose_sections = [section for section in formatted.split("\n\n") if section.strip()]
+        self.assertEqual(len(prose_sections), 3)
+        for section in (prose_sections[0], prose_sections[2]):
+            self.assertTrue(
+                all(
+                    len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                    for line in section.splitlines()
+                )
+            )
+
+    def test_format_commit_body_preserves_list_items(self):
+        """Preserves list markers as separate structural lines (may exceed 72)."""
+        long_item = (
+            "- a very long list item that would wrap if merged with neighbors "
+            "and still stays on its own structural line"
+        )
+        body = (
+            "Changes include:\n"
+            f"{long_item}\n"
+            "* second bullet stays distinct\n"
+            "1. numbered item stays distinct\n"
+            "\n"
+            "Closing prose remains wrap-eligible after the list."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(long_item, lines)
+        self.assertIn("* second bullet stays distinct", lines)
+        self.assertIn("1. numbered item stays distinct", lines)
+        self.assertNotIn("- a very long list item that would wrap if merged with neighbors and still stays on its own structural line * second bullet", formatted)
+        self.assertEqual(formatted.count("\n\n"), 1)
+        closing = formatted.split("\n\n", 1)[1]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in closing.splitlines()
+            )
+        )
+
+    def test_format_commit_body_preserves_code_like_text(self):
+        """Preserves fenced and indented code without reflowing into prose."""
+        body = (
+            "Before the sample, explain the change with enough words to wrap.\n"
+            "```\n"
+            "def example():\n"
+            "    return 1\n"
+            "```\n"
+            "    indented_code = True\n"
+            "\n"
+            "After the sample, more prose that should still wrap normally."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("```")
+        self.assertEqual(lines[fence_start : fence_start + 4], [
+            "```",
+            "def example():",
+            "    return 1",
+            "```",
+        ])
+        self.assertIn("    indented_code = True", lines)
+        self.assertEqual(formatted.count("\n\n"), 1)
+        before, after = formatted.split("\n\n", 1)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in before.splitlines()
+                if not line.startswith("```")
+                and not line.startswith(" ")
+                and not line.startswith("def ")
+            )
+        )
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in after.splitlines()
+            )
+        )
+
+    def test_format_commit_body_handles_long_unbreakable_tokens_in_context(self):
+        """Splits long non-URL tokens in prose while leaving URL lines intact."""
+        long_token = "x" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 1)
+        long_url = "https://example.com/" + ("b" * 100)
+        body = (
+            f"See {long_token} after the token in the same sentence.\n"
+            f"{long_url}\n"
+            f"Then another sentence with {long_token} nearby."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(long_url, lines)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in lines
+                if line != long_url
+            )
+        )
+        self.assertEqual(
+            "".join(formatted.replace(long_url, "").split()),
+            "".join(body.replace(long_url, "").split()),
+        )
+
+    def test_format_commit_body_preserves_url_even_when_token_is_long(self):
+        """Leaves a long URL-only line unsplit even when over the width limit."""
+        long_url = "https://example.com/" + ("c" * (commit.COMMIT_BODY_MAX_LINE_LENGTH + 20))
+        body = long_url
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertEqual(formatted, body)
+
+    def test_format_commit_body_trailing_whitespace_does_not_damage_structure(self):
+        """Keeps paragraph breaks and URL exemption when trailing whitespace exists."""
+        long_url = "https://example.com/docs"
+        whitespace_only = "   "
+        body = (
+            "Para one with trailing spaces.  \n"
+            "\n"
+            "Para two follows a blank separator.\n"
+            f"{whitespace_only}\n"
+            "Para three after a whitespace-only separator.\n"
+            f"{long_url}   \n"
+            "Final prose after the URL line."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertGreaterEqual(formatted.count("\n\n"), 1)
+        self.assertIn(whitespace_only, lines)
+        self.assertIn(f"{long_url}   ", lines)
+        self.assertEqual(
+            " ".join(part for part in formatted.split() if not part.startswith("http")),
+            " ".join(part for part in body.split() if not part.startswith("http")),
+        )
+
+    def test_format_commit_body_mixed_structure_preserves_paragraphs_and_urls(self):
+        """Preserves mixed structure, URLs, and wrap-eligible prose together."""
+        long_url = "https://example.com/" + ("d" * 80)
+        body = (
+            "Short intro prose that remains wrap-eligible.\n"
+            "\n"
+            "- first bullet stays structural\n"
+            "* second bullet stays structural\n"
+            "\n"
+            "```\n"
+            "code_line = 1\n"
+            "```\n"
+            "    indented remnant\n"
+            "\n"
+            f"{long_url}\n"
+            "\n"
+            "Trailing prose after structured content still wraps when long enough "
+            "to exceed the configured commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn("- first bullet stays structural", lines)
+        self.assertIn("* second bullet stays structural", lines)
+        self.assertIn("```", lines)
+        self.assertIn("code_line = 1", lines)
+        self.assertIn("    indented remnant", lines)
+        self.assertIn(long_url, lines)
+        self.assertGreaterEqual(formatted.count("\n\n"), 3)
+        trailing = formatted.rsplit("\n\n", 1)[-1]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+
 
 class TestCommitCommand(unittest.TestCase):
     @patch("os.unlink")  # <-- Add this at the top of the decorator list

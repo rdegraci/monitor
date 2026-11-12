@@ -22,6 +22,8 @@ logger = logging.getLogger("monitor.core.commit")
 
 COMMIT_BODY_MAX_LINE_LENGTH = 72
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+\.)\s+")
+_CODE_FENCE_PREFIX = "```"
 
 
 def get_staged_diff(silent: bool = False):
@@ -152,15 +154,79 @@ def _line_contains_url(line):
     return bool(_URL_IN_LINE_RE.search(line))
 
 
+def _is_indented_line(line):
+    """Return whether a non-blank line begins with whitespace.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        bool: True when the line has leading whitespace.
+    """
+    return bool(line) and line[0].isspace()
+
+
+def _is_list_item_line(line):
+    """Return whether a line looks like a markdown list item.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        bool: True when the stripped line starts with a list marker.
+    """
+    return bool(_LIST_ITEM_RE.match(line.lstrip()))
+
+
+def _is_code_fence_line(line):
+    """Return whether a line opens or closes a fenced code block.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        bool: True when the stripped line starts with a fence marker.
+    """
+    return line.strip().startswith(_CODE_FENCE_PREFIX)
+
+
+def _is_non_reflow_line(line, in_code_fence):
+    """Return whether a line must be left unchanged by paragraph reflow.
+
+    Structural lines (URLs, indentation, list markers, and fenced code regions)
+    are exempt so wrapping does not damage paragraph structure.
+
+    Args:
+        line: A single commit-message line.
+        in_code_fence: Whether the formatter is currently inside a fence region.
+
+    Returns:
+        bool: True when the line should be appended unchanged after a flush.
+    """
+    if _line_contains_url(line):
+        return True
+    if in_code_fence or _is_code_fence_line(line):
+        return True
+    if _is_indented_line(line):
+        return True
+    if _is_list_item_line(line):
+        return True
+    return False
+
+
 def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
-    """Wrap non-URL commit body lines to a maximum length.
+    """Wrap wrap-eligible commit body lines to a maximum length.
+
+    Blank lines, URL-bearing lines, indented lines, list items, and fenced
+    code regions are preserved unchanged. Ordinary prose is reflowed and
+    wrapped; overlong non-URL tokens inside that prose may be hard-split.
 
     Args:
         body: Commit body text to format.
         max_length: Maximum width for wrapped lines.
 
     Returns:
-        str: The formatted body with blank lines preserved.
+        str: The formatted body with blank lines and structure preserved.
     """
     if not isinstance(body, str) or not body:
         return body
@@ -172,6 +238,7 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
     )
     formatted_lines = []
     paragraph_lines = []
+    in_code_fence = False
 
     def flush_paragraph():
         """Wrap the accumulated paragraph as a single prose block."""
@@ -185,9 +252,11 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
             flush_paragraph()
             formatted_lines.append(line)
             continue
-        if _line_contains_url(line):
+        if _is_non_reflow_line(line, in_code_fence):
             flush_paragraph()
             formatted_lines.append(line)
+            if _is_code_fence_line(line):
+                in_code_fence = not in_code_fence
             continue
         paragraph_lines.append(line)
 
