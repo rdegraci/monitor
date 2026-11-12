@@ -441,6 +441,39 @@ class TestCommitMessageFormatting(unittest.TestCase):
             )
         )
 
+    def test_format_commit_body_allows_fence_with_up_to_three_leading_spaces(self):
+        """Treats fences with ≤3 leading spaces as real delimiters, not indent."""
+        body = (
+            "Before the lightly indented fence with enough words to wrap.\n"
+            "  ```\n"
+            "inside_fence = True\n"
+            "  ```\n"
+            "After the fence, trailing prose must still wrap past the "
+            "seventy-two character commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("  ```")
+        self.assertEqual(
+            lines[fence_start : fence_start + 3],
+            ["  ```", "inside_fence = True", "  ```"],
+        )
+        trailing = "\n".join(lines[fence_start + 3 :])
+        self.assertTrue(len(trailing.splitlines()) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+        self.assertEqual(
+            " ".join(trailing.split()),
+            "After the fence, trailing prose must still wrap past the "
+            "seventy-two character commit body line length limit.",
+        )
+
     def test_format_commit_body_preserves_language_fence_and_trailing_close(self):
         """Preserves info-string opens and whitespace-tolerant fence closes."""
         body = (
