@@ -380,6 +380,71 @@ class TestCommitMessageFormatting(unittest.TestCase):
         )
         self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
 
+    def test_format_commit_body_rejects_backtick_info_containing_backticks(self):
+        """Does not open a fence when backtick info itself contains backticks."""
+        inline_sample = "```example```"
+        body = (
+            "Note about markers:\n"
+            f"{inline_sample}\n"
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this regression check."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(inline_sample, lines)
+        self.assertFalse(
+            commit._is_code_fence_line(inline_sample, in_code_fence=False)
+        )
+        trailing = "\n".join(line for line in lines if line != inline_sample)
+        trailing_lines = [
+            line for line in trailing.splitlines()
+            if line != "Note about markers:"
+        ]
+        self.assertTrue(len(trailing_lines) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing_lines
+            )
+        )
+        self.assertEqual(
+            " ".join(trailing_lines),
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this regression check.",
+        )
+
+    def test_format_commit_body_rejects_tilde_info_containing_tildes(self):
+        """Does not open a fence when tilde info itself contains tildes."""
+        inline_sample = "~~~example~~~"
+        body = (
+            "Note about tilde markers:\n"
+            f"{inline_sample}\n"
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this regression check."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(inline_sample, lines)
+        self.assertFalse(
+            commit._is_code_fence_line(inline_sample, in_code_fence=False)
+        )
+        trailing = "\n".join(line for line in lines if line != inline_sample)
+        trailing_lines = [
+            line for line in trailing.splitlines()
+            if line != "Note about tilde markers:"
+        ]
+        self.assertTrue(len(trailing_lines) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing_lines
+            )
+        )
+
     def test_format_commit_body_ignores_info_string_inside_fence(self):
         """Keeps fence open when an inner line starts with backticks plus info."""
         body = (
