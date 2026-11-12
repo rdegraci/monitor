@@ -140,6 +140,7 @@ class TestCommitMessageFormatting(unittest.TestCase):
             "Changes include:\n"
             f"{long_item}\n"
             "* second bullet stays distinct\n"
+            "+ plus bullet stays distinct\n"
             "1. numbered item stays distinct\n"
             "\n"
             "Closing prose remains wrap-eligible after the list."
@@ -150,6 +151,7 @@ class TestCommitMessageFormatting(unittest.TestCase):
 
         self.assertIn(long_item, lines)
         self.assertIn("* second bullet stays distinct", lines)
+        self.assertIn("+ plus bullet stays distinct", lines)
         self.assertIn("1. numbered item stays distinct", lines)
         self.assertNotIn("- a very long list item that would wrap if merged with neighbors and still stays on its own structural line * second bullet", formatted)
         self.assertEqual(formatted.count("\n\n"), 1)
@@ -373,6 +375,91 @@ class TestCommitMessageFormatting(unittest.TestCase):
             all(
                 len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
                 for line in outro_lines
+            )
+        )
+
+    def test_format_commit_body_preserves_language_fence_and_trailing_close(self):
+        """Preserves info-string opens and whitespace-tolerant fence closes."""
+        body = (
+            "Explain the sample with enough words that wrapping still applies.\n"
+            "```python\n"
+            "value = 1\n"
+            "```   \n"
+            "Closing prose after the fence remains wrap-eligible and long "
+            "enough to exceed the seventy-two character commit body limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("```python")
+        self.assertEqual(
+            lines[fence_start : fence_start + 3],
+            ["```python", "value = 1", "```   "],
+        )
+        trailing = "\n".join(lines[fence_start + 3 :])
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+
+    def test_format_commit_body_preserves_tab_indented_lines(self):
+        """Preserves tab-indented structure the same as space indentation."""
+        tab_line = "\tcontinuation keeps its leading tab"
+        body = (
+            "Intro prose stays wrap-eligible around the tabbed structure.\n"
+            f"{tab_line}\n"
+            "Outro prose that is long enough to require wrapping past the "
+            "seventy-two character commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        self.assertIn(tab_line, lines)
+        outro = "\n".join(line for line in lines if not line.startswith("\t"))
+        outro_lines = [
+            line for line in outro.splitlines()
+            if line != "Intro prose stays wrap-eligible around the tabbed structure."
+        ]
+        self.assertTrue(len(outro_lines) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in outro_lines
+            )
+        )
+
+    def test_format_commit_message_preserves_subject_with_structured_body(self):
+        """Preserves subject while keeping list and URL structure in the body."""
+        subject = "Add coverage"
+        long_url = "https://example.com/" + ("e" * 80)
+        body = (
+            "Summary prose that is long enough to wrap across the commit body "
+            "line length while surrounding structured content.\n"
+            "- bullet stays structural\n"
+            f"{long_url}\n"
+            "Trailing prose after the URL remains wrap-eligible as well."
+        )
+        message = f"{subject}\n\n{body}"
+
+        formatted = commit.format_commit_message(message)
+
+        self.assertTrue(formatted.startswith(f"{subject}\n\n"))
+        formatted_body = formatted.split("\n\n", 1)[1]
+        body_lines = formatted_body.splitlines()
+        self.assertIn("- bullet stays structural", body_lines)
+        self.assertIn(long_url, body_lines)
+        prose_lines = [
+            line for line in body_lines
+            if line != long_url and not line.startswith("- ")
+        ]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in prose_lines
             )
         )
 
