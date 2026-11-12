@@ -180,27 +180,45 @@ def _is_list_item_line(line):
     return bool(_LIST_ITEM_RE.match(line.lstrip()))
 
 
-def _is_code_fence_line(line, in_code_fence=False):
+def _match_code_fence(line):
+    """Return fence tick count and info string when a line is a fence marker.
+
+    Args:
+        line: A single commit-message line.
+
+    Returns:
+        tuple[int, str] | None: ``(tick_count, info)`` for a fence line with
+        at most three leading spaces, otherwise ``None``.
+    """
+    match = _CODE_FENCE_RE.match(line)
+    if not match:
+        return None
+    return len(match.group(2)), match.group(3)
+
+
+def _is_code_fence_line(line, in_code_fence=False, open_fence_ticks=0):
     """Return whether a line opens or closes a fenced code block.
 
     Opening fences may carry a language/info string. Closing fences must be
-    backticks only (optional trailing whitespace). Lines indented with 4+
-    spaces are not treated as fences, so indented code samples cannot flip
-    fence state.
+    backticks only (optional trailing whitespace) and at least as long as the
+    opening fence. Lines indented with 4+ spaces are not treated as fences, so
+    indented code samples cannot flip fence state.
 
     Args:
         line: A single commit-message line.
         in_code_fence: Whether the formatter is currently inside a fence region.
+        open_fence_ticks: Backtick count from the opening fence when inside a
+            fence region; closing fences must have at least this many ticks.
 
     Returns:
         bool: True when the line should toggle fence state.
     """
-    match = _CODE_FENCE_RE.match(line)
-    if not match:
+    matched = _match_code_fence(line)
+    if not matched:
         return False
-    info = match.group(3)
+    tick_count, info = matched
     if in_code_fence:
-        return info.strip() == ""
+        return info.strip() == "" and tick_count >= open_fence_ticks
     return True
 
 
@@ -253,6 +271,7 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
     formatted_lines = []
     paragraph_lines = []
     in_code_fence = False
+    open_fence_ticks = 0
 
     def flush_paragraph():
         """Wrap the accumulated paragraph as a single prose block."""
@@ -269,8 +288,14 @@ def format_commit_body(body, max_length=COMMIT_BODY_MAX_LINE_LENGTH):
         if _is_non_reflow_line(line, in_code_fence):
             flush_paragraph()
             formatted_lines.append(line)
-            if _is_code_fence_line(line, in_code_fence):
-                in_code_fence = not in_code_fence
+            if _is_code_fence_line(line, in_code_fence, open_fence_ticks):
+                if in_code_fence:
+                    in_code_fence = False
+                    open_fence_ticks = 0
+                else:
+                    matched = _match_code_fence(line)
+                    in_code_fence = True
+                    open_fence_ticks = matched[0] if matched else 0
             continue
         paragraph_lines.append(line)
 

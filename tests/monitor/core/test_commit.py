@@ -354,6 +354,69 @@ class TestCommitMessageFormatting(unittest.TestCase):
             "seventy-two character commit body limit for this regression.",
         )
 
+    def test_format_commit_body_closing_fence_must_match_open_length(self):
+        """Keeps a longer outer fence open when a shorter inner fence appears."""
+        body = (
+            "Example of documenting a fence with enough intro words to wrap.\n"
+            "````\n"
+            "```python\n"
+            "print(1)\n"
+            "```\n"
+            "````\n"
+            "After documenting the sample, this trailing prose must still wrap "
+            "past the seventy-two character commit body line length limit."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("````")
+        self.assertEqual(
+            lines[fence_start : fence_start + 5],
+            ["````", "```python", "print(1)", "```", "````"],
+        )
+        trailing = "\n".join(lines[fence_start + 5 :])
+        self.assertTrue(len(trailing.splitlines()) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+        self.assertEqual(
+            " ".join(trailing.split()),
+            "After documenting the sample, this trailing prose must still wrap "
+            "past the seventy-two character commit body line length limit.",
+        )
+
+    def test_format_commit_body_allows_longer_closing_fence(self):
+        """Closes a fence when the closer has at least as many backticks."""
+        body = (
+            "Before the sample with enough words here.\n"
+            "```\n"
+            "code\n"
+            "````\n"
+            "After prose that is long enough to need wrapping past the "
+            "seventy-two character commit body limit for this check."
+        )
+
+        formatted = commit.format_commit_body(body)
+        lines = formatted.splitlines()
+
+        fence_start = lines.index("```")
+        self.assertEqual(
+            lines[fence_start : fence_start + 3],
+            ["```", "code", "````"],
+        )
+        trailing = "\n".join(lines[fence_start + 3 :])
+        self.assertTrue(len(trailing.splitlines()) >= 2)
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in trailing.splitlines()
+            )
+        )
+
     def test_format_commit_body_indented_fence_markers_do_not_trap_prose(self):
         """Does not toggle fence state from 4-space-indented backtick lines."""
         body = (
