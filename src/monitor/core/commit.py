@@ -22,8 +22,10 @@ logger = logging.getLogger("monitor.core.commit")
 
 COMMIT_BODY_MAX_LINE_LENGTH = 72
 _URL_IN_LINE_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-# Cap ordered markers at 3 digits so years like "2024. …" stay wrap-eligible prose.
-_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d{1,3}\.)\s+")
+# Cap ordered markers at 3 ASCII digits so years like "2024. …" stay wrap-eligible
+# prose. Require an ASCII space/tab after the marker (not Unicode \s/\d) so
+# fullwidth digits or NBSP cannot freeze wrap-eligible prose as a list line.
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|[0-9]{1,3}\.)[ \t]+")
 # CommonMark-ish fences: backticks or tildes, at most 3 leading spaces;
 # closing fences have no info string and must reuse the opening character.
 _CODE_FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
@@ -131,6 +133,10 @@ def _should_use_reasoning_kwargs(model):
 def _extract_commit_body(message):
     """Return the text after the first blank line in a commit message.
 
+    A blank separator is any line that is empty or whitespace-only, matching
+    how ``format_commit_body`` treats paragraph breaks. That way a space- or
+    tab-only line between subject and body still exposes the body for wrapping.
+
     Args:
         message: Full commit message text.
 
@@ -139,10 +145,11 @@ def _extract_commit_body(message):
     """
     if not isinstance(message, str) or not message.strip():
         return ""
-    parts = message.strip().split("\n\n", 1)
-    if len(parts) < 2:
-        return ""
-    return parts[1]
+    lines = message.strip().splitlines()
+    for index, line in enumerate(lines):
+        if not line.strip():
+            return "\n".join(lines[index + 1 :])
+    return ""
 
 
 def _line_contains_url(line):

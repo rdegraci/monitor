@@ -380,6 +380,42 @@ class TestCommitMessageFormatting(unittest.TestCase):
         )
         self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
 
+    def test_format_commit_body_does_not_treat_unicode_digits_as_list_item(self):
+        """Wraps prose that starts with fullwidth digits, not a list marker."""
+        body = (
+            "１. was a short era of many features that need wrapping across the "
+            "seventy-two character limit for commit message bodies today."
+        )
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertFalse(commit._is_list_item_line(body))
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted.splitlines()
+            )
+        )
+        self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
+
+    def test_format_commit_body_does_not_treat_nbsp_bullet_as_list_item(self):
+        """Wraps a dash+NBSP line as prose instead of freezing it as a list."""
+        body = (
+            "-\u00a0a long prose line that uses nbsp after the dash and needs "
+            "wrapping past the seventy-two character commit body limit for sure."
+        )
+
+        formatted = commit.format_commit_body(body)
+
+        self.assertFalse(commit._is_list_item_line(body))
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted.splitlines()
+            )
+        )
+        self.assertEqual(" ".join(formatted.split()), " ".join(body.split()))
+
     def test_format_commit_body_rejects_backtick_info_containing_backticks(self):
         """Does not open a fence when backtick info itself contains backticks."""
         inline_sample = "```example```"
@@ -682,6 +718,27 @@ class TestCommitMessageFormatting(unittest.TestCase):
                 for line in prose_lines
             )
         )
+
+    def test_format_commit_message_wraps_body_after_whitespace_only_separator(self):
+        """Treats a whitespace-only subject/body separator like a blank line."""
+        subject = "Add coverage"
+        body = (
+            "Body that is long enough to need wrapping past the seventy-two "
+            "character commit body limit."
+        )
+        message = f"{subject}\n \n{body}"
+
+        formatted = commit.format_commit_message(message)
+
+        self.assertTrue(formatted.startswith(f"{subject}\n\n"))
+        formatted_body = formatted.split("\n\n", 1)[1]
+        self.assertTrue(
+            all(
+                len(line) <= commit.COMMIT_BODY_MAX_LINE_LENGTH
+                for line in formatted_body.splitlines()
+            )
+        )
+        self.assertEqual(" ".join(formatted_body.split()), " ".join(body.split()))
 
 
 class TestCommitCommand(unittest.TestCase):
